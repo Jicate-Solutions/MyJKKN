@@ -439,11 +439,306 @@ Examples:
 - `API_TEMPLATE.md` - For API documentation
 - `GUIDE_TEMPLATE.md` - For how-to guides
 
+## 📝 Logging & Debugging Standards
+
+### Overview
+MyJKKN uses an enhanced logging system with smart deduplication and module-based categorization to support the Bug Reporter module and maintain clean, organized logs.
+
+### Enhanced Logger Utility
+Location: `lib/utils/enhanced-logger.ts`
+
+Features:
+- **Smart Deduplication**: Groups identical logs and counts occurrences
+- **Module Detection**: Automatically categorizes logs by module (e.g., "academic/timetables")
+- **Component Tracking**: Extracts React component names from stack traces
+- **Structured Export**: Provides organized log data for bug reports
+
+### When to Use Different Log Levels
+
+#### ❌ console.log() - Development Only
+```typescript
+// TEMPORARY debugging only - MUST be removed before commit
+if (process.env.NODE_ENV === 'development') {
+  console.log('[MODULE] Debug message:', data);
+}
+```
+**Use for**: Active development and debugging
+**Remove**: Before committing code
+**Note**: These are removed in production but captured by bug reporter in development
+
+#### ⚠️ console.warn() - Keep in Production
+```typescript
+// Data validation warnings - KEEP these
+console.warn('[academic/timetables] No matching semester found:', { semesterId });
+console.warn('[billing] Student has pending bills:', { studentId, billCount });
+```
+**Use for**:
+- Missing expected data
+- Validation issues
+- Deprecated feature usage
+- Configuration problems
+- Non-critical issues that should be monitored
+
+#### ❌ console.error() - Keep in Production
+```typescript
+// Critical errors - ALWAYS keep these
+console.error('[academic/attendance] Failed to save attendance:', error);
+console.error('[billing/invoices] Database query failed:', error);
+```
+**Use for**:
+- API call failures
+- Database errors
+- Unhandled exceptions
+- Critical system failures
+- Data integrity issues
+
+### Enhanced Logger API
+
+```typescript
+import { logger } from '@/lib/utils/enhanced-logger';
+
+// Development-only logging (automatically removed in production)
+logger.dev('academic/timetables', 'Fetching timetable data', { id });
+
+// Production logging
+logger.log('academic/timetables', 'Timetable loaded successfully');
+
+// Info messages
+logger.info('billing', 'Processing batch invoice generation', { count: 50 });
+
+// Warnings (best practice - use module prefix)
+logger.warn('attendance', 'No periods configured for today', { date });
+
+// Errors (best practice - structured error logging)
+logger.error('billing/payments', 'Payment processing failed', error);
+
+// Debug (development only)
+logger.debug('academic/staff-plan', 'Staff allocation calculated', { allocations });
+```
+
+### Module Naming Convention
+
+Use consistent module prefixes for easy filtering and categorization:
+
+```typescript
+// Academic modules
+'academic/timetables'
+'academic/attendance'
+'academic/staff-planning'
+'academic/periods'
+
+// Billing modules
+'billing/invoices'
+'billing/payments'
+'billing/receipts'
+'billing/refunds'
+
+// Organization modules
+'organization/institutions'
+'organization/departments'
+'organization/programs'
+'organization/sections'
+
+// Other modules
+'students'
+'staff'
+'admissions'
+'resource-management'
+'application-hub'
+'bug-reports'
+```
+
+### Bug Reporter Integration
+
+The bug reporter automatically:
+1. Captures all console logs with deduplication
+2. Groups logs by module
+3. Counts occurrence of identical logs
+4. Extracts component names from stack traces
+5. Provides structured log summaries
+
+#### Viewing Captured Logs
+When a bug is reported, developers see:
+```json
+{
+  "summary": {
+    "totalUniqueEntries": 15,
+    "totalOccurrences": 847,
+    "errorCount": 3,
+    "warnCount": 12,
+    "topModules": [
+      { "module": "academic/timetables", "count": 234 },
+      { "module": "billing/invoices", "count": 156 }
+    ]
+  },
+  "logsByModule": {
+    "academic/timetables": [
+      {
+        "type": "warn",
+        "message": "No matching semester found",
+        "count": 234,
+        "component": "TimetablePage",
+        "firstSeen": "2025-01-16T10:00:00Z",
+        "lastSeen": "2025-01-16T10:05:00Z"
+      }
+    ]
+  }
+}
+```
+
+### Development Workflow
+
+#### 1. During Development
+```typescript
+// Add temporary debug logs
+if (process.env.NODE_ENV === 'development') {
+  console.log('[academic/timetables] Loading slots:', slots);
+}
+
+// Or use logger.dev()
+logger.dev('academic/timetables', 'Loading slots', { slots });
+```
+
+#### 2. Before Committing
+- Remove ALL temporary console.log() statements
+- Keep console.warn() for validation issues
+- Keep console.error() for error handling
+- Use logger.warn() and logger.error() for production-ready logging
+
+#### 3. Production Code
+```typescript
+// ✅ GOOD - Production-ready logging
+try {
+  const data = await TimetableService.getTimetables(filters);
+  logger.info('academic/timetables', 'Timetables loaded', { count: data.length });
+  return data;
+} catch (error) {
+  logger.error('academic/timetables', 'Failed to load timetables', error);
+  throw error;
+}
+
+// ❌ BAD - Temporary debug log left in production
+console.log('Loading timetables...', filters);
+```
+
+### Common Patterns
+
+#### Service Layer Logging
+```typescript
+// lib/services/academic/timetable-service.ts
+export class TimetableService {
+  static async getTimetables(filters: TimetableFilters) {
+    try {
+      logger.info('academic/timetables', 'Fetching timetables', { filters });
+
+      const { data, error } = await supabase
+        .from('timetables')
+        .select('*')
+        .eq('institution_id', filters.institutionId);
+
+      if (error) {
+        logger.error('academic/timetables', 'Database query failed', error);
+        throw error;
+      }
+
+      if (!data || data.length === 0) {
+        logger.warn('academic/timetables', 'No timetables found', { filters });
+      }
+
+      return data;
+    } catch (error) {
+      logger.error('academic/timetables', 'Unexpected error', error);
+      throw error;
+    }
+  }
+}
+```
+
+#### Component Logging
+```typescript
+// app/(routes)/academic/timetables/[id]/page.tsx
+export default function TimetablePage() {
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        logger.dev('academic/timetables', 'Component mounted', { id });
+
+        const data = await TimetableService.getTimetable(id);
+
+        if (!data) {
+          logger.warn('academic/timetables', 'Timetable not found', { id });
+          return;
+        }
+
+        setTimetable(data);
+      } catch (error) {
+        logger.error('academic/timetables', 'Failed to load timetable', error);
+      }
+    };
+
+    loadData();
+  }, [id]);
+}
+```
+
+### Benefits of Enhanced Logging
+
+1. **Reduced Storage**: Duplicate logs are counted, not stored repeatedly (90%+ reduction)
+2. **Better Debugging**: Module categorization makes it easy to find relevant logs
+3. **Performance**: Deduplication prevents memory overflow from render loops
+4. **Organization**: Structured logs grouped by module and component
+5. **Actionable**: Developers quickly see most frequent issues and affected modules
+
+### Best Practices Checklist
+
+- [ ] Use module-prefixed logging: `[module/submodule]`
+- [ ] Remove console.log() before committing
+- [ ] Keep console.warn() for validation issues
+- [ ] Keep console.error() for critical errors
+- [ ] Use logger.dev() for temporary development logs
+- [ ] Use logger.warn() and logger.error() for production
+- [ ] Test bug reporter captures logs correctly
+- [ ] Verify no duplicate logs in bug reports
+
+### Testing Your Logs
+
+```bash
+# Check for leftover console.log in your code
+grep -r "console\.log" --include="*.ts" --include="*.tsx" app/ lib/ hooks/ components/
+
+# Should only find console.warn and console.error (these are OK)
+grep -r "console\.(warn|error)" --include="*.ts" --include="*.tsx" app/ lib/ hooks/ components/
+```
+
+### Quick Reference
+
+```typescript
+// ❌ Remove before commit
+console.log('Debug:', data);
+
+// ✅ Keep for warnings
+console.warn('[MODULE] Validation issue:', details);
+
+// ✅ Keep for errors
+console.error('[MODULE] Error:', error);
+
+// ✅ Best practice - use enhanced logger
+import { logger } from '@/lib/utils/enhanced-logger';
+
+logger.dev('module', 'Development log', data);     // Auto-removed in production
+logger.warn('module', 'Warning message', data);    // Kept in production
+logger.error('module', 'Error message', error);    // Kept in production
+```
+
+---
+
 ## Notes
 - Memory persists across Claude Code sessions
 - Sequential thinking helps maintain consistency in complex tasks
 - Combine both for maximum effectiveness
 - Always restart Claude Code after updating MCP configuration
 - Check `.claude/SUPABASE_PROMPTS.md` for detailed Supabase templates
+- Enhanced logging system automatically deduplicates logs for bug reports
+- Use module prefixes consistently for better log organization
 - add to this memory for when i create a custorm roles for organization permision access
 - add to memory for "learners module brand color schema"

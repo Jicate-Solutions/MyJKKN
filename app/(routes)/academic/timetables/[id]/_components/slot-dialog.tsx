@@ -23,7 +23,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { DayOfWeek, Period, Timetable } from '@/types/academics';
+import { DayOfWeek, Period, Timetable, SubdivisionType, SubdivisionMode } from '@/types/academics';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { format } from 'date-fns';
 
@@ -68,12 +68,11 @@ export function SlotDialog({
   const [selectedSections, setSelectedSections] = useState<string[]>([]);
   const [isCombinedClass, setIsCombinedClass] = useState(false);
   const [subSlots, setSubSlots] = useState<any[]>([]);
-  // Debug logging
-  console.log('SlotDialog render:', {
-    isOpen,
-    timetable_format: timetable?.timetable_format,
-    hasError: false
-  });
+
+  // NEW: Section Subdivision state (Updated: 2025-10-11)
+  const [isSubdivided, setIsSubdivided] = useState(false);
+  const [subdivisionType, setSubdivisionType] = useState<SubdivisionType>('practical');
+  const [subdivisionMode, setSubdivisionMode] = useState<SubdivisionMode>('auto');
 
   const [courseAssignedStaff, setCourseAssignedStaff] = useState<any[]>([]);
   const [loadingCourseStaff, setLoadingCourseStaff] = useState(false);
@@ -86,9 +85,49 @@ export function SlotDialog({
   // Populate form when existing slot is provided
   useEffect(() => {
     if (existingSlot) {
-      console.log('Populating SlotDialog with existing slot:', existingSlot);
+      // Updated: 2025-10-13 - Handle subdivided slots with sub_slots
+      if (existingSlot.is_subdivided && existingSlot.sub_slots) {
+        // Handle subdivided slot (practical/lab groups)
+        console.log('[academic/timetables] Loading subdivided slot with sub_slots:', {
+          slotId: existingSlot.id,
+          subSlotCount: existingSlot.sub_slots.length,
+          subdivisionType: existingSlot.subdivision_type,
+          subdivisionMode: existingSlot.subdivision_mode,
+          subSlots: existingSlot.sub_slots
+        });
 
-      if (existingSlot.is_combined && existingSlot.sub_slots) {
+        setSlotType('regular');
+        setIsBreakSlot(false);
+        setBreakDescription('');
+        setSelectedCourse('');
+        setSelectedStaff([]);
+        setSelectedSections([]);
+        setIsCombinedClass(false);
+        setIsSubdivided(true);
+        setSubdivisionType(existingSlot.subdivision_type || 'practical');
+        setSubdivisionMode(existingSlot.subdivision_mode || 'auto');
+
+        // Populate sub-slots from existing data - map ALL sub_slots, not just 2
+        const updatedSubSlots = existingSlot.sub_slots.map((ss: any) => ({
+          sub_slot_order: ss.sub_slot_order,
+          course_id: ss.course_id || '',
+          staff_ids: ss.staff_members?.map((s: any) => s.id) || ss.staff_ids || [],
+          section_ids: ss.sections?.map((s: any) => s.id) || ss.section_ids || [],
+          student_ids: ss.student_ids || [],
+          group_name: ss.group_name || '',
+          lab_room: ss.lab_room || '',
+          max_capacity: ss.max_capacity,
+          is_break_slot: ss.is_break_slot || false,
+          break_description: ss.break_description || '',
+          // CRITICAL: Keep references to the enriched objects for display
+          course: ss.course,
+          staff_members: ss.staff_members
+        }));
+
+        console.log('[academic/timetables] Updated sub-slots for dialog:', updatedSubSlots);
+
+        setSubSlots(updatedSubSlots);
+      } else if (existingSlot.is_combined && existingSlot.sub_slots) {
         // Handle combined slot with sub-slots
         setSlotType('regular');
         setIsBreakSlot(false);
@@ -97,8 +136,9 @@ export function SlotDialog({
         setSelectedStaff([]);
         setSelectedSections([]);
         setIsCombinedClass(true);
+        setIsSubdivided(false); // Ensure subdivision is off
 
-        // Populate sub-slots
+        // Populate sub-slots for combined class (only 2 sub-slots)
         const updatedSubSlots = [
           {
             sub_slot_order: 1,
@@ -150,6 +190,11 @@ export function SlotDialog({
         setSelectedCourse(existingSlot.course_id || '');
         setIsCombinedClass(false);
 
+        // NEW: Populate subdivision state (Updated: 2025-10-11)
+        setIsSubdivided(existingSlot.is_subdivided || false);
+        setSubdivisionType(existingSlot.subdivision_type || 'practical');
+        setSubdivisionMode(existingSlot.subdivision_mode || 'auto');
+
         // Handle staff - check both staff_members (populated) and staff_ids (raw IDs)
         if (
           existingSlot.staff_members &&
@@ -199,7 +244,6 @@ export function SlotDialog({
       }
     } else {
       // Reset form for new slot
-      console.log('Resetting SlotDialog for new slot');
       setSlotType('regular');
       setIsBreakSlot(false);
       setBreakDescription('');
@@ -207,6 +251,10 @@ export function SlotDialog({
       setSelectedStaff([]);
       setSelectedSections([]);
       setIsCombinedClass(false);
+      // NEW: Reset subdivision state (Updated: 2025-10-11)
+      setIsSubdivided(false);
+      setSubdivisionType('practical');
+      setSubdivisionMode('auto');
       setSubSlots([
         {
           sub_slot_order: 1,
@@ -235,13 +283,10 @@ export function SlotDialog({
     // For section-level timetables, auto-assign the timetable's section
     if (timetable?.timetable_type === 'section' && timetable?.section_id) {
       finalSectionIds = [timetable.section_id];
-      console.log(
-        '✅ Auto-assigned section for section-level timetable:',
-        timetable.section_id
-      );
     }
 
     // Prepare slot data from the dialog's state
+    // Updated: 2025-10-13 - Include sub_slots for both combined AND subdivided slots
     const slotData = {
       course_id: selectedCourse || undefined,
       staff_ids: selectedStaff,
@@ -249,7 +294,8 @@ export function SlotDialog({
       is_break_slot: isBreakSlot,
       break_description: breakDescription,
       is_combined: isCombinedClass,
-      sub_slots: isCombinedClass
+      // Updated: Include sub_slots for BOTH combined class AND subdivision
+      sub_slots: (isCombinedClass || isSubdivided)
         ? subSlots.map((subSlot) => ({
             ...subSlot,
             // Also auto-assign section for sub-slots in section-level timetables
@@ -258,7 +304,11 @@ export function SlotDialog({
                 ? [timetable.section_id]
                 : subSlot.section_ids
           }))
-        : undefined
+        : undefined,
+      // NEW: Section Subdivision data (Updated: 2025-10-11)
+      is_subdivided: isSubdivided,
+      subdivision_type: isSubdivided ? subdivisionType : undefined,
+      subdivision_mode: isSubdivided ? subdivisionMode : undefined
     };
 
     // Pass the slot data to the parent along with the date
@@ -338,10 +388,9 @@ export function SlotDialog({
   // For batch mode, check if we should force mount the dialog
   useEffect(() => {
     if (isOpen && isBatchMode) {
-      console.log('Dialog should be visible for batch mode');
       // Force a re-render after mount
       const timer = setTimeout(() => {
-        console.log('Force re-render triggered');
+        // Re-render triggered
       }, 100);
       return () => clearTimeout(timer);
     }
@@ -453,6 +502,10 @@ export function SlotDialog({
                     onCheckedChange={(checked) => {
                       if (!readOnly) {
                         setIsCombinedClass(checked === true);
+                        // Disable subdivision when combined class is enabled
+                        if (checked) {
+                          setIsSubdivided(false);
+                        }
                       }
                     }}
                     disabled={readOnly}
@@ -462,6 +515,134 @@ export function SlotDialog({
                     Split period into 2 sub-slots
                   </Badge>
                 </div>
+
+                {/* NEW: Section Subdivision checkbox (Updated: 2025-10-11) */}
+                {timetable?.timetable_type === 'section' && (
+                  <div className='flex items-center space-x-2 pt-2'>
+                    <Checkbox
+                      id='sectionSubdivision'
+                      checked={isSubdivided}
+                      onCheckedChange={(checked) => {
+                        if (!readOnly) {
+                          setIsSubdivided(checked === true);
+                          // Disable combined class when subdivision is enabled
+                          if (checked) {
+                            setIsCombinedClass(false);
+                          }
+                        }
+                      }}
+                      disabled={readOnly || isCombinedClass}
+                    />
+                    <Label htmlFor='sectionSubdivision'>Section Subdivision</Label>
+                    <Badge variant='secondary' className='text-xs ml-2 bg-purple-100 text-purple-800 border-purple-300'>
+                      Split students into groups
+                    </Badge>
+                  </div>
+                )}
+
+                {/* Subdivision Type & Mode Selection */}
+                {isSubdivided && timetable?.timetable_type === 'section' && (
+                  <div className='border rounded-lg p-4 space-y-4 bg-purple-50/50 dark:bg-purple-900/10'>
+                    <div className='space-y-2'>
+                      <Label className='text-sm font-medium'>Subdivision Type</Label>
+                      <Select
+                        value={subdivisionType}
+                        onValueChange={(value) => setSubdivisionType(value as SubdivisionType)}
+                        disabled={readOnly || existingSlot}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='practical'>Practical</SelectItem>
+                          <SelectItem value='lab'>Lab</SelectItem>
+                          <SelectItem value='tutorial'>Tutorial</SelectItem>
+                          <SelectItem value='workshop'>Workshop</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className='space-y-2'>
+                      <Label className='text-sm font-medium'>Student Assignment</Label>
+                      <RadioGroup
+                        value={subdivisionMode}
+                        onValueChange={(value) => setSubdivisionMode(value as SubdivisionMode)}
+                        className='flex gap-4'
+                        disabled={readOnly || existingSlot}
+                      >
+                        <div className='flex items-center space-x-2'>
+                          <RadioGroupItem value='auto' id='autoAssignment' disabled={readOnly || existingSlot} />
+                          <Label htmlFor='autoAssignment' className='text-sm'>
+                            Auto-distribute evenly
+                          </Label>
+                        </div>
+                        <div className='flex items-center space-x-2'>
+                          <RadioGroupItem value='manual' id='manualAssignment' disabled={readOnly || existingSlot} />
+                          <Label htmlFor='manualAssignment' className='text-sm'>
+                            Manual assignment
+                          </Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+
+                    {/* Updated: 2025-10-13 - Show existing subdivision configuration */}
+                    {existingSlot && existingSlot.sub_slots && existingSlot.sub_slots.length > 0 && (
+                      <div className='space-y-3'>
+                        <div className='flex items-center justify-between'>
+                          <Label className='text-sm font-medium'>Existing Configuration</Label>
+                          <Badge variant='secondary' className='text-xs bg-purple-100 text-purple-800 border-purple-300'>
+                            {existingSlot.sub_slots.length} Groups Configured
+                          </Badge>
+                        </div>
+                        <div className='space-y-2 max-h-48 overflow-y-auto'>
+                          {existingSlot.sub_slots.map((subSlot: any, index: number) => (
+                            <div key={index} className='border rounded p-2 bg-white dark:bg-slate-800 text-xs space-y-1'>
+                              <div className='flex items-center justify-between'>
+                                <span className='font-semibold text-purple-700 dark:text-purple-300'>
+                                  Group {subSlot.sub_slot_order}: {subSlot.group_name || `Group ${String.fromCharCode(64 + subSlot.sub_slot_order)}`}
+                                </span>
+                                {subSlot.max_capacity && (
+                                  <Badge variant='outline' className='text-xs'>
+                                    Max: {subSlot.max_capacity}
+                                  </Badge>
+                                )}
+                              </div>
+                              {subSlot.course && (
+                                <div className='text-blue-700 dark:text-blue-300'>
+                                  <strong>Course:</strong> {subSlot.course.course_name} ({subSlot.course.course_code})
+                                </div>
+                              )}
+                              {subSlot.staff_members && subSlot.staff_members.length > 0 && (
+                                <div className='text-gray-700 dark:text-gray-300'>
+                                  <strong>Staff:</strong> {subSlot.staff_members.map((s: any) => `${s.first_name} ${s.last_name}`).join(', ')}
+                                </div>
+                              )}
+                              {subSlot.student_ids && subSlot.student_ids.length > 0 && (
+                                <div className='text-gray-600 dark:text-gray-400'>
+                                  <strong>Students:</strong> {subSlot.student_ids.length} assigned
+                                </div>
+                              )}
+                              {subSlot.lab_room && (
+                                <div className='text-gray-600 dark:text-gray-400'>
+                                  <strong>Lab:</strong> {subSlot.lab_room}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className='flex items-center gap-2 text-xs text-purple-700 dark:text-purple-300'>
+                      <Badge variant='outline' className='text-xs'>
+                        ℹ️ Info
+                      </Badge>
+                      <span>
+                        {existingSlot ? 'Subdivision is already configured. You can view or update the configuration in the next step.' : 'In the next step, configure each group with course, staff, and students. Each group can have different courses and staff.'}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -480,7 +661,8 @@ export function SlotDialog({
             )}
 
             {/* Regular Slot Configuration */}
-            {!isBreakSlot && !isCombinedClass && (
+            {/* Updated: 2025-10-11 - Hide course/staff selection for subdivided slots */}
+            {!isBreakSlot && !isCombinedClass && !isSubdivided && (
               <div className='space-y-4 border rounded-lg p-4'>
                 <h4 className='font-medium'>Class Configuration</h4>
 

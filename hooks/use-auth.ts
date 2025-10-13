@@ -74,7 +74,6 @@ export function useAuth() {
       // When auth state changes, re-run the entire loading sequence.
       // This is simpler and more reliable than managing state transitions.
       if (isMounted) {
-        console.log('Auth state changed:', event);
         setIsLoading(true); // Start loading again
         loadUserAndProfile();
       }

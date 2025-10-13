@@ -18,8 +18,11 @@ import {
   XCircle,
   ChevronDown,
   ChevronRight,
-  Clock
+  Clock,
+  Copy,
+  Check
 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 interface ConsoleLog {
   level: 'log' | 'warn' | 'error' | 'info' | 'debug';
@@ -90,6 +93,8 @@ const LogLevelBadge = ({ level, count }: { level: string; count: number }) => {
 
 const LogEntry = ({ log, index }: { log: ConsoleLog; index: number }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const { toast } = useToast();
 
   const formatMessage = (message: any) => {
     if (typeof message === 'string') {
@@ -107,24 +112,62 @@ const LogEntry = ({ log, index }: { log: ConsoleLog; index: number }) => {
     }
   };
 
+  const copyLogToClipboard = async () => {
+    try {
+      const logText = `[${log.level.toUpperCase()}] ${formatTimestamp(log.timestamp) || 'No timestamp'}
+${formatMessage(log.message)}${log.args && log.args.length > 0 ? '\n\nArguments:\n' + JSON.stringify(log.args, null, 2) : ''}${log.stack ? '\n\nStack Trace:\n' + log.stack : ''}`;
+
+      await navigator.clipboard.writeText(logText);
+      setCopied(true);
+      toast({
+        title: 'Copied!',
+        description: 'Log entry copied to clipboard',
+        variant: 'default'
+      });
+
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      toast({
+        title: 'Copy Failed',
+        description: 'Failed to copy log to clipboard',
+        variant: 'destructive'
+      });
+    }
+  };
+
   return (
     <div className='border-l-4 border-l-transparent hover:border-l-gray-300 dark:hover:border-l-gray-600 pl-3 py-2 group'>
       <div className='flex items-start gap-2'>
         <LogLevelIcon level={log.level} />
         <div className='flex-1 min-w-0'>
-          <div className='flex items-center gap-2 mb-1'>
-            <span className='text-xs text-muted-foreground font-mono'>
-              #{index + 1}
-            </span>
-            {log.timestamp && (
-              <span className='text-xs text-muted-foreground flex items-center gap-1'>
-                <Clock className='w-3 h-3' />
-                {formatTimestamp(log.timestamp)}
+          <div className='flex items-center justify-between gap-2 mb-1'>
+            <div className='flex items-center gap-2'>
+              <span className='text-xs text-muted-foreground font-mono'>
+                #{index + 1}
               </span>
-            )}
-            <Badge variant='outline' className='text-xs capitalize text-white'>
-              {log.level}
-            </Badge>
+              {log.timestamp && (
+                <span className='text-xs text-muted-foreground flex items-center gap-1'>
+                  <Clock className='w-3 h-3' />
+                  {formatTimestamp(log.timestamp)}
+                </span>
+              )}
+              <Badge variant='outline' className='text-xs capitalize text-white'>
+                {log.level}
+              </Badge>
+            </div>
+            <Button
+              variant='ghost'
+              size='sm'
+              onClick={copyLogToClipboard}
+              className='h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity'
+              title='Copy log entry'
+            >
+              {copied ? (
+                <Check className='w-3 h-3 text-green-500' />
+              ) : (
+                <Copy className='w-3 h-3' />
+              )}
+            </Button>
           </div>
 
           <div className='font-mono text-sm'>

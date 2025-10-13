@@ -61,7 +61,7 @@ export function usePushNotifications() {
           updateViaCache: 'none'
         });
 
-        console.log('Service Worker registered successfully:', registration);
+       
 
         // Wait for service worker to be ready
         await navigator.serviceWorker.ready;

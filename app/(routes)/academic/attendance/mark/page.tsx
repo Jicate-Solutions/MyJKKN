@@ -46,6 +46,8 @@ import {
 } from '@/hooks/academic/use-attendance';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { AttendanceSummaryModal } from './components/attendance-summary-modal';
+import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
+import type { SubdivisionGroup } from '@/types/academics';
 import { cn } from '@/lib/utils';
 
 export default function AttendanceMarkPage() {
@@ -64,16 +66,27 @@ export default function AttendanceMarkPage() {
   const startTime = searchParams.get('startTime');
   const endTime = searchParams.get('endTime');
 
-  // Debug URL parameters
-  console.log('📥 Attendance Mark Page - URL parameters:', {
-    periodId,
-    timetableId,
-    sectionId,
-    date,
-    periodName,
-    courseName,
-    startTime,
-    endTime
+  // Updated: 2025-10-13 - Get subdivision group parameters from URL
+  const isSubdividedFromUrl = searchParams.get('isSubdivided') === 'true';
+  const subdivisionGroupOrder = searchParams.get('subdivisionGroupOrder');
+  const subdivisionGroupName = searchParams.get('subdivisionGroupName');
+  const subdivisionStudentIds = searchParams.get('subdivisionStudentIds');
+  const subdivisionStaffIds = searchParams.get('subdivisionStaffIds');
+  const subdivisionLabRoom = searchParams.get('subdivisionLabRoom');
+
+  // Debug: Log subdivision parameters from URL
+  console.log('[academic/attendance/mark] Subdivision parameters from URL:', {
+    isSubdividedFromUrl,
+    subdivisionGroupOrder,
+    subdivisionGroupName,
+    subdivisionStudentIds: subdivisionStudentIds
+      ? `${subdivisionStudentIds.split(',').length} IDs`
+      : 'none',
+    subdivisionStaffIds: subdivisionStaffIds
+      ? `${subdivisionStaffIds.split(',').length} IDs`
+      : 'none',
+    actualStaffIds: subdivisionStaffIds,
+    subdivisionLabRoom
   });
 
   const [students, setStudents] = useState<any[]>([]);
@@ -92,6 +105,13 @@ export default function AttendanceMarkPage() {
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [assignedStaff, setAssignedStaff] = useState<any[]>([]);
   const [loadingStaff, setLoadingStaff] = useState(false);
+
+  // State for subdivided slot detection (Updated: 2025-10-11)
+  const [isSubdividedSlot, setIsSubdividedSlot] = useState(false);
+  const [subdivisionGroups, setSubdivisionGroups] = useState<
+    SubdivisionGroup[]
+  >([]);
+  const [subdivisionType, setSubdivisionType] = useState<string>('practical');
 
   const { saveConsolidatedAttendance } = useConsolidatedAttendance();
 
@@ -123,15 +143,8 @@ export default function AttendanceMarkPage() {
 
   // Load context data from timetable and resolve all hierarchy
   useEffect(() => {
-    console.log('🔄 loadContextData effect triggered:', {
-      timetableId,
-      institutionId: profile?.institution_id,
-      sectionId
-    });
-
     const loadContextData = async () => {
       if (!timetableId) {
-        console.log('Missing timetable ID:', { timetableId });
         setLoadingContext(false);
         toast.error('Missing required parameter: timetable ID');
         return;
@@ -139,10 +152,6 @@ export default function AttendanceMarkPage() {
 
       // For non-super admins, we need institution_id from profile
       if (!isSuperAdmin && !profile?.institution_id) {
-        console.log('Waiting for profile institution_id:', {
-          profile,
-          isSuperAdmin
-        });
         // Don't set loading to false here, let the effect retry
         return;
       }
@@ -153,12 +162,6 @@ export default function AttendanceMarkPage() {
           '@/lib/supabase/client'
         );
         const supabase = createClientSupabaseClient();
-
-        console.log('🔍 Fetching timetable with:', {
-          timetableId,
-          institutionId: profile?.institution_id,
-          isSuperAdmin
-        });
 
         // Build query
         // Updated: 2025-10-09 - Added timetable_format to query for batch timetable support
@@ -209,23 +212,14 @@ export default function AttendanceMarkPage() {
           return;
         }
 
-        console.log('Timetable data loaded:', timetableData);
-
         // Extract section information from timetable data
         // Updated: 2025-10-08 - Fixed priority to use URL sectionId first for multi-section support
         let resolvedSectionId = sectionId;
         let sectionData = null;
 
-        console.log('Initial sectionId from URL:', sectionId);
-        console.log('Section ID from timetable:', timetableData.section_id);
-
         // Priority 1: Use sectionId from URL (user's selection when clicking "Mark Attendance")
         // This is CRITICAL for multi-section slots where user selects which section to mark
         if (resolvedSectionId) {
-          console.log(
-            `🎯 Priority 1: Using sectionId from URL: ${resolvedSectionId}`
-          );
-
           // Check if provided section ID is a UUID or name
           const uuidRegex =
             /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -242,10 +236,6 @@ export default function AttendanceMarkPage() {
 
             if (!sectionError && sections) {
               sectionData = sections;
-              console.log(
-                `✅ Successfully resolved URL section UUID: ${resolvedSectionId}`,
-                sections
-              );
             } else {
               console.error(
                 '❌ Failed to fetch section data for URL UUID:',
@@ -267,9 +257,6 @@ export default function AttendanceMarkPage() {
             if (!sectionError && sections) {
               resolvedSectionId = sections.id;
               sectionData = sections;
-              console.log(
-                `✅ Resolved section name "${sectionId}" to UUID: ${resolvedSectionId}`
-              );
             } else {
               console.error(
                 '❌ Failed to resolve section name from URL:',
@@ -286,10 +273,6 @@ export default function AttendanceMarkPage() {
           timetableData.section_id &&
           timetableData.timetable_type === 'section'
         ) {
-          console.log(
-            `🔄 Priority 2 (Fallback): Using section_id from section-level timetable: ${timetableData.section_id}`
-          );
-
           // Fetch section data using the UUID directly
           const { data: sectionFromDb, error: countError } = await supabase
             .from('sections')
@@ -302,10 +285,6 @@ export default function AttendanceMarkPage() {
           if (!countError && sectionFromDb) {
             resolvedSectionId = timetableData.section_id;
             sectionData = sectionFromDb;
-            console.log(
-              `✅ Successfully fetched section data from timetable fallback: ${resolvedSectionId}`,
-              sectionFromDb
-            );
           } else {
             console.error(
               '❌ Failed to fetch section data from timetable fallback:',
@@ -316,9 +295,6 @@ export default function AttendanceMarkPage() {
           !sectionData &&
           timetableData.timetable_type === 'semester'
         ) {
-          console.log(
-            `⚠️ Semester-level timetable detected - sectionId should be provided in URL for multi-section slots`
-          );
         }
 
         // Updated: 2025-10-08 - For semester-level multi-section slots, resolvedSectionId may be undefined
@@ -327,12 +303,6 @@ export default function AttendanceMarkPage() {
           console.error(
             '❌ Unable to resolve section information for section-level timetable'
           );
-          console.log('Available data:', {
-            sectionFromUrl: sectionId,
-            sectionIdFromTimetable: timetableData.section_id,
-            resolvedSectionId,
-            timetable_type: timetableData.timetable_type
-          });
           toast.error(
             `Unable to resolve section information. Section ID: ${
               timetableData.section_id || sectionId || 'Unknown'
@@ -357,7 +327,6 @@ export default function AttendanceMarkPage() {
 
             if (!semesterError && semesterData) {
               semesterName = semesterData.semester_name;
-              console.log('✅ Fetched semester name:', semesterName);
             } else {
               console.error('❌ Failed to fetch semester name:', semesterError);
             }
@@ -372,12 +341,6 @@ export default function AttendanceMarkPage() {
         // Check if this is a multi-section slot by looking at the timetable_data
         let slotSectionIds: string[] = [];
         let slotSections: any[] = [];
-
-        console.log('🔍 Extracting section_ids from slot:', {
-          periodId,
-          hasTimetableData: !!timetableData.timetable_data,
-          timetableData: timetableData.timetable_data
-        });
 
         if (periodId && timetableData.timetable_data) {
           // Parse timetable_data to find the specific period's section_ids
@@ -394,9 +357,38 @@ export default function AttendanceMarkPage() {
                 // Match by slot_id instead of periodKey
                 if (slot && slot.slot_id === periodId) {
                   console.log(
-                    `🔍 Found slot for period ${periodId} on ${day} (periodKey: ${periodKey}):`,
+                    '[academic/attendance] Found matching slot:',
                     slot
                   );
+
+                  // NEW: Check if this is a subdivided slot (Updated: 2025-10-11)
+                  if (
+                    slot.is_subdivided &&
+                    slot.sub_slots &&
+                    slot.sub_slots.length > 0
+                  ) {
+                    // Extract subdivision groups from sub_slots
+                    const groups: SubdivisionGroup[] = slot.sub_slots.map(
+                      (subSlot: any) => ({
+                        group_order: subSlot.sub_slot_order || 1,
+                        group_name:
+                          subSlot.group_name ||
+                          `Group ${subSlot.sub_slot_order}`,
+                        course_id: subSlot.course_id || slot.course_id,
+                        staff_ids: subSlot.staff_ids || [],
+                        student_ids: subSlot.student_ids || [],
+                        lab_room: subSlot.lab_room,
+                        max_capacity: subSlot.max_capacity
+                      })
+                    );
+
+                    setIsSubdividedSlot(true);
+                    setSubdivisionGroups(groups);
+                    setSubdivisionType(slot.subdivision_type || 'practical');
+                  } else {
+                    setIsSubdividedSlot(false);
+                    setSubdivisionGroups([]);
+                  }
 
                   if (
                     slot.section_ids &&
@@ -404,10 +396,6 @@ export default function AttendanceMarkPage() {
                     slot.section_ids.length > 0
                   ) {
                     slotSectionIds = slot.section_ids;
-                    console.log(
-                      `🎯 Found multi-section slot with ${slotSectionIds.length} sections:`,
-                      slotSectionIds
-                    );
 
                     // Fetch all section details for display
                     const { data: sectionsData, error: sectionsError } =
@@ -419,10 +407,6 @@ export default function AttendanceMarkPage() {
 
                     if (!sectionsError && sectionsData) {
                       slotSections = sectionsData;
-                      console.log(
-                        '✅ Loaded section details for multi-section slot:',
-                        slotSections
-                      );
                     } else {
                       console.error(
                         '❌ Failed to load section details:',
@@ -487,16 +471,7 @@ export default function AttendanceMarkPage() {
           semester_name: semesterName || 'Unknown Semester'
         };
 
-        console.log('📊 Final context data:', {
-          ...context,
-          section_ids_length: context.section_ids.length,
-          slot_sections_length: slotSections.length,
-          has_section_id: !!context.section_id,
-          has_section_data: !!context.section_data
-        });
-
         setContextData(context);
-        console.log('✅ Context data resolved successfully:', context);
       } catch (error) {
         console.error('❌ Error loading context data:', error);
         toast.error(
@@ -506,19 +481,42 @@ export default function AttendanceMarkPage() {
         );
       } finally {
         setLoadingContext(false);
-        console.log('🏁 Context loading finished');
       }
     };
 
     loadContextData();
-  }, [timetableId, profile?.institution_id, profile, sectionId, isSuperAdmin, periodId]);
+  }, [
+    timetableId,
+    profile?.institution_id,
+    profile,
+    sectionId,
+    isSuperAdmin,
+    periodId
+  ]);
 
   // Load students using the resolved context
   useEffect(() => {
     const loadStudents = async () => {
+      console.log('[academic/attendance/mark] loadStudents called:', {
+        hasContextData: !!contextData,
+        contextData: contextData
+          ? {
+              institution_id: contextData.institution_id,
+              section_id: contextData.section_id,
+              section_ids: contextData.section_ids
+            }
+          : null,
+        isSubdividedFromUrl,
+        subdivisionStudentIds: subdivisionStudentIds
+          ? `${subdivisionStudentIds.split(',').length} IDs`
+          : 'none'
+      });
+
       // Updated: 2025-10-08 - Allow loading without section_id for multi-section slots
       if (!contextData) {
-        console.log('Context data not ready');
+        console.log(
+          '[academic/attendance/mark] No contextData - returning early'
+        );
         return;
       }
 
@@ -528,7 +526,9 @@ export default function AttendanceMarkPage() {
         !contextData.section_id &&
         (!contextData.section_ids || contextData.section_ids.length === 0)
       ) {
-        console.log('Context data missing both section_id and section_ids');
+        console.log(
+          '[academic/attendance/mark] No section_id or section_ids - returning early'
+        );
         return;
       }
 
@@ -540,17 +540,19 @@ export default function AttendanceMarkPage() {
         const hasMultipleSections =
           contextData.section_ids && contextData.section_ids.length > 0;
 
-        console.log('🎯 Fetching students with complete context:', {
-          institution_id: contextData.institution_id,
-          degree_id: contextData.degree_id,
-          program_id: contextData.program_id,
-          department_id: contextData.department_id,
-          semester_id: contextData.semester_id,
-          section_id: contextData.section_id,
-          section_ids: contextData.section_ids,
-          hasMultipleSections,
-          will_use: hasMultipleSections ? 'section_ids' : 'section_id'
-        });
+        console.log(
+          '[academic/attendance/mark] Fetching students with filters:',
+          {
+            institution_id: contextData.institution_id,
+            degree_id: contextData.degree_id,
+            program_id: contextData.program_id,
+            department_id: contextData.department_id,
+            semester_id: contextData.semester_id,
+            section_id: contextData.section_id,
+            section_ids: contextData.section_ids,
+            hasMultipleSections
+          }
+        );
 
         const studentsData = await AttendanceService.getStudentsForAttendance({
           institution_id: contextData.institution_id,
@@ -564,21 +566,82 @@ export default function AttendanceMarkPage() {
             : { section_id: contextData.section_id })
         });
 
-        console.log('Students fetched successfully:', studentsData.length);
+        console.log(
+          '[academic/attendance/mark] Students fetched from service:',
+          {
+            count: studentsData.length,
+            sampleStudent: studentsData[0]
+              ? {
+                  id: studentsData[0].id,
+                  name: `${(studentsData[0] as any).first_name} ${
+                    (studentsData[0] as any).last_name
+                  }`
+                }
+              : null
+          }
+        );
+
+        // If we got 0 students, log a detailed error
+        if (studentsData.length === 0) {
+          console.error(
+            '[academic/attendance/mark] ⚠️ NO STUDENTS RETURNED! Check console for service logs with emoji icons (🎯, 📋, 🔐, etc.)'
+          );
+          console.error(
+            '[academic/attendance/mark] This usually means RLS policy is blocking the query.'
+          );
+          console.error(
+            '[academic/attendance/mark] Check if faculty user profile has correct institution_id and department_id'
+          );
+        }
+
+        // Updated: 2025-10-13 - Filter students by subdivision group if applicable
+        let filteredStudents = studentsData;
+        if (isSubdividedFromUrl && subdivisionStudentIds) {
+          const groupStudentIds = subdivisionStudentIds.split(',');
+          filteredStudents = studentsData.filter((student: any) =>
+            groupStudentIds.includes(student.id)
+          );
+
+          console.log(
+            `[academic/attendance/mark] Filtered students for subdivision group:`,
+            {
+              totalStudents: studentsData.length,
+              groupStudents: filteredStudents.length,
+              groupName: subdivisionGroupName,
+              groupStudentIds: groupStudentIds.length
+            }
+          );
+        } else {
+          console.log(
+            '[academic/attendance/mark] No subdivision filtering applied'
+          );
+        }
 
         // Initialize attendance data (all present by default)
         const initialAttendance: Record<string, 'Present' | 'Absent'> = {};
-        studentsData.forEach((student: any) => {
+        filteredStudents.forEach((student: any) => {
           initialAttendance[student.id] = 'Present';
         });
 
-        setStudents(studentsData);
+        setStudents(filteredStudents);
         setAttendanceData(initialAttendance);
 
-        if (studentsData.length === 0) {
-          toast.info('No students found for this section');
+        if (filteredStudents.length === 0) {
+          if (isSubdividedFromUrl) {
+            toast.info(
+              `No students assigned to ${subdivisionGroupName || 'this group'}`
+            );
+          } else {
+            toast.info('No students found for this section');
+          }
         } else {
-          toast.success(`Loaded ${studentsData.length} students`);
+          const groupInfo =
+            isSubdividedFromUrl && subdivisionGroupName
+              ? ` (${subdivisionGroupName})`
+              : '';
+          toast.success(
+            `Loaded ${filteredStudents.length} students${groupInfo}`
+          );
         }
       } catch (error) {
         console.error('Error fetching students for attendance:', error);
@@ -600,7 +663,12 @@ export default function AttendanceMarkPage() {
     };
 
     loadStudents();
-  }, [contextData]);
+  }, [
+    contextData,
+    isSubdividedFromUrl,
+    subdivisionStudentIds,
+    subdivisionGroupName
+  ]);
 
   // Check for existing attendance after context is loaded
   useEffect(() => {
@@ -611,14 +679,6 @@ export default function AttendanceMarkPage() {
 
       try {
         setLoadingExistingAttendance(true);
-        console.log('🔍 Checking for existing attendance...', {
-          timetable_id: timetableId,
-          section_id: contextData.section_id,
-          attendance_date: date,
-          period_id: periodId,
-          period_id_type: typeof periodId,
-          period_id_truthy: !!periodId
-        });
 
         const existingRecord =
           await AttendanceService.getConsolidatedAttendance(
@@ -629,7 +689,6 @@ export default function AttendanceMarkPage() {
           );
 
         if (existingRecord) {
-          console.log('📋 Found existing attendance record:', existingRecord);
           setExistingAttendance(existingRecord);
 
           // Show appropriate toast based on user permissions
@@ -660,13 +719,9 @@ export default function AttendanceMarkPage() {
               }
             );
 
-            console.log('📊 Pre-populated attendance data:', existingData);
             setAttendanceData(existingData);
           }
         } else {
-          console.log(
-            '✨ No existing attendance found - fresh marking session'
-          );
           setExistingAttendance(null);
         }
       } catch (error) {
@@ -683,7 +738,18 @@ export default function AttendanceMarkPage() {
   // Load assigned staff information for the current period
   useEffect(() => {
     const loadAssignedStaff = async () => {
+      console.log('[academic/attendance/mark] loadAssignedStaff called:', {
+        hasContextData: !!contextData?.timetable_data,
+        hasPeriodId: !!periodId,
+        hasDate: !!date,
+        isSubdividedFromUrl,
+        hasSubdivisionStaffIds: !!subdivisionStaffIds
+      });
+
       if (!contextData?.timetable_data || !periodId || !date) {
+        console.log(
+          '[academic/attendance/mark] Early return - missing required data'
+        );
         return;
       }
 
@@ -710,25 +776,18 @@ export default function AttendanceMarkPage() {
 
           if (hasDirectDays) {
             actualTimetableData = contextData.timetable_data;
-            console.log('📋 Using direct timetable structure (legacy format)');
+            console.log('[academic/attendance] Using direct day keys');
           }
         }
 
         if (!actualTimetableData) {
-          console.log(
-            '❌ No timetable schedule data found. Check timetable structure.'
-          );
-          console.log(
-            'Context timetable_data keys:',
-            contextData.timetable_data
-              ? Object.keys(contextData.timetable_data)
-              : 'No timetable_data'
-          );
+          console.log('[academic/attendance] No timetable_data found');
           return;
         }
 
         // Updated: 2025-10-09 - Detect timetable format and use appropriate key
-        const timetableFormat = contextData.timetable_data?.timetable_format || 'regular';
+        const timetableFormat =
+          contextData.timetable_data?.timetable_format || 'regular';
 
         let dayKey: string;
         if (timetableFormat === 'batch') {
@@ -744,10 +803,14 @@ export default function AttendanceMarkPage() {
             const daySlots = actualTimetableData[dateKey];
             if (daySlots && typeof daySlots === 'object') {
               // Check if this date has our period
-              if (daySlots[periodId] ||
-                  Object.values(daySlots).some((slot: any) => slot?.slot_id === periodId)) {
+              if (
+                daySlots[periodId] ||
+                Object.values(daySlots).some(
+                  (slot: any) => slot?.slot_id === periodId
+                )
+              ) {
                 foundKey = dateKey;
-                console.log(`✅ Found period ${periodId} in date key: ${dateKey}`);
+
                 break;
               }
             }
@@ -755,51 +818,62 @@ export default function AttendanceMarkPage() {
 
           // Use found key, or fallback to query date
           dayKey = foundKey || date;
-          console.log('🗓️ Batch timetable detected - using date key:', dayKey, {
-            searchedDate: date,
-            foundInDate: foundKey,
-            totalKeysSearched: timetableKeys.length
-          });
         } else {
           // For regular timetables, use day of week (e.g., "MONDAY")
           dayKey = new Date(date)
             .toLocaleDateString('en-US', { weekday: 'long' })
             .toUpperCase();
-          console.log('📅 Regular timetable detected - using day key:', dayKey);
         }
 
-        console.log('🔍 Looking for staff assignments for:', {
-          timetableFormat,
-          dayKey,
-          periodId,
-          date,
-          hasTimetableData: !!actualTimetableData,
-          timetableDataType: typeof actualTimetableData,
-          availableKeys: actualTimetableData
-            ? Object.keys(actualTimetableData).slice(0, 10) // Show first 10 keys
-            : []
-        });
+        console.log(
+          '[academic/attendance] Timetable keys:',
+          Object.keys(actualTimetableData).slice(0, 10)
+        );
 
         const dayData = actualTimetableData[dayKey];
         if (!dayData) {
-          console.log('❌ No timetable data found for key:', dayKey);
-          console.log('Available keys:', Object.keys(actualTimetableData));
+          console.log(
+            '[academic/attendance] No data found for day key:',
+            dayKey
+          );
           return;
+        }
+
+        // Updated: 2025-10-13 - Extract original slot_id for subdivided periods
+        // Subdivision periods have IDs like "original-slot-id_group_1"
+        // We need to search using the original slot_id
+        let searchSlotId = periodId;
+        if (periodId && periodId.includes('_group_')) {
+          searchSlotId = periodId.split('_group_')[0];
+          console.log(
+            '[academic/attendance/mark] Detected subdivided period, using original slot_id:',
+            {
+              periodId,
+              searchSlotId
+            }
+          );
         }
 
         // Find the specific period slot
         // The periodId might be used as a key directly OR it might be a slot_id within the period data
-        let periodSlot = dayData[periodId];
+        let periodSlot = dayData[periodId] || dayData[searchSlotId];
 
         // If not found directly, search for it as a slot_id
         if (!periodSlot) {
           // Search through all periods in the day to find one with matching slot_id
           for (const [periodKey, slot] of Object.entries(dayData)) {
             if (slot && typeof slot === 'object' && 'slot_id' in slot) {
-              if ((slot as any).slot_id === periodId) {
+              if (
+                (slot as any).slot_id === periodId ||
+                (slot as any).slot_id === searchSlotId
+              ) {
                 periodSlot = slot as any;
                 console.log(
-                  `✅ Found period by slot_id match: periodKey=${periodKey}, slot_id=${periodId}`
+                  '[academic/attendance/mark] Found slot by searching slot_id:',
+                  {
+                    periodKey,
+                    slot_id: (slot as any).slot_id
+                  }
                 );
                 break;
               }
@@ -808,13 +882,15 @@ export default function AttendanceMarkPage() {
         }
 
         if (!periodSlot) {
-          console.log('❌ No period slot found for periodId:', periodId);
-          console.log('Available period keys:', Object.keys(dayData));
-          console.log('Searched for slot_id:', periodId);
+          console.log(
+            '[academic/attendance] Period slot not found for periodId:',
+            periodId
+          );
+
           // Log first few slots to debug structure
           const sampleSlots = Object.entries(dayData).slice(0, 2);
           sampleSlots.forEach(([key, slot]) => {
-            console.log(`Sample slot ${key}:`, {
+            console.log(`[academic/attendance] Sample slot ${key}:`, {
               slot_id: (slot as any)?.slot_id,
               course_id: (slot as any)?.course_id,
               staff_ids: (slot as any)?.staff_ids
@@ -823,42 +899,77 @@ export default function AttendanceMarkPage() {
           return;
         }
 
-        console.log('✅ Found period slot:', {
-          course_id: periodSlot.course_id,
-          primary_staff_id: periodSlot.primary_staff_id,
-          staff_ids: periodSlot.staff_ids,
-          is_break_slot: periodSlot.is_break_slot,
-          slot_id: periodSlot.slot_id
-        });
-
-        // Extract staff IDs from the slot - based on the actual data structure
+        // Updated: 2025-10-13 - Extract staff IDs from subdivision group if applicable
         const staffIds: string[] = [];
         let primaryStaffId: string | null = null;
 
-        // Get primary staff ID
-        if (
-          periodSlot.primary_staff_id &&
-          typeof periodSlot.primary_staff_id === 'string'
-        ) {
-          primaryStaffId = periodSlot.primary_staff_id;
-          staffIds.push(periodSlot.primary_staff_id);
-        }
+        console.log(
+          '[academic/attendance/mark] About to determine staff IDs:',
+          {
+            isSubdividedFromUrl,
+            subdivisionStaffIds,
+            hasSubdivisionStaffIds: !!subdivisionStaffIds
+          }
+        );
 
-        // Get additional staff from staff_ids array
-        if (
-          Array.isArray(periodSlot.staff_ids) &&
-          periodSlot.staff_ids.length > 0
-        ) {
-          periodSlot.staff_ids.forEach((id: string) => {
-            if (id && !staffIds.includes(id)) {
-              staffIds.push(id);
+        // Priority 1: Use subdivision group staff IDs from URL if this is a subdivided period
+        if (isSubdividedFromUrl && subdivisionStaffIds) {
+          const groupStaffIds = subdivisionStaffIds.split(',');
+          staffIds.push(...groupStaffIds);
+          primaryStaffId = groupStaffIds[0] || null;
+
+          console.log(
+            `[academic/attendance/mark] Using subdivision group staff IDs:`,
+            {
+              groupName: subdivisionGroupName,
+              staffCount: staffIds.length,
+              staffIds,
+              primaryStaffId
             }
-          });
+          );
+        } else {
+          console.log(
+            '[academic/attendance/mark] Using regular slot staff IDs (not subdivision):',
+            {
+              reason: !isSubdividedFromUrl
+                ? 'Not a subdivided period'
+                : 'No subdivision staff IDs in URL',
+              isSubdividedFromUrl,
+              subdivisionStaffIds
+            }
+          );
+          // Priority 2: Get primary staff ID from slot
+          if (
+            periodSlot.primary_staff_id &&
+            typeof periodSlot.primary_staff_id === 'string'
+          ) {
+            primaryStaffId = periodSlot.primary_staff_id;
+            staffIds.push(periodSlot.primary_staff_id);
+          }
+
+          // Get additional staff from staff_ids array
+          if (
+            Array.isArray(periodSlot.staff_ids) &&
+            periodSlot.staff_ids.length > 0
+          ) {
+            periodSlot.staff_ids.forEach((id: string) => {
+              if (id && !staffIds.includes(id)) {
+                staffIds.push(id);
+              }
+            });
+          }
         }
 
-        console.log('📋 Extracted staff IDs:', { staffIds, primaryStaffId });
+        console.log('[academic/attendance/mark] Staff IDs collected:', {
+          staffIds,
+          count: staffIds.length,
+          primaryStaffId
+        });
 
         if (staffIds.length === 0) {
+          console.warn(
+            '[academic/attendance/mark] No staff IDs found - setting empty array'
+          );
           setAssignedStaff([]);
           return;
         }
@@ -868,6 +979,11 @@ export default function AttendanceMarkPage() {
           '@/lib/supabase/client'
         );
         const supabase = createClientSupabaseClient();
+
+        console.log(
+          '[academic/attendance/mark] Querying staff table with IDs:',
+          staffIds
+        );
 
         const { data: staffData, error: staffError } = await supabase
           .from('staff')
@@ -885,10 +1001,18 @@ export default function AttendanceMarkPage() {
           .in('id', staffIds);
 
         if (staffError) {
-          console.error('Error fetching staff data:', staffError);
+          console.error(
+            '[academic/attendance/mark] Error fetching staff data:',
+            staffError
+          );
           setAssignedStaff([]);
           return;
         }
+
+        console.log('[academic/attendance/mark] Staff query result:', {
+          staffData,
+          count: staffData?.length || 0
+        });
 
         if (staffData) {
           // Mark primary staff and sort
@@ -908,9 +1032,20 @@ export default function AttendanceMarkPage() {
               return a.full_name.localeCompare(b.full_name);
             });
 
-          console.log('Loaded staff information:', enrichedStaffData);
+          console.log('[academic/attendance/mark] Setting assigned staff:', {
+            count: enrichedStaffData.length,
+            staff: enrichedStaffData.map((s) => ({
+              id: s.id,
+              name: s.full_name,
+              is_primary: s.is_primary
+            }))
+          });
+
           setAssignedStaff(enrichedStaffData);
         } else {
+          console.warn(
+            '[academic/attendance/mark] No staff data returned from query'
+          );
           setAssignedStaff([]);
         }
       } catch (error) {
@@ -922,7 +1057,14 @@ export default function AttendanceMarkPage() {
     };
 
     loadAssignedStaff();
-  }, [contextData, periodId, date]);
+  }, [
+    contextData,
+    periodId,
+    date,
+    isSubdividedFromUrl,
+    subdivisionStaffIds,
+    subdivisionGroupName
+  ]);
 
   // Early return for missing auth data - but allow super admins without institution_id
   if (!isSuperAdmin && !profile?.institution_id) {
@@ -1121,8 +1263,6 @@ export default function AttendanceMarkPage() {
         }
       }
 
-      console.log('🔍 Found slot data:', { periodId, slotData, courseId });
-
       // Fetch course details if we have a course_id
       let courseDetails = null;
       if (courseId) {
@@ -1153,13 +1293,6 @@ export default function AttendanceMarkPage() {
         course_code: courseDetails?.course_code || 'N/A'
       };
 
-      console.log('🔍 Course info resolution:', {
-        slot_data: slotData,
-        course_details: courseDetails,
-        from_url: courseName,
-        final_used: correctCourseInfo
-      });
-
       // Updated: 2025-10-09 - Allow semester-level timetables with multi-section support
       // Use first section from section_ids array for multi-section periods
       const effectiveSectionId =
@@ -1174,16 +1307,6 @@ export default function AttendanceMarkPage() {
         toast.error('Missing section information. Please try again.');
         return;
       }
-
-      console.log('✅ Using effectiveSectionId:', effectiveSectionId, {
-        source: contextData?.section_id
-          ? 'section_id'
-          : sectionId
-          ? 'URL'
-          : 'section_ids[0]',
-        is_multi_section:
-          contextData?.section_ids && contextData.section_ids.length > 1
-      });
 
       // Prepare faculty data - store all assigned faculty if multiple
       let assignedFacultyData;
@@ -1210,6 +1333,7 @@ export default function AttendanceMarkPage() {
       }
 
       // Prepare attendance data with proper structure
+      // Updated: 2025-10-11 - Add subdivision support
       const attendancePayload = {
         [periodId || 'default']: {
           period_id: periodId || 'default',
@@ -1219,6 +1343,32 @@ export default function AttendanceMarkPage() {
           course_code: correctCourseInfo.course_code,
           start_time: startTime || '',
           end_time: endTime || '',
+
+          // NEW: Add subdivision metadata if applicable (Updated: 2025-10-11)
+          ...(isSubdividedSlot && {
+            is_subdivided: true,
+            subdivision_type: subdivisionType,
+            groups: subdivisionGroups.map((group) => ({
+              group_order: group.group_order,
+              group_name: group.group_name,
+              lab_room: group.lab_room,
+              max_capacity: group.max_capacity,
+              staff_ids: group.staff_ids,
+              students: students
+                .filter((student) => group.student_ids.includes(student.id))
+                .map((student) => ({
+                  student_id: student.id,
+                  section_id:
+                    student.section_id ||
+                    contextData?.section_id ||
+                    effectiveSectionId ||
+                    '',
+                  status: attendanceData[student.id] || 'Present',
+                  marked_at: new Date().toISOString()
+                }))
+            }))
+          }),
+
           // Add all assigned faculty information
           assigned_faculty: assignedFacultyData,
           // Add marker details - always use profile ID for consistency across all user types
@@ -1229,30 +1379,23 @@ export default function AttendanceMarkPage() {
             marker_email: markerEmail || profile?.email || '',
             marked_at: new Date().toISOString() // Add timestamp when period is marked
           },
-          students: students.map((student) => ({
-            student_id: student.id,
-            section_id:
-              student.section_id ||
-              contextData?.section_id ||
-              effectiveSectionId ||
-              '', // Updated: 2025-10-09 - Ensure section_id is always provided
-            status: attendanceData[student.id] || 'Present',
-            marked_at: new Date().toISOString()
-          }))
+          // For non-subdivided or fallback, keep original structure
+          students: isSubdividedSlot
+            ? [] // Empty for subdivided (data is in groups)
+            : students.map((student) => ({
+                student_id: student.id,
+                section_id:
+                  student.section_id ||
+                  contextData?.section_id ||
+                  effectiveSectionId ||
+                  '', // Updated: 2025-10-09 - Ensure section_id is always provided
+                status: attendanceData[student.id] || 'Present',
+                marked_at: new Date().toISOString()
+              }))
         }
       };
 
       // Debug: Log the payload being sent
-      console.log('🔄 Saving attendance with payload:', {
-        timetable_id: timetableId,
-        section_id: effectiveSectionId,
-        attendance_date: date,
-        attendance_data: attendancePayload,
-        marked_by: profile?.id || '',
-        institution_id: institutionId,
-        is_multi_section:
-          contextData?.section_ids && contextData.section_ids.length > 1
-      });
 
       // Updated: 2025-10-09 - Add section_ids array for multi-section support
       // Save attendance - use validated institution_id
@@ -1268,8 +1411,6 @@ export default function AttendanceMarkPage() {
         marked_by: profile?.id || '',
         institution_id: institutionId
       });
-
-      console.log('✅ Save result:', result);
 
       if (result) {
         const successMessage = existingAttendance
@@ -1836,6 +1977,18 @@ export default function AttendanceMarkPage() {
           </Card>
         )}
 
+        {/* Subdivision Info Alert (Updated: 2025-10-11) */}
+        {isSubdividedSlot && (
+          <Alert className='border-purple-200 bg-purple-50 dark:bg-purple-900/20'>
+            <Users className='h-4 w-4 text-purple-600 dark:text-purple-500' />
+            <AlertDescription className='text-purple-800 dark:text-purple-200'>
+              ℹ️ This is a subdivided {subdivisionType} session with{' '}
+              {subdivisionGroups.length} groups. Students are organized by their
+              assigned groups below.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Colorful Stats Cards */}
         <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4'>
           <Card className='border-0 shadow-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white'>
@@ -1968,16 +2121,34 @@ export default function AttendanceMarkPage() {
           </CardContent>
         </Card>
 
-        {/* Modern Student Grid */}
+        {/* Student Grid - Conditional Rendering for Subdivided Slots (Updated: 2025-10-11) */}
         <div className='space-y-6'>
           <div className='flex items-center justify-between'>
             <h2 className='text-xl font-semibold flex items-center gap-2'>
-              <Users className='h-5 w-5 text-blue-600' />
-              Student Roster
-              <Badge variant='secondary' className='ml-2'>
-                {filteredStudents.length}{' '}
-                {filteredStudents.length === 1 ? 'Student' : 'Students'}
-              </Badge>
+              {isSubdividedSlot ? (
+                <>
+                  <Users className='h-5 w-5 text-purple-600' />
+                  Subdivided{' '}
+                  {subdivisionType.charAt(0).toUpperCase() +
+                    subdivisionType.slice(1)}{' '}
+                  Groups
+                  <Badge
+                    variant='secondary'
+                    className='ml-2 bg-purple-100 text-purple-800'
+                  >
+                    {subdivisionGroups.length} Groups
+                  </Badge>
+                </>
+              ) : (
+                <>
+                  <Users className='h-5 w-5 text-blue-600' />
+                  Student Roster
+                  <Badge variant='secondary' className='ml-2'>
+                    {filteredStudents.length}{' '}
+                    {filteredStudents.length === 1 ? 'Student' : 'Students'}
+                  </Badge>
+                </>
+              )}
             </h2>
           </div>
 
@@ -2000,6 +2171,47 @@ export default function AttendanceMarkPage() {
                 </div>
               </CardContent>
             </Card>
+          ) : isSubdividedSlot && subdivisionGroups.length > 0 ? (
+            // NEW: Subdivided Attendance Grid (Updated: 2025-10-11)
+            <SubdividedAttendanceGrid
+              groups={subdivisionGroups}
+              allStudents={students}
+              availableStaff={assignedStaff}
+              attendanceData={attendanceData}
+              onAttendanceChange={(studentId, status) => {
+                setAttendanceData((prev) => ({
+                  ...prev,
+                  [studentId]: status
+                }));
+              }}
+              onMarkAllGroupPresent={(groupOrder) => {
+                const group = subdivisionGroups.find(
+                  (g) => g.group_order === groupOrder
+                );
+                if (group) {
+                  const newData = { ...attendanceData };
+                  group.student_ids.forEach((studentId) => {
+                    newData[studentId] = 'Present';
+                  });
+                  setAttendanceData(newData);
+                }
+              }}
+              onMarkAllGroupAbsent={(groupOrder) => {
+                const group = subdivisionGroups.find(
+                  (g) => g.group_order === groupOrder
+                );
+                if (group) {
+                  const newData = { ...attendanceData };
+                  group.student_ids.forEach((studentId) => {
+                    newData[studentId] = 'Absent';
+                  });
+                  setAttendanceData(newData);
+                }
+              }}
+              readOnly={existingAttendance && !isEditMode}
+              searchTerm={searchTerm}
+              subdivisionType={subdivisionType}
+            />
           ) : filteredStudents.length === 0 ? (
             <Card className='border-0 shadow-lg border-l-4 border-l-amber-500'>
               <CardContent className='p-8'>

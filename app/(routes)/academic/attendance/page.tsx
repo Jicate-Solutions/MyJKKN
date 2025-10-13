@@ -218,6 +218,7 @@ export default function AttendancePage() {
   };
 
   // Navigate to mark attendance page with optional section
+  // Updated: 2025-10-13 - Pass subdivision group data for group-specific attendance
   const navigateToMarkAttendance = (
     period: AttendancePeriodOption,
     sectionId?: string
@@ -236,6 +237,37 @@ export default function AttendancePage() {
     // For semester-level with multiple sections, omit sectionId to load all students
     if (sectionId) {
       params.sectionId = sectionId;
+    }
+
+    // Updated: 2025-10-13 - Pass subdivision group data if this is a subdivided period
+    if ((period as any).is_subdivided && (period as any).subdivision_group) {
+      const group = (period as any).subdivision_group;
+
+      console.log('[academic/attendance] Navigating with subdivision group:', {
+        group_name: group.group_name,
+        has_student_ids: !!group.student_ids,
+        student_count: group.student_ids?.length || 0,
+        has_staff_ids: !!group.staff_ids,
+        staff_ids: group.staff_ids,
+        staff_count: group.staff_ids?.length || 0
+      });
+
+      params.isSubdivided = 'true';
+      params.subdivisionGroupOrder = String(group.group_order);
+      params.subdivisionGroupName = group.group_name;
+      // Pass student and staff IDs as comma-separated strings
+      if (group.student_ids && group.student_ids.length > 0) {
+        params.subdivisionStudentIds = group.student_ids.join(',');
+      }
+      if (group.staff_ids && group.staff_ids.length > 0) {
+        params.subdivisionStaffIds = group.staff_ids.join(',');
+        console.log('[academic/attendance] Setting subdivisionStaffIds parameter:', params.subdivisionStaffIds);
+      } else {
+        console.warn('[academic/attendance] No staff_ids found in subdivision group!');
+      }
+      if (group.lab_room) {
+        params.subdivisionLabRoom = group.lab_room;
+      }
     }
 
     const searchParams = new URLSearchParams(params);

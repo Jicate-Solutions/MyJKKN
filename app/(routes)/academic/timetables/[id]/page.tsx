@@ -99,11 +99,13 @@ import { BatchTimetableGrid } from './_components/batch-timetable-grid';
 import { SlotDialog } from './_components/slot-dialog';
 import { PeriodConfiguration } from './_components/period-configuration';
 import { SortablePeriodItem } from './_components/sortable-period-item';
+import { SubdivisionConfigDialog } from './_components/subdivision-config-dialog';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { SubdivisionConfig, SubdivisionType, SubdivisionMode } from '@/types/academics';
 
 // All available days (Monday to Saturday - Sunday is holiday)
 const ALL_DAYS_OF_WEEK: DayOfWeek[] = [
@@ -234,6 +236,15 @@ export default function TimetableDetailPage({
   const [staffPlanningStaff, setStaffPlanningStaff] = useState<any[]>([]);
   const [loadingStaffPlanData, setLoadingStaffPlanData] = useState(false);
 
+  // State for subdivision config dialog (Updated: 2025-10-11)
+  const [subdivisionConfigOpen, setSubdivisionConfigOpen] = useState(false);
+  const [pendingSlotData, setPendingSlotData] = useState<any | null>(null);
+  const [pendingPeriod, setPendingPeriod] = useState<Period | null>(null); // Store period before dialog closes
+  const [pendingDay, setPendingDay] = useState<DayOfWeek | string | null>(null); // Store day before dialog closes
+  const [subdivisionType, setSubdivisionType] = useState<SubdivisionType>('practical');
+  const [subdivisionMode, setSubdivisionMode] = useState<SubdivisionMode>('auto');
+  const [allStudentsForSubdivision, setAllStudentsForSubdivision] = useState<any[]>([]);
+
   // Fetch courses, staff and sections data
   const coursesQuery = useCourses({
     institution_id: timetable?.institution_id,
@@ -281,14 +292,9 @@ export default function TimetableDetailPage({
       ) {
         // It's already a UUID, use it directly
         semesterIdForStaffPlan = currentTimetable.semester_id;
-        console.log('Using semester UUID:', semesterIdForStaffPlan);
       } else if (typeof currentTimetable.semester_id === 'string') {
         // Fallback: if it's still a string name, look it up (for backwards compatibility)
         try {
-          console.log(
-            'Looking up semester ID for timetable semester:',
-            currentTimetable.semester_id
-          );
 
           // Find the semester ID by matching semester name within the same program/department context
           const semestersResponse = await SemesterService.getSemesters({
@@ -305,20 +311,10 @@ export default function TimetableDetailPage({
 
           if (matchingSemester) {
             semesterIdForStaffPlan = matchingSemester.id;
-            console.log(
-              '✓ Found matching semester ID:',
-              semesterIdForStaffPlan,
-              'for semester:',
-              currentTimetable.semester_id
-            );
           } else {
             console.warn(
               '✗ No matching semester found for:',
               currentTimetable.semester_id
-            );
-            console.log(
-              'Available semesters:',
-              semestersResponse.data.map((s) => s.semester_name)
             );
             // If we can't find the semester, don't show any staff planning data
             setStaffPlanningCourses([]);
@@ -353,19 +349,11 @@ export default function TimetableDetailPage({
             currentTimetable.academic_year_id
           );
 
-        console.log(
-          'Found consolidated staff plan with courses:',
-          consolidatedPlan.all_courses.length
-        );
-
         // Check if this is an empty staff plan (no plans found for this semester)
         if (
           consolidatedPlan.total_courses === 0 &&
           consolidatedPlan.all_courses.length === 0
         ) {
-          console.info(
-            'No staff plans available for this semester configuration'
-          );
         }
 
         // Extract unique courses and staff from the consolidated plan
@@ -395,15 +383,6 @@ export default function TimetableDetailPage({
         const staffFromStaffPlanning = Array.from(staffSet)
           .map((staffId) => staffDetailsMap.get(staffId))
           .filter(Boolean);
-
-        console.log(
-          'Extracted courses from staff planning:',
-          coursesFromStaffPlanning.length
-        );
-        console.log(
-          'Extracted staff from staff planning:',
-          staffFromStaffPlanning.length
-        );
 
         setStaffPlanningCourses(coursesFromStaffPlanning);
         setStaffPlanningStaff(staffFromStaffPlanning);
@@ -438,9 +417,6 @@ export default function TimetableDetailPage({
         }
 
         // For now, just indicate that staff planning data exists but couldn't be fully loaded
-        console.log(
-          'Staff plans exist but detailed course data not loaded for performance'
-        );
         setStaffPlanningCourses([]);
         setStaffPlanningStaff([]);
       }
@@ -464,13 +440,7 @@ export default function TimetableDetailPage({
 
   // Monitor slotDialogOpen changes
   useEffect(() => {
-    console.log('slotDialogOpen state changed to:', slotDialogOpen);
     if (slotDialogOpen) {
-      console.log('Dialog should be open now with:', {
-        day: selectedDay,
-        period: selectedPeriod?.period_name,
-        timetableFormat: timetableFormat
-      });
     }
   }, [slotDialogOpen, selectedDay, selectedPeriod, timetableFormat]);
 
@@ -496,7 +466,6 @@ export default function TimetableDetailPage({
       ) {
         // It's already a UUID, use it directly
         semesterId = currentTimetable.semester_id;
-        console.log('Using semester UUID for sections:', semesterId);
       } else if (typeof currentTimetable.semester_id === 'string') {
         // Fallback: if it's still a string name, look it up (for backwards compatibility)
         try {
@@ -516,12 +485,6 @@ export default function TimetableDetailPage({
 
           if (matchingSemester) {
             semesterId = matchingSemester.id;
-            console.log(
-              'Found matching semester:',
-              matchingSemester.semester_name,
-              'ID:',
-              semesterId
-            );
           } else {
             console.warn(
               'No matching semester found for:',
@@ -536,17 +499,10 @@ export default function TimetableDetailPage({
       let sectionsData: any[] = [];
       if (semesterId && currentTimetable.institution_id) {
         // Use the specialized method for semester and institution filtering
-        console.log(
-          'Fetching sections for semester ID:',
-          semesterId,
-          'and institution:',
-          currentTimetable.institution_id
-        );
         sectionsData = await SectionService.getSectionsBySemesterAndInstitution(
           semesterId,
           currentTimetable.institution_id
         );
-        console.log('Found filtered sections:', sectionsData.length);
       } else if (currentTimetable.institution_id) {
         // Fallback to filtering by institution only
         console.warn('Using fallback - filtering by institution only');
@@ -788,7 +744,6 @@ export default function TimetableDetailPage({
         // For batch mode, load selected dates
         if (preserveUnsavedDates && currentSelectedDates.length > 0) {
           // Preserve unsaved date ranges - use current state instead of DB data
-          console.log('Preserving unsaved date ranges:', currentSelectedDates);
           setSelectedDates(currentSelectedDates);
         } else if (
           timetableData.selected_dates &&
@@ -842,10 +797,10 @@ export default function TimetableDetailPage({
         setSelectedPeriods([]);
       }
 
-      const timetableSlots = await TimetableService.getTimetableSlots(
-        timetableId
-      );
-      setSlots(timetableSlots || []);
+      // CRITICAL FIX: Use enriched slots from timetableData instead of fetching raw data
+      // getTimetableSlots() returns raw database data without enrichment (missing is_subdivided flag and course/staff objects)
+      // timetableData.slots contains enriched data with all subdivision information
+      setSlots(timetableData.slots || []);
     } catch (err) {
       console.error('Error fetching timetable data:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -895,7 +850,8 @@ export default function TimetableDetailPage({
   };
 
   // Open slot dialog to add or edit a slot
-  const openSlotDialog = (
+  // Updated: 2025-10-11 - Handle editing subdivided slots
+  const openSlotDialog = async (
     day: DayOfWeek,
     period: Period,
     existingSlot?: any
@@ -911,6 +867,48 @@ export default function TimetableDetailPage({
         variant: 'destructive'
       });
       return;
+    }
+
+    // Check if this is an existing subdivided slot - show config dialog directly
+    if (existingSlot?.is_subdivided && existingSlot?.sub_slots && existingSlot.sub_slots.length > 0) {
+      const hasStudentAssignments = existingSlot.sub_slots.some((ss: any) => ss.student_ids && ss.student_ids.length > 0);
+
+      if (hasStudentAssignments) {
+
+        // Set up state for editing
+        setSelectedDay(day);
+        setSelectedPeriod(period);
+        setSelectedSlot(existingSlot);
+        setPendingSlotData(existingSlot);
+        setPendingPeriod(period); // Updated: 2025-10-13 - Store period for saving edited subdivision
+        setPendingDay(day); // Updated: 2025-10-13 - Store day for saving edited subdivision
+        setSubdivisionType(existingSlot.subdivision_type || 'practical');
+        setSubdivisionMode(existingSlot.subdivision_mode || 'auto');
+
+        // Fetch students for the section
+        if (existingSlot.section_ids && existingSlot.section_ids.length > 0) {
+          try {
+            const sectionId = existingSlot.section_ids[0];
+            const { StudentService } = await import('@/lib/services/student/student-service');
+            const studentsResponse = await StudentService.getStudents({
+              section: sectionId,
+              limit: 1000
+            });
+            setAllStudentsForSubdivision(studentsResponse.data || []);
+
+            // Open subdivision config dialog directly
+            setSubdivisionConfigOpen(true);
+          } catch (error) {
+            console.error('Error fetching students for editing subdivision:', error);
+            toast({
+              title: 'Error',
+              description: 'Failed to load student data. Please try again.',
+              variant: 'destructive'
+            });
+          }
+        }
+        return;
+      }
     }
 
     // For viewing existing slots, allow users with view permission
@@ -1065,11 +1063,6 @@ export default function TimetableDetailPage({
             current.setDate(current.getDate() + 1);
           }
 
-          console.log(
-            `Deleting slot from ${dates.length} dates in range:`,
-            dates
-          );
-
           // Delete the slot from all dates in the range
           const deletePromises = dates.map((date) =>
             TimetableService.deleteTimetableSlot(
@@ -1153,9 +1146,97 @@ export default function TimetableDetailPage({
   };
 
   // Save a timetable slot
+  // Updated: 2025-10-11 - Added subdivision config dialog support
   const saveSlot = async (slotData: any) => {
     if (!selectedPeriod) return;
 
+    // Check if this is a subdivided slot that needs configuration
+    if (slotData.is_subdivided && !slotData.sub_slots) {
+
+      // Updated: 2025-10-11 - Store period and day BEFORE closing dialog
+      setPendingSlotData(slotData);
+      setPendingPeriod(selectedPeriod); // Store period before dialog closes
+      setPendingDay(selectedDay); // Store day before dialog closes
+      setSubdivisionType(slotData.subdivision_type || 'practical');
+      setSubdivisionMode(slotData.subdivision_mode || 'auto');
+
+      // Fetch students for the section(s) in this slot
+      if (slotData.section_ids && slotData.section_ids.length > 0) {
+        try {
+          const sectionId = slotData.section_ids[0]; // Use first section for subdivision
+          const { StudentService } = await import('@/lib/services/student/student-service');
+          const studentsResponse = await StudentService.getStudents({
+            section: sectionId,
+            limit: 1000 // Get all students in the section
+          });
+          setAllStudentsForSubdivision(studentsResponse.data || []);
+
+          // Close slot dialog and open subdivision config dialog
+          closeSlotDialog();
+          setSubdivisionConfigOpen(true);
+        } catch (error) {
+          console.error('Error fetching students for subdivision:', error);
+          toast({
+            title: 'Error',
+            description: 'Failed to fetch students for subdivision. Please try again.',
+            variant: 'destructive'
+          });
+        }
+      } else {
+        toast({
+          title: 'Error',
+          description: 'Please select a section for subdivision.',
+          variant: 'destructive'
+        });
+      }
+      return;
+    }
+
+    // Check if this is editing an existing subdivided slot (has sub_slots with student_ids)
+    if (slotData.is_subdivided && slotData.sub_slots && slotData.sub_slots.length > 0) {
+
+      // Check if sub_slots have student_ids (already configured)
+      const hasStudentAssignments = slotData.sub_slots.some((ss: any) => ss.student_ids && ss.student_ids.length > 0);
+
+      if (!hasStudentAssignments) {
+        // Existing subdivided slot but no student assignments - show config dialog
+
+        // Updated: 2025-10-11 - Store period and day BEFORE closing dialog
+        setPendingSlotData(slotData);
+        setPendingPeriod(selectedPeriod); // Store period before dialog closes
+        setPendingDay(selectedDay); // Store day before dialog closes
+        setSubdivisionType(slotData.subdivision_type || 'practical');
+        setSubdivisionMode(slotData.subdivision_mode || 'auto');
+
+        // Fetch students for editing
+        if (slotData.section_ids && slotData.section_ids.length > 0) {
+          try {
+            const sectionId = slotData.section_ids[0];
+            const { StudentService } = await import('@/lib/services/student/student-service');
+            const studentsResponse = await StudentService.getStudents({
+              section: sectionId,
+              limit: 1000
+            });
+            setAllStudentsForSubdivision(studentsResponse.data || []);
+
+            closeSlotDialog();
+            setSubdivisionConfigOpen(true);
+          } catch (error) {
+            console.error('Error fetching students for subdivision:', error);
+            toast({
+              title: 'Error',
+              description: 'Failed to fetch students for subdivision. Please try again.',
+              variant: 'destructive'
+            });
+          }
+        }
+        return;
+      }
+
+      // Has student assignments - save normally
+    }
+
+    // Continue with normal save flow
     // For batch mode, we need to use the date; for regular mode, use the day
     let dateStr: string;
 
@@ -1185,15 +1266,6 @@ export default function TimetableDetailPage({
       }
     }
 
-    console.log('Batch mode save - parameters:', {
-      timetableId,
-      dateStr,
-      periodId: selectedPeriod.id,
-      slotData,
-      isBatch: true,
-      selectedDay
-    });
-
     if (!dateStr || dateStr === 'null' || dateStr === 'undefined') {
       console.error('Invalid date string in batch mode:', dateStr);
       toast({
@@ -1221,11 +1293,6 @@ export default function TimetableDetailPage({
             dates.push(current.toISOString().split('T')[0]);
             current.setDate(current.getDate() + 1);
           }
-
-          console.log(
-            `Creating slot for ${dates.length} dates in range:`,
-            dates
-          );
 
           // Create the same slot for all dates in the range
           const createPromises = dates.map((date) =>
@@ -1272,6 +1339,77 @@ export default function TimetableDetailPage({
       toast({
         title: 'Error',
         description: 'Failed to save slot. Please try again.',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  // Handle subdivision config save (Updated: 2025-10-11)
+  const handleSubdivisionConfigSave = async (config: SubdivisionConfig) => {
+    // Updated: 2025-10-11 - Use pendingPeriod/pendingDay instead of selectedPeriod/selectedDay
+    if (!pendingSlotData || !pendingPeriod) {
+      console.error('No pending slot data or pending period');
+      return;
+    }
+
+    // Format the slot data with subdivision configuration
+    const formattedSlotData = TimetableService.formatSubdivisionDataForSlot(
+      pendingSlotData,
+      {
+        groups: config.groups,
+        subdivision_type: config.subdivision_type,
+        subdivision_mode: config.subdivision_mode
+      }
+    );
+
+    // Get date string for batch mode
+    // Updated: 2025-10-11 - Use pendingDay instead of selectedDay
+    let dateStr: string;
+
+    if (pendingDay) {
+      dateStr = pendingDay as string;
+    } else {
+      const storedDate = sessionStorage.getItem('batchSelectedDate');
+      if (storedDate) {
+        dateStr = storedDate;
+      } else {
+        console.error('No date available for batch mode slot');
+        toast({
+          title: 'Error',
+          description: 'Please select a date for the slot.',
+          variant: 'destructive'
+        });
+        setSubdivisionConfigOpen(false);
+        return;
+      }
+    }
+
+    try {
+      // Save the subdivided slot
+      // Updated: 2025-10-11 - Use pendingPeriod instead of selectedPeriod
+      await TimetableService.updateTimetableSlot(
+        timetableId,
+        dateStr,
+        pendingPeriod.id,
+        formattedSlotData,
+        true // isBatch = true for batch mode
+      );
+
+      await fetchTimetableData(true);
+      setSubdivisionConfigOpen(false);
+      // Clear pending data after successful save
+      setPendingSlotData(null);
+      setPendingPeriod(null);
+      setPendingDay(null);
+      toast({
+        title: 'Success',
+        description: 'Subdivided slot created successfully'
+      });
+    } catch (err) {
+      console.error('Error saving subdivided slot:', err);
+      toast({
+        title: 'Error',
+        description: 'Failed to save subdivided slot. Please try again.',
         variant: 'destructive'
       });
     }
@@ -1329,11 +1467,6 @@ export default function TimetableDetailPage({
               dates.push(current.toISOString().split('T')[0]);
               current.setDate(current.getDate() + 1);
             }
-
-            console.log(
-              `Deleting slot from ${dates.length} dates in range:`,
-              dates
-            );
 
             // Delete the slot from all dates in the range
             const deletePromises = dates.map((date) =>
@@ -1555,7 +1688,6 @@ export default function TimetableDetailPage({
         );
 
         if (removedDates.length > 0) {
-          console.log('Removing slots for dates:', removedDates);
 
           // Delete slots for removed dates before saving configuration
           await TimetableService.deleteSlotsForRemovedDates(
@@ -2401,12 +2533,6 @@ export default function TimetableDetailPage({
                   selectedPeriods={selectedPeriods}
                   slots={slots}
                   onSlotClick={(date, period, existingSlot) => {
-                    console.log('BatchTimetableGrid onSlotClick called:', {
-                      date,
-                      period: period?.period_name,
-                      existingSlot: !!existingSlot,
-                      slotDialogOpen: slotDialogOpen
-                    });
 
                     // For batch mode, store the date range info
                     if (typeof window !== 'undefined') {
@@ -2415,7 +2541,6 @@ export default function TimetableDetailPage({
 
                     // Prevent slot creation/editing for break periods
                     if (period.is_break && !existingSlot) {
-                      console.log('Preventing break period slot creation');
                       toast({
                         title: 'Break Period',
                         description:
@@ -2580,12 +2705,7 @@ export default function TimetableDetailPage({
                       ]);
                     }
 
-                    console.log('Setting slotDialogOpen to true');
                     setSlotDialogOpen(true);
-                    console.log(
-                      'slotDialogOpen set, current state:',
-                      slotDialogOpen
-                    );
                   }}
                   onSlotDelete={handleSlotDelete}
                   onRemoveDate={(rangeMarker) => {
@@ -2718,6 +2838,56 @@ export default function TimetableDetailPage({
           onAddPeriod={addPeriod}
           onSave={savePeriodSelections}
         />
+
+        {/* Subdivision Config Dialog (Updated: 2025-10-11) */}
+        {pendingSlotData && (
+          <SubdivisionConfigDialog
+            isOpen={subdivisionConfigOpen}
+            onClose={() => {
+              setSubdivisionConfigOpen(false);
+              // Updated: 2025-10-11 - Clear all pending data
+              setPendingSlotData(null);
+              setPendingPeriod(null);
+              setPendingDay(null);
+            }}
+            onSave={handleSubdivisionConfigSave}
+            sectionId={pendingSlotData.section_ids?.[0] || ''}
+            courseId={pendingSlotData.course_id || ''}
+            availableCourses={courses}
+            subdivisionType={subdivisionType}
+            subdivisionMode={subdivisionMode}
+            allStudents={allStudentsForSubdivision}
+            availableStaff={staff}
+            existingConfig={
+              pendingSlotData.sub_slots && pendingSlotData.sub_slots.length > 0
+                ? (() => {
+                    console.log('[academic/timetables] Building existingConfig from pendingSlotData.sub_slots:', pendingSlotData.sub_slots);
+
+                    const config = {
+                      section_id: pendingSlotData.section_ids?.[0] || '',
+                      course_id: pendingSlotData.course_id || '',
+                      group_count: pendingSlotData.sub_slots.length,
+                      subdivision_type: pendingSlotData.subdivision_type || 'practical',
+                      subdivision_mode: pendingSlotData.subdivision_mode || 'auto',
+                      groups: pendingSlotData.sub_slots.map((ss: any) => ({
+                        group_order: ss.sub_slot_order,
+                        group_name: ss.group_name || `Group ${String.fromCharCode(64 + ss.sub_slot_order)}`,
+                        course_id: ss.course_id || pendingSlotData.course_id || '',
+                        staff_ids: ss.staff_ids || [],
+                        student_ids: ss.student_ids || [],
+                        lab_room: ss.lab_room || '',
+                        max_capacity: ss.max_capacity
+                      }))
+                    };
+
+                    console.log('[academic/timetables] Created existingConfig:', config);
+                    return config;
+                  })()
+                : undefined
+            }
+            timetable={timetable}
+          />
+        )}
 
         {/* Add Period Dialog */}
         <Dialog

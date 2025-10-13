@@ -80,13 +80,6 @@ export class TimetableService {
     attendanceDate?: string;
   }> {
     try {
-      console.log('isPeriodSlotLocked called with:', {
-        timetableId,
-        periodId,
-        day,
-        isBatch
-      });
-
       let attendanceQuery = this.supabase
         .from('student_attendance')
         .select('id, attendance_data, attendance_date')
@@ -98,10 +91,6 @@ export class TimetableService {
         // Validate date format to prevent SQL errors
         const isValidDate = day && /^\d{4}-\d{2}-\d{2}$/.test(day);
         if (isValidDate) {
-          console.log(
-            'isPeriodSlotLocked: Valid date for batch mode, filtering by:',
-            day
-          );
           attendanceQuery = attendanceQuery.eq('attendance_date', day);
         } else {
           console.warn(
@@ -110,13 +99,6 @@ export class TimetableService {
           );
           // Don't add date filter if format is invalid
         }
-      } else {
-        // Regular mode - day contains day of week (MONDAY, TUESDAY, etc.)
-        // DO NOT filter by date - check all attendance records
-        console.log(
-          'isPeriodSlotLocked: Regular mode, checking all dates. Day of week:',
-          day
-        );
       }
 
       const { data: attendanceCheck, error } = await attendanceQuery;
@@ -838,16 +820,14 @@ Please select a different date period that doesn't overlap.`
       } = await this.supabase.auth.getUser();
 
       if (authError) {
-        console.error('🔐 Authentication error:', authError);
+        console.error('Authentication error:', authError);
         throw new Error(`Authentication error: ${authError.message}`);
       }
 
       if (!user) {
-        console.error('🔐 No authenticated user found');
+        console.error('No authenticated user found');
         throw new Error('User not authenticated');
       }
-
-      console.log('🔍 Authenticated user:', { id: user.id, email: user.email });
 
       let query = this.supabase.from('timetables').select(
         `
@@ -897,7 +877,6 @@ Please select a different date period that doesn't overlap.`
         // Frontend sends section.section_name (string), so filter by joined field name
         // Try PostgREST syntax for filtering on joined fields
         query = query.eq('sections.section_name', filters.section);
-        console.log('🔍 Applied section filter:', filters.section);
       }
 
       if (filters.is_active !== undefined) {
@@ -907,19 +886,6 @@ Please select a different date period that doesn't overlap.`
       if (filters.is_template !== undefined) {
         query = query.eq('is_template', filters.is_template);
       }
-
-      console.log('🔍 Applied filters:', {
-        search: filters.search,
-        institution_id: filters.institution_id,
-        academic_year_id: filters.academic_year_id,
-        degree_id: filters.degree_id,
-        program_id: filters.program_id,
-        department_id: filters.department_id,
-        semester: filters.semester,
-        section: filters.section,
-        is_active: filters.is_active,
-        is_template: filters.is_template
-      });
 
       // Apply pagination
       const page = filters.page || 1;
@@ -931,17 +897,11 @@ Please select a different date period that doesn't overlap.`
       // Default order by timetable_name
       query = query.order('timetable_name', { ascending: true });
 
-      console.log('🔍 Executing query with pagination:', {
-        page,
-        limit,
-        start
-      });
-
       const { data, error, count } = await query;
 
       if (error) {
-        console.error('❌ Database query error:', error);
-        console.error('❌ Error details:', {
+        console.error('Database query error:', error);
+        console.error('Error details:', {
           message: error.message,
           details: error.details,
           hint: error.hint,
@@ -954,7 +914,6 @@ Please select a different date period that doesn't overlap.`
           error.message.includes('syntax') ||
           error.message.includes('relation')
         ) {
-          console.log('🔄 Trying alternative section filter syntax...');
 
           // Reset query and try different syntax
           let retryQuery = this.supabase.from('timetables').select(
@@ -1013,12 +972,9 @@ Please select a different date period that doesn't overlap.`
               if (sectionsResponse.data && sectionsResponse.data.length > 0) {
                 const sectionIds = sectionsResponse.data.map((s) => s.id);
                 retryQuery = retryQuery.in('section_id', sectionIds);
-                console.log('🔄 Using section IDs for filtering:', sectionIds);
-              } else {
-                console.log('⚠️ No sections found with name:', filters.section);
               }
             } catch (sectionError) {
-              console.error('❌ Error fetching section IDs:', sectionError);
+              console.error('Error fetching section IDs:', sectionError);
             }
           }
           if (filters.is_active !== undefined) {
@@ -1038,32 +994,13 @@ Please select a different date period that doesn't overlap.`
           } = await retryQuery;
 
           if (retryError) {
-            console.error('❌ Retry query also failed:', retryError);
+            console.error('Retry query also failed:', retryError);
             throw new Error(
               `Database error: ${error.message}${
                 error.hint ? ` (Hint: ${error.hint})` : ''
               }`
             );
           }
-
-          console.log('✅ Retry query succeeded');
-
-          // Debug logging for retry data
-          console.log(
-            '🔍 TimetableService.getTimetables - Retry Supabase response:',
-            {
-              dataCount: retryData?.length || 0,
-              firstItem: retryData?.[0] || null,
-              hasSemestersOnFirst:
-                retryData?.[0]?.semesters || 'no semesters property',
-              hasSectionsOnFirst:
-                retryData?.[0]?.sections || 'no sections property',
-              semesterValue:
-                retryData?.[0]?.semesters?.semester_name || 'no semester_name',
-              sectionValue:
-                retryData?.[0]?.sections?.section_name || 'no section_name'
-            }
-          );
 
           return {
             data: retryData || [],
@@ -1083,20 +1020,6 @@ Please select a different date period that doesn't overlap.`
         );
       }
 
-      // Debug logging - check what Supabase actually returns
-      console.log(
-        '🔍 TimetableService.getTimetables - Raw Supabase response:',
-        {
-          dataCount: data?.length || 0,
-          firstItem: data?.[0] || null,
-          hasSemestersOnFirst: data?.[0]?.semesters || 'no semesters property',
-          hasSectionsOnFirst: data?.[0]?.sections || 'no sections property',
-          semesterValue:
-            data?.[0]?.semesters?.semester_name || 'no semester_name',
-          sectionValue: data?.[0]?.sections?.section_name || 'no section_name'
-        }
-      );
-
       const result = {
         data: data || [],
         metadata: {
@@ -1106,27 +1029,6 @@ Please select a different date period that doesn't overlap.`
           totalPages: count ? Math.ceil(count / limit) : 0
         }
       };
-
-      // Add helpful message when no data is found
-      if ((count || 0) === 0) {
-        console.log('ℹ️ No timetables found for the current filters.');
-        console.log('💡 This could mean:');
-        console.log(
-          '   • No timetables have been created for this semester/section yet'
-        );
-        console.log(
-          "   • The selected semester/section combination doesn't exist"
-        );
-        console.log(
-          '   • You may need to create timetables for this combination'
-        );
-
-        if (filters.semester || filters.section) {
-          console.log(
-            '🔧 Suggestion: Try removing semester/section filters to see available timetables'
-          );
-        }
-      }
 
       return result;
     } catch (error) {
@@ -1199,6 +1101,7 @@ Please select a different date period that doesn't overlap.`
       }
 
       // Extract all unique course IDs and staff IDs from the timetable data
+      // Updated: 2025-10-13 - Also extract from sub_slots for subdivided/combined classes
       const courseIds = new Set<string>();
       const staffIds = new Set<string>();
 
@@ -1206,6 +1109,7 @@ Please select a different date period that doesn't overlap.`
         if (daySlots && typeof daySlots === 'object') {
           Object.values(daySlots).forEach((slot: any) => {
             if (slot && typeof slot === 'object') {
+              // Extract from main slot
               if (slot.course_id) {
                 courseIds.add(slot.course_id);
               }
@@ -1217,6 +1121,20 @@ Please select a different date period that doesn't overlap.`
               if (slot.primary_staff_id) {
                 staffIds.add(slot.primary_staff_id);
               }
+
+              // CRITICAL FIX: Also extract from sub_slots (for subdivided and combined classes)
+              if (slot.sub_slots && Array.isArray(slot.sub_slots)) {
+                slot.sub_slots.forEach((subSlot: any) => {
+                  if (subSlot.course_id) {
+                    courseIds.add(subSlot.course_id);
+                  }
+                  if (subSlot.staff_ids && Array.isArray(subSlot.staff_ids)) {
+                    subSlot.staff_ids.forEach((staffId: string) =>
+                      staffIds.add(staffId)
+                    );
+                  }
+                });
+              }
             }
           });
         }
@@ -1226,12 +1144,6 @@ Please select a different date period that doesn't overlap.`
       const coursesMap = new Map();
       if (courseIds.size > 0) {
         const courseIdsArray = Array.from(courseIds);
-        console.log(
-          'Fetching courses for IDs:',
-          courseIdsArray,
-          'Institution:',
-          timetable.institution_id
-        );
 
         const { data: courses, error: coursesError } = await this.supabase
           .from('courses')
@@ -1243,7 +1155,6 @@ Please select a different date period that doesn't overlap.`
           console.error('Error fetching courses:', coursesError);
           console.error('Course IDs that failed:', courseIdsArray);
         } else if (courses) {
-          console.log('Successfully fetched courses:', courses);
           courses.forEach((course) => coursesMap.set(course.id, course));
         }
       }
@@ -1252,12 +1163,6 @@ Please select a different date period that doesn't overlap.`
       const staffMap = new Map();
       if (staffIds.size > 0) {
         const staffIdsArray = Array.from(staffIds);
-        console.log(
-          'Fetching staff for IDs:',
-          staffIdsArray,
-          'Institution:',
-          timetable.institution_id
-        );
 
         // RLS policy has been updated to allow students to view staff
 
@@ -1274,7 +1179,6 @@ Please select a different date period that doesn't overlap.`
           console.error('Staff IDs that failed:', staffIdsArray);
           console.error('Institution ID:', timetable.institution_id);
         } else if (staff) {
-          console.log('Successfully fetched staff:', staff);
           staff.forEach((staffMember) =>
             staffMap.set(staffMember.id, staffMember)
           );
@@ -1310,6 +1214,53 @@ Please select a different date period that doesn't overlap.`
                 staffMap.has(slot.primary_staff_id)
               ) {
                 slot.staff = staffMap.get(slot.primary_staff_id);
+              }
+
+              // Updated: 2025-10-13 - CRITICAL: Also enrich sub_slots with course and staff objects
+              if (slot.sub_slots && Array.isArray(slot.sub_slots) && slot.sub_slots.length > 0) {
+                // CRITICAL FIX: Auto-detect if this is a subdivided slot
+                // Check if sub_slots have student_ids or group_name (indicators of subdivision)
+                const hasSubdivisionData = slot.sub_slots.some((s: any) =>
+                  s.student_ids?.length > 0 || s.group_name
+                );
+
+                if (hasSubdivisionData && !slot.is_subdivided) {
+                  slot.is_subdivided = true;
+                  // Set subdivision type if not present
+                  if (!slot.subdivision_type) {
+                    slot.subdivision_type = 'practical'; // Default
+                  }
+                  // Set subdivision mode if not present
+                  if (!slot.subdivision_mode) {
+                    slot.subdivision_mode = 'manual'; // Default
+                  }
+                }
+
+                slot.sub_slots = slot.sub_slots.map((subSlot: any, index: number) => {
+                  // Enrich course
+                  if (subSlot.course_id && coursesMap.has(subSlot.course_id)) {
+                    subSlot.course = coursesMap.get(subSlot.course_id);
+                  } else {
+                    console.warn(`Sub-slot ${index} missing course - course_id: ${subSlot.course_id}, in map: ${coursesMap.has(subSlot.course_id)}`);
+                  }
+
+                  // Enrich staff
+                  if (subSlot.staff_ids && Array.isArray(subSlot.staff_ids)) {
+                    subSlot.staff_members = subSlot.staff_ids
+                      .map((staffId: string) => {
+                        const staffMember = staffMap.get(staffId);
+                        if (!staffMember) {
+                          console.warn(`Sub-slot ${index} staff not found in map: ${staffId}`);
+                        }
+                        return staffMember;
+                      })
+                      .filter(Boolean);
+                  } else {
+                    console.warn(`Sub-slot ${index} has no staff_ids`);
+                  }
+
+                  return subSlot;
+                });
               }
 
               // Set period_id and day_of_week for easier access
@@ -1416,6 +1367,53 @@ Please select a different date period that doesn't overlap.`
     }
   }
 
+  // NEW: Helper method to format subdivision data for saving (Updated: 2025-10-11)
+  // Updated: 2025-10-13 - Fixed to work even when is_subdivided is not yet set
+  static formatSubdivisionDataForSlot(
+    slotData: any,
+    subdivisionConfig?: {
+      groups: Array<{
+        group_order: number;
+        group_name: string;
+        course_id: string;
+        staff_ids: string[];
+        student_ids: string[];
+        lab_room?: string;
+        max_capacity?: number;
+      }>;
+      subdivision_type: string;
+      subdivision_mode: string;
+    }
+  ): any {
+    // Updated: Don't check slotData.is_subdivided - just check if subdivisionConfig is provided
+    if (!subdivisionConfig || !subdivisionConfig.groups || subdivisionConfig.groups.length === 0) {
+      return slotData;
+    }
+
+    // Convert subdivision groups to sub_slots format
+    const subSlots = subdivisionConfig.groups.map((group) => ({
+      sub_slot_order: group.group_order,
+      course_id: group.course_id,
+      staff_ids: group.staff_ids,
+      section_ids: slotData.section_ids || [], // Preserve section IDs
+      student_ids: group.student_ids, // NEW: Student assignments for this group
+      group_name: group.group_name, // NEW: Group name
+      lab_room: group.lab_room, // NEW: Lab room
+      max_capacity: group.max_capacity, // NEW: Max capacity
+      is_break_slot: false,
+      break_description: undefined
+    }));
+
+    return {
+      ...slotData,
+      is_combined: false, // Subdivision uses sub_slots but is not "combined class"
+      is_subdivided: true,
+      subdivision_type: subdivisionConfig.subdivision_type,
+      subdivision_mode: subdivisionConfig.subdivision_mode,
+      sub_slots: subSlots
+    };
+  }
+
   static async updateTimetableSlot(
     timetableId: string,
     day: string,
@@ -1425,14 +1423,6 @@ Please select a different date period that doesn't overlap.`
     suppressToast: boolean = false
   ): Promise<any> {
     try {
-      console.log('TimetableService.updateTimetableSlot - inputs:', {
-        timetableId,
-        day,
-        periodId,
-        slotData,
-        isBatch
-      });
-
       // For batch mode, we need to check attendance for the specific date
       // For regular mode, we check for the day/period combination
       let attendanceQuery = this.supabase
@@ -1446,14 +1436,10 @@ Please select a different date period that doesn't overlap.`
         // Check if day is a valid date format (YYYY-MM-DD)
         const isValidDate = day && /^\d{4}-\d{2}-\d{2}$/.test(day);
         if (isValidDate) {
-          console.log('Batch mode with valid date, adding filter:', day);
           attendanceQuery = attendanceQuery.eq('attendance_date', day);
         } else {
           console.warn('Batch mode but invalid date format:', day);
         }
-      } else {
-        // Regular mode - day is day of week, DO NOT filter by date
-        console.log('Regular mode - NOT filtering by date. Day of week:', day);
       }
 
       const { data: attendanceCheck, error: checkError } =
@@ -1529,8 +1515,6 @@ Please select a different date period that doesn't overlap.`
         p_is_batch: isBatch
       };
 
-      console.log('TimetableService.updateTimetableSlot - payload:', payload);
-
       const { data, error } = await this.supabase.rpc(
         'update_timetable_slot',
         payload
@@ -1575,20 +1559,10 @@ Please select a different date period that doesn't overlap.`
         // Check if day is a valid date format (YYYY-MM-DD)
         const isValidDate = day && /^\d{4}-\d{2}-\d{2}$/.test(day);
         if (isValidDate) {
-          console.log(
-            'Delete: Batch mode with valid date, adding filter:',
-            day
-          );
           attendanceQuery = attendanceQuery.eq('attendance_date', day);
         } else {
           console.warn('Delete: Batch mode but invalid date format:', day);
         }
-      } else {
-        // Regular mode - day is day of week, DO NOT filter by date
-        console.log(
-          'Delete: Regular mode - NOT filtering by date. Day of week:',
-          day
-        );
       }
 
       const { data: attendanceCheck, error: checkError } =
@@ -1685,13 +1659,6 @@ Please select a different date period that doesn't overlap.`
     periods: { id: string }[]
   ): Promise<void> {
     try {
-      console.log(
-        'Deleting slots for date range:',
-        dateRange,
-        'periods:',
-        periods
-      );
-
       // Generate all dates in the range
       const dates: string[] = [];
       const current = new Date(dateRange.start);
@@ -1715,10 +1682,6 @@ Please select a different date period that doesn't overlap.`
 
       // Execute all deletions (ignoring failures for non-existent slots)
       await Promise.allSettled(deletePromises);
-
-      console.log(
-        `Successfully processed slot deletions for ${dates.length} dates and ${periods.length} periods`
-      );
     } catch (error) {
       console.error('Error in deleteSlotsForDateRange:', error);
       throw error;
@@ -1731,13 +1694,6 @@ Please select a different date period that doesn't overlap.`
     periods: { id: string }[]
   ): Promise<void> {
     try {
-      console.log(
-        'Deleting slots for removed dates:',
-        removedDates,
-        'periods:',
-        periods
-      );
-
       // Delete all slots for each removed date and period combination
       const deletePromises: Promise<void>[] = [];
 
@@ -1750,15 +1706,7 @@ Please select a different date period that doesn't overlap.`
       }
 
       // Execute all deletions (ignoring failures for non-existent slots)
-      const results = await Promise.allSettled(deletePromises);
-
-      // Count successful deletions
-      const successful = results.filter((r) => r.status === 'fulfilled').length;
-      const failed = results.filter((r) => r.status === 'rejected').length;
-
-      console.log(
-        `Slot deletion completed: ${successful} successful, ${failed} failed (expected for non-existent slots)`
-      );
+      await Promise.allSettled(deletePromises);
     } catch (error) {
       console.error('Error in deleteSlotsForRemovedDates:', error);
       throw error;

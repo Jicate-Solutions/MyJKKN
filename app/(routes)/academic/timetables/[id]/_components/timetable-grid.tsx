@@ -3,7 +3,7 @@
 import { forwardRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Calendar, Lock, X } from 'lucide-react';
+import { Plus, Calendar, Lock, X, Users } from 'lucide-react';
 import { DayOfWeek, Period } from '@/types/academics';
 
 interface TimetableGridProps {
@@ -135,6 +135,69 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
         )}
       </div>
     );
+
+    // NEW: Helper function to render subdivided slot content (Updated: 2025-10-13)
+    const renderSubdividedSlot = (slot: any) => {
+      const groupCount = slot.sub_slots?.length || 0;
+      const subdivisionTypeLabel = slot.subdivision_type
+        ? slot.subdivision_type.charAt(0).toUpperCase() + slot.subdivision_type.slice(1)
+        : 'Practical';
+
+      // Extract all unique courses and staff from sub_slots
+      const allCourses = new Set<string>();
+      const allStaff = new Set<string>();
+
+      slot.sub_slots?.forEach((subSlot: any, index: number) => {
+        if (subSlot.course?.course_code) {
+          allCourses.add(subSlot.course.course_code);
+        } else {
+          console.warn(`Sub-slot ${index} missing course.course_code`);
+        }
+
+        subSlot.staff_members?.forEach((staff: any) => {
+          const staffName = `${staff.first_name} ${staff.last_name}`;
+          allStaff.add(staffName);
+        });
+      });
+
+      const coursesList = Array.from(allCourses);
+      const staffList = Array.from(allStaff);
+
+      return (
+        <div className='text-purple-700 min-h-[60px] flex flex-col text-center'>
+          <div className='flex items-center justify-center gap-1 mb-1'>
+            <Users className='h-3 w-3' />
+            <div className='font-semibold text-xs leading-tight'>{subdivisionTypeLabel}</div>
+          </div>
+          <div className='text-xs mb-1'>
+            <Badge
+              variant='secondary'
+              className='text-xs bg-purple-100 text-purple-800 border-purple-300 px-1 py-0 h-4'
+            >
+              {groupCount} Groups
+            </Badge>
+          </div>
+          {/* Show all courses */}
+          {coursesList.length > 0 && (
+            <div className='text-xs text-gray-700 mb-0.5 leading-tight'>
+              {coursesList.slice(0, 2).join(', ')}
+              {coursesList.length > 2 && ` +${coursesList.length - 2} more`}
+            </div>
+          )}
+          {/* Show all staff names */}
+          {staffList.length > 0 && (
+            <div className='text-xs text-gray-600 leading-tight'>
+              {staffList.slice(0, 2).join(', ')}
+              {staffList.length > 2 && (
+                <div className='text-xs text-gray-500'>
+                  +{staffList.length - 2} more
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
 
     // Helper function to render break slot content
     const renderBreakSlot = (slot: any) => (
@@ -296,11 +359,13 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                         {slot ? (
                           <div
                             className={`
-                              p-1.5 border-2 rounded cursor-pointer transition-all duration-200 
+                              p-1.5 border-2 rounded cursor-pointer transition-all duration-200
                               hover:shadow-md min-h-[60px] flex flex-col justify-center relative group
                               ${lockedPeriods.includes(period.id) ? 'border-orange-300 bg-orange-50' : ''} ${
                                 slot.is_break_slot
                                   ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
+                                  : slot.is_subdivided
+                                  ? 'bg-purple-50 border-purple-300 hover:bg-purple-100'
                                   : slot.is_combined
                                   ? 'bg-purple-50 border-purple-200 hover:bg-purple-100'
                                   : 'bg-blue-50 border-blue-200 hover:bg-blue-100'
@@ -329,6 +394,8 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                             )}
                             {slot.is_break_slot
                               ? renderBreakSlot(slot)
+                              : slot.is_subdivided
+                              ? renderSubdividedSlot(slot)
                               : slot.is_combined
                               ? renderCombinedSlot(slot)
                               : renderRegularSlot(slot)}

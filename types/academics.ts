@@ -301,3 +301,144 @@ export interface CreateFromTemplateDto {
   end_date?: string;
   is_active?: boolean;
 }
+
+// =====================================================
+// SECTION SUBDIVISION TYPES (Practical Classes Feature)
+// Updated: 2025-10-11
+// =====================================================
+
+/**
+ * Type of subdivision - determines how students are split
+ */
+export type SubdivisionType = 'practical' | 'lab' | 'tutorial' | 'workshop';
+
+/**
+ * Mode of student assignment to groups
+ */
+export type SubdivisionMode = 'manual' | 'auto';
+
+/**
+ * Sub-slot interface for both Combined Classes and Section Subdivision
+ *
+ * Combined Classes: Splits TIME (different courses in same period)
+ * Section Subdivision: Splits STUDENTS (same course, different groups)
+ */
+export interface SubSlot {
+  sub_slot_order: number;
+
+  // Common fields (for both combined and subdivided)
+  course_id: string;
+  staff_ids: string[];
+  section_ids: string[];
+  is_break_slot: boolean;
+  break_description?: string;
+
+  // NEW: Section Subdivision fields
+  group_name?: string;           // e.g., "Group A - Lab 1"
+  student_ids?: string[];         // Array of specific student UUIDs assigned to this group
+  lab_room?: string;              // Optional room/location for this group
+  max_capacity?: number;          // Optional maximum capacity for this group
+
+  // Populated relations (from database)
+  staff_members?: Array<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    staff_id: string;
+  }>;
+  sections?: Array<{
+    id: string;
+    section_name: string;
+  }>;
+  course?: {
+    id: string;
+    course_name: string;
+    course_code: string;
+  };
+}
+
+/**
+ * Enhanced TimetableSlot interface with subdivision support
+ */
+export interface TimetableSlot {
+  slot_id: string;
+  course_id: string;
+  slot_date: string | DayOfWeek;  // Day of week for regular, date for batch
+  staff_ids: string[];
+  section_ids: string[];
+  is_break_slot: boolean;
+  break_description?: string;
+
+  // Combined classes fields
+  is_combined: boolean;
+  sub_slots: SubSlot[];
+
+  // NEW: Section subdivision fields
+  is_subdivided?: boolean;                // Indicates this slot uses section subdivision
+  subdivision_type?: SubdivisionType;     // Type of subdivision (practical/lab/etc)
+  subdivision_mode?: SubdivisionMode;     // How students were assigned (manual/auto)
+
+  // Metadata
+  created_at: string;
+  updated_at: string;
+  primary_staff_id?: string;
+
+  // Populated relations
+  course?: {
+    id: string;
+    course_name: string;
+    course_code: string;
+  };
+  staff_members?: Array<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    staff_id: string;
+  }>;
+  sections?: Array<{
+    id: string;
+    section_name: string;
+  }>;
+
+  // For grid display
+  period_id?: string;
+  day_of_week?: DayOfWeek;
+}
+
+/**
+ * Subdivision group configuration (for UI state management)
+ */
+export interface SubdivisionGroup {
+  group_order: number;
+  group_name: string;
+  course_id: string;
+  staff_ids: string[];
+  student_ids: string[];
+  lab_room?: string;
+  max_capacity?: number;
+}
+
+/**
+ * Subdivision configuration props (for components)
+ */
+export interface SubdivisionConfig {
+  section_id: string;
+  course_id: string;
+  group_count: number;
+  groups: SubdivisionGroup[];
+  subdivision_type: SubdivisionType;
+  subdivision_mode: SubdivisionMode;
+}
+
+/**
+ * Validation result for subdivision
+ */
+export interface SubdivisionValidationResult {
+  isValid: boolean;
+  duplicates: string[];         // Students assigned to multiple groups
+  missing: string[];            // Students not assigned to any group
+  message: string;
+  warnings?: string[];          // Non-critical issues (e.g., uneven distribution)
+}

@@ -68,6 +68,8 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
 
     // Handle install prompt
     const handleBeforeInstallPrompt = (e: Event) => {
+      // Prevent the default browser install banner
+      // Note: Chrome will show an info message about this in console - this is expected behavior
       e.preventDefault();
       const promptEvent = e as BeforeInstallPromptEvent;
       setDeferredPrompt(promptEvent);

@@ -43,7 +43,8 @@
       "Bash(npm view:*)",
       "Bash(npm rm:*)",
       "Bash(tasklist)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

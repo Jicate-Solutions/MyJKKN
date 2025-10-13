@@ -30,35 +30,14 @@ import {
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
+import {
+  getLogManager,
+  initializeLogCapture
+} from '@/lib/utils/enhanced-logger';
 
-// Store captured console logs
-const capturedLogs: any[] = [];
-
-// Helper to format timestamp
-const getTimestamp = () => new Date().toISOString();
-
-// Override console methods to capture logs
+// Initialize enhanced log capture with deduplication
 if (typeof window !== 'undefined') {
-  const originalConsole = { ...console };
-  const logTypes: ('log' | 'warn' | 'error' | 'info' | 'debug')[] = [
-    'log',
-    'warn',
-    'error',
-    'info',
-    'debug'
-  ];
-
-  logTypes.forEach((type) => {
-    console[type] = (...args: any[]) => {
-      capturedLogs.push({
-        type,
-        timestamp: getTimestamp(),
-        message: args
-      });
-      originalConsole[type](...args);
-    };
-  });
+  initializeLogCapture();
 }
 
 // Safe JSON serialization to handle circular references
@@ -614,21 +593,47 @@ export function BugReporterWidget() {
 
     try {
       console.log('Starting bug report submission...');
-      const safeLogs = serializeConsoleArgs(capturedLogs);
-      console.log('Console logs serialized, count:', safeLogs.length);
+
+      // Get structured logs from enhanced logger
+      const logManager = getLogManager();
+      const structuredLogs = logManager.getStructuredLogs();
+
+      // Prepare simplified logs for storage
+      const simplifiedLogs = structuredLogs.allLogs.map((log) => ({
+        type: log.type,
+        message: log.message,
+        module: log.module,
+        component: log.component,
+        count: log.count,
+        firstSeen: log.firstSeen,
+        lastSeen: log.lastSeen
+      }));
+
+      const safeLogs = serializeConsoleArgs(simplifiedLogs);
+      console.log('Console logs serialized:', {
+        uniqueEntries: structuredLogs.summary.totalUniqueEntries,
+        totalOccurrences: structuredLogs.summary.totalOccurrences
+      });
 
       const payload = {
         page_url: window.location.href,
         description: description.trim(),
         screenshot_data_url: capturedScreenshot,
         console_logs: safeLogs,
+        log_summary: structuredLogs.summary, // Add structured summary
         metadata: {
           userAgent: navigator.userAgent,
           screenResolution: `${screen.width}x${screen.height}`,
           viewport: `${window.innerWidth}x${window.innerHeight}`,
           timestamp: new Date().toISOString(),
           captureMethod: capturedScreenshot ? 'html2canvas' : 'none',
-          devicePixelRatio: window.devicePixelRatio
+          devicePixelRatio: window.devicePixelRatio,
+          // Add log statistics
+          logStats: {
+            uniqueEntries: structuredLogs.summary.totalUniqueEntries,
+            totalOccurrences: structuredLogs.summary.totalOccurrences,
+            topModules: structuredLogs.summary.topModules.slice(0, 5)
+          }
         }
       };
 
@@ -737,7 +742,9 @@ export function BugReporterWidget() {
       setDescription('');
       setCapturedScreenshot('');
       setIsOpen(false);
-      capturedLogs.length = 0;
+
+      // Clear logs from enhanced logger (reuse logManager from try block)
+      logManager.clear();
 
       // Auto-redirect to appropriate bug status page based on user module
       setTimeout(() => {
@@ -1014,12 +1021,11 @@ export function BugReporterWidget() {
                     captured
                   </label>
                   <div className='mt-1 border rounded overflow-hidden'>
-                    <Image
+                    {/* Use native img for base64 data URLs to avoid Next.js Image warnings */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
                       src={capturedScreenshot}
                       alt='Captured screenshot'
-                      width={800}
-                      height={80}
-                      unoptimized={true}
                       className='w-full h-20 object-cover object-top'
                     />
                   </div>
