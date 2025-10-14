@@ -12,34 +12,45 @@ export function useSessionSync() {
   );
   const router = useRouter();
   const { refreshUser } = useAuth();
+  const lastRefreshTimestamp = useRef<number>(0);
 
   // Use ref to store the latest refreshUser without triggering re-renders
   const refreshUserRef = useRef(refreshUser);
   refreshUserRef.current = refreshUser;
 
   useEffect(() => {
+    const handleRefresh = async () => {
+      const now = Date.now();
+      if (now - lastRefreshTimestamp.current < 2000) {
+        // Debounce refresh calls to prevent loops
+        return;
+      }
+      lastRefreshTimestamp.current = now;
+      await refreshUserRef.current();
+    };
     // Listen for auth state changes
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       // Add a small delay to prevent race conditions with permission loading
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       if (event === 'SIGNED_IN') {
-        await refreshUserRef.current();
+        await handleRefresh();
         router.refresh();
       } else if (event === 'SIGNED_OUT') {
         router.push('/auth/login');
       } else if (event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
         // Handle role updates and token refresh
-        await refreshUserRef.current();
-        router.refresh();
+        await handleRefresh();
       }
     });
 
     // Set up realtime subscription for profile changes
     const setupProfileSubscription = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
       if (!user) return null;
 
       return supabase
@@ -53,8 +64,7 @@ export function useSessionSync() {
             filter: `id=eq.${user.id}`
           },
           async () => {
-            await refreshUserRef.current();
-            router.refresh();
+            await handleRefresh();
           }
         )
         .subscribe();
