@@ -602,7 +602,7 @@ export function BugReporterWidget() {
       const simplifiedLogs = structuredLogs.allLogs.map((log) => ({
         type: log.type,
         message: log.message,
-        module: log.module,
+        module: log.moduleName,
         component: log.component,
         count: log.count,
         firstSeen: log.firstSeen,
