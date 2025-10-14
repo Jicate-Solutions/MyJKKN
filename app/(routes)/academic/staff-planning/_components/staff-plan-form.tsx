@@ -40,6 +40,7 @@ import { AcademicYearService } from '@/lib/services/academic/academic-year-servi
 import { BeatLoader } from 'react-spinners';
 
 import { StaffSearchSelector } from './staff-search-selector';
+import { usePermissions } from '@/hooks/use-permissions';
 
 const staffPlanSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -83,6 +84,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(isEditing);
   const [staffPlan, setStaffPlan] = useState<StaffPlan | null>(null);
+  const { userProfile } = usePermissions();
 
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -105,9 +107,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   >([]);
   const [courses, setCourses] = useState<
     Array<{ id: string; course_name: string; course_code: string }>
-  >([]);
-  const [staffMembers, setStaffMembers] = useState<
-    Array<{ id: string; first_name: string; last_name: string }>
   >([]);
 
   const form = useForm<FormValues>({
@@ -136,32 +135,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const watchedDegreeId = form.watch('degree_id');
   const watchedDepartmentId = form.watch('department_id');
   const watchedProgramId = form.watch('program_id');
-
-  // Fetch staff members based on institution (all departments)
-  const fetchStaffMembers = useCallback(async (institutionId?: string) => {
-    try {
-      // Only fetch staff if institution is selected
-      if (!institutionId) {
-        setStaffMembers([]);
-        return;
-      }
-
-      const staffResult = await StaffService.getStaff({
-        isActive: true,
-        institution_id: institutionId,
-        // Removed department_id filter to get ALL staff from the institution
-        limit: 1000 // Set a high limit to get all staff for this institution
-      });
-
-      const uniqueStaff = Array.from(
-        new Map(staffResult.data.map((item: any) => [item.id, item])).values()
-      );
-      setStaffMembers(uniqueStaff);
-    } catch (error) {
-      console.error('Error fetching staff members:', error);
-      setStaffMembers([]);
-    }
-  }, []);
 
   // Load staff plan data for editing
   useEffect(() => {
@@ -246,9 +219,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
           setCourses(formattedCourses);
 
-          // Fetch staff members for the selected institution (all departments)
-          await fetchStaffMembers(staffPlan.institution_id);
-
           // Transform courses data for form
           const transformedCourses =
             staffPlan.courses?.reduce((acc, course) => {
@@ -297,10 +267,14 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             const institutionsData =
               await OrganizationService.getInstitutionNames(true);
             setInstitutions(institutionsData);
+
+            // Pre-fill form if user is an HOD
+            if (userProfile?.role === 'hod' && userProfile.institution_id) {
+              form.setValue('institution_id', userProfile.institution_id);
+            }
+
             // Don't load academic years initially - wait for institution selection
             setAcademicYears([]);
-            // Don't load staff initially - wait for institution and department selection
-            setStaffMembers([]);
           } catch (error) {
             console.error('Error loading initial data:', error);
             toast.error('Failed to load form data');
@@ -312,7 +286,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
     loadInitialEditData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staffPlan?.id, fetchStaffMembers, form, staffPlan]); // Include form and staffPlan but disable eslint warning to prevent infinite loops
+  }, [staffPlan?.id, form, staffPlan, userProfile]); // Include form and staffPlan but disable eslint warning to prevent infinite loops
 
   // Load academic years when institution changes (for new forms)
   useEffect(() => {
@@ -334,16 +308,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
       setAcademicYears([]);
     }
   }, [watchedInstitutionId, isEditing]);
-
-  // Fetch staff when institution changes (for new forms)
-  useEffect(() => {
-    if (!isEditing && watchedInstitutionId) {
-      fetchStaffMembers(watchedInstitutionId);
-    } else if (!isEditing && !watchedInstitutionId) {
-      // Clear staff when institution is not selected
-      setStaffMembers([]);
-    }
-  }, [watchedInstitutionId, isEditing, fetchStaffMembers]);
 
   // Cascading dropdowns
   useEffect(() => {
@@ -894,7 +858,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                           render={({ field }) => (
                             <FormItem>
                               <StaffSearchSelector
-                                staffMembers={staffMembers}
+                                institutionId={watchedInstitutionId || ''}
+                                departmentId={watchedDepartmentId || ''}
                                 value={field.value}
                                 onChange={field.onChange}
                                 courseName={courseName}
