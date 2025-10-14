@@ -715,6 +715,7 @@ END;
 $$;
 
 -- Update timetable slot
+-- Updated: 2025-10-14 - Fixed to preserve all slot fields including subdivision metadata
 CREATE OR REPLACE FUNCTION public.update_timetable_slot(
     p_timetable_id uuid,
     p_day_of_week text,
@@ -724,32 +725,260 @@ CREATE OR REPLACE FUNCTION public.update_timetable_slot(
 )
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 AS $$
 DECLARE
-    current_data jsonb;
-    updated_data jsonb;
+    current_data JSONB;
+    day_key TEXT;
+    slot_id UUID;
+    new_slot_data JSONB;
+    result JSONB;
+    primary_staff_uuid UUID;
 BEGIN
-    -- Get current timetable data
+    -- Check if user can access this timetable
+    IF NOT current_user_can_access_timetable(p_timetable_id) THEN
+        RETURN jsonb_build_object(
+            'success', FALSE,
+            'message', 'Access denied: You do not have permission to modify this timetable'
+        );
+    END IF;
+
+    -- Determine the day key (for batch mode, use date; for regular mode, use day_of_week)
+    IF p_is_batch THEN
+        day_key := p_slot_data->>'slot_date';
+    ELSE
+        day_key := p_day_of_week;
+    END IF;
+
+    -- Get current timetable_data
     SELECT timetable_data INTO current_data
     FROM timetables
     WHERE id = p_timetable_id;
-    
-    -- Update the specific slot
-    updated_data := jsonb_set(
-        COALESCE(current_data, '{}'::jsonb),
-        ARRAY[p_day_of_week, p_period_id::text],
-        p_slot_data,
-        true
+
+    -- CRITICAL FIX: Preserve existing slot_id or generate new one
+    -- Updated: 2025-10-14 - Fixed to preserve slot_id for existing slots
+    IF p_slot_data->>'slot_id' IS NOT NULL THEN
+        -- Use provided slot_id (for new slots or explicit updates)
+        slot_id := (p_slot_data->>'slot_id')::UUID;
+    ELSIF current_data ? day_key AND current_data->day_key ? p_period_id::TEXT THEN
+        -- Preserve existing slot_id if slot already exists
+        slot_id := (current_data->day_key->p_period_id::TEXT->>'slot_id')::UUID;
+    ELSE
+        -- Generate new slot_id for new slots
+        slot_id := gen_random_uuid();
+    END IF;
+
+    -- Initialize timetable_data if it doesn't exist
+    IF current_data IS NULL THEN
+        current_data := '{}'::JSONB;
+    END IF;
+
+    -- Initialize the day if it doesn't exist
+    IF NOT (current_data ? day_key) THEN
+        current_data := jsonb_set(current_data, ARRAY[day_key], '{}'::JSONB);
+    END IF;
+
+    -- Handle primary_staff_id safely
+    primary_staff_uuid := NULL;
+    IF p_slot_data->'staff_ids' IS NOT NULL AND jsonb_array_length(p_slot_data->'staff_ids') > 0 THEN
+        BEGIN
+            primary_staff_uuid := (p_slot_data->'staff_ids'->>0)::UUID;
+        EXCEPTION WHEN invalid_text_representation THEN
+            primary_staff_uuid := NULL;
+        END;
+    END IF;
+
+    -- CRITICAL FIX: Build the complete slot data INCLUDING subdivision fields
+    -- Updated: 2025-10-14 - Added is_subdivided, subdivision_type, subdivision_mode
+    new_slot_data := jsonb_build_object(
+        'slot_id', slot_id,
+        'course_id', p_slot_data->>'course_id',
+        'slot_date', p_slot_data->>'slot_date',
+        'staff_ids', COALESCE(p_slot_data->'staff_ids', '[]'::JSONB),
+        'section_ids', COALESCE(p_slot_data->'section_ids', '[]'::JSONB),
+        'sub_slots', COALESCE(p_slot_data->'sub_slots', '[]'::JSONB),
+        'is_combined', COALESCE((p_slot_data->>'is_combined')::BOOLEAN, FALSE),
+        'is_subdivided', COALESCE((p_slot_data->>'is_subdivided')::BOOLEAN, FALSE),
+        'subdivision_type', p_slot_data->>'subdivision_type',
+        'subdivision_mode', p_slot_data->>'subdivision_mode',
+        'is_break_slot', COALESCE((p_slot_data->>'is_break_slot')::BOOLEAN, FALSE),
+        'primary_staff_id', primary_staff_uuid,
+        'break_description', p_slot_data->>'break_description',
+        'created_at', COALESCE(p_slot_data->>'created_at', NOW()::TEXT),
+        'updated_at', NOW()::TEXT
     );
-    
+
+    -- Update the slot in the JSON structure
+    current_data := jsonb_set(
+        current_data,
+        ARRAY[day_key, p_period_id::TEXT],
+        new_slot_data
+    );
+
     -- Update the timetable
     UPDATE timetables
-    SET timetable_data = updated_data,
+    SET
+        timetable_data = current_data,
         updated_at = NOW()
     WHERE id = p_timetable_id;
-    
-    RETURN p_slot_data;
+
+    -- Return the created/updated slot
+    result := jsonb_build_object(
+        'slot_id', slot_id,
+        'day_of_week', CASE WHEN p_is_batch THEN NULL ELSE p_day_of_week END,
+        'period_id', p_period_id,
+        'success', TRUE,
+        'message', 'Slot updated successfully'
+    );
+
+    RETURN result;
+END;
+$$;
+
+-- Batch update timetable slots for multiple dates
+-- Updated: 2025-10-14 - Created to handle batch updates atomically and prevent race conditions
+-- This function updates multiple dates in a SINGLE transaction, eliminating concurrent update issues
+CREATE OR REPLACE FUNCTION public.update_timetable_slots_batch(
+    p_timetable_id uuid,
+    p_dates text[],  -- Array of date strings
+    p_period_id uuid,
+    p_slot_data jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER  -- Runs with function owner privileges
+AS $$
+DECLARE
+    current_data JSONB;
+    updated_data JSONB;
+    date_key TEXT;
+    slot_id UUID;
+    new_slot_data JSONB;
+    primary_staff_uuid UUID;
+    updated_count INTEGER := 0;
+    failed_count INTEGER := 0;
+    lock_acquired BOOLEAN;
+    lock_key CONSTANT INTEGER := hashtext(p_timetable_id::text || '-batch-update'); -- Unique lock per timetable
+BEGIN
+    -- Check if user can access this timetable
+    IF NOT current_user_can_access_timetable(p_timetable_id) THEN
+        RETURN jsonb_build_object(
+            'success', FALSE,
+            'message', 'Access denied: You do not have permission to modify this timetable',
+            'updated_count', 0,
+            'failed_count', array_length(p_dates, 1)
+        );
+    END IF;
+
+    -- Acquire advisory lock to prevent concurrent batch updates
+    -- This ensures only ONE batch update runs at a time for this timetable
+    lock_acquired := pg_try_advisory_xact_lock(lock_key);
+    IF NOT lock_acquired THEN
+        RETURN jsonb_build_object(
+            'success', FALSE,
+            'message', 'Another update is in progress. Please try again.',
+            'updated_count', 0,
+            'failed_count', array_length(p_dates, 1)
+        );
+    END IF;
+
+    -- Get current timetable_data (locked for update)
+    SELECT timetable_data INTO current_data
+    FROM timetables
+    WHERE id = p_timetable_id
+    FOR UPDATE;  -- Row-level lock for this timetable
+
+    IF current_data IS NULL THEN
+        current_data := '{}'::JSONB;
+    END IF;
+
+    updated_data := current_data;
+
+    -- Handle primary_staff_id safely
+    primary_staff_uuid := NULL;
+    IF p_slot_data->'staff_ids' IS NOT NULL AND jsonb_array_length(p_slot_data->'staff_ids') > 0 THEN
+        BEGIN
+            primary_staff_uuid := (p_slot_data->'staff_ids'->>0)::UUID;
+        EXCEPTION WHEN invalid_text_representation THEN
+            primary_staff_uuid := NULL;
+        END;
+    END IF;
+
+    -- Loop through all dates and update each slot
+    FOREACH date_key IN ARRAY p_dates
+    LOOP
+        BEGIN
+            -- Preserve existing slot_id if slot exists, otherwise generate new one
+            IF updated_data ? date_key AND updated_data->date_key ? p_period_id::TEXT THEN
+                slot_id := (updated_data->date_key->p_period_id::TEXT->>'slot_id')::UUID;
+            ELSE
+                slot_id := gen_random_uuid();
+            END IF;
+
+            -- Initialize the day if it doesn't exist
+            IF NOT (updated_data ? date_key) THEN
+                updated_data := jsonb_set(updated_data, ARRAY[date_key], '{}'::JSONB);
+            END IF;
+
+            -- Build the complete slot data with all fields
+            new_slot_data := jsonb_build_object(
+                'slot_id', slot_id,
+                'course_id', p_slot_data->>'course_id',
+                'slot_date', date_key,
+                'staff_ids', COALESCE(p_slot_data->'staff_ids', '[]'::JSONB),
+                'section_ids', COALESCE(p_slot_data->'section_ids', '[]'::JSONB),
+                'sub_slots', COALESCE(p_slot_data->'sub_slots', '[]'::JSONB),
+                'is_combined', COALESCE((p_slot_data->>'is_combined')::BOOLEAN, FALSE),
+                'is_subdivided', COALESCE((p_slot_data->>'is_subdivided')::BOOLEAN, FALSE),
+                'subdivision_type', p_slot_data->>'subdivision_type',
+                'subdivision_mode', p_slot_data->>'subdivision_mode',
+                'is_break_slot', COALESCE((p_slot_data->>'is_break_slot')::BOOLEAN, FALSE),
+                'primary_staff_id', primary_staff_uuid,
+                'break_description', p_slot_data->>'break_description',
+                'created_at', COALESCE(
+                    CASE
+                        WHEN updated_data ? date_key AND updated_data->date_key ? p_period_id::TEXT
+                        THEN updated_data->date_key->p_period_id::TEXT->>'created_at'
+                        ELSE NOW()::TEXT
+                    END,
+                    NOW()::TEXT
+                ),
+                'updated_at', NOW()::TEXT
+            );
+
+            -- Update the slot in the JSON structure
+            updated_data := jsonb_set(
+                updated_data,
+                ARRAY[date_key, p_period_id::TEXT],
+                new_slot_data
+            );
+
+            updated_count := updated_count + 1;
+
+        EXCEPTION WHEN OTHERS THEN
+            -- Log the error but continue with other dates
+            failed_count := failed_count + 1;
+            RAISE NOTICE 'Failed to update slot for date %: %', date_key, SQLERRM;
+        END;
+    END LOOP;
+
+    -- Update the timetable with all changes in ONE atomic operation
+    UPDATE timetables
+    SET
+        timetable_data = updated_data,
+        updated_at = NOW()
+    WHERE id = p_timetable_id;
+
+    -- Advisory lock is automatically released at transaction end
+
+    -- Return success with counts
+    RETURN jsonb_build_object(
+        'success', TRUE,
+        'message', format('Updated %s of %s slots successfully', updated_count, array_length(p_dates, 1)),
+        'updated_count', updated_count,
+        'failed_count', failed_count,
+        'total_dates', array_length(p_dates, 1)
+    );
 END;
 $$;
 

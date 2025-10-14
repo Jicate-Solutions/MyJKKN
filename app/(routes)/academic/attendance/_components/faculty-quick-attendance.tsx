@@ -220,15 +220,19 @@ export function FacultyQuickAttendance({
     <Card>
       <CardHeader>
         <div className='flex flex-col lg:flex-row gap-4 items-start justify-between'>
-          <div>
+          <div className='flex flex-col gap-2 flex-1'>
             <CardTitle className='flex items-center gap-2'>
               <Calendar className='h-5 w-5' />
               Your Schedule
             </CardTitle>
-            <p className='text-sm text-muted-foreground mt-1'>{displayDate}</p>
+            {/* Updated: 2025-10-14 - Prominent date badge for easy identification */}
+            <div className='inline-flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-md font-semibold shadow-sm w-fit'>
+              <Calendar className='h-4 w-4' />
+              <span>{displayDate}</span>
+            </div>
           </div>
           <Badge variant='secondary' className='ml-auto'>
-            {periods.length} {periods.length === 1 ? 'Class' : 'Classes'} Today
+            {periods.length} {periods.length === 1 ? 'Class' : 'Classes'}
           </Badge>
         </div>
       </CardHeader>

@@ -44,7 +44,8 @@
       "Bash(npm rm:*)",
       "Bash(tasklist)",
       "Bash(findstr:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "mcp__supabase__search_docs"
     ],
     "deny": [],
     "ask": []
