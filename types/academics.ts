@@ -207,6 +207,7 @@ export interface TimetableFilters {
   section?: string; // Section name (section_name)
   is_active?: boolean;
   is_template?: boolean;
+  timetable_type?: 'section' | 'semester'; // Filter by timetable type
   page?: number;
   limit?: number;
 }

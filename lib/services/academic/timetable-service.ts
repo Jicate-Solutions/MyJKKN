@@ -1,9 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { randomUUID } from 'crypto';
-import {
-  createApiInstitutionFilter,
-  applyInstitutionFilterToQuery
-} from '@/lib/auth/api-institution-filter';
 import type {
   Timetable,
   CreateTimetableDto,
@@ -14,7 +10,6 @@ import type {
   TemplateListResponse,
   CreateTemplateDto,
   UpdateTemplateDto,
-  CreateFromTemplateDto,
   DayOfWeek
 } from '@/types/academics';
 import toast from 'react-hot-toast';
@@ -1803,8 +1798,8 @@ Please select a different date period that doesn't overlap.`
     templateDescription?: string
   ): Promise<void> {
     try {
-      // Get the current timetable
-      const { data: timetable, error: fetchError } = await this.supabase
+      // Check if the current timetable exists
+      const { error: fetchError } = await this.supabase
         .from('timetables')
         .select('*')
         .eq('id', timetableId)
