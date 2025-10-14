@@ -71,20 +71,24 @@ export function StaffSearchSelector({
   const [assignedStaffDetails, setAssignedStaffDetails] = useState<
     StaffMember[]
   >([]);
+  const [loadingAssigned, setLoadingAssigned] = useState(false);
   const debouncedSearchTerm = useDebounceValue(searchTerm, 300);
 
   // Fetch details for already-assigned staff on mount
   useEffect(() => {
     async function fetchAssignedStaff() {
-      if (!institutionId || value.length === 0) return;
+      if (!institutionId || value.length === 0) {
+        setAssignedStaffDetails([]);
+        return;
+      }
 
       try {
+        setLoadingAssigned(true);
         const staffIds = value.map((assignment) => assignment.staff_id);
-        // Fetch staff from department (if provided) to limit results
+        // Fetch all staff from institution
         const result = await StaffService.getStaff({
           institution_id: institutionId,
-          department_id: departmentId || undefined,
-          limit: 500,
+          limit: 1000,
           isActive: true
         });
         // Filter to only include assigned staff
@@ -94,16 +98,18 @@ export function StaffSearchSelector({
         setAssignedStaffDetails(assignedStaff as StaffMember[]);
       } catch (error) {
         console.error('Failed to fetch assigned staff details:', error);
+      } finally {
+        setLoadingAssigned(false);
       }
     }
 
     fetchAssignedStaff();
-  }, [institutionId, departmentId, value.length]); // Re-fetch when institution, department, or assignments change
+  }, [institutionId, value.length]); // Re-fetch when institution or assignments change
 
-  // Fetch staff from department automatically when department is selected
+  // Fetch all institution staff automatically when institution is selected
   useEffect(() => {
-    async function fetchDepartmentStaff() {
-      if (!institutionId || !departmentId) {
+    async function fetchInstitutionStaff() {
+      if (!institutionId) {
         setFetchedStaff([]);
         return;
       }
@@ -112,39 +118,37 @@ export function StaffSearchSelector({
       try {
         const result = await StaffService.getStaff({
           institution_id: institutionId,
-          department_id: departmentId,
-          limit: 100,
+          limit: 1000,
           isActive: true
         });
         setFetchedStaff(result.data as StaffMember[]);
       } catch (error) {
-        console.error('Failed to fetch department staff:', error);
+        console.error('Failed to fetch institution staff:', error);
         setFetchedStaff([]);
       } finally {
         setIsLoading(false);
       }
     }
 
-    // If no search term, load department staff automatically
-    if (!debouncedSearchTerm && departmentId) {
-      fetchDepartmentStaff();
+    // If no search term, load all institution staff automatically
+    if (!debouncedSearchTerm && institutionId) {
+      fetchInstitutionStaff();
     }
-  }, [institutionId, departmentId, debouncedSearchTerm]);
+  }, [institutionId, debouncedSearchTerm]);
 
   // Search staff when user types
   useEffect(() => {
     async function searchStaff() {
       if (debouncedSearchTerm.length < 2) {
-        return; // Don't clear if we have department staff loaded
+        return; // Don't clear if we have institution staff loaded
       }
 
       setIsLoading(true);
       try {
         const result = await StaffService.getStaff({
           institution_id: institutionId,
-          department_id: departmentId,
           search: debouncedSearchTerm,
-          limit: 20,
+          limit: 100,
           isActive: true
         });
         setFetchedStaff(result.data as StaffMember[]);
@@ -159,7 +163,7 @@ export function StaffSearchSelector({
     if (debouncedSearchTerm.length >= 2) {
       searchStaff();
     }
-  }, [debouncedSearchTerm, institutionId, departmentId]);
+  }, [debouncedSearchTerm, institutionId]);
 
   const assignmentsWithIds = useMemo(() => {
     return value.map((assignment) => ({
@@ -249,6 +253,7 @@ export function StaffSearchSelector({
 
   const getStaffName = (staffId: string) => {
     const staff = allStaffMembers.find((s) => s.id === staffId);
+    if (loadingAssigned && !staff) return 'Loading...';
     return staff ? `${staff.first_name} ${staff.last_name}` : 'Unknown Staff';
   };
 
@@ -339,8 +344,8 @@ export function StaffSearchSelector({
                 <CommandEmpty>
                   {isLoading
                     ? 'Loading staff...'
-                    : !departmentId
-                    ? 'Please select a department first'
+                    : !institutionId
+                    ? 'Please select an institution first'
                     : debouncedSearchTerm.length > 0 &&
                       debouncedSearchTerm.length < 2
                     ? 'Type at least 2 characters to search'

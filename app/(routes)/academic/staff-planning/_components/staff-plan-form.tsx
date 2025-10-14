@@ -130,6 +130,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     name: 'courses'
   });
 
+  // Auto-scroll to newly added course
+  const scrollToNewCourse = useCallback(() => {
+    setTimeout(() => {
+      const courseCards = document.querySelectorAll('[data-course-card]');
+      const lastCard = courseCards[courseCards.length - 1];
+      if (lastCard) {
+        lastCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+  }, []);
+
   // Watch form fields for dependent dropdowns
   const watchedInstitutionId = form.watch('institution_id');
   const watchedDegreeId = form.watch('degree_id');
@@ -768,12 +779,13 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 <h3 className='text-lg font-semibold'>Course Assignments</h3>
                 <Button
                   type='button'
-                  onClick={() =>
+                  onClick={() => {
                     append({
                       course_id: '',
                       staff_assignments: []
-                    })
-                  }
+                    });
+                    scrollToNewCourse();
+                  }}
                 >
                   <Plus className='mr-2 h-4 w-4' />
                   Add Course
@@ -791,7 +803,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                   : 'Select a course';
 
                 return (
-                  <Card key={field.id} className='p-6'>
+                  <Card key={field.id} className='p-6' data-course-card>
                     <div className='space-y-6'>
                       {/* Course Selection */}
                       <div className='flex items-center justify-between'>
