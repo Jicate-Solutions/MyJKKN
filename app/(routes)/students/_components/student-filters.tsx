@@ -736,8 +736,12 @@ export function StudentFilters({
       {/* Action Buttons */}
       <div className='flex flex-col sm:flex-row gap-2'>
         {isSuperAdmin && <ExportStudents />}
-        {isSuperAdmin && <BulkCreateStudents />}
-        {isSuperAdmin && <DownloadNewStudentTemplateButton />}
+        {isSuperAdmin && canAccess('students', 'create') && (
+          <BulkCreateStudents />
+        )}
+        {isSuperAdmin && canAccess('students', 'create') && (
+          <DownloadNewStudentTemplateButton />
+        )}
       </div>
     </div>
   );
