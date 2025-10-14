@@ -255,7 +255,9 @@ export default function TimetableDetailPage({
   const loadingCourses = coursesQuery.isLoading;
   const fetchCourses = coursesQuery.refetch;
 
+  // Updated: 2025-10-14 - Filter staff by institution to prevent timeout errors
   const staffQuery = useStaff({
+    institution_id: timetable?.institution_id,
     isActive: true
   });
 
@@ -263,7 +265,10 @@ export default function TimetableDetailPage({
   const loadingStaff = staffQuery.isLoading;
   const fetchStaff = staffQuery.refetch;
 
-  const sectionsQuery = useSections({});
+  // Updated: 2025-10-14 - Filter sections by institution to optimize query
+  const sectionsQuery = useSections({
+    institution_id: timetable?.institution_id
+  });
 
   const sections = sectionsQuery.data?.data || [];
   const loadingSections = sectionsQuery.isLoading;
@@ -717,6 +722,8 @@ export default function TimetableDetailPage({
 
   // Fetch timetable data
   const fetchTimetableData = async (preserveUnsavedDates: boolean = false) => {
+    console.log('[fetchTimetableData] Starting fetch, preserveUnsavedDates:', preserveUnsavedDates);
+
     try {
       setLoading(true);
       setError(null);
@@ -725,6 +732,8 @@ export default function TimetableDetailPage({
       const currentSelectedDates = preserveUnsavedDates ? selectedDates : [];
 
       const timetableData = await TimetableService.getTimetable(timetableId);
+      console.log('[fetchTimetableData] Fetched timetable data, slots count:', timetableData.slots?.length);
+
       setTimetable(timetableData);
 
       // Check if attendance has been marked for this timetable
@@ -801,6 +810,22 @@ export default function TimetableDetailPage({
       // getTimetableSlots() returns raw database data without enrichment (missing is_subdivided flag and course/staff objects)
       // timetableData.slots contains enriched data with all subdivision information
       setSlots(timetableData.slots || []);
+      console.log('[fetchTimetableData] Set slots state, new slots count:', timetableData.slots?.length);
+
+      // DEBUG: Log a sample slot to verify data structure
+      if (timetableData.slots && timetableData.slots.length > 0) {
+        const sampleSlot = timetableData.slots.find((s: any) => s.is_subdivided);
+        if (sampleSlot) {
+          console.log('[fetchTimetableData] Sample subdivided slot after refresh:', {
+            slot_date: sampleSlot.slot_date,
+            period_id: sampleSlot.period_id,
+            staff_ids: sampleSlot.staff_ids,
+            is_subdivided: sampleSlot.is_subdivided,
+            subdivision_type: sampleSlot.subdivision_type,
+            sub_slots_count: sampleSlot.sub_slots?.length
+          });
+        }
+      }
     } catch (err) {
       console.error('Error fetching timetable data:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -856,6 +881,24 @@ export default function TimetableDetailPage({
     period: Period,
     existingSlot?: any
   ) => {
+    // DEBUG: Log what data we receive when opening the dialog
+    console.log('[openSlotDialog] Opening dialog with:', {
+      day,
+      period_id: period.id,
+      period_name: period.period_name,
+      existingSlot: existingSlot ? {
+        slot_date: existingSlot.slot_date,
+        staff_ids: existingSlot.staff_ids,
+        is_subdivided: existingSlot.is_subdivided,
+        subdivision_type: existingSlot.subdivision_type,
+        sub_slots: existingSlot.sub_slots?.map((s: any) => ({
+          sub_slot_order: s.sub_slot_order,
+          staff_ids: s.staff_ids,
+          group_name: s.group_name
+        }))
+      } : null
+    });
+
     // Check if this period has attendance marked (but allow super admins to override)
     const isPeriodLocked = markedPeriods.includes(period.id);
 
@@ -1277,6 +1320,24 @@ export default function TimetableDetailPage({
     }
 
     try {
+      // DEBUG: Log save operation details
+      console.log('[saveSlot] Saving slot with data:', {
+        dateStr,
+        period_id: selectedPeriod.id,
+        period_name: selectedPeriod.period_name,
+        slotData: {
+          course_id: slotData.course_id,
+          staff_ids: slotData.staff_ids,
+          is_subdivided: slotData.is_subdivided,
+          subdivision_type: slotData.subdivision_type,
+          sub_slots: slotData.sub_slots?.map((s: any) => ({
+            sub_slot_order: s.sub_slot_order,
+            staff_ids: s.staff_ids,
+            group_name: s.group_name
+          }))
+        }
+      });
+
       // Check if this is a range operation
       if (dateStr.startsWith('RANGE:')) {
         const parts = dateStr.split(':');
@@ -1295,20 +1356,39 @@ export default function TimetableDetailPage({
           }
 
           // Create the same slot for all dates in the range
-          const createPromises = dates.map((date) =>
-            TimetableService.updateTimetableSlot(
-              timetableId,
-              date,
-              selectedPeriod.id,
-              { ...slotData, slot_date: date },
-              true, // isBatch = true for batch mode
-              true // suppressToast = true for bulk operations
-            )
+          // CRITICAL FIX: Remove slot_id from slotData to let each date keep its own slot_id
+          // This prevents slot_id mismatch errors across the date range
+          const { slot_id, ...slotDataWithoutId } = slotData as any;
+
+          console.log(`[saveSlot] Starting batch update for ${dates.length} dates:`, {
+            dateRange: `${dates[0]} to ${dates[dates.length - 1]}`,
+            slotData: slotDataWithoutId,
+            periodId: selectedPeriod.id
+          });
+
+          // Use the new batch update function to update ALL dates in a single atomic transaction
+          // This eliminates race conditions from concurrent updates
+          const result = await TimetableService.updateTimetableSlotsBatch(
+            timetableId,
+            dates,
+            selectedPeriod.id,
+            slotDataWithoutId
           );
 
-          await Promise.all(createPromises);
+          console.log('[saveSlot] Batch update result:', {
+            total: result.total_dates,
+            successful: result.updated_count,
+            failed: result.failed_count,
+            message: result.message
+          });
+
+          if (result.failed_count > 0) {
+            console.error('[saveSlot] Some updates failed:', result);
+          }
 
           await fetchTimetableData(true); // Preserve unsaved date ranges
+          console.log('[saveSlot] Data refreshed after save, slots count:', slots?.length);
+
           closeSlotDialog();
           toast({
             title: 'Success',

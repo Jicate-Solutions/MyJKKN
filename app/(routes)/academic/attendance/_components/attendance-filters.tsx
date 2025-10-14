@@ -553,11 +553,6 @@ export function AttendanceFilters({
                   )}
                 </SelectContent>
               </Select>
-              {isSectionRequired && (
-                <p className='text-xs text-amber-600'>
-                  This semester uses section-level timetables. Please select a specific section.
-                </p>
-              )}
             </div>
 
             {/* Attendance Date */}

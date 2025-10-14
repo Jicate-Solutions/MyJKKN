@@ -156,10 +156,29 @@ export class FacultyAttendanceService {
           timetable.selected_dates
         );
 
+        console.log('[faculty-attendance] Date validation:', {
+          timetable_id: timetable.id,
+          section: (timetable.sections as any)?.section_name,
+          format: timetable.timetable_format,
+          start_date: timetable.start_date,
+          end_date: timetable.end_date,
+          selected_dates_count: timetable.selected_dates?.length || 0,
+          target_date: targetDate,
+          is_valid: isDateValid
+        });
+
         if (!isDateValid) continue;
 
         const timetableData = timetable.timetable_data;
         const periodsDefinition = timetable.periods;
+
+        console.log('[faculty-attendance] Checking day data:', {
+          timetable_id: timetable.id,
+          day_of_week: dayOfWeek,
+          has_timetable_data: !!timetableData,
+          has_day_data: !!(timetableData && timetableData[dayOfWeek]),
+          available_days: timetableData ? Object.keys(timetableData) : []
+        });
 
         if (!timetableData || !timetableData[dayOfWeek]) continue;
 
@@ -290,7 +309,18 @@ export class FacultyAttendanceService {
         return timeA - timeB;
       });
 
-      console.log(`[faculty-attendance] Found ${facultyPeriods.length} periods for faculty ${staffId} on ${targetDate}`);
+      console.log(`[faculty-attendance] ===== SUMMARY =====`);
+      console.log(`[faculty-attendance] Target Date: ${targetDate} (${dayOfWeek})`);
+      console.log(`[faculty-attendance] Total Timetables Found: ${timetables.length}`);
+      console.log(`[faculty-attendance] Faculty Periods Found: ${facultyPeriods.length}`);
+
+      if (facultyPeriods.length === 0) {
+        console.warn(`[faculty-attendance] ⚠️ No periods found! Common reasons:`);
+        console.warn(`  1. Date might be outside timetable date range`);
+        console.warn(`  2. No classes scheduled for ${dayOfWeek}`);
+        console.warn(`  3. Faculty not assigned to any periods on this day`);
+        console.warn(`  Check the logs above for date validation and day data`);
+      }
 
       // Create search context
       const searchContext: any = {
@@ -316,6 +346,7 @@ export class FacultyAttendanceService {
 
   /**
    * Check if a date is within the timetable's valid range
+   * Updated: 2025-10-14 - Added support for 'regular' format timetables
    */
   private static isDateInTimetableRange(
     targetDate: string,
@@ -326,14 +357,22 @@ export class FacultyAttendanceService {
   ): boolean {
     const target = new Date(targetDate + 'T00:00:00');
 
-    if (format === 'date-range' && startDate && endDate) {
+    // Handle 'regular' and 'date-range' formats the same way
+    // Both use start_date and end_date to define the valid range
+    if ((format === 'date-range' || format === 'regular') && startDate && endDate) {
       const start = new Date(startDate + 'T00:00:00');
       const end = new Date(endDate + 'T00:00:00');
       return target >= start && target <= end;
     }
 
+    // Handle 'specific-dates' format - only certain dates are valid
     if (format === 'specific-dates' && selectedDates && Array.isArray(selectedDates)) {
       return selectedDates.includes(targetDate);
+    }
+
+    // Unknown format - log warning and return false for safety
+    if (format !== 'date-range' && format !== 'regular' && format !== 'specific-dates') {
+      console.warn(`[faculty-attendance] Unknown timetable format: '${format}'`);
     }
 
     return false;

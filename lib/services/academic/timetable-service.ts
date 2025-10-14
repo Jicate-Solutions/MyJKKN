@@ -1540,6 +1540,81 @@ Please select a different date period that doesn't overlap.`
     }
   }
 
+  /**
+   * Batch update timetable slots for multiple dates in a single atomic operation
+   * This eliminates race conditions by updating all dates in ONE database transaction
+   *
+   * @param timetableId - The timetable ID
+   * @param dates - Array of date strings in YYYY-MM-DD format
+   * @param periodId - The period ID to update
+   * @param slotData - The slot data to apply to all dates
+   * @param suppressToast - Whether to suppress toast notifications
+   * @returns Promise with update results including success/failure counts
+   *
+   * Updated: 2025-10-14 - Created to fix concurrent update race conditions
+   */
+  static async updateTimetableSlotsBatch(
+    timetableId: string,
+    dates: string[],
+    periodId: string,
+    slotData: any,
+    suppressToast: boolean = false
+  ): Promise<{
+    success: boolean;
+    updated_count: number;
+    failed_count: number;
+    total_dates: number;
+    message: string;
+  }> {
+    try {
+      console.log(`[TimetableService] Batch update for ${dates.length} dates`, {
+        timetableId,
+        periodId,
+        dateRange: `${dates[0]} to ${dates[dates.length - 1]}`
+      });
+
+      // Call the new batch RPC function
+      const { data, error } = await this.supabase.rpc(
+        'update_timetable_slots_batch',
+        {
+          p_timetable_id: timetableId,
+          p_dates: dates,
+          p_period_id: periodId,
+          p_slot_data: slotData
+        }
+      );
+
+      if (error) {
+        console.error('[TimetableService] Batch update error:', error);
+        if (!suppressToast) {
+          toast.error('Failed to update timetable slots in batch.');
+        }
+        throw error;
+      }
+
+      console.log('[TimetableService] Batch update result:', data);
+
+      if (!suppressToast && data?.success) {
+        toast.success(
+          `Successfully updated ${data.updated_count} of ${data.total_dates} slots!`,
+          {
+            duration: 3000,
+            position: 'top-center',
+            style: {
+              background: '#F0FDF4',
+              color: '#166534'
+            }
+          }
+        );
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error in updateTimetableSlotsBatch:', error);
+      throw error;
+    }
+  }
+
   static async deleteTimetableSlot(
     timetableId: string,
     day: string,

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { format } from 'date-fns';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { FacultyQuickAttendance } from './faculty-quick-attendance';
@@ -10,12 +11,20 @@ import { FacultyAttendanceService } from '@/lib/services/academic/faculty-attend
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
 import {
   Search,
   CalendarDays,
   Loader2,
   Info,
-  AlertTriangle
+  AlertTriangle,
+  CalendarIcon
 } from 'lucide-react';
 import type {
   AttendanceSearchContext,
@@ -53,6 +62,11 @@ export function AttendanceViewSelector({
   const [staffId, setStaffId] = useState<string | null>(null);
   // Updated: 2025-10-09 - Track if section is required for validation
   const [isSectionRequired, setIsSectionRequired] = useState(false);
+  // Updated: 2025-10-14 - Add ref for auto-scroll to periods section
+  const periodsRef = useRef<HTMLDivElement>(null);
+  // Updated: 2025-10-14 - Add state for date picker in My Classes tab
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [isClient, setIsClient] = useState(false);
 
   // Determine initial loading state based on role
   const isFaculty = profile?.role === 'faculty';
@@ -63,6 +77,11 @@ export function AttendanceViewSelector({
 
   const [loadingStaffId, setLoadingStaffId] = useState(shouldCheckStaff);
   const [activeTab, setActiveTab] = useState<string>('quick');
+
+  // Updated: 2025-10-14 - Set client flag for date operations
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   // Check if user is faculty (has a staff record) - Skip for non-faculty roles
   useEffect(() => {
@@ -128,9 +147,17 @@ export function AttendanceViewSelector({
   };
 
   // Updated: 2025-10-09 - Wrap onSearch with validation
+  // Updated: 2025-10-14 - Add auto-scroll to periods section after search
   const handleSearch = () => {
     if (validateSearch()) {
       onSearch();
+      // Scroll to periods section after a short delay to allow results to load
+      setTimeout(() => {
+        periodsRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start'
+        });
+      }, 300);
     }
   };
 
@@ -144,6 +171,36 @@ export function AttendanceViewSelector({
 
     // Select the period
     onPeriodSelect(period);
+  };
+
+  // Updated: 2025-10-14 - Handle date selection for My Classes tab
+  const handleDateSelect = (date: Date | undefined) => {
+    if (date) {
+      try {
+        // Create date string in local timezone to avoid timezone issues
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const dateString = `${year}-${month}-${day}`;
+
+        onContextChange({ attendance_date: dateString });
+        setCalendarOpen(false);
+      } catch (error) {
+        console.error('Error formatting date:', error);
+      }
+    }
+  };
+
+  // Updated: 2025-10-14 - Handle setting date to today
+  const handleTodayClick = () => {
+    if (isClient) {
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
+      const dateString = `${year}-${month}-${day}`;
+      onContextChange({ attendance_date: dateString });
+    }
   };
 
   // Loading state
@@ -205,7 +262,7 @@ export function AttendanceViewSelector({
 
         {/* Show search results for admins */}
         {showResults && (
-          <div className='mt-6'>
+          <div ref={periodsRef} className='mt-6'>
             <AvailablePeriodsCards
               periods={availablePeriods}
               onPeriodSelect={onPeriodSelect}
@@ -240,6 +297,69 @@ export function AttendanceViewSelector({
         </TabsList>
 
         <TabsContent value='quick' className='space-y-4'>
+          {/* Updated: 2025-10-14 - Add date picker for My Classes tab */}
+          <div className='flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between p-4 bg-muted/50 rounded-lg border'>
+            <div className='flex items-center gap-2'>
+              <CalendarIcon className='h-4 w-4 text-muted-foreground' />
+              <span className='text-sm font-medium'>Select Date:</span>
+            </div>
+            <div className='flex gap-2 w-full sm:w-auto'>
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant='outline'
+                    className={cn(
+                      'justify-start text-left font-normal flex-1 sm:w-[240px]',
+                      !searchContext.attendance_date && 'text-muted-foreground'
+                    )}
+                    onClick={() => setCalendarOpen(true)}
+                  >
+                    <CalendarIcon className='mr-2 h-4 w-4' />
+                    {searchContext.attendance_date && isClient ? (
+                      format(
+                        new Date(searchContext.attendance_date + 'T00:00:00'),
+                        'PPP'
+                      )
+                    ) : (
+                      <span>Pick a date</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className='w-auto p-0' align='start'>
+                  <Calendar
+                    mode='single'
+                    selected={
+                      searchContext.attendance_date && isClient
+                        ? new Date(searchContext.attendance_date + 'T00:00:00')
+                        : undefined
+                    }
+                    onSelect={handleDateSelect}
+                    initialFocus
+                    disabled={
+                      isClient
+                        ? (date) => {
+                            // Disable future dates (only allow present and past dates)
+                            const today = new Date();
+                            today.setHours(23, 59, 59, 999); // Set to end of today
+                            return date > today;
+                          }
+                        : undefined
+                    }
+                  />
+                </PopoverContent>
+              </Popover>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={handleTodayClick}
+                disabled={!isClient}
+                className='whitespace-nowrap'
+              >
+                Today
+              </Button>
+            </div>
+          </div>
+
           <FacultyQuickAttendance
             staffId={staffId}
             staffName={profile?.full_name || 'Faculty'}
@@ -276,7 +396,7 @@ export function AttendanceViewSelector({
 
           {/* Show search results in card format only when activeTab is 'search' */}
           {showResults && activeTab === 'search' && (
-            <div className='mt-6'>
+            <div ref={periodsRef} className='mt-6'>
               <AvailablePeriodsCards
                 periods={availablePeriods}
                 onPeriodSelect={onPeriodSelect}
