@@ -371,7 +371,14 @@ const newStudentSchema = z
           !val ||
           (typeof val === 'string' &&
             z.string().email().safeParse(val).success),
-        'College email must be a valid email address (e.g., student@college.edu) if provided'
+        'College email must be a valid email address if provided'
+      )
+      .refine(
+        (val) =>
+          !val ||
+          (typeof val === 'string' &&
+            val.toLowerCase().endsWith('@jkkn.ac.in')),
+        'College email must use @jkkn.ac.in domain (e.g., student@jkkn.ac.in)'
       )
   })
   .strict(); // Use strict to prevent unexpected extra fields

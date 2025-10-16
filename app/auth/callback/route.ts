@@ -4,7 +4,8 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { Database } from '@/types/supabase';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
-import { ACTIVITY_TYPES, RESOURCE_TYPES } from '@/types/activity';
+import { Profile } from '@/types/auth';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,13 +71,16 @@ export async function GET(request: NextRequest) {
         .single();
 
       // If no profile with this ID, check if one exists with this email (for pre-registered or migrating users)
-      let migratedProfile = null;
+      let migratedProfile: Profile | null = null;
       if (!existingProfile && user.email) {
-        const { data: emailProfile } = await supabase
+        // Use service role client to bypass RLS for profile migration
+        const adminClient = createServiceRoleClient();
+
+        const { data: emailProfile } = (await adminClient
           .from('profiles')
           .select('*')
           .eq('email', user.email)
-          .single();
+          .maybeSingle()) as { data: Profile | null; error: any };
 
         if (emailProfile) {
           // Check if this is a pre-registered profile
@@ -85,62 +89,60 @@ export async function GET(request: NextRequest) {
               `Found pre-registered profile for ${user.email}, linking to Google auth`
             );
 
-            // Update the pre-registered profile with the Google auth user ID
-            const { error: updateError } = await supabase
-              .from('profiles')
-              .update({
-                id: user.id,
-                is_pre_registered: false,
-                profile_completed: true,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', emailProfile.id);
-
-            if (!updateError) {
-              // Delete the old placeholder profile
-              await supabase
+            try {
+              // First, delete the old pre-registered profile
+              const { error: deleteError } = await adminClient
                 .from('profiles')
                 .delete()
                 .eq('id', emailProfile.id);
 
-              // Create the profile with correct Google auth ID
-              const { error: insertError } = await supabase
-                .from('profiles')
-                .insert({
-                  id: user.id,
-                  email: emailProfile.email,
-                  full_name: emailProfile.full_name,
-                  role: emailProfile.role,
-                  phone_number: emailProfile.phone_number,
-                  institution_id: emailProfile.institution_id,
-                  profile_completed: true,
-                  is_active: emailProfile.is_active,
-                  is_pre_registered: false,
-                  created_at: emailProfile.created_at,
-                  updated_at: new Date().toISOString()
-                });
-
-              if (!insertError) {
-                migratedProfile = {
-                  ...emailProfile,
-                  id: user.id,
-                  is_pre_registered: false
-                };
-
-                console.log(
-                  `Successfully linked pre-registered profile for ${user.email} to Google auth`
-                );
-              } else {
-                console.error(
-                  `Failed to create Google-linked profile for ${user.email}:`,
-                  insertError
-                );
+              if (deleteError) {
+                console.error('Delete failed:', deleteError);
+                throw deleteError;
               }
-            } else {
-              console.error(
-                `Failed to update pre-registered profile for ${user.email}:`,
-                updateError
+
+              // Then create new profile with Google auth user ID (preserving all fields)
+              const profileInsertData = {
+                id: user.id,
+                email: emailProfile.email ?? null,
+                full_name: emailProfile.full_name ?? null,
+                role: emailProfile.role,
+                phone_number: emailProfile.phone_number ?? null,
+                institution_id: emailProfile.institution_id ?? null,
+                department_id: emailProfile.department_id ?? null,
+                gender: emailProfile.gender ?? null,
+                designation: emailProfile.designation ?? null,
+                profile_completed: true,
+                is_active: emailProfile.is_active ?? true,
+                is_pre_registered: false,
+                bio: emailProfile.bio ?? null,
+                avatar_url: emailProfile.avatar_url ?? null
+              };
+
+              const { data: newProfile, error: insertError } =
+                (await adminClient
+                  .from('profiles')
+                  .insert(profileInsertData as any)
+                  .select()
+                  .single()) as { data: Profile | null; error: any };
+
+              if (insertError) {
+                console.error('Insert failed:', insertError);
+                throw insertError;
+              }
+
+              migratedProfile = newProfile;
+
+              console.log(
+                `✓ Successfully migrated pre-registered profile for ${user.email} to Google auth`
               );
+            } catch (migrationError) {
+              console.error(
+                `❌ Profile migration failed for ${user.email}:`,
+                migrationError
+              );
+              // Migration failed - user needs to complete profile manually
+              migratedProfile = null;
             }
           } else {
             // This is a legacy profile that needs migration
@@ -148,33 +150,36 @@ export async function GET(request: NextRequest) {
               `Found existing profile by email for ${user.email}, migrating to Google auth`
             );
 
-            // Create a new profile with the Google auth user ID, copying data from the old profile
-            const { error: insertError } = await supabase
+            // Create a new profile with the Google auth user ID using admin client (preserving all fields)
+            const legacyProfileData = {
+              id: user.id,
+              email: emailProfile.email ?? null,
+              full_name: emailProfile.full_name ?? null,
+              role: emailProfile.role,
+              phone_number: emailProfile.phone_number ?? null,
+              institution_id: emailProfile.institution_id ?? null,
+              department_id: emailProfile.department_id ?? null,
+              gender: emailProfile.gender ?? null,
+              designation: emailProfile.designation ?? null,
+              profile_completed: emailProfile.profile_completed ?? false,
+              is_active: emailProfile.is_active ?? true,
+              is_pre_registered: false,
+              bio: emailProfile.bio ?? null,
+              avatar_url: emailProfile.avatar_url ?? null
+            };
+
+            const { error: insertError } = (await adminClient
               .from('profiles')
-              .insert({
-                id: user.id,
-                email: emailProfile.email,
-                full_name: emailProfile.full_name,
-                role: emailProfile.role,
-                phone_number: emailProfile.phone_number,
-                institution_id: emailProfile.institution_id,
-                profile_completed: emailProfile.profile_completed,
-                is_active: emailProfile.is_active,
-                is_pre_registered: false,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              });
+              .insert(legacyProfileData as any)) as { error: any };
 
             if (!insertError) {
-              // Instead of deleting, mark the old profile as inactive
-              // This prevents foreign key constraint issues
-              const { error: updateOldProfileError } = await supabase
+              // Mark the old profile as inactive using admin client
+              const { error: updateOldProfileError } = (await (
+                adminClient as any
+              )
                 .from('profiles')
-                .update({ 
-                  is_active: false,
-                  updated_at: new Date().toISOString()
-                })
-                .eq('id', emailProfile.id);
+                .update({ is_active: false })
+                .eq('id', emailProfile.id)) as { error: any };
 
               if (updateOldProfileError) {
                 console.error(
@@ -185,7 +190,8 @@ export async function GET(request: NextRequest) {
 
               migratedProfile = {
                 ...emailProfile,
-                id: user.id
+                id: user.id,
+                is_pre_registered: false
               };
 
               console.log(
@@ -204,7 +210,7 @@ export async function GET(request: NextRequest) {
       const actualProfile = existingProfile || migratedProfile;
 
       // Helper function to log login activity
-      const logLoginActivity = async (profile: any) => {
+      const logLoginActivity = async (profile: Partial<Profile> | null) => {
         try {
           const userName = profile?.full_name || user.email || 'Unknown';
           const template = ActivityTemplates.userLogin(userName);
@@ -222,7 +228,7 @@ export async function GET(request: NextRequest) {
               profile_completed: profile?.profile_completed || false,
               first_login: !actualProfile
             },
-            institutionId: profile?.institution_id,
+            institutionId: profile?.institution_id || undefined,
             statusCode: 200
           });
         } catch (error) {

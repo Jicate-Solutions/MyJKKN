@@ -45,7 +45,9 @@
       "Bash(tasklist)",
       "Bash(findstr:*)",
       "Bash(python:*)",
-      "mcp__supabase__search_docs"
+      "mcp__supabase__search_docs",
+      "Read(//c/Users/Boobalan/Pictures/**)",
+      "Bash(timeout 60 npx tsc:*)"
     ],
     "deny": [],
     "ask": []

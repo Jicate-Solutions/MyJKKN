@@ -12,6 +12,9 @@ import { Button } from '@/components/ui/button';
 import { BarChart3, UserCheck, Users2 } from 'lucide-react';
 import { CanView, CanCreate } from '@/components/auth/permission-guard';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { DownloadNewStudentTemplateButton } from './_components/download-new-student-template-button';
+import { BulkCreateStudents } from './_components/bulk-create-students';
+import { BulkUploadStudentImages } from './_components/bulk-upload-student-images';
 
 export default function StudentsPage() {
   const router = useRouter();
@@ -98,6 +101,16 @@ export default function StudentsPage() {
             </CanCreate>
           </div>
         </div>
+
+        {/* Bulk Action Buttons */}
+        <CanCreate module='students'>
+          <div className='flex flex-wrap items-center gap-2'>
+            <DownloadNewStudentTemplateButton />
+            <BulkCreateStudents />
+            <BulkUploadStudentImages />
+          </div>
+        </CanCreate>
+
         <StudentFilters
           searchParams={search}
           onFilterChange={handleFilterChange}

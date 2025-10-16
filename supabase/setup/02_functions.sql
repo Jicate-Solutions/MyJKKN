@@ -1338,33 +1338,116 @@ BEGIN
 END;
 $$;
 
--- Sync staff to profiles (Updated: 2025-01-27 - Fixed to use institution_email and set is_pre_registered = true)
+-- Sync staff to profiles (Updated: 2025-10-15 - Store profile_id back in staff table)
 CREATE OR REPLACE FUNCTION public.sync_staff_to_profiles()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    existing_profile_id UUID;
 BEGIN
     -- Only create profile if institution_email is provided
     IF NEW.institution_email IS NOT NULL AND NEW.institution_email != '' THEN
-        -- Create or update profile when staff is created using institution_email
-        -- Set is_pre_registered = true to bypass auth user validation
-        INSERT INTO profiles (id, email, full_name, phone_number, institution_id, role, is_pre_registered)
-        VALUES (
-            gen_random_uuid(),
-            NEW.institution_email,
-            CONCAT(NEW.first_name, ' ', NEW.last_name),
-            NEW.phone,
-            NEW.institution_id,
-            'staff',
-            true
-        )
-        ON CONFLICT (email) DO UPDATE
+        -- Check if profile already exists with this email
+        SELECT id INTO existing_profile_id
+        FROM profiles
+        WHERE email = NEW.institution_email
+        LIMIT 1;
+
+        IF existing_profile_id IS NOT NULL THEN
+            -- Update existing profile (but DON'T change is_pre_registered)
+            UPDATE profiles
+            SET
+                full_name = CONCAT(NEW.first_name, ' ', NEW.last_name),
+                phone_number = NEW.phone,
+                institution_id = NEW.institution_id,
+                department_id = NEW.department_id,
+                gender = NEW.gender,
+                designation = NEW.designation,
+                is_active = NEW.is_active,
+                updated_at = NOW()
+            WHERE id = existing_profile_id;
+
+            -- Store profile_id back in staff table
+            NEW.profile_id := existing_profile_id;
+        ELSE
+            -- Generate new profile ID
+            existing_profile_id := gen_random_uuid();
+
+            -- Create new pre-registered profile with all staff details
+            INSERT INTO profiles (
+                id,
+                email,
+                full_name,
+                phone_number,
+                institution_id,
+                department_id,
+                gender,
+                designation,
+                role,
+                is_pre_registered,
+                is_active
+            )
+            VALUES (
+                existing_profile_id,
+                NEW.institution_email,
+                CONCAT(NEW.first_name, ' ', NEW.last_name),
+                NEW.phone,
+                NEW.institution_id,
+                NEW.department_id,
+                NEW.gender,
+                NEW.designation,
+                'faculty',
+                true,
+                NEW.is_active
+            );
+
+            -- Store profile_id back in staff table
+            NEW.profile_id := existing_profile_id;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+-- Delete staff profile when staff is deleted
+-- Updated: 2025-10-15 - Added to sync staff deletion to profiles table
+CREATE OR REPLACE FUNCTION public.delete_staff_profile()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Delete the corresponding profile when staff is deleted
+    IF OLD.institution_email IS NOT NULL AND OLD.institution_email != '' THEN
+        DELETE FROM profiles
+        WHERE email = OLD.institution_email
+        AND role = 'staff'
+        AND is_pre_registered = true;
+    END IF;
+
+    RETURN OLD;
+END;
+$$;
+
+-- Sync staff status to profile
+-- Updated: 2025-10-15 - Added to sync staff is_active status to profiles table
+CREATE OR REPLACE FUNCTION public.sync_staff_status_to_profile()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Only sync if is_active status changed and institution_email exists
+    IF OLD.is_active != NEW.is_active AND
+       NEW.institution_email IS NOT NULL AND
+       NEW.institution_email != '' THEN
+
+        -- Update profile is_active status to match staff status
+        UPDATE profiles
         SET
-            full_name = EXCLUDED.full_name,
-            phone_number = EXCLUDED.phone_number,
-            institution_id = EXCLUDED.institution_id,
-            is_pre_registered = true,
-            updated_at = NOW();
+            is_active = NEW.is_active,
+            updated_at = NOW()
+        WHERE email = NEW.institution_email;
     END IF;
 
     RETURN NEW;

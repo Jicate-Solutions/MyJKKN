@@ -277,7 +277,8 @@ export async function middleware(request: NextRequest) {
         'staff',
         'student',
         'guest',
-        'driver'
+        'driver',
+        'hod'
       ].includes(profile.role)
     ) {
       // This is a custom role - fetch permissions from custom_roles table

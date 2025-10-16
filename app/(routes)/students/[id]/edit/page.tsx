@@ -62,7 +62,13 @@ const editStudentSchema = z.object({
 
   // Academic information
   roll_number: z.string().min(1, 'Roll number is required'),
-  college_email: z.string().email('Invalid college email format'),
+  college_email: z
+    .string()
+    .email('Invalid college email format')
+    .refine(
+      (val) => val.toLowerCase().endsWith('@jkkn.ac.in'),
+      'College email must use @jkkn.ac.in domain (e.g., student@jkkn.ac.in)'
+    ),
   student_email: z.string().email('Invalid personal email format').optional(),
   academic_year_id: z.string().min(1, 'Academic year is required'),
   student_mobile: z.string().optional(),

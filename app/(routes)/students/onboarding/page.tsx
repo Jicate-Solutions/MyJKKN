@@ -950,8 +950,8 @@ export default function StudentOnboardingPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
-            {isSuperAdmin && <DownloadNewStudentTemplateButton />}
-            {isSuperAdmin && <BulkCreateStudents />}
+            {(isSuperAdmin || canAccess('students', 'create')) && <DownloadNewStudentTemplateButton />}
+            {(isSuperAdmin || canAccess('students', 'create')) && <BulkCreateStudents />}
             {canViewOnboarding && (
               <Button
                 variant='default'

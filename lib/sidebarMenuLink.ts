@@ -82,6 +82,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
 
+  // Profile
+  '/profile': 'view_profile', // All users should be able to view their own profile
+
   // User Management
   '/users': 'users.view',
   '/users/dashboard': 'users.dashboard.view',

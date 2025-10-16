@@ -31,6 +31,7 @@ import {
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function ApplicationHubPage() {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -41,7 +42,7 @@ export default function ApplicationHubPage() {
   >([]);
   const [debugInfo, setDebugInfo] = useState<any>(null);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
-
+  const { isSuperAdmin } = usePermissions();
   const {
     applications,
     loading,
@@ -49,7 +50,7 @@ export default function ApplicationHubPage() {
     filters,
     updateFilters,
     fetchApplications
-  } = useApplications();
+  } = useApplications({ limit: 1000 }); // Fetch all applications without pagination for hub
 
   // Filter applications based on user role
   useEffect(() => {
@@ -105,6 +106,14 @@ export default function ApplicationHubPage() {
           app.roles_access
         );
         return false;
+      }
+
+      // Empty roles_access array means application is public for all authenticated users
+      if (app.roles_access.length === 0) {
+        console.log(
+          `Application ${app.name} has public access (empty roles_access)`
+        );
+        return true;
       }
 
       // Check if user's role is in the roles_access array
@@ -240,15 +249,17 @@ export default function ApplicationHubPage() {
               <span className='hidden sm:inline'>Refresh</span>
             </Button>
 
-            <Button
-              onClick={handleDebug}
-              variant='ghost'
-              size='sm'
-              className='flex items-center gap-2'
-            >
-              <Bug className='h-4 w-4' />
-              <span className='hidden sm:inline'>Debug</span>
-            </Button>
+            {isSuperAdmin && (
+              <Button
+                onClick={handleDebug}
+                variant='ghost'
+                size='sm'
+                className='flex items-center gap-2'
+              >
+                <Bug className='h-4 w-4' />
+                <span className='hidden sm:inline'>Debug</span>
+              </Button>
+            )}
           </div>
         </div>
 

@@ -94,27 +94,26 @@ export function DataTableRowActions<TData>({
             View Details
           </DropdownMenuItem>
 
-          {canEdit && (
-            <DropdownMenuItem
-              onSelect={() =>
-                router.push(`/organizations/degrees/${degree.id}/edit`)
-              }
-            >
-              Edit
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem
+            onSelect={() =>
+              canEdit && router.push(`/organizations/degrees/${degree.id}/edit`)
+            }
+            disabled={!canEdit}
+            className={!canEdit ? 'opacity-50 cursor-not-allowed' : ''}
+          >
+            Edit
+          </DropdownMenuItem>
 
           <DropdownMenuSeparator />
 
-          {canDelete && (
-            <DropdownMenuItem
-              onSelect={() => setShowDeleteDialog(true)}
-              className='text-red-600'
-            >
-              Delete
-              <DropdownMenuShortcut>⌘⌫</DropdownMenuShortcut>
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem
+            onSelect={() => canDelete && setShowDeleteDialog(true)}
+            disabled={!canDelete}
+            className={!canDelete ? 'opacity-50 cursor-not-allowed' : 'text-red-600'}
+          >
+            Delete
+            <DropdownMenuShortcut>⌘⌫</DropdownMenuShortcut>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

@@ -50,7 +50,13 @@ import { StudentService } from '@/lib/services/student/student-service';
 // Form schema for student onboarding edit (focusing only on the required fields for onboarding)
 const onboardingEditSchema = z.object({
   roll_number: z.string().min(1, 'Roll number is required'),
-  college_email: z.string().email('Invalid college email format'),
+  college_email: z
+    .string()
+    .email('Invalid college email format')
+    .refine(
+      (val) => val.toLowerCase().endsWith('@jkkn.ac.in'),
+      'College email must use @jkkn.ac.in domain (e.g., student@jkkn.ac.in)'
+    ),
   student_photo_url: z.string().optional(),
   academic_year_id: z.string().min(1, 'Academic year is required'),
   semester_id: z.string().min(1, 'Semester is required'),
