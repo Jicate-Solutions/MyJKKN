@@ -58,7 +58,14 @@ const staffSchema = z.object({
     .enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'A1+', 'A1B'])
     .optional(),
   email: z.string().email('Invalid email format'),
-  institution_email: z.string().email('Invalid email format').optional(),
+  institution_email: z
+    .string()
+    .email('Invalid email format')
+    .refine(
+      (val) => val.toLowerCase().endsWith('@jkkn.ac.in'),
+      'Institution email must use @jkkn.ac.in domain (e.g., staff@jkkn.ac.in)'
+    )
+    .optional(),
   phone: z.string().min(10, 'Phone number must be at least 10 characters'),
   staff_id: z.string().optional(),
   profile_picture: z.string().optional(),
@@ -153,6 +160,40 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
   // Watch institution_id for departments loading
   const watchedInstitutionId = form.watch('institution_id');
+
+  // Reset form when staff data changes (for edit mode)
+  useEffect(() => {
+    if (isEditing && staff) {
+      console.log('Resetting form with staff data:', staff);
+      form.reset({
+        first_name: staff.first_name || '',
+        last_name: staff.last_name || '',
+        gender: staff.gender || 'male',
+        date_of_birth: staff.date_of_birth
+          ? new Date(staff.date_of_birth)
+          : undefined,
+        marital_status: staff.marital_status || 'single',
+        blood_group: staff.blood_group,
+        email: staff.email || '',
+        institution_email: staff.institution_email || '',
+        phone: staff.phone || '',
+        staff_id: staff.staff_id || '',
+        profile_picture: staff.profile_picture || '',
+        address: staff.address || '',
+        state: staff.state || '',
+        district: staff.district || '',
+        pincode: staff.pincode || '',
+        date_of_joining: staff.date_of_joining
+          ? new Date(staff.date_of_joining)
+          : undefined,
+        designation: staff.designation || '',
+        category_id: staff.category_id || '',
+        institution_id: staff.institution_id || '',
+        department_id: staff.department_id || '',
+        is_active: staff.is_active ?? true
+      });
+    }
+  }, [staff, isEditing, form]);
 
   // Separate useEffect for initial data loading
   useEffect(() => {

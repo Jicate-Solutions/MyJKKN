@@ -33,6 +33,11 @@ CREATE POLICY "profiles_update_admin" ON profiles
 CREATE POLICY "profiles_insert_auth" ON profiles
     FOR INSERT WITH CHECK (auth.uid() = id);
 
+-- Updated: 2025-10-15 - Allow trigger to insert pre-registered profiles
+-- This policy enables sync_staff_to_profiles() trigger to create profiles
+CREATE POLICY "profiles_insert_preregistered" ON profiles
+    FOR INSERT WITH CHECK (is_pre_registered = true);
+
 CREATE POLICY "profiles_delete_super_admin" ON profiles
     FOR DELETE USING (is_super_admin());
 
@@ -503,45 +508,110 @@ CREATE POLICY "students_all_admin" ON students
 -- SECTION 5: STAFF MODULE TABLES
 -- ================================================================================
 
--- STAFF TABLE (4 policies)
+-- STAFF TABLE (5 policies)
+-- Updated: 2025-10-16 - Optimized RLS policies to fix HOD query timeout issues
+-- Previous policies caused statement timeout (error 57014) due to repeated subqueries
 ALTER TABLE staff ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "staff_select_institution" ON staff
+-- SELECT Policy: Allow users to view staff from institutions they have access to
+-- Optimized to use indexed user_institution_access table
+-- Fixed: Removed self-referential subquery to prevent infinite recursion (Error 42P17)
+CREATE POLICY "staff_select_by_institution_access" ON staff
     FOR SELECT USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+        -- Super admins can see all staff
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND is_super_admin = true
         )
+        OR
+        -- Users can see staff from institutions they have access to
+        institution_id IN (
+            SELECT institution_id
+            FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND is_active = true
+        )
+        OR
+        -- Faculty can view their own staff record (direct email match)
+        email = auth.email()
+        OR
+        institution_email = auth.email()
     );
 
-CREATE POLICY "staff_insert_admin" ON staff
+-- INSERT Policy: Allow users with admin, write, or full access to create staff
+-- Updated: 2025-10-16 - Added 'full' access type for HOD users
+CREATE POLICY "staff_insert_by_access_type" ON staff
     FOR INSERT WITH CHECK (
+        -- Super admins can create staff anywhere
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND is_super_admin = true
+        )
+        OR
+        -- Users with admin/write/full access can create staff in their institutions
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
+            SELECT institution_id
+            FROM user_institution_access
             WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
+            AND access_type IN ('admin', 'write', 'full')
             AND is_active = true
         )
     );
 
-CREATE POLICY "staff_update_admin" ON staff
+-- UPDATE Policy: Allow users with admin, write, or full access to update staff
+-- Updated: 2025-10-16 - Added 'full' access type for HOD users
+-- Fixed: Removed self-referential subquery to prevent infinite recursion (Error 42P17)
+CREATE POLICY "staff_update_by_access_type" ON staff
     FOR UPDATE USING (
+        -- Super admins can update any staff
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND is_super_admin = true
+        )
+        OR
+        -- Users with admin/write/full access can update staff in their institutions
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
+            SELECT institution_id
+            FROM user_institution_access
             WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
+            AND access_type IN ('admin', 'write', 'full')
+            AND is_active = true
+        )
+        OR
+        -- Faculty can update their own staff record (direct email match)
+        email = auth.email()
+        OR
+        institution_email = auth.email()
+    );
+
+-- DELETE Policy: Allow users with admin or full access to delete staff
+-- Updated: 2025-10-16 - Added 'full' access type for HOD users
+CREATE POLICY "staff_delete_by_admin_access" ON staff
+    FOR DELETE USING (
+        -- Super admins can delete any staff
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND is_super_admin = true
+        )
+        OR
+        -- Users with admin or full access can delete staff in their institutions
+        institution_id IN (
+            SELECT institution_id
+            FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type IN ('admin', 'full')
             AND is_active = true
         )
     );
 
-CREATE POLICY "staff_delete_admin" ON staff
-    FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
-        )
+-- Service Role Bypass: Allow service role to bypass all policies
+CREATE POLICY "staff_service_role_full_access" ON staff
+    FOR ALL USING (
+        current_setting('request.jwt.claims', true)::json->>'role' = 'service_role'
     );
 
 -- STAFF_PLANS TABLE (10 policies)

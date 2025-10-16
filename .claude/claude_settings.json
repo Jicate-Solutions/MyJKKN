@@ -1,14 +1,44 @@
 {
   "project": "MyJKKN",
   "version": "1.0.0",
+  "mcp_first_principles": {
+    "critical_rules": [
+      "DATABASE is the source of truth, NOT SQL files",
+      "ALWAYS use Supabase MCP to query current database state",
+      "NEVER read SQL files to check current database status",
+      "SQL files in supabase/setup/ are documentation/backup only",
+      "Apply ALL changes using mcp__supabase__apply_migration",
+      "AFTER successful migration, update SQL files",
+      "NEVER use npx supabase db push or CLI commands"
+    ],
+    "mcp_tools_usage": {
+      "check_tables": "mcp__supabase__list_tables",
+      "query_schema": "mcp__supabase__execute_sql (e.g., SELECT * FROM information_schema.tables)",
+      "apply_changes": "mcp__supabase__apply_migration",
+      "check_logs": "mcp__supabase__get_logs",
+      "list_migrations": "mcp__supabase__list_migrations",
+      "list_extensions": "mcp__supabase__list_extensions"
+    },
+    "correct_workflow": [
+      "1. Use MCP to query current database state",
+      "2. Design the migration SQL",
+      "3. Apply using mcp__supabase__apply_migration",
+      "4. Update SQL files in supabase/setup/ after success",
+      "5. Create migration file in supabase/migrations/",
+      "6. Update TypeScript types if needed"
+    ]
+  },
   "auto_prompts": {
     "enabled": true,
     "supabase_rules": {
       "trigger_words": ["database", "table", "SQL", "Supabase", "schema", "migration", "RLS", "policy", "security"],
       "auto_checks": [
-        "Check supabase/SQL_FILE_INDEX.md before proceeding",
-        "Verify file exists in supabase/setup/",
-        "Never create duplicate SQL files",
+        "ALWAYS use Supabase MCP to query current database schema",
+        "NEVER read existing SQL files for current status",
+        "Check supabase/SQL_FILE_INDEX.md for file organization only",
+        "Apply migrations using mcp__supabase__apply_migration ONLY",
+        "After migration, update corresponding SQL files in supabase/setup/",
+        "NEVER use npx supabase db push command",
         "Wrap all functions in SELECT for RLS policies",
         "Add indexes for all policy columns"
       ],
@@ -196,7 +226,11 @@
         "Plural table names, singular column names",
         "Enable RLS on all tables",
         "Institution_id required for multi-tenant tables",
-        "Check SQL_FILE_INDEX.md before any SQL work",
+        "ALWAYS use Supabase MCP to query current database state",
+        "NEVER read SQL files to check current database status",
+        "Apply migrations using mcp__supabase__apply_migration only",
+        "After migration, update corresponding SQL setup files",
+        "NEVER use npx supabase db push command",
         "NEVER use deprecated auth-helpers-nextjs package",
         "ONLY use @supabase/ssr with getAll/setAll methods",
         "Always use lowercase SQL keywords",
@@ -204,13 +238,27 @@
       ]
     },
     {
-      "context": "file_organization", 
+      "context": "file_organization",
       "rules": [
-        "SQL files only in supabase/setup/",
+        "SQL files only in supabase/setup/ (for reference and backup)",
+        "Setup files are updated AFTER successful migrations",
         "Types in types/ folder",
         "Services in lib/services/",
         "Hooks in hooks/ folder",
+        "Migration files in supabase/migrations/",
         "Update SQL_FILE_INDEX.md after changes"
+      ]
+    },
+    {
+      "context": "mcp_workflow",
+      "rules": [
+        "Use mcp__supabase__list_tables to check existing tables",
+        "Use mcp__supabase__execute_sql to query current schema",
+        "Use mcp__supabase__apply_migration to apply all changes",
+        "Use mcp__supabase__get_logs to debug issues",
+        "Never use CLI commands for database operations",
+        "SQL files in setup/ are documentation, not source of truth",
+        "Database is the source of truth, accessed via MCP"
       ]
     }
   ],
@@ -218,46 +266,49 @@
     "supabase_module_creator": {
       "description": "Creates new database modules following strict conventions",
       "subagent_type": "general-purpose",
-      "prompt_template": "You are a Supabase specialist for MyJKKN. CRITICAL: Check SQL_FILE_INDEX.md first. Update ONLY supabase/setup/01_tables.sql for tables. Follow ALL conventions from SUPABASE_PROMPTS.md. Create types in types/, services in lib/services/, hooks in hooks/. Never create duplicate SQL files. Task: {task_description}"
+      "prompt_template": "You are a Supabase specialist for MyJKKN. CRITICAL: Use mcp__supabase__list_tables to check existing tables. Check SQL_FILE_INDEX.md for file organization only. Apply migrations using mcp__supabase__apply_migration. After successful migration, update supabase/setup/ files. Create types in types/, services in lib/services/, hooks in hooks/. Never use CLI commands. Task: {task_description}"
     },
     "supabase_debugger": {
       "description": "Debugs database issues systematically",
       "subagent_type": "general-purpose",
-      "prompt_template": "Debug database issue for MyJKKN. Use Supabase MCP to query data. Check RLS policies in setup/03_policies.sql. Verify permissions with auth functions. Test with different roles. Never create new SQL files. Issue: {issue_description}"
+      "prompt_template": "Debug database issue for MyJKKN. Use Supabase MCP to query current data and schema. Use mcp__supabase__get_logs for error logs. Check RLS policies with MCP queries. Verify permissions with auth functions. Test with different roles. Never read SQL files for current status. Issue: {issue_description}"
     },
     "supabase_migrator": {
       "description": "Handles database migrations and updates",
       "subagent_type": "general-purpose",
-      "prompt_template": "Handle database migration for MyJKKN. First check current schema with Supabase MCP. Update appropriate file in supabase/setup/. Add dated comments. Create migration in supabase/migrations/ if needed. Update TypeScript types. Update SQL_FILE_INDEX.md. Migration: {migration_description}"
+      "prompt_template": "Handle database migration for MyJKKN. Use Supabase MCP to check current schema. Design migration SQL. Apply using mcp__supabase__apply_migration. After success, update appropriate file in supabase/setup/ with dated comments. Create migration file in supabase/migrations/. Update TypeScript types. Update SQL_FILE_INDEX.md if needed. Migration: {migration_description}"
     }
   },
   "workflow_templates": {
     "new_module": [
-      "Check supabase/SQL_FILE_INDEX.md",
+      "Use Supabase MCP to check existing tables",
+      "Check supabase/SQL_FILE_INDEX.md for file organization",
       "Design tables with required columns",
-      "Update supabase/setup/01_tables.sql",
-      "Create RLS policies in setup/03_policies.sql",
+      "Apply migration using mcp__supabase__apply_migration",
+      "Update supabase/setup/01_tables.sql with applied changes",
+      "Apply RLS policies using mcp__supabase__apply_migration",
+      "Update setup/03_policies.sql with applied changes",
       "Create TypeScript types",
       "Create service layer",
       "Create React Query hooks",
       "Update SQL_FILE_INDEX.md"
     ],
     "update_table": [
-      "Query current structure with Supabase MCP",
-      "Open supabase/setup/01_tables.sql",
-      "Add dated comment for change",
-      "Update table definition",
-      "Create migration if table exists",
-      "Update TypeScript types",
-      "Update SQL_FILE_INDEX.md"
+      "Use Supabase MCP to query current table structure",
+      "Design the table modification",
+      "Apply migration using mcp__supabase__apply_migration",
+      "Update supabase/setup/01_tables.sql with dated comment",
+      "Create migration file in supabase/migrations/",
+      "Update TypeScript types if needed",
+      "Update SQL_FILE_INDEX.md if new files created"
     ],
     "debug_issue": [
-      "Query affected tables with Supabase MCP",
-      "Check RLS policies",
-      "Verify user permissions",
-      "Test with different roles",
-      "Check foreign key constraints",
-      "Review error logs"
+      "Use Supabase MCP to query affected tables",
+      "Use Supabase MCP to check RLS policies",
+      "Verify user permissions with MCP queries",
+      "Test with different roles using MCP",
+      "Check foreign key constraints with MCP",
+      "Use mcp__supabase__get_logs to review error logs"
     ]
   },
   "shortcuts": {

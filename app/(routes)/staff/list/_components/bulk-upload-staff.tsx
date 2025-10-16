@@ -332,6 +332,8 @@ const validateRow = async (
     row.institution_email = row.institution_email.toLowerCase().trim();
     if (!validateEmail(row.institution_email)) {
       errors.push('Invalid institution email format');
+    } else if (!row.institution_email.endsWith('@jkkn.ac.in')) {
+      errors.push('Institution email must use @jkkn.ac.in domain (e.g., staff@jkkn.ac.in)');
     }
   }
 

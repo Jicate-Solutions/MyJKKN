@@ -43,7 +43,14 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
 const formSchema = z.object({
-  email: z.string().email('Invalid email address').min(1, 'Email is required'),
+  email: z
+    .string()
+    .email('Invalid email address')
+    .min(1, 'Email is required')
+    .refine(
+      (val) => val.toLowerCase().endsWith('@jkkn.ac.in'),
+      'Email must use @jkkn.ac.in domain (e.g., user@jkkn.ac.in)'
+    ),
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
   role: z.string().min(1, 'Please select a role'),
   phone_number: z.string().nullable(),

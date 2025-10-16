@@ -56,10 +56,10 @@ export default function StaffPage() {
       email: true,
       institutionEmail: true,
       staffId: false,
-      designation: false,
+      designation: false
     },
     caseSensitive: false,
-    exactMatch: false,
+    exactMatch: false
   });
 
   // Use the simplified staff hook
@@ -87,16 +87,20 @@ export default function StaffPage() {
         searchResults: {
           results: allStaff,
           highlightInfo: new Map(),
-          totalResults: allStaff.length,
+          totalResults: allStaff.length
         }
       };
     }
 
-    const searchResults = searchStaffMembers(allStaff, searchQuery, searchOptions);
+    const searchResults = searchStaffMembers(
+      allStaff,
+      searchQuery,
+      searchOptions
+    );
 
     return {
       filteredStaff: searchResults.results,
-      searchResults,
+      searchResults
     };
   }, [staffData?.data, searchQuery, searchOptions]);
 
@@ -235,17 +239,17 @@ export default function StaffPage() {
             <div className='flex flex-wrap items-center gap-2 mb-6'>
               <DownloadStaffTemplateButton />
               <BulkUploadStaff />
-              <CreateMissingProfilesButton />
+              {isSuperAdmin && <CreateMissingProfilesButton />}
               <BulkUploadStaffImages />
             </div>
 
             {/* Advanced Search */}
             {!isLoading && (
-              <div className="mb-6">
+              <div className='mb-6'>
                 <AdvancedSearch
                   onSearch={handleSearch}
                   onClear={handleSearchClear}
-                  placeholder="Search staff by name, email, institution email..."
+                  placeholder='Search staff by name, email, institution email...'
                 />
               </div>
             )}
@@ -258,26 +262,30 @@ export default function StaffPage() {
                   <span className='text-sm font-medium'>
                     {searchQuery ? (
                       <>
-                        Found: {filteredStaff.length} of {staffData.metadata?.total || 0} staff members
+                        Found: {filteredStaff.length} of{' '}
+                        {staffData.metadata?.total || 0} staff members
                       </>
                     ) : (
-                      <>
-                        Total: {staffData.metadata?.total || 0} staff members
-                      </>
+                      <>Total: {staffData.metadata?.total || 0} staff members</>
                     )}
                   </span>
                 </div>
                 {searchQuery && filteredStaff.length > 0 && (
-                  <Badge variant='default' className="bg-green-100 text-green-800 border-green-300">
+                  <Badge
+                    variant='default'
+                    className='bg-green-100 text-green-800 border-green-300'
+                  >
                     Search Active
                   </Badge>
                 )}
-                {staffData.metadata && staffData.metadata.total > 0 && !searchQuery && (
-                  <Badge variant='secondary'>
-                    Page {staffData.metadata.page} of{' '}
-                    {staffData.metadata.totalPages}
-                  </Badge>
-                )}
+                {staffData.metadata &&
+                  staffData.metadata.total > 0 &&
+                  !searchQuery && (
+                    <Badge variant='secondary'>
+                      Page {staffData.metadata.page} of{' '}
+                      {staffData.metadata.totalPages}
+                    </Badge>
+                  )}
               </div>
             )}
 
@@ -306,17 +314,19 @@ export default function StaffPage() {
               <StaffList
                 staff={filteredStaff}
                 metadata={
-                  searchQuery ? {
-                    total: filteredStaff.length,
-                    page: 1,
-                    limit: filteredStaff.length,
-                    totalPages: 1
-                  } : (staffData.metadata || {
-                    total: 0,
-                    page: 1,
-                    limit: 10,
-                    totalPages: 0
-                  })
+                  searchQuery
+                    ? {
+                        total: filteredStaff.length,
+                        page: 1,
+                        limit: filteredStaff.length,
+                        totalPages: 1
+                      }
+                    : staffData.metadata || {
+                        total: 0,
+                        page: 1,
+                        limit: 10,
+                        totalPages: 0
+                      }
                 }
                 onPageChange={searchQuery ? () => {} : handlePageChange}
                 onPageSizeChange={searchQuery ? () => {} : handlePageSizeChange}
@@ -327,13 +337,15 @@ export default function StaffPage() {
 
             {/* No Search Results */}
             {!isLoading && searchQuery && filteredStaff.length === 0 && (
-              <div className="text-center py-12">
-                <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">No staff members found</h3>
-                <p className="text-muted-foreground mb-4">
+              <div className='text-center py-12'>
+                <Users className='h-12 w-12 text-muted-foreground mx-auto mb-4' />
+                <h3 className='text-lg font-medium mb-2'>
+                  No staff members found
+                </h3>
+                <p className='text-muted-foreground mb-4'>
                   Try adjusting your search terms or search options
                 </p>
-                <Button variant="outline" onClick={handleSearchClear}>
+                <Button variant='outline' onClick={handleSearchClear}>
                   Clear Search
                 </Button>
               </div>

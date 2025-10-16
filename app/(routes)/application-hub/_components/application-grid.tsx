@@ -47,7 +47,7 @@ export function ApplicationGrid({
   }
 
   return (
-    <div className='grid gap-6 sm:grid-cols-2 lg:grid-cols-3'>
+    <div className='grid gap-4 sm:gap-5 md:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4'>
       <AnimatePresence mode='popLayout'>
         {applications.map((application) => (
           <motion.div
@@ -56,7 +56,8 @@ export function ApplicationGrid({
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
+            className='h-full'
           >
             <ApplicationCard application={application} />
           </motion.div>

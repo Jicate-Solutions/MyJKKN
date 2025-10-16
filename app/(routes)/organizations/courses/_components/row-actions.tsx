@@ -67,13 +67,6 @@ export function DataTableRowActions<TData>({
     }
   };
 
-  // Don't render the menu if user has no permissions
-  const hasAnyPermission = canView || canEdit || canDelete;
-
-  if (!hasAnyPermission) {
-    return null;
-  }
-
   return (
     <>
       <DropdownMenu>
@@ -87,36 +80,35 @@ export function DataTableRowActions<TData>({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' className='w-[160px]'>
-          {canView && (
-            <DropdownMenuItem
-              onClick={() =>
-                router.push(`/organizations/courses/${course.id}`)
-              }
-            >
-              <Eye className='mr-2 h-4 w-4' />
-              View
-            </DropdownMenuItem>
-          )}
-          {canEdit && (
-            <DropdownMenuItem
-              onClick={() =>
-                router.push(`/organizations/courses/${course.id}/edit`)
-              }
-            >
-              <Edit className='mr-2 h-4 w-4' />
-              Edit
-            </DropdownMenuItem>
-          )}
-          {(canView || canEdit) && canDelete && <DropdownMenuSeparator />}
-          {canDelete && (
-            <DropdownMenuItem
-              onClick={() => setShowDeleteAlert(true)}
-              className='text-destructive'
-            >
-              <Trash className='mr-2 h-4 w-4' />
-              Delete
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem
+            onClick={() =>
+              canView && router.push(`/organizations/courses/${course.id}`)
+            }
+            disabled={!canView}
+            className={!canView ? 'opacity-50 cursor-not-allowed' : ''}
+          >
+            <Eye className='mr-2 h-4 w-4' />
+            View
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() =>
+              canEdit && router.push(`/organizations/courses/${course.id}/edit`)
+            }
+            disabled={!canEdit}
+            className={!canEdit ? 'opacity-50 cursor-not-allowed' : ''}
+          >
+            <Edit className='mr-2 h-4 w-4' />
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => canDelete && setShowDeleteAlert(true)}
+            disabled={!canDelete}
+            className={!canDelete ? 'opacity-50 cursor-not-allowed' : 'text-destructive'}
+          >
+            <Trash className='mr-2 h-4 w-4' />
+            Delete
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

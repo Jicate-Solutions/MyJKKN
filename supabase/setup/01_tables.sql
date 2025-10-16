@@ -1219,9 +1219,23 @@ CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
 CREATE INDEX IF NOT EXISTS idx_profiles_institution_id ON public.profiles(institution_id);
 
 -- Students indexes
+-- Updated: 2025-10-15 - Added indexes for HOD queries and foreign key joins
 CREATE INDEX IF NOT EXISTS idx_students_institution_id ON public.students(institution_id);
 CREATE INDEX IF NOT EXISTS idx_students_roll_number ON public.students(roll_number);
 CREATE INDEX IF NOT EXISTS idx_students_application_id ON public.students(application_id);
+-- Composite index for HOD queries (institution + department filtering)
+CREATE INDEX IF NOT EXISTS idx_students_institution_department ON public.students(institution_id, department_id);
+-- Foreign key indexes for join performance
+CREATE INDEX IF NOT EXISTS idx_students_degree_id ON public.students(degree_id);
+CREATE INDEX IF NOT EXISTS idx_students_department_id ON public.students(department_id);
+CREATE INDEX IF NOT EXISTS idx_students_program_id ON public.students(program_id);
+CREATE INDEX IF NOT EXISTS idx_students_semester_id ON public.students(semester_id);
+CREATE INDEX IF NOT EXISTS idx_students_section_id ON public.students(section_id);
+CREATE INDEX IF NOT EXISTS idx_students_academic_year_id ON public.students(academic_year_id);
+-- Index for status filtering (commonly used in queries)
+CREATE INDEX IF NOT EXISTS idx_students_status ON public.students(status);
+-- Index for profile completion filtering
+CREATE INDEX IF NOT EXISTS idx_students_profile_complete ON public.students(is_profile_complete);
 
 -- Staff indexes
 CREATE INDEX IF NOT EXISTS idx_staff_institution_id ON public.staff(institution_id);

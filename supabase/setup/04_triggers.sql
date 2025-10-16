@@ -189,9 +189,16 @@ CREATE TRIGGER trigger_validate_student_semester_consistency BEFORE INSERT OR UP
 -- SECTION 6: STAFF MODULE TRIGGERS
 -- ================================================================================
 
--- Sync staff to profiles
-CREATE TRIGGER trg_sync_staff_to_profiles AFTER INSERT ON staff
+-- Sync staff to profiles (INSERT OR UPDATE)
+-- Updated: 2025-10-15 - Changed to BEFORE trigger to allow storing profile_id
+-- Updated: 2025-10-15 - Removed duplicate triggers, this handles ALL sync
+CREATE TRIGGER trg_sync_staff_to_profiles BEFORE INSERT OR UPDATE ON staff
     FOR EACH ROW EXECUTE FUNCTION sync_staff_to_profiles();
+
+-- Delete staff profile when staff is deleted
+-- Updated: 2025-10-15 - Added to sync staff deletion to profiles table
+CREATE TRIGGER trg_delete_staff_profile AFTER DELETE ON staff
+    FOR EACH ROW EXECUTE FUNCTION delete_staff_profile();
 
 -- Lowercase institution email
 CREATE TRIGGER trigger_lowercase_institution_email BEFORE INSERT OR UPDATE ON staff

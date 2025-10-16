@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Row } from '@tanstack/react-table';
-import { MoreHorizontal, Edit, Trash } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -44,6 +44,7 @@ export function DataTableRowActions<TData>({
   const { canAccess, isSuperAdmin } = usePermissions();
   const semester = row.original as Semester;
 
+  const canView = isSuperAdmin || canAccess('organizations.semesters', 'view');
   const canEdit = isSuperAdmin || canAccess('organizations.semesters', 'edit');
   const canDelete =
     isSuperAdmin || canAccess('organizations.semesters', 'delete');
@@ -66,8 +67,7 @@ export function DataTableRowActions<TData>({
     }
   };
 
-  // Don't render the menu if user has no permissions
-  const hasAnyPermission = canEdit || canDelete;
+  const hasAnyPermission = canView || canEdit || canDelete;
 
   if (!hasAnyPermission) {
     return null;
@@ -86,26 +86,38 @@ export function DataTableRowActions<TData>({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' className='w-[160px]'>
-          {canEdit && (
+          {canView && (
             <DropdownMenuItem
               onClick={() =>
-                router.push(`/organizations/semesters/${semester.id}/edit`)
+                router.push(`/organizations/semesters/${semester.id}`)
               }
             >
-              <Edit className='mr-2 h-4 w-4' />
-              Edit
+              <Eye className='mr-2 h-4 w-4' />
+              View
             </DropdownMenuItem>
           )}
-          {canEdit && canDelete && <DropdownMenuSeparator />}
-          {canDelete && (
-            <DropdownMenuItem
-              onClick={() => setShowDeleteAlert(true)}
-              className='text-destructive'
-            >
-              <Trash className='mr-2 h-4 w-4' />
-              Delete
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem
+            onClick={() =>
+              canEdit &&
+              router.push(`/organizations/semesters/${semester.id}/edit`)
+            }
+            disabled={!canEdit}
+            className={!canEdit ? 'opacity-50 cursor-not-allowed' : ''}
+          >
+            <Edit className='mr-2 h-4 w-4' />
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => canDelete && setShowDeleteAlert(true)}
+            disabled={!canDelete}
+            className={
+              !canDelete ? 'opacity-50 cursor-not-allowed' : 'text-destructive'
+            }
+          >
+            <Trash className='mr-2 h-4 w-4' />
+            Delete
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

@@ -122,7 +122,14 @@ export const studentSchema = z.object({
   father_name: z.string().min(2, "Father's name is required"),
   mother_name: z.string().min(2, "Mother's name is required"),
   roll_number: z.string().optional(),
-  college_email: z.string().email('Invalid college email').optional(),
+  college_email: z
+    .string()
+    .email('Invalid college email')
+    .refine(
+      (val) => val.toLowerCase().endsWith('@jkkn.ac.in'),
+      'College email must use @jkkn.ac.in domain (e.g., student@jkkn.ac.in)'
+    )
+    .optional(),
   student_photo_url: z.string().optional(),
   academic_year_id: z.string().optional(),
   semester_id: z.string().optional(),

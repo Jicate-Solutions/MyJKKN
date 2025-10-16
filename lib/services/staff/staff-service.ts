@@ -142,55 +142,14 @@ export class StaffService {
       // Profile auto-creation is handled by the database trigger (sync_staff_to_profiles)
       // The trigger creates/updates a profile when staff with institution_email is created
       if (staff.institution_email) {
-        try {
-          console.log(
-            `Profile will be auto-created by database trigger for staff ${staff.id} with email ${staff.institution_email}`
+        console.log(
+          `✓ Staff created successfully. Profile will be auto-created by database trigger for ${staff.institution_email}`
+        );
+
+        if (!suppressToast) {
+          toast.success(
+            `Staff created successfully! User can now login with Google using ${staff.institution_email}`
           );
-
-          // Give the trigger time to complete (500ms to ensure it finishes)
-          await new Promise((resolve) => setTimeout(resolve, 500));
-
-          // Verify the profile was created by the trigger
-          const { data: createdProfile } = await this.supabase
-            .from('profiles')
-            .select('id, email, role, is_pre_registered')
-            .eq('email', staff.institution_email)
-            .single();
-
-          if (createdProfile) {
-            console.log(
-              `✓ Profile auto-created successfully for ${staff.institution_email}`,
-              {
-                profile_id: createdProfile.id,
-                role: createdProfile.role,
-                is_pre_registered: createdProfile.is_pre_registered
-              }
-            );
-
-            if (!suppressToast) {
-              toast.success(
-                `Staff created successfully! User can now login with Google using ${staff.institution_email}`
-              );
-            }
-          } else {
-            console.warn(
-              `⚠ Profile not found after staff creation for ${staff.institution_email}. The trigger may have failed.`
-            );
-
-            if (!suppressToast) {
-              toast.error(
-                `Staff created, but profile creation may be pending. Please check the database.`
-              );
-            }
-          }
-        } catch (profileCheckError) {
-          console.error('Error verifying profile creation:', profileCheckError);
-          // Don't fail the staff creation if profile check fails
-          if (!suppressToast) {
-            toast.success(
-              `Staff created successfully. Profile creation will be handled automatically.`
-            );
-          }
         }
       } else {
         console.log(
@@ -273,63 +232,16 @@ export class StaffService {
 
   static async deleteStaff(id: string): Promise<void> {
     try {
-      // First, get the staff member to find out if they have an institution_email
-      const { data: staff, error: fetchError } = await this.supabase
-        .from('staff')
-        .select('institution_email')
-        .eq('id', id)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // If there is an institution_email, try to delete the associated profile
-      if (staff?.institution_email) {
-        try {
-          // Find the profile associated with the institution_email
-          const { data: profile, error: profileError } = await this.supabase
-            .from('profiles')
-            .select('id')
-            .eq('email', staff.institution_email)
-            .single();
-
-          if (!profileError && profile) {
-            // Delete the profile using the API endpoint (which handles auth table deletion too)
-            const response = await fetch(`/api/users/${profile.id}`, {
-              method: 'DELETE',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              credentials: 'include' // Include session cookies for authentication
-            });
-
-            if (!response.ok) {
-              console.warn(
-                `Failed to delete user profile for staff ${id}:`,
-                await response.text()
-              );
-              toast.error(
-                'Staff deleted, but failed to remove user profile. Profile may need manual cleanup.'
-              );
-            } else {
-              console.log(`Successfully deleted user profile for staff ${id}`);
-            }
-          }
-        } catch (profileError) {
-          console.warn(
-            'Error finding or deleting staff user profile:',
-            profileError
-          );
-          toast.error(
-            'Staff deleted, but encountered error removing user profile. Manual cleanup may be needed.'
-          );
-          // Continue with staff deletion even if profile deletion fails
-        }
-      }
+      console.log(`Deleting staff ${id}. Profile will be auto-deleted by database trigger.`);
 
       // Delete the staff record
+      // The database trigger (trg_delete_staff_profile) will automatically delete
+      // the corresponding profile from the profiles table
       const { error } = await this.supabase.from('staff').delete().eq('id', id);
 
       if (error) throw error;
+
+      console.log(`✓ Staff ${id} deleted successfully. Profile auto-deleted by trigger.`);
     } catch (error) {
       console.error('Error deleting staff:', error);
       throw error;
