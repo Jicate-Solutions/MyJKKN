@@ -81,6 +81,8 @@ export interface Degree {
   degree_id: string;
   degree_name: string;
   degree_type: DegreeType;
+  display_name?: string; // Optional alternative display name
+  degree_order: number; // Sort order for displaying degrees
   is_active: boolean;
   created_by?: string;
   created_at: string;
@@ -98,6 +100,8 @@ export interface CreateDegreeDto {
   degree_id: string;
   degree_name: string;
   degree_type: DegreeType;
+  display_name?: string;
+  degree_order?: number;
   is_active?: boolean;
 }
 
@@ -136,6 +140,8 @@ export interface Department {
   degree_id: string;
   department_code: string;
   department_name: string;
+  display_name?: string; // Optional alternative display name
+  department_order: number; // Sort order for displaying departments
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -157,6 +163,8 @@ export interface CreateDepartmentDto {
   degree_id: string;
   department_code: string;
   department_name: string;
+  display_name?: string;
+  department_order?: number;
   is_active?: boolean;
 }
 

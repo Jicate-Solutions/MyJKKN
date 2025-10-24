@@ -445,7 +445,7 @@ export function PendingAttendanceFilters({
                       Institution
                       <span className='text-xs text-muted-foreground ml-1'>(Use top filter)</span>
                     </Label>
-                    <div className='text-sm text-muted-foreground p-2 bg-gray-50 rounded border'>
+                    <div className='text-sm text-muted-foreground p-2 bg-muted/50 rounded border'>
                       Institution filter is controlled by the main dashboard filter above.
                     </div>
                   </div>
@@ -462,7 +462,7 @@ export function PendingAttendanceFilters({
                       )}
                     </Label>
                     {dashboardAcademicYearId ? (
-                      <div className='text-sm text-muted-foreground p-2 bg-blue-50 rounded border border-blue-200'>
+                      <div className='text-sm text-muted-foreground p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800'>
                         Academic Year is controlled by the main dashboard filter above.
                       </div>
                     ) : (

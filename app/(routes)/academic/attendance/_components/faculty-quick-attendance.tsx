@@ -226,7 +226,7 @@ export function FacultyQuickAttendance({
               Your Schedule
             </CardTitle>
             {/* Updated: 2025-10-14 - Prominent date badge for easy identification */}
-            <div className='inline-flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-md font-semibold shadow-sm w-fit'>
+            <div className='inline-flex items-center gap-2 bg-green-600 dark:bg-green-700 text-white px-4 py-2 rounded-md font-semibold shadow-sm w-fit'>
               <Calendar className='h-4 w-4' />
               <span>{displayDate}</span>
             </div>
@@ -248,7 +248,7 @@ export function FacultyQuickAttendance({
                 className={cn(
                   'border-2 transition-all duration-200',
                   // timeStatus === 'past' && !isMarked && 'opacity-75', // TEMPORARY: Removed past period styling
-                  isMarked && 'border-green-500'
+                  isMarked && 'border-green-500 dark:border-green-600'
                 )}
               >
                 <CardContent className='p-3'>
@@ -272,8 +272,8 @@ export function FacultyQuickAttendance({
                         </div>
                         {isMarked && (
                           <div className='flex items-center gap-2 self-start sm:self-auto'>
-                            <CheckCircle className='h-4 w-4 text-green-600 flex-shrink-0' />
-                            <span className='text-xs text-green-600 font-medium'>
+                            <CheckCircle className='h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0' />
+                            <span className='text-xs text-green-600 dark:text-green-400 font-medium'>
                               Completed
                             </span>
                           </div>

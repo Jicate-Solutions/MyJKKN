@@ -205,7 +205,7 @@ export function DashboardFilters({
                 variant='ghost'
                 size='sm'
                 onClick={clearAllFilters}
-                className='text-red-600 hover:text-red-700 hover:bg-red-50'
+                className='text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20'
               >
                 <X className='h-4 w-4 mr-1' />
                 Clear All
@@ -220,7 +220,7 @@ export function DashboardFilters({
         <div className='flex items-center justify-between p-3 bg-white/60 dark:bg-gray-800/60 rounded-lg border border-blue-200 dark:border-blue-800'>
           <div className='flex items-center gap-4'>
             <div className='flex items-center gap-2'>
-              <Calendar className='h-4 w-4 text-blue-600' />
+              <Calendar className='h-4 w-4 text-blue-600 dark:text-blue-400' />
               <span className='text-sm font-medium'>
                 {format(filters.selectedDate, 'EEEE, MMM dd, yyyy')}
               </span>

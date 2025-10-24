@@ -119,12 +119,15 @@ CREATE TABLE IF NOT EXISTS public.institution_departments (
 );
 
 -- Degrees table (Critical for hierarchy)
+-- Updated: 2025-10-24 - Added display_name and degree_order columns for enhanced degree management
 CREATE TABLE IF NOT EXISTS public.degrees (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL,
     degree_id VARCHAR(20) NOT NULL,
     degree_name VARCHAR(100) NOT NULL,
     degree_type VARCHAR(10) NOT NULL,
+    display_name VARCHAR(100), -- Optional alternative display name
+    degree_order INTEGER NOT NULL DEFAULT 0, -- Sort order for displaying degrees
     is_active BOOLEAN DEFAULT true,
     created_by UUID,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
@@ -132,12 +135,15 @@ CREATE TABLE IF NOT EXISTS public.degrees (
 );
 
 -- Departments table
+-- Updated: 2025-10-24 - Added display_name and department_order columns for enhanced department management
 CREATE TABLE IF NOT EXISTS public.departments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL,
     degree_id UUID NOT NULL,
     department_code VARCHAR(20) NOT NULL,
     department_name VARCHAR(255) NOT NULL,
+    display_name VARCHAR(255), -- Optional alternative display name
+    department_order INTEGER NOT NULL DEFAULT 0, -- Sort order for displaying departments
     is_active BOOLEAN DEFAULT true,
     created_by UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),

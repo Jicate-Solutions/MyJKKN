@@ -243,7 +243,7 @@ export function AvailablePeriodsCards({
                 className={cn(
                   'border-2 transition-all duration-200',
                   // timeStatus === 'past' && !isMarked && 'opacity-75', // TEMPORARY: Removed past period styling
-                  isMarked && 'border-green-500'
+                  isMarked && 'border-green-500 dark:border-green-600'
                 )}
               >
                 <CardContent className='p-4'>
@@ -267,8 +267,8 @@ export function AvailablePeriodsCards({
                         </div>
                         {isMarked && (
                           <div className='flex items-center gap-2 self-start sm:self-auto'>
-                            <CheckCircle className='h-4 w-4 text-green-600 flex-shrink-0' />
-                            <span className='text-xs text-green-600 font-medium'>
+                            <CheckCircle className='h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0' />
+                            <span className='text-xs text-green-600 dark:text-green-400 font-medium'>
                               {isMultiSection
                                 ? 'All Sections Completed'
                                 : 'Completed'}

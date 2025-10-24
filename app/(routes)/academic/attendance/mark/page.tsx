@@ -2127,7 +2127,7 @@ export default function AttendanceMarkPage() {
             <h2 className='text-xl font-semibold flex items-center gap-2'>
               {isSubdividedSlot ? (
                 <>
-                  <Users className='h-5 w-5 text-purple-600' />
+                  <Users className='h-5 w-5 text-purple-600 dark:text-purple-400' />
                   Subdivided{' '}
                   {subdivisionType.charAt(0).toUpperCase() +
                     subdivisionType.slice(1)}{' '}
@@ -2141,7 +2141,7 @@ export default function AttendanceMarkPage() {
                 </>
               ) : (
                 <>
-                  <Users className='h-5 w-5 text-blue-600' />
+                  <Users className='h-5 w-5 text-blue-600 dark:text-blue-400' />
                   Student Roster
                   <Badge variant='secondary' className='ml-2'>
                     {filteredStudents.length}{' '}
@@ -2216,8 +2216,8 @@ export default function AttendanceMarkPage() {
             <Card className='border-0 shadow-lg border-l-4 border-l-amber-500'>
               <CardContent className='p-8'>
                 <div className='flex items-center space-x-4'>
-                  <div className='bg-amber-100 p-3 rounded-full'>
-                    <AlertTriangle className='h-6 w-6 text-amber-600' />
+                  <div className='bg-amber-100 dark:bg-amber-900/30 p-3 rounded-full'>
+                    <AlertTriangle className='h-6 w-6 text-amber-600 dark:text-amber-400' />
                   </div>
                   <div>
                     <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>

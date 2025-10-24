@@ -47,6 +47,8 @@ const degreeSchema = z.object({
     .transform((val) => val.toUpperCase()),
   degree_name: z.string().min(2, 'Name must be at least 2 characters'),
   degree_type: z.enum(['ug', 'pg']),
+  display_name: z.string().optional(),
+  degree_order: z.coerce.number().int().min(0).default(0),
   is_active: z.boolean().default(true)
 });
 
@@ -71,6 +73,8 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
       degree_id: degree?.degree_id || '',
       degree_name: degree?.degree_name || '',
       degree_type: degree?.degree_type || 'ug',
+      display_name: degree?.display_name || '',
+      degree_order: degree?.degree_order ?? 0,
       is_active: degree?.is_active ?? true
     }
   });
@@ -190,6 +194,48 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
                         <SelectItem value='pg'>PG</SelectItem>
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='display_name'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Display Name (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder='Enter display name' {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      Alternative name to display (optional)
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='degree_order'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Display Order</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min='0'
+                        placeholder='Enter display order'
+                        {...field}
+                        onChange={(e) =>
+                          field.onChange(parseInt(e.target.value) || 0)
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Order in which degrees are displayed (0 = first)
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

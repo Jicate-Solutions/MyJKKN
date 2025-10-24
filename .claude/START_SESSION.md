@@ -5,6 +5,11 @@
 ```
 Load settings from .claude/claude_settings.json and remember:
 
+CLAUDE SKILLS:
+Load all skills from .claude/skills/ for automatic use:
+- toast-migrator: Auto-fix useToast → react-hot-toast
+- Auto-detect patterns and apply appropriate skills
+
 SUPABASE RULES:
 1. ALWAYS check supabase/SQL_FILE_INDEX.md first
 2. NEVER create duplicate SQL files

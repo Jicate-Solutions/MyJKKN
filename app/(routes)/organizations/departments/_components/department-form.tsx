@@ -47,6 +47,8 @@ const departmentSchema = z.object({
     )
     .transform((val) => val.toUpperCase()),
   department_name: z.string().min(2, 'Name must be at least 2 characters'),
+  display_name: z.string().optional(),
+  department_order: z.coerce.number().int().min(0).default(0),
   is_active: z.boolean().default(true)
 });
 
@@ -78,6 +80,8 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
       degree_id: department?.degree_id || '',
       department_code: department?.department_code || '',
       department_name: department?.department_name || '',
+      display_name: department?.display_name || '',
+      department_order: department?.department_order ?? 0,
       is_active: department?.is_active ?? true
     }
   });
@@ -245,6 +249,48 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
                     </FormControl>
                     <FormDescription>
                       The full name of the department
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='display_name'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Display Name (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder='Enter display name' {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      Alternative name to display (optional)
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='department_order'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Display Order</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min='0'
+                        placeholder='Enter display order'
+                        {...field}
+                        onChange={(e) =>
+                          field.onChange(parseInt(e.target.value) || 0)
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Order in which departments are displayed (0 = first)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

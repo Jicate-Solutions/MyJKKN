@@ -200,7 +200,7 @@ export function SubdividedAttendanceGrid({
                 <div className='flex items-start justify-between gap-4 flex-wrap'>
                   <div className='flex-1'>
                     <CardTitle className='text-xl flex items-center gap-2'>
-                      <Badge variant='secondary' className='text-sm bg-purple-100 text-purple-800 border-purple-300'>
+                      <Badge variant='secondary' className='text-sm bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-700'>
                         Group {group.group_order}
                       </Badge>
                       {group.group_name}
@@ -235,7 +235,7 @@ export function SubdividedAttendanceGrid({
                           <Badge
                             key={staff.id}
                             variant='secondary'
-                            className='text-xs bg-blue-50 text-blue-800 border-blue-200'
+                            className='text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-700'
                           >
                             {staff.full_name ||
                               `${staff.first_name || ''} ${staff.last_name || ''}`.trim()}
@@ -288,7 +288,7 @@ export function SubdividedAttendanceGrid({
                       variant='outline'
                       size='sm'
                       onClick={() => onMarkAllGroupPresent(group.group_order)}
-                      className='bg-green-50 hover:bg-green-100 text-green-700 border-green-200 hover:border-green-300'
+                      className='bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-700 hover:border-green-300 dark:hover:border-green-600'
                     >
                       <UserCheck className='h-3 w-3 mr-1' />
                       Mark All Present
@@ -297,7 +297,7 @@ export function SubdividedAttendanceGrid({
                       variant='outline'
                       size='sm'
                       onClick={() => onMarkAllGroupAbsent(group.group_order)}
-                      className='bg-red-50 hover:bg-red-100 text-red-700 border-red-200 hover:border-red-300'
+                      className='bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-700 hover:border-red-300 dark:hover:border-red-600'
                     >
                       <UserX className='h-3 w-3 mr-1' />
                       Mark All Absent

@@ -47,7 +47,8 @@
       "Bash(python:*)",
       "mcp__supabase__search_docs",
       "Read(//c/Users/Boobalan/Pictures/**)",
-      "Bash(timeout 60 npx tsc:*)"
+      "Bash(timeout 60 npx tsc:*)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []

@@ -269,7 +269,7 @@ function AttendanceDashboardContent() {
               {isHistoricalData && (
                 <Badge
                   variant='secondary'
-                  className='bg-orange-100 text-orange-800 border-orange-300'
+                  className='bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 border-orange-300 dark:border-orange-700'
                 >
                   <AlertCircle className='h-3 w-3 mr-1' />
                   Historical Data
