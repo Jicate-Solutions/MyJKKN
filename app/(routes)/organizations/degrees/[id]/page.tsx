@@ -142,10 +142,22 @@ export default function DegreeDetailsPage({ params }: DegreeDetailsPageProps) {
                 </p>
               </div>
               <div>
-                <p className='font-medium'>Status</p>
-                <Badge variant={degree.is_active ? 'default' : 'secondary'}>
-                  {degree.is_active ? 'Active' : 'Inactive'}
-                </Badge>
+                <p className='font-medium'>Degree Name</p>
+                <p className='text-base text-muted-foreground'>
+                  {degree.degree_name}
+                </p>
+              </div>
+              <div>
+                <p className='font-medium'>Display Name</p>
+                <p className='text-base text-muted-foreground'>
+                  {degree.display_name || '-'}
+                </p>
+              </div>
+              <div>
+                <p className='font-medium'>Display Order</p>
+                <p className='text-base text-muted-foreground'>
+                  {degree.degree_order}
+                </p>
               </div>
               <div>
                 <p className='font-medium'>Type</p>
@@ -154,6 +166,12 @@ export default function DegreeDetailsPage({ params }: DegreeDetailsPageProps) {
                 </Badge>
               </div>
               <div>
+                <p className='font-medium'>Status</p>
+                <Badge variant={degree.is_active ? 'default' : 'secondary'}>
+                  {degree.is_active ? 'Active' : 'Inactive'}
+                </Badge>
+              </div>
+              <div className='md:col-span-2'>
                 <p className='font-medium'>Institution</p>
                 <p className='text-base text-muted-foreground'>
                   {degree.institution?.name} (

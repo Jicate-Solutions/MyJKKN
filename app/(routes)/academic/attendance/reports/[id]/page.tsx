@@ -206,8 +206,8 @@ export default function AttendanceReportDetailPage() {
     return (
       <ContentLayout title='Loading Report...'>
         <div className='flex items-center justify-center min-h-[400px]'>
-          <Loader2 className='h-8 w-8 animate-spin text-blue-600' />
-          <span className='ml-2'>
+          <Loader2 className='h-8 w-8 animate-spin text-blue-600 dark:text-blue-400' />
+          <span className='ml-2 dark:text-gray-200'>
             {shouldWaitForRole
               ? 'Preparing your data...'
               : 'Loading report details...'}
@@ -351,46 +351,46 @@ export default function AttendanceReportDetailPage() {
           {/* Key Statistics - Clean Layout */}
           <CardContent className='p-6'>
             <div className='grid grid-cols-1 md:grid-cols-4 gap-4'>
-              <div className='bg-gray-50 p-4 rounded-lg'>
+              <div className='bg-gray-50 dark:bg-gray-800 p-4 rounded-lg'>
                 <div className='flex items-center gap-3'>
-                  <Users className='h-5 w-5 text-blue-600' />
+                  <Users className='h-5 w-5 text-blue-600 dark:text-blue-400' />
                   <div>
-                    <p className='text-sm text-gray-600'>Total Students</p>
-                    <p className='text-2xl font-bold'>{stats.total}</p>
+                    <p className='text-sm text-gray-600 dark:text-gray-400'>Total Students</p>
+                    <p className='text-2xl font-bold dark:text-white'>{stats.total}</p>
                   </div>
                 </div>
               </div>
 
-              <div className='bg-green-50 p-4 rounded-lg'>
+              <div className='bg-green-50 dark:bg-green-900/20 p-4 rounded-lg'>
                 <div className='flex items-center gap-3'>
-                  <UserCheck className='h-5 w-5 text-green-600' />
+                  <UserCheck className='h-5 w-5 text-green-600 dark:text-green-400' />
                   <div>
-                    <p className='text-sm text-gray-600'>Present</p>
-                    <p className='text-2xl font-bold text-green-600'>
+                    <p className='text-sm text-gray-600 dark:text-gray-400'>Present</p>
+                    <p className='text-2xl font-bold text-green-600 dark:text-green-400'>
                       {stats.present}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className='bg-red-50 p-4 rounded-lg'>
+              <div className='bg-red-50 dark:bg-red-900/20 p-4 rounded-lg'>
                 <div className='flex items-center gap-3'>
-                  <UserX className='h-5 w-5 text-red-600' />
+                  <UserX className='h-5 w-5 text-red-600 dark:text-red-400' />
                   <div>
-                    <p className='text-sm text-gray-600'>Absent</p>
-                    <p className='text-2xl font-bold text-red-600'>
+                    <p className='text-sm text-gray-600 dark:text-gray-400'>Absent</p>
+                    <p className='text-2xl font-bold text-red-600 dark:text-red-400'>
                       {stats.absent}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className='bg-blue-50 p-4 rounded-lg'>
+              <div className='bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg'>
                 <div className='flex items-center gap-3'>
-                  <AlertTriangle className='h-5 w-5 text-blue-600' />
+                  <AlertTriangle className='h-5 w-5 text-blue-600 dark:text-blue-400' />
                   <div>
-                    <p className='text-sm text-gray-600'>Attendance Rate</p>
-                    <p className='text-2xl font-bold text-blue-600'>
+                    <p className='text-sm text-gray-600 dark:text-gray-400'>Attendance Rate</p>
+                    <p className='text-2xl font-bold text-blue-600 dark:text-blue-400'>
                       {stats.percentage.toFixed(1)}%
                     </p>
                   </div>
@@ -399,35 +399,35 @@ export default function AttendanceReportDetailPage() {
             </div>
 
             {/* Academic Information - Simplified */}
-            <div className='mt-6 p-4 bg-gray-50 rounded-lg'>
+            <div className='mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg'>
               <div className='grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4'>
                 <div>
-                  <p className='text-sm text-gray-500 mb-1'>Institution</p>
-                  <p className='font-semibold text-sm'>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Institution</p>
+                  <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.institution_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 mb-1'>Department</p>
-                  <p className='font-semibold text-sm'>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Department</p>
+                  <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.department_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 mb-1'>Degree</p>
-                  <p className='font-semibold text-sm'>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Degree</p>
+                  <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.degree_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 mb-1'>Program</p>
-                  <p className='font-semibold text-sm'>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Program</p>
+                  <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.program_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 mb-1'>Section</p>
-                  <p className='font-semibold text-sm'>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Section</p>
+                  <p className='font-semibold text-sm dark:text-gray-200'>
                     {/* Updated: 2025-10-09 - Display all sections for semester-level timetables */}
                     {report.section_names && report.section_names.length > 1
                       ? `Sections ${report.section_names.join(', ')}`
@@ -435,21 +435,21 @@ export default function AttendanceReportDetailPage() {
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 mb-1'>Semester</p>
-                  <p className='font-semibold text-sm'>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Semester</p>
+                  <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.semester_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 mb-1'>Academic Year</p>
-                  <p className='font-semibold text-sm'>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Academic Year</p>
+                  <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.academic_year_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 mb-1'>Timetable</p>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Timetable</p>
                   <div className='flex items-center gap-2'>
-                    <p className='font-semibold text-sm'>
+                    <p className='font-semibold text-sm dark:text-gray-200'>
                       {report.timetable_name ||
                         `TT-${report.timetable_id?.slice(0, 8) || 'N/A'}`}
                     </p>
@@ -458,8 +458,8 @@ export default function AttendanceReportDetailPage() {
                         variant='outline'
                         className={
                           report.timetable_type === 'semester'
-                            ? 'bg-green-50 text-green-700 border-green-200 text-xs'
-                            : 'bg-blue-50 text-blue-700 border-blue-200 text-xs'
+                            ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-700 text-xs'
+                            : 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700 text-xs'
                         }
                       >
                         {report.timetable_type === 'semester'
@@ -476,16 +476,16 @@ export default function AttendanceReportDetailPage() {
 
         {/* Period-wise Analysis - New Design */}
         <Card className='border-0 shadow-lg'>
-          <CardHeader className='bg-gray-50 border-b'>
-            <CardTitle className='flex items-center gap-2'>
-              <Clock className='h-5 w-5 text-blue-600' />
+          <CardHeader className='bg-gray-50 dark:bg-gray-800 border-b dark:border-gray-700'>
+            <CardTitle className='flex items-center gap-2 dark:text-gray-100'>
+              <Clock className='h-5 w-5 text-blue-600 dark:text-blue-400' />
               Period-wise Analysis
             </CardTitle>
           </CardHeader>
           <CardContent className='p-6'>
             {/* Period Selection Cards */}
             <div className='mb-6'>
-              <h3 className='text-sm font-medium text-gray-700 mb-3'>
+              <h3 className='text-sm font-medium text-gray-700 dark:text-gray-300 mb-3'>
                 Select a period to view details:
               </h3>
               <div className='grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3'>
@@ -496,8 +496,8 @@ export default function AttendanceReportDetailPage() {
                       key={period.period_id}
                       className={`cursor-pointer transition-all hover:shadow-md ${
                         isSelected
-                          ? 'ring-2 ring-blue-500 bg-blue-50 border-blue-500'
-                          : 'hover:border-blue-300'
+                          ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-500 dark:border-blue-400'
+                          : 'hover:border-blue-300 dark:hover:border-blue-600'
                       }`}
                       onClick={() =>
                         setSelectedPeriod(isSelected ? null : period.period_id)
@@ -505,11 +505,11 @@ export default function AttendanceReportDetailPage() {
                     >
                       <CardContent className='p-4'>
                         <div className='flex flex-col items-center text-center space-y-2'>
-                          <div className='text-lg font-semibold'>
+                          <div className='text-lg font-semibold dark:text-gray-100'>
                             {period.period_name ||
                               `Period ${period.period_number || index + 1}`}
                           </div>
-                          <div className='text-xs text-gray-600'>
+                          <div className='text-xs text-gray-600 dark:text-gray-400'>
                             {convertTo12Hour(period.start_time)} -{' '}
                             {convertTo12Hour(period.end_time)}
                           </div>
@@ -517,19 +517,19 @@ export default function AttendanceReportDetailPage() {
                             <div
                               className={`text-2xl font-bold ${
                                 period.attendance_percentage >= 75
-                                  ? 'text-green-600'
-                                  : 'text-red-600'
+                                  ? 'text-green-600 dark:text-green-400'
+                                  : 'text-red-600 dark:text-red-400'
                               }`}
                             >
                               {period.attendance_percentage.toFixed(1)}%
                             </div>
-                            <div className='text-xs text-gray-500'>
+                            <div className='text-xs text-gray-500 dark:text-gray-400'>
                               {period.present_count}/{period.total_count}{' '}
                               Present
                             </div>
                           </div>
                           {isSelected && (
-                            <ChevronRight className='h-4 w-4 text-blue-600 animate-pulse' />
+                            <ChevronRight className='h-4 w-4 text-blue-600 dark:text-blue-400 animate-pulse' />
                           )}
                         </div>
                       </CardContent>
@@ -952,15 +952,15 @@ export default function AttendanceReportDetailPage() {
 
         {/* Attendance Alert - Clean and Simple */}
         {report.average_attendance < 75 && (
-          <Card className='border-l-4 border-l-red-500 bg-red-50'>
+          <Card className='border-l-4 border-l-red-500 bg-red-50 dark:bg-red-900/20'>
             <CardContent className='p-4'>
               <div className='flex items-start gap-3'>
-                <AlertTriangle className='h-5 w-5 text-red-600 mt-0.5' />
+                <AlertTriangle className='h-5 w-5 text-red-600 dark:text-red-400 mt-0.5' />
                 <div>
-                  <h3 className='font-semibold text-red-900'>
+                  <h3 className='font-semibold text-red-900 dark:text-red-200'>
                     Low Attendance Alert
                   </h3>
-                  <p className='text-sm text-red-700 mt-1'>
+                  <p className='text-sm text-red-700 dark:text-red-300 mt-1'>
                     The overall attendance (
                     {report.average_attendance.toFixed(1)}%) is below the
                     recommended 75% threshold. Consider taking appropriate
@@ -973,15 +973,15 @@ export default function AttendanceReportDetailPage() {
         )}
 
         {report.average_attendance >= 90 && (
-          <Card className='border-l-4 border-l-green-500 bg-green-50'>
+          <Card className='border-l-4 border-l-green-500 bg-green-50 dark:bg-green-900/20'>
             <CardContent className='p-4'>
               <div className='flex items-start gap-3'>
-                <CheckCircle className='h-5 w-5 text-green-600 mt-0.5' />
+                <CheckCircle className='h-5 w-5 text-green-600 dark:text-green-400 mt-0.5' />
                 <div>
-                  <h3 className='font-semibold text-green-900'>
+                  <h3 className='font-semibold text-green-900 dark:text-green-200'>
                     Excellent Attendance
                   </h3>
-                  <p className='text-sm text-green-700 mt-1'>
+                  <p className='text-sm text-green-700 dark:text-green-300 mt-1'>
                     Outstanding! This class achieved{' '}
                     {report.average_attendance.toFixed(1)}% attendance,
                     exceeding the excellence threshold of 90%.

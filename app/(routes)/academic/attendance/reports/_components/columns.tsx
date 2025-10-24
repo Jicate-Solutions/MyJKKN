@@ -114,7 +114,7 @@ export const columns: ColumnDef<AttendanceReport>[] = [
         <div className='text-sm font-medium'>
           <Badge
             variant='outline'
-            className='bg-blue-50 text-blue-700 border-blue-200'
+            className='bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700'
           >
             {`${year}-${year + 1}`}
           </Badge>
@@ -134,9 +134,9 @@ export const columns: ColumnDef<AttendanceReport>[] = [
       const report = row.original;
       const percentage = report.average_attendance;
       const getAttendanceColor = (percentage: number) => {
-        if (percentage >= 85) return 'text-green-600';
-        if (percentage >= 75) return 'text-yellow-600';
-        return 'text-red-600';
+        if (percentage >= 85) return 'text-green-600 dark:text-green-400';
+        if (percentage >= 75) return 'text-yellow-600 dark:text-yellow-400';
+        return 'text-red-600 dark:text-red-400';
       };
 
       return (
@@ -166,7 +166,7 @@ export const columns: ColumnDef<AttendanceReport>[] = [
         <div className='text-center'>
           <Badge
             variant='outline'
-            className='bg-purple-50 text-purple-700 border-purple-200 font-semibold'
+            className='bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700 font-semibold'
           >
             {periodsCount} Period{periodsCount !== 1 ? 's' : ''}
           </Badge>

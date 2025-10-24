@@ -107,32 +107,28 @@ export function DataTableRowActions<TData>({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' className='w-[160px]'>
-          {canViewStaffPlan && (
-            <DropdownMenuItem onClick={handleView}>
-              View Details
-              <DropdownMenuShortcut>⌘V</DropdownMenuShortcut>
+          <DropdownMenuItem disabled={!canViewStaffPlan} onClick={handleView}>
+            View Details
+            <DropdownMenuShortcut>⌘V</DropdownMenuShortcut>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem disabled={!canEditStaffPlan} onClick={handleEdit}>
+            Edit
+            <DropdownMenuShortcut>⌘E</DropdownMenuShortcut>
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+
+          <AlertDialogTrigger asChild disabled={!canDeleteStaffPlan}>
+            <DropdownMenuItem
+              disabled={!canDeleteStaffPlan}
+              className='text-red-600 focus:text-red-600'
+              onSelect={(e) => e.preventDefault()}
+            >
+              Delete
+              <DropdownMenuShortcut>⌘⌫</DropdownMenuShortcut>
             </DropdownMenuItem>
-          )}
-          {canEditStaffPlan && (
-            <DropdownMenuItem onClick={handleEdit}>
-              Edit
-              <DropdownMenuShortcut>⌘E</DropdownMenuShortcut>
-            </DropdownMenuItem>
-          )}
-          {(canViewStaffPlan || canEditStaffPlan) && canDeleteStaffPlan && (
-            <DropdownMenuSeparator />
-          )}
-          {canDeleteStaffPlan && (
-            <AlertDialogTrigger asChild>
-              <DropdownMenuItem
-                className='text-red-600 focus:text-red-600'
-                onSelect={(e) => e.preventDefault()}
-              >
-                Delete
-                <DropdownMenuShortcut>⌘⌫</DropdownMenuShortcut>
-              </DropdownMenuItem>
-            </AlertDialogTrigger>
-          )}
+          </AlertDialogTrigger>
         </DropdownMenuContent>
       </DropdownMenu>
       <AlertDialogContent>

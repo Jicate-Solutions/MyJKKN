@@ -150,22 +150,40 @@ export default function DepartmentDetailsPage({
                 </p>
               </div>
               <div>
+                <p className='font-medium'>Department Name</p>
+                <p className='text-base text-muted-foreground'>
+                  {department.department_name}
+                </p>
+              </div>
+              <div>
+                <p className='font-medium'>Display Name</p>
+                <p className='text-base text-muted-foreground'>
+                  {department.display_name || '-'}
+                </p>
+              </div>
+              <div>
+                <p className='font-medium'>Display Order</p>
+                <p className='text-base text-muted-foreground'>
+                  {department.department_order}
+                </p>
+              </div>
+              <div>
                 <p className='font-medium'>Status</p>
                 <Badge variant={department.is_active ? 'default' : 'secondary'}>
                   {department.is_active ? 'Active' : 'Inactive'}
                 </Badge>
               </div>
               <div>
+                <p className='font-medium'>Degree</p>
+                <p className='text-base text-muted-foreground'>
+                  {department.degree?.degree_name}
+                </p>
+              </div>
+              <div className='md:col-span-2'>
                 <p className='font-medium'>Institution</p>
                 <p className='text-base text-muted-foreground'>
                   {department.institution?.name} (
                   {department.institution?.counselling_code})
-                </p>
-              </div>
-              <div>
-                <p className='font-medium'>Degree</p>
-                <p className='text-base text-muted-foreground'>
-                  {department.degree?.degree_name}
                 </p>
               </div>
             </div>

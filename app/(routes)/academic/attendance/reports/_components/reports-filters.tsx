@@ -333,7 +333,7 @@ export function ReportsFilters({
                   </SelectContent>
                 </Select>
                 {academicYearsError && (
-                  <p className='text-sm text-red-600'>{academicYearsError}</p>
+                  <p className='text-sm text-red-600 dark:text-red-400'>{academicYearsError}</p>
                 )}
               </div>
 

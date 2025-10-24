@@ -236,12 +236,12 @@ export default function AttendanceReportsPage() {
                   <Card key={i} className='animate-pulse'>
                     <CardContent className='p-6'>
                       <div className='flex items-center justify-between space-y-0 pb-2'>
-                        <div className='h-4 bg-gray-200 rounded w-24'></div>
-                        <div className='h-10 w-10 bg-gray-200 rounded-full'></div>
+                        <div className='h-4 bg-gray-200 dark:bg-gray-700 rounded w-24'></div>
+                        <div className='h-10 w-10 bg-gray-200 dark:bg-gray-700 rounded-full'></div>
                       </div>
                       <div className='space-y-2'>
-                        <div className='h-8 bg-gray-200 rounded w-16'></div>
-                        <div className='h-3 bg-gray-200 rounded w-20'></div>
+                        <div className='h-8 bg-gray-200 dark:bg-gray-700 rounded w-16'></div>
+                        <div className='h-3 bg-gray-200 dark:bg-gray-700 rounded w-20'></div>
                       </div>
                     </CardContent>
                   </Card>
@@ -250,8 +250,8 @@ export default function AttendanceReportsPage() {
               <Card>
                 <CardContent className='p-6'>
                   <div className='animate-pulse space-y-4'>
-                    <div className='h-6 bg-gray-200 rounded w-48'></div>
-                    <div className='h-40 bg-gray-200 rounded'></div>
+                    <div className='h-6 bg-gray-200 dark:bg-gray-700 rounded w-48'></div>
+                    <div className='h-40 bg-gray-200 dark:bg-gray-700 rounded'></div>
                   </div>
                 </CardContent>
               </Card>

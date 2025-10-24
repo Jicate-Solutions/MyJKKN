@@ -85,8 +85,8 @@ export function StaffSearchSelector({
       try {
         setLoadingAssigned(true);
         const staffIds = value.map((assignment) => assignment.staff_id);
-        // Fetch all staff from institution
-        const result = await StaffService.getStaff({
+        // Fetch all staff from institution via API (bypasses RLS for performance)
+        const result = await StaffService.getStaffViaAPI({
           institution_id: institutionId,
           limit: 1000,
           isActive: true
@@ -116,7 +116,7 @@ export function StaffSearchSelector({
 
       setIsLoading(true);
       try {
-        const result = await StaffService.getStaff({
+        const result = await StaffService.getStaffViaAPI({
           institution_id: institutionId,
           limit: 1000,
           isActive: true
@@ -145,7 +145,7 @@ export function StaffSearchSelector({
 
       setIsLoading(true);
       try {
-        const result = await StaffService.getStaff({
+        const result = await StaffService.getStaffViaAPI({
           institution_id: institutionId,
           search: debouncedSearchTerm,
           limit: 100,

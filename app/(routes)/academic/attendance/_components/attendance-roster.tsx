@@ -326,8 +326,8 @@ export function AttendanceRoster({
         !checkingPermission &&
         !canMarkThisSlot &&
         canMarkAttendance && (
-          <div className='bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center'>
-            <p className='text-sm text-yellow-800'>
+          <div className='bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800/50 rounded-lg p-4 text-center'>
+            <p className='text-sm text-yellow-800 dark:text-yellow-200'>
               <strong>Permission Restricted:</strong> You are not assigned to
               teach this specific period. Only staff assigned to this timetable
               slot can mark attendance.
@@ -337,7 +337,7 @@ export function AttendanceRoster({
 
       {/* Debug permission info - remove after testing */}
       {process.env.NODE_ENV === 'development' && (
-        <div className='bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs'>
+        <div className='bg-muted/50 border border-border rounded-lg p-3 text-xs'>
           <div className='flex justify-between items-center'>
             <div>
               <strong>Debug Info:</strong> canMarkAttendance:{' '}

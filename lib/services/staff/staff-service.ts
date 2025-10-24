@@ -528,6 +528,39 @@ export class StaffService {
   }
 
   /**
+   * Get staff using API route (bypasses RLS for performance)
+   * Use this method for components that need to fetch large numbers of staff
+   * like the staff search selector
+   */
+  static async getStaffViaAPI(
+    filters: StaffFilters = {}
+  ): Promise<StaffListResponse> {
+    try {
+      const params = new URLSearchParams();
+
+      if (filters.institution_id) params.append('institution_id', filters.institution_id);
+      if (filters.search) params.append('search', filters.search);
+      if (filters.category_id) params.append('category_id', filters.category_id);
+      if (filters.department_id) params.append('department_id', filters.department_id);
+      if (filters.isActive !== undefined) params.append('isActive', String(filters.isActive));
+      if (filters.limit) params.append('limit', String(filters.limit));
+      if (filters.page) params.append('page', String(filters.page));
+
+      const response = await fetch(`/api/staff?${params.toString()}`);
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch staff');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching staff via API:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Utility function to sync institution_id for existing staff profiles
    * This should be called to fix profiles that were created without institution_id
    */

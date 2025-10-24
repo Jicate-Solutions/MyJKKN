@@ -16,7 +16,7 @@ export function AttendanceEmptyState({
       <div className='flex items-center justify-center w-16 h-16 bg-muted rounded-full mb-4'>
         <Users className='h-8 w-8 text-muted-foreground' />
       </div>
-      <h3 className='text-lg font-medium text-gray-900 mb-2'>{message}</h3>
+      <h3 className='text-lg font-medium text-foreground mb-2'>{message}</h3>
       <p className='text-sm text-muted-foreground max-w-md'>{description}</p>
     </div>
   );

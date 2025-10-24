@@ -69,6 +69,7 @@ export const columns: ColumnDef<Degree>[] = [
       );
     }
   },
+
   {
     accessorKey: 'institution',
     header: ({ column }) => (

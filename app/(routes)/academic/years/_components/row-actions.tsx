@@ -93,29 +93,25 @@ export function DataTableRowActions<TData>({
             View Details
           </DropdownMenuItem>
 
-          {canEdit && (
-            <DropdownMenuItem
-              onSelect={() =>
-                router.push(`/academic/years/${academicYear.id}/edit`)
-              }
-            >
-              Edit
-              <DropdownMenuShortcut>⌘⏎</DropdownMenuShortcut>
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem
+            disabled={!canEdit}
+            onSelect={() =>
+              router.push(`/academic/years/${academicYear.id}/edit`)
+            }
+          >
+            Edit
+            <DropdownMenuShortcut>⌘⏎</DropdownMenuShortcut>
+          </DropdownMenuItem>
 
-          {canDelete && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className='text-destructive focus:text-destructive'
-                onSelect={() => setShowDeleteDialog(true)}
-              >
-                Delete
-                <DropdownMenuShortcut>⌘⌫</DropdownMenuShortcut>
-              </DropdownMenuItem>
-            </>
-          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={!canDelete}
+            className='text-destructive focus:text-destructive'
+            onSelect={() => setShowDeleteDialog(true)}
+          >
+            Delete
+            <DropdownMenuShortcut>⌘⌫</DropdownMenuShortcut>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

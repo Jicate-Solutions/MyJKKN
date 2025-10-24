@@ -82,7 +82,7 @@ export function AttendanceSummaryModal({
       <DialogContent className='max-w-4xl max-h-[90vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2 text-xl'>
-            <GraduationCap className='h-6 w-6 text-blue-600' />
+            <GraduationCap className='h-6 w-6 text-blue-600 dark:text-blue-400' />
             {existingAttendance
               ? 'Update Attendance Summary'
               : 'Attendance Summary'}
@@ -99,7 +99,7 @@ export function AttendanceSummaryModal({
             <CardContent className='p-4'>
               <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm'>
                 <div className='flex items-center gap-2'>
-                  <BookOpen className='h-4 w-4 text-blue-600' />
+                  <BookOpen className='h-4 w-4 text-blue-600 dark:text-blue-400' />
                   <div>
                     <p className='text-gray-600 dark:text-gray-400'>Course</p>
                     <p className='font-semibold'>
@@ -108,7 +108,7 @@ export function AttendanceSummaryModal({
                   </div>
                 </div>
                 <div className='flex items-center gap-2'>
-                  <Clock className='h-4 w-4 text-green-600' />
+                  <Clock className='h-4 w-4 text-green-600 dark:text-green-400' />
                   <div>
                     <p className='text-gray-600 dark:text-gray-400'>Period</p>
                     <p className='font-semibold'>
@@ -117,7 +117,7 @@ export function AttendanceSummaryModal({
                   </div>
                 </div>
                 <div className='flex items-center gap-2'>
-                  <Calendar className='h-4 w-4 text-purple-600' />
+                  <Calendar className='h-4 w-4 text-purple-600 dark:text-purple-400' />
                   <div>
                     <p className='text-gray-600 dark:text-gray-400'>Date</p>
                     <p className='font-semibold'>
@@ -128,7 +128,7 @@ export function AttendanceSummaryModal({
                   </div>
                 </div>
                 <div className='flex items-center gap-2'>
-                  <Clock className='h-4 w-4 text-orange-600' />
+                  <Clock className='h-4 w-4 text-orange-600 dark:text-orange-400' />
                   <div>
                     <p className='text-gray-600 dark:text-gray-400'>Time</p>
                     <p className='font-semibold'>
@@ -140,7 +140,7 @@ export function AttendanceSummaryModal({
                 </div>
                 {/* Updated: 2025-10-08 - Support for multi-section display */}
                 <div className='flex items-center gap-2'>
-                  <Building2 className={contextData?.slot_sections && contextData.slot_sections.length > 1 ? 'h-4 w-4 text-green-600' : 'h-4 w-4 text-indigo-600'} />
+                  <Building2 className={contextData?.slot_sections && contextData.slot_sections.length > 1 ? 'h-4 w-4 text-green-600 dark:text-green-400' : 'h-4 w-4 text-indigo-600 dark:text-indigo-400'} />
                   <div>
                     <p className='text-gray-600 dark:text-gray-400'>Section{contextData?.slot_sections && contextData.slot_sections.length > 1 ? 's' : ''}</p>
                     <p className={contextData?.slot_sections && contextData.slot_sections.length > 1 ? 'font-semibold text-green-700 dark:text-green-300' : 'font-semibold'}>
@@ -154,7 +154,7 @@ export function AttendanceSummaryModal({
                   </div>
                 </div>
                 <div className='flex items-center gap-2'>
-                  <Users className='h-4 w-4 text-gray-600' />
+                  <Users className='h-4 w-4 text-gray-600 dark:text-gray-400' />
                   <div>
                     <p className='text-gray-600 dark:text-gray-400'>
                       Total Students
@@ -212,7 +212,7 @@ export function AttendanceSummaryModal({
             <Card className='border-l-4 border-l-green-500'>
               <CardContent className='p-4'>
                 <div className='flex items-center gap-2 mb-3'>
-                  <UserCheck className='h-5 w-5 text-green-600' />
+                  <UserCheck className='h-5 w-5 text-green-600 dark:text-green-400' />
                   <h3 className='font-semibold text-green-800 dark:text-green-600'>
                     Present Students ({presentCount})
                   </h3>
@@ -243,7 +243,7 @@ export function AttendanceSummaryModal({
                             Roll: {student.roll_number || 'N/A'}
                           </p>
                         </div>
-                        <Check className='h-4 w-4 text-green-600' />
+                        <Check className='h-4 w-4 text-green-600 dark:text-green-400' />
                       </div>
                     ))
                   )}
@@ -255,7 +255,7 @@ export function AttendanceSummaryModal({
             <Card className='border-l-4 border-l-red-500'>
               <CardContent className='p-4'>
                 <div className='flex items-center gap-2 mb-3'>
-                  <UserX className='h-5 w-5 text-red-600' />
+                  <UserX className='h-5 w-5 text-red-600 dark:text-red-400' />
                   <h3 className='font-semibold text-red-800 dark:text-red-600'>
                     Absent Students ({absentCount})
                   </h3>
@@ -286,7 +286,7 @@ export function AttendanceSummaryModal({
                             Roll: {student.roll_number || 'N/A'}
                           </p>
                         </div>
-                        <X className='h-4 w-4 text-red-600' />
+                        <X className='h-4 w-4 text-red-600 dark:text-red-400' />
                       </div>
                     ))
                   )}

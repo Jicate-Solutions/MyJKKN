@@ -116,15 +116,15 @@ export function ReportStatistics({
       return {
         icon: ArrowUp,
         text: `+${value.toFixed(1)}%`,
-        color: 'text-green-500'
+        color: 'text-green-500 dark:text-green-400'
       };
     if (value < 0)
       return {
         icon: ArrowDown,
         text: `${value.toFixed(1)}%`,
-        color: 'text-red-500'
+        color: 'text-red-500 dark:text-red-400'
       };
-    return { icon: Minus, text: '0%', color: 'text-gray-500' };
+    return { icon: Minus, text: '0%', color: 'text-gray-500 dark:text-gray-400' };
   };
 
   const weeklyComp = formatComparison(statistics.weeklyComparison || 0);
@@ -448,13 +448,13 @@ export function ReportStatistics({
       <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
         {/* Attendance Trend Chart */}
         <Card className='border-0 shadow-lg'>
-          <CardHeader className='bg-gradient-to-r from-blue-50 to-indigo-50'>
-            <CardTitle className='flex items-center justify-between'>
+          <CardHeader className='bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20'>
+            <CardTitle className='flex items-center justify-between dark:text-gray-100'>
               <span className='flex items-center gap-2'>
-                <TrendingUp className='h-5 w-5 text-blue-600' />
+                <TrendingUp className='h-5 w-5 text-blue-600 dark:text-blue-400' />
                 Attendance Trend
               </span>
-              <Badge variant='outline' className='bg-white'>
+              <Badge variant='outline' className='bg-white dark:bg-gray-800'>
                 Last 7 Days
               </Badge>
             </CardTitle>
@@ -504,13 +504,13 @@ export function ReportStatistics({
 
         {/* Today's Distribution */}
         <Card className='border-0 shadow-lg'>
-          <CardHeader className='bg-gradient-to-r from-green-50 to-emerald-50'>
-            <CardTitle className='flex items-center justify-between'>
+          <CardHeader className='bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20'>
+            <CardTitle className='flex items-center justify-between dark:text-gray-100'>
               <span className='flex items-center gap-2'>
-                <BarChart3 className='h-5 w-5 text-green-600' />
+                <BarChart3 className='h-5 w-5 text-green-600 dark:text-green-400' />
                 Today&apos;s Attendance
               </span>
-              <Badge variant='outline' className='bg-white'>
+              <Badge variant='outline' className='bg-white dark:bg-gray-800'>
                 Distribution
               </Badge>
             </CardTitle>
