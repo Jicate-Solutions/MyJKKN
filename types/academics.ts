@@ -443,3 +443,128 @@ export interface SubdivisionValidationResult {
   message: string;
   warnings?: string[];          // Non-critical issues (e.g., uneven distribution)
 }
+
+// =====================================================
+// DUAL-MODE PERIOD SYSTEM (Pharmacy Timetable Feature)
+// Updated: 2025-10-25
+// =====================================================
+
+/**
+ * Period mode type - determines whether period has fixed or runtime assignment
+ */
+export type PeriodMode = 'standard' | 'practical';
+
+/**
+ * Batch definition - defines an available batch for practical periods
+ * Note: Batches are NOT pre-assigned to labs (they rotate)
+ */
+export interface BatchDefinition {
+  batch_id: string;
+  batch_name: string;              // e.g., "Batch A", "Group 1"
+  assignment_type: 'section' | 'manual';  // How students are assigned to batch
+  section_ids?: string[];          // Sections that form this batch (if assignment_type = 'section')
+  estimated_count: number;         // Estimated number of students
+}
+
+/**
+ * Course option - defines an available course for practical periods
+ */
+export interface CourseOption {
+  course_id: string;
+  course_name: string;
+  course_code?: string;
+}
+
+/**
+ * Practical configuration - defines AVAILABLE options for runtime selection
+ * Faculty selects batch/course combination when marking attendance
+ */
+export interface PracticalConfig {
+  batches: BatchDefinition[];          // Available batches
+  available_courses: CourseOption[];   // Available courses for selection
+  rotation_type: 'manual' | 'automatic';  // How rotation is managed
+  staff_mapping?: Record<string, string[]>;  // Optional: map course to staff IDs
+}
+
+/**
+ * Standard period configuration (FIXED assignment in timetable)
+ * Used for theory classes, tutorials - same students/staff every time
+ */
+export interface StandardPeriodConfig {
+  period_mode: 'standard';
+  course_id: string;
+  staff_ids: string[];
+  section_ids: string[];
+  room?: string;
+}
+
+/**
+ * Practical period configuration (RUNTIME selection in attendance)
+ * Used for rotating practical labs - different batch/lab combinations each time
+ */
+export interface PracticalPeriodConfig {
+  period_mode: 'practical';
+  practical_config: PracticalConfig;
+}
+
+/**
+ * Period configuration type - union of standard and practical modes
+ */
+export type PeriodConfig = StandardPeriodConfig | PracticalPeriodConfig;
+
+/**
+ * Runtime batch/course selection (made during attendance marking)
+ * Stored in attendance_data to track which combinations were used
+ */
+export interface PracticalAttendanceSelection {
+  batch_id: string;
+  batch_name: string;
+  course_id: string;
+  section_ids: string[];  // Sections from the selected batch
+}
+
+/**
+ * Attendance data structure for practical periods
+ * Extends standard attendance with runtime selections
+ */
+export interface PracticalAttendanceData {
+  period_mode: 'practical';
+  batch_selected: {
+    batch_id: string;
+    batch_name: string;
+  };
+  course_selected: string;    // Course ID selected at runtime
+  students: Array<{
+    id: string;
+    status: 'Present' | 'Absent';
+    marked_at?: string;
+  }>;
+  marked_by: string;
+  marked_at: string;
+}
+
+/**
+ * Standard attendance data structure
+ */
+export interface StandardAttendanceData {
+  period_mode: 'standard';
+  course_id: string;
+  students: Array<{
+    id: string;
+    status: 'Present' | 'Absent';
+    marked_at?: string;
+  }>;
+}
+
+/**
+ * Conflict check result for practical periods
+ * Prevents same batch from being marked twice for same period/date
+ */
+export interface PracticalConflictCheck {
+  hasConflict: boolean;
+  message?: string;
+  existingRecord?: {
+    time: string;
+    course: string;
+  };
+}

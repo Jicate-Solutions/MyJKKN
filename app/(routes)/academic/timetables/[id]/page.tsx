@@ -521,7 +521,15 @@ export default function TimetableDetailPage({
           slotDialog.close();
         } else {
           // Regular slot save
-          const validation = validateSlotData(slotData);
+          // Add required fields for validation (Updated: 2025-10-25)
+          const completeSlotData = {
+            ...slotData,
+            timetable_id: timetableId,
+            period_id: period.id,
+            slot_date: day as string
+          };
+
+          const validation = validateSlotData(completeSlotData);
           if (!validation.valid) {
             toast.error(validation.errors.join(', '));
             return;

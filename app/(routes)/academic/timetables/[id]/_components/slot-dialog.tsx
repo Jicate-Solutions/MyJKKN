@@ -18,14 +18,25 @@ import {
 } from '@/components/ui/select';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { DayOfWeek, Period, Timetable, SubdivisionType, SubdivisionMode } from '@/types/academics';
+import {
+  DayOfWeek,
+  Period,
+  Timetable,
+  SubdivisionType,
+  SubdivisionMode,
+  PeriodMode,
+  PracticalConfig
+} from '@/types/academics';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { format } from 'date-fns';
+import { PracticalPeriodConfigForm } from './practical-period-config-form';
+import { AlertCircle } from 'lucide-react';
 
 interface SlotDialogProps {
   isOpen: boolean;
@@ -71,8 +82,17 @@ export function SlotDialog({
 
   // NEW: Section Subdivision state (Updated: 2025-10-11)
   const [isSubdivided, setIsSubdivided] = useState(false);
-  const [subdivisionType, setSubdivisionType] = useState<SubdivisionType>('practical');
-  const [subdivisionMode, setSubdivisionMode] = useState<SubdivisionMode>('auto');
+  const [subdivisionType, setSubdivisionType] =
+    useState<SubdivisionType>('practical');
+  const [subdivisionMode, setSubdivisionMode] =
+    useState<SubdivisionMode>('auto');
+
+  // NEW: Dual-Mode Period System (Updated: 2025-10-25)
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('standard');
+  const [practicalConfig, setPracticalConfig] =
+    useState<PracticalConfig | null>(null);
+  const [practicalModeStaff, setPracticalModeStaff] = useState<any[]>([]);
+  const [loadingPracticalStaff, setLoadingPracticalStaff] = useState(false);
 
   const [courseAssignedStaff, setCourseAssignedStaff] = useState<any[]>([]);
   const [loadingCourseStaff, setLoadingCourseStaff] = useState(false);
@@ -81,8 +101,12 @@ export function SlotDialog({
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
 
   // NEW: Staff state for each sub-slot in combined classes (Updated: 2025-10-13)
-  const [subSlotStaff, setSubSlotStaff] = useState<{ [key: number]: any[] }>({});
-  const [loadingSubSlotStaff, setLoadingSubSlotStaff] = useState<{ [key: number]: boolean }>({});
+  const [subSlotStaff, setSubSlotStaff] = useState<{ [key: number]: any[] }>(
+    {}
+  );
+  const [loadingSubSlotStaff, setLoadingSubSlotStaff] = useState<{
+    [key: number]: boolean;
+  }>({});
 
   const isBatchMode = timetable?.timetable_format === 'batch';
 
@@ -101,13 +125,16 @@ export function SlotDialog({
       // Updated: 2025-10-13 - Handle subdivided slots with sub_slots
       if (existingSlot.is_subdivided && existingSlot.sub_slots) {
         // Handle subdivided slot (practical/lab groups)
-        console.log('[academic/timetables] Loading subdivided slot with sub_slots:', {
-          slotId: existingSlot.id,
-          subSlotCount: existingSlot.sub_slots.length,
-          subdivisionType: existingSlot.subdivision_type,
-          subdivisionMode: existingSlot.subdivision_mode,
-          subSlots: existingSlot.sub_slots
-        });
+        console.log(
+          '[academic/timetables] Loading subdivided slot with sub_slots:',
+          {
+            slotId: existingSlot.id,
+            subSlotCount: existingSlot.sub_slots.length,
+            subdivisionType: existingSlot.subdivision_type,
+            subdivisionMode: existingSlot.subdivision_mode,
+            subSlots: existingSlot.sub_slots
+          }
+        );
 
         setSlotType('regular');
         setIsBreakSlot(false);
@@ -124,8 +151,10 @@ export function SlotDialog({
         const updatedSubSlots = existingSlot.sub_slots.map((ss: any) => ({
           sub_slot_order: ss.sub_slot_order,
           course_id: ss.course_id || '',
-          staff_ids: ss.staff_members?.map((s: any) => s.id) || ss.staff_ids || [],
-          section_ids: ss.sections?.map((s: any) => s.id) || ss.section_ids || [],
+          staff_ids:
+            ss.staff_members?.map((s: any) => s.id) || ss.staff_ids || [],
+          section_ids:
+            ss.sections?.map((s: any) => s.id) || ss.section_ids || [],
           student_ids: ss.student_ids || [],
           group_name: ss.group_name || '',
           lab_room: ss.lab_room || '',
@@ -137,10 +166,17 @@ export function SlotDialog({
           staff_members: ss.staff_members
         }));
 
-        console.log('[academic/timetables] Updated sub-slots for dialog:', updatedSubSlots);
+        console.log(
+          '[academic/timetables] Updated sub-slots for dialog:',
+          updatedSubSlots
+        );
 
         setSubSlots(updatedSubSlots);
-      } else if (existingSlot.is_combined && existingSlot.sub_slots && timetable?.timetable_type === 'semester') {
+      } else if (
+        existingSlot.is_combined &&
+        existingSlot.sub_slots &&
+        timetable?.timetable_type === 'semester'
+      ) {
         // Handle combined slot with sub-slots - ONLY for semester-level timetables (Updated: 2025-10-13)
         setSlotType('regular');
         setIsBreakSlot(false);
@@ -196,7 +232,7 @@ export function SlotDialog({
         ];
         setSubSlots(updatedSubSlots);
       } else {
-        // Handle regular slot
+        // Handle regular slot OR practical period slot
         setSlotType(existingSlot.is_break_slot ? 'break' : 'regular');
         setIsBreakSlot(existingSlot.is_break_slot || false);
         setBreakDescription(existingSlot.break_description || '');
@@ -207,6 +243,17 @@ export function SlotDialog({
         setIsSubdivided(existingSlot.is_subdivided || false);
         setSubdivisionType(existingSlot.subdivision_type || 'practical');
         setSubdivisionMode(existingSlot.subdivision_mode || 'auto');
+
+        // NEW: Populate period mode state (Updated: 2025-10-25)
+        setPeriodMode(existingSlot.period_mode || 'standard');
+        if (
+          existingSlot.period_mode === 'practical' &&
+          existingSlot.practical_config
+        ) {
+          setPracticalConfig(existingSlot.practical_config);
+        } else {
+          setPracticalConfig(null);
+        }
 
         // Handle staff - check both staff_members (populated) and staff_ids (raw IDs)
         if (
@@ -268,6 +315,9 @@ export function SlotDialog({
       setIsSubdivided(false);
       setSubdivisionType('practical');
       setSubdivisionMode('auto');
+      // NEW: Reset period mode state (Updated: 2025-10-25)
+      setPeriodMode('standard');
+      setPracticalConfig(null);
       setSubSlots([
         {
           sub_slot_order: 1,
@@ -308,20 +358,24 @@ export function SlotDialog({
       break_description: breakDescription,
       is_combined: isCombinedClass,
       // Updated: Include sub_slots for BOTH combined class AND subdivision
-      sub_slots: (isCombinedClass || isSubdivided)
-        ? subSlots.map((subSlot) => ({
-            ...subSlot,
-            // Also auto-assign section for sub-slots in section-level timetables
-            section_ids:
-              timetable?.timetable_type === 'section' && timetable?.section_id
-                ? [timetable.section_id]
-                : subSlot.section_ids
-          }))
-        : undefined,
+      sub_slots:
+        isCombinedClass || isSubdivided
+          ? subSlots.map((subSlot) => ({
+              ...subSlot,
+              // Also auto-assign section for sub-slots in section-level timetables
+              section_ids:
+                timetable?.timetable_type === 'section' && timetable?.section_id
+                  ? [timetable.section_id]
+                  : subSlot.section_ids
+            }))
+          : undefined,
       // NEW: Section Subdivision data (Updated: 2025-10-11)
       is_subdivided: isSubdivided,
       subdivision_type: isSubdivided ? subdivisionType : undefined,
-      subdivision_mode: isSubdivided ? subdivisionMode : undefined
+      subdivision_mode: isSubdivided ? subdivisionMode : undefined,
+      // NEW: Dual-Mode Period System (Updated: 2025-10-25)
+      period_mode: periodMode,
+      practical_config: periodMode === 'practical' ? practicalConfig : undefined
     };
 
     // Pass the slot data to the parent along with the date
@@ -403,7 +457,10 @@ export function SlotDialog({
 
         setSubSlotStaff((prev) => ({ ...prev, [subSlotIndex]: assignedStaff }));
       } catch (error) {
-        console.error(`Error fetching staff for sub-slot ${subSlotIndex}:`, error);
+        console.error(
+          `Error fetching staff for sub-slot ${subSlotIndex}:`,
+          error
+        );
         setSubSlotStaff((prev) => ({ ...prev, [subSlotIndex]: [] }));
       } finally {
         setLoadingSubSlotStaff((prev) => ({ ...prev, [subSlotIndex]: false }));
@@ -460,6 +517,65 @@ export function SlotDialog({
       return () => clearTimeout(timer);
     }
   }, [isOpen, isBatchMode]);
+
+  // NEW: Load all staff for practical mode (Updated: 2025-10-25)
+  useEffect(() => {
+    const loadPracticalModeStaff = async () => {
+      if (
+        !isOpen ||
+        periodMode !== 'practical' ||
+        !courses ||
+        courses.length === 0
+      ) {
+        return;
+      }
+
+      setLoadingPracticalStaff(true);
+      try {
+        const filters = {
+          is_active: true,
+          ...(timetable?.institution_id && {
+            institution_id: timetable.institution_id
+          }),
+          ...(timetable?.semester_id &&
+            typeof timetable.semester_id === 'object' &&
+            'id' in timetable.semester_id && {
+              semester_id: (timetable.semester_id as { id: string }).id
+            }),
+          ...(timetable?.department_id && {
+            department_id: timetable.department_id
+          }),
+          ...(timetable?.program_id && { program_id: timetable.program_id })
+        };
+
+        // Get staff for all courses and combine into unique list
+        const allStaffPromises = courses.map((course) =>
+          StaffPlanService.getStaffAssignedToCourse(course.id, filters)
+        );
+
+        const allStaffArrays = await Promise.all(allStaffPromises);
+        const allStaff = allStaffArrays.flat();
+
+        // Remove duplicates based on staff ID
+        const uniqueStaff = allStaff.filter(
+          (staff, index, self) =>
+            index === self.findIndex((s) => s.id === staff.id)
+        );
+
+        setPracticalModeStaff(uniqueStaff);
+      } catch (error) {
+        console.error(
+          '[academic/timetables] Error loading practical mode staff:',
+          error
+        );
+        setPracticalModeStaff([]);
+      } finally {
+        setLoadingPracticalStaff(false);
+      }
+    };
+
+    loadPracticalModeStaff();
+  }, [isOpen, periodMode, courses, timetable]);
 
   // Early return after all hooks
   if (!isOpen || (isBatchMode && timetable?.timetable_format !== 'batch'))
@@ -558,31 +674,105 @@ export function SlotDialog({
               </RadioGroup>
             </div>
 
+            {/* NEW: Period Mode Selection - Only for semester-level timetables (Updated: 2025-10-25) */}
+            {!isBreakSlot && timetable?.timetable_type === 'semester' && (
+              <div className='space-y-3'>
+                <Label className='text-sm font-medium'>Period Mode</Label>
+                <RadioGroup
+                  value={periodMode}
+                  onValueChange={(value: PeriodMode) => {
+                    if (!readOnly) {
+                      setPeriodMode(value);
+                      // Reset related states when switching modes
+                      if (value === 'practical') {
+                        setIsCombinedClass(false);
+                        setSelectedCourse('');
+                        setSelectedStaff([]);
+                        setSelectedSections([]);
+                      } else {
+                        setPracticalConfig(null);
+                      }
+                    }
+                  }}
+                  className='grid grid-cols-1 gap-3'
+                  disabled={readOnly}
+                >
+                  <div className='flex items-start space-x-3 border rounded-md p-3 cursor-pointer hover:bg-accent'>
+                    <RadioGroupItem
+                      value='standard'
+                      id='standardMode'
+                      disabled={readOnly}
+                      className='mt-1'
+                    />
+                    <Label
+                      htmlFor='standardMode'
+                      className='cursor-pointer flex-1'
+                    >
+                      <div className='font-medium'>Standard Period</div>
+                      <div className='text-xs text-muted-foreground mt-1'>
+                        Fixed course, staff, and sections. Same students attend
+                        every time. Use for theory classes, tutorials, lectures.
+                      </div>
+                    </Label>
+                  </div>
+                  <div className='flex items-start space-x-3 border rounded-md p-3 cursor-pointer hover:bg-accent bg-blue-50/50 dark:bg-blue-900/10'>
+                    <RadioGroupItem
+                      value='practical'
+                      id='practicalMode'
+                      disabled={readOnly}
+                      className='mt-1'
+                    />
+                    <Label
+                      htmlFor='practicalMode'
+                      className='cursor-pointer flex-1'
+                    >
+                      <div className='font-medium flex items-center gap-2'>
+                        🔬 Practical Period
+                        <Badge
+                          variant='secondary'
+                          className='text-xs bg-blue-100 text-blue-800'
+                        >
+                          Rotating Batches
+                        </Badge>
+                      </div>
+                      <div className='text-xs text-muted-foreground mt-1'>
+                        Define available batches, labs, and courses. Faculty
+                        selects which batch uses which lab when marking
+                        attendance. Use for rotating practical labs, hospital
+                        duty.
+                      </div>
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+            )}
+
             {!isBreakSlot && (
               <div className='space-y-3'>
-                {/* Combined Class - Only for semester-level timetables (Updated: 2025-10-13) */}
-                {timetable?.timetable_type === 'semester' && (
-                  <div className='flex items-center space-x-2'>
-                    <Checkbox
-                      id='combinedClass'
-                      checked={isCombinedClass}
-                      onCheckedChange={(checked) => {
-                        if (!readOnly) {
-                          setIsCombinedClass(checked === true);
-                          // Disable subdivision when combined class is enabled
-                          if (checked) {
-                            setIsSubdivided(false);
+                {/* Combined Class - Only for semester-level timetables AND standard mode (Updated: 2025-10-25) */}
+                {timetable?.timetable_type === 'semester' &&
+                  periodMode === 'standard' && (
+                    <div className='flex items-center space-x-2'>
+                      <Checkbox
+                        id='combinedClass'
+                        checked={isCombinedClass}
+                        onCheckedChange={(checked) => {
+                          if (!readOnly) {
+                            setIsCombinedClass(checked === true);
+                            // Disable subdivision when combined class is enabled
+                            if (checked) {
+                              setIsSubdivided(false);
+                            }
                           }
-                        }
-                      }}
-                      disabled={readOnly}
-                    />
-                    <Label htmlFor='combinedClass'>Combined Class</Label>
-                    <Badge variant='secondary' className='text-xs ml-2'>
-                      Split period into 2 sub-slots
-                    </Badge>
-                  </div>
-                )}
+                        }}
+                        disabled={readOnly}
+                      />
+                      <Label htmlFor='combinedClass'>Combined Class</Label>
+                      <Badge variant='secondary' className='text-xs ml-2'>
+                        Split period into 2 sub-slots
+                      </Badge>
+                    </div>
+                  )}
 
                 {/* NEW: Section Subdivision checkbox (Updated: 2025-10-11) */}
                 {timetable?.timetable_type === 'section' && (
@@ -601,8 +791,13 @@ export function SlotDialog({
                       }}
                       disabled={readOnly || isCombinedClass}
                     />
-                    <Label htmlFor='sectionSubdivision'>Section Subdivision</Label>
-                    <Badge variant='secondary' className='text-xs ml-2 bg-purple-100 text-purple-800 border-purple-300'>
+                    <Label htmlFor='sectionSubdivision'>
+                      Section Subdivision
+                    </Label>
+                    <Badge
+                      variant='secondary'
+                      className='text-xs ml-2 bg-purple-100 text-purple-800 border-purple-300'
+                    >
                       Split students into groups
                     </Badge>
                   </div>
@@ -612,10 +807,14 @@ export function SlotDialog({
                 {isSubdivided && timetable?.timetable_type === 'section' && (
                   <div className='border rounded-lg p-4 space-y-4 bg-purple-50/50 dark:bg-purple-900/10'>
                     <div className='space-y-2'>
-                      <Label className='text-sm font-medium'>Subdivision Type</Label>
+                      <Label className='text-sm font-medium'>
+                        Subdivision Type
+                      </Label>
                       <Select
                         value={subdivisionType}
-                        onValueChange={(value) => setSubdivisionType(value as SubdivisionType)}
+                        onValueChange={(value) =>
+                          setSubdivisionType(value as SubdivisionType)
+                        }
                         disabled={readOnly || existingSlot}
                       >
                         <SelectTrigger>
@@ -631,21 +830,33 @@ export function SlotDialog({
                     </div>
 
                     <div className='space-y-2'>
-                      <Label className='text-sm font-medium'>Student Assignment</Label>
+                      <Label className='text-sm font-medium'>
+                        Student Assignment
+                      </Label>
                       <RadioGroup
                         value={subdivisionMode}
-                        onValueChange={(value) => setSubdivisionMode(value as SubdivisionMode)}
+                        onValueChange={(value) =>
+                          setSubdivisionMode(value as SubdivisionMode)
+                        }
                         className='flex gap-4'
                         disabled={readOnly || existingSlot}
                       >
                         <div className='flex items-center space-x-2'>
-                          <RadioGroupItem value='auto' id='autoAssignment' disabled={readOnly || existingSlot} />
+                          <RadioGroupItem
+                            value='auto'
+                            id='autoAssignment'
+                            disabled={readOnly || existingSlot}
+                          />
                           <Label htmlFor='autoAssignment' className='text-sm'>
                             Auto-distribute evenly
                           </Label>
                         </div>
                         <div className='flex items-center space-x-2'>
-                          <RadioGroupItem value='manual' id='manualAssignment' disabled={readOnly || existingSlot} />
+                          <RadioGroupItem
+                            value='manual'
+                            id='manualAssignment'
+                            disabled={readOnly || existingSlot}
+                          />
                           <Label htmlFor='manualAssignment' className='text-sm'>
                             Manual assignment
                           </Label>
@@ -654,59 +865,91 @@ export function SlotDialog({
                     </div>
 
                     {/* Updated: 2025-10-13 - Show existing subdivision configuration */}
-                    {existingSlot && existingSlot.sub_slots && existingSlot.sub_slots.length > 0 && (
-                      <div className='space-y-3'>
-                        <div className='flex items-center justify-between'>
-                          <Label className='text-sm font-medium'>Existing Configuration</Label>
-                          <Badge variant='secondary' className='text-xs bg-purple-100 text-purple-800 border-purple-300'>
-                            {existingSlot.sub_slots.length} Groups Configured
-                          </Badge>
+                    {existingSlot &&
+                      existingSlot.sub_slots &&
+                      existingSlot.sub_slots.length > 0 && (
+                        <div className='space-y-3'>
+                          <div className='flex items-center justify-between'>
+                            <Label className='text-sm font-medium'>
+                              Existing Configuration
+                            </Label>
+                            <Badge
+                              variant='secondary'
+                              className='text-xs bg-purple-100 text-purple-800 border-purple-300'
+                            >
+                              {existingSlot.sub_slots.length} Groups Configured
+                            </Badge>
+                          </div>
+                          <div className='space-y-2 max-h-48 overflow-y-auto'>
+                            {existingSlot.sub_slots.map(
+                              (subSlot: any, index: number) => (
+                                <div
+                                  key={index}
+                                  className='border rounded p-2 bg-white dark:bg-slate-800 text-xs space-y-1'
+                                >
+                                  <div className='flex items-center justify-between'>
+                                    <span className='font-semibold text-purple-700 dark:text-purple-300'>
+                                      Group {subSlot.sub_slot_order}:{' '}
+                                      {subSlot.group_name ||
+                                        `Group ${String.fromCharCode(
+                                          64 + subSlot.sub_slot_order
+                                        )}`}
+                                    </span>
+                                    {subSlot.max_capacity && (
+                                      <Badge
+                                        variant='outline'
+                                        className='text-xs'
+                                      >
+                                        Max: {subSlot.max_capacity}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {subSlot.course && (
+                                    <div className='text-blue-700 dark:text-blue-300'>
+                                      <strong>Course:</strong>{' '}
+                                      {subSlot.course.course_name} (
+                                      {subSlot.course.course_code})
+                                    </div>
+                                  )}
+                                  {subSlot.staff_members &&
+                                    subSlot.staff_members.length > 0 && (
+                                      <div className='text-gray-700 dark:text-gray-300'>
+                                        <strong>Staff:</strong>{' '}
+                                        {subSlot.staff_members
+                                          .map(
+                                            (s: any) =>
+                                              `${s.first_name} ${s.last_name}`
+                                          )
+                                          .join(', ')}
+                                      </div>
+                                    )}
+                                  {subSlot.student_ids &&
+                                    subSlot.student_ids.length > 0 && (
+                                      <div className='text-gray-600 dark:text-gray-400'>
+                                        <strong>Students:</strong>{' '}
+                                        {subSlot.student_ids.length} assigned
+                                      </div>
+                                    )}
+                                  {subSlot.lab_room && (
+                                    <div className='text-gray-600 dark:text-gray-400'>
+                                      <strong>Lab:</strong> {subSlot.lab_room}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            )}
+                          </div>
                         </div>
-                        <div className='space-y-2 max-h-48 overflow-y-auto'>
-                          {existingSlot.sub_slots.map((subSlot: any, index: number) => (
-                            <div key={index} className='border rounded p-2 bg-white dark:bg-slate-800 text-xs space-y-1'>
-                              <div className='flex items-center justify-between'>
-                                <span className='font-semibold text-purple-700 dark:text-purple-300'>
-                                  Group {subSlot.sub_slot_order}: {subSlot.group_name || `Group ${String.fromCharCode(64 + subSlot.sub_slot_order)}`}
-                                </span>
-                                {subSlot.max_capacity && (
-                                  <Badge variant='outline' className='text-xs'>
-                                    Max: {subSlot.max_capacity}
-                                  </Badge>
-                                )}
-                              </div>
-                              {subSlot.course && (
-                                <div className='text-blue-700 dark:text-blue-300'>
-                                  <strong>Course:</strong> {subSlot.course.course_name} ({subSlot.course.course_code})
-                                </div>
-                              )}
-                              {subSlot.staff_members && subSlot.staff_members.length > 0 && (
-                                <div className='text-gray-700 dark:text-gray-300'>
-                                  <strong>Staff:</strong> {subSlot.staff_members.map((s: any) => `${s.first_name} ${s.last_name}`).join(', ')}
-                                </div>
-                              )}
-                              {subSlot.student_ids && subSlot.student_ids.length > 0 && (
-                                <div className='text-gray-600 dark:text-gray-400'>
-                                  <strong>Students:</strong> {subSlot.student_ids.length} assigned
-                                </div>
-                              )}
-                              {subSlot.lab_room && (
-                                <div className='text-gray-600 dark:text-gray-400'>
-                                  <strong>Lab:</strong> {subSlot.lab_room}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                      )}
 
                     <div className='flex items-center gap-2 text-xs text-purple-700 dark:text-purple-300'>
                       <Badge variant='outline' className='text-xs'>
                         ℹ️ Info
                       </Badge>
                       <span>
-                        {existingSlot ? 'Subdivision is already configured. You can view or update the configuration in the next step.' : 'In the next step, configure each group with course, staff, and students. Each group can have different courses and staff.'}
+                        {existingSlot
+                          ? 'Subdivision is already configured. You can view or update the configuration in the next step.'
+                          : 'In the next step, configure each group with course, staff, and students. Each group can have different courses and staff.'}
                       </span>
                     </div>
                   </div>
@@ -728,230 +971,164 @@ export function SlotDialog({
               </div>
             )}
 
-            {/* Regular Slot Configuration */}
-            {/* Updated: 2025-10-11 - Hide course/staff selection for subdivided slots */}
-            {!isBreakSlot && !isCombinedClass && !isSubdivided && (
-              <div className='space-y-4 border rounded-lg p-4'>
-                <h4 className='font-medium'>Class Configuration</h4>
+            {/* Practical Period Configuration - NEW (Updated: 2025-10-25) */}
+            {!isBreakSlot && periodMode === 'practical' && (
+              <div className='space-y-4'>
+                {loadingPracticalStaff && (
+                  <Alert>
+                    <AlertCircle className='h-4 w-4 animate-spin' />
+                    <AlertDescription className='text-xs'>
+                      Loading available staff...
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <PracticalPeriodConfigForm
+                  value={practicalConfig || undefined}
+                  onChange={(config) => setPracticalConfig(config)}
+                  semesterId={timetable?.semester_id || ''}
+                  sections={filteredSections || []}
+                  courses={courses || []}
+                  availableStaff={practicalModeStaff || []}
+                />
+              </div>
+            )}
 
-                {/* Course Selection */}
-                <div className='space-y-2'>
-                  <div className='flex items-center justify-between'>
-                    <div className='flex items-center gap-2'>
-                      <Label>
-                        Course <span className='text-red-500'>*</span>
-                      </Label>
-                      <Badge variant='secondary' className='text-xs'>
-                        {courses?.length || 0} available
-                      </Badge>
+            {/* Regular Slot Configuration */}
+            {/* Updated: 2025-10-25 - Hide for practical mode, subdivided slots, and combined classes */}
+            {!isBreakSlot &&
+              !isCombinedClass &&
+              !isSubdivided &&
+              periodMode === 'standard' && (
+                <div className='space-y-4 border rounded-lg p-4'>
+                  <h4 className='font-medium'>Class Configuration</h4>
+
+                  {/* Course Selection */}
+                  <div className='space-y-2'>
+                    <div className='flex items-center justify-between'>
+                      <div className='flex items-center gap-2'>
+                        <Label>
+                          Course <span className='text-red-500'>*</span>
+                        </Label>
+                        <Badge variant='secondary' className='text-xs'>
+                          {courses?.length || 0} available
+                        </Badge>
+                      </div>
+                      <div className='flex items-center gap-2'>
+                        {isUsingStaffPlanningData ? (
+                          <Badge
+                            variant='default'
+                            className='text-xs bg-green-100 text-green-800 border-green-300'
+                          >
+                            From Staff Planning
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant='outline'
+                            className='text-xs bg-amber-50 text-amber-700 border-amber-300'
+                          >
+                            All Courses
+                          </Badge>
+                        )}
+                      </div>
                     </div>
-                    <div className='flex items-center gap-2'>
-                      {isUsingStaffPlanningData ? (
+                    <Select
+                      value={selectedCourse}
+                      onValueChange={readOnly ? undefined : setSelectedCourse}
+                      disabled={readOnly}
+                    >
+                      <SelectTrigger
+                        className={
+                          !selectedCourse || selectedCourse === 'none'
+                            ? 'border-red-300'
+                            : ''
+                        }
+                        disabled={readOnly}
+                      >
+                        <SelectValue placeholder='Select a course (required)' />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {courses?.length === 0 ? (
+                          <div className='p-2 text-center text-sm text-muted-foreground'>
+                            {loadingStaffPlanData
+                              ? 'Loading courses...'
+                              : 'No courses available'}
+                          </div>
+                        ) : (
+                          courses?.map((course: any) => (
+                            <SelectItem key={course.id} value={course.id}>
+                              {course.course_name} ({course.course_code})
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {!isUsingStaffPlanningData && courses?.length > 0 && (
+                      <p className='text-xs text-amber-600'>
+                        ⚠️ No staff planning found for semester &quot;
+                        {timetable?.semesters?.semester_name ||
+                          timetable?.semester_id}
+                        &quot;. Showing all available courses.
+                      </p>
+                    )}
+                    {isUsingStaffPlanningData && (
+                      <p className='text-xs text-green-600'>
+                        ✓ Showing courses from staff planning for semester
+                        &quot;
+                        {timetable?.semesters?.semester_name ||
+                          timetable?.semester_id}
+                        &quot;
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Staff Selection */}
+                  <div className='space-y-2'>
+                    <div className='flex items-center justify-between'>
+                      <div className='flex items-center gap-2'>
+                        <Label>
+                          Staff <span className='text-red-500'>*</span>
+                        </Label>
+                        <Badge variant='secondary' className='text-xs'>
+                          {displayStaff?.length || 0} available
+                        </Badge>
                         <Badge
                           variant='default'
                           className='text-xs bg-green-100 text-green-800 border-green-300'
                         >
-                          From Staff Planning
+                          From Staff Planning Only
                         </Badge>
-                      ) : (
-                        <Badge
-                          variant='outline'
-                          className='text-xs bg-amber-50 text-amber-700 border-amber-300'
-                        >
-                          All Courses
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  <Select
-                    value={selectedCourse}
-                    onValueChange={readOnly ? undefined : setSelectedCourse}
-                    disabled={readOnly}
-                  >
-                    <SelectTrigger
-                      className={
-                        !selectedCourse || selectedCourse === 'none'
-                          ? 'border-red-300'
-                          : ''
-                      }
-                      disabled={readOnly}
-                    >
-                      <SelectValue placeholder='Select a course (required)' />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {courses?.length === 0 ? (
-                        <div className='p-2 text-center text-sm text-muted-foreground'>
-                          {loadingStaffPlanData
-                            ? 'Loading courses...'
-                            : 'No courses available'}
-                        </div>
-                      ) : (
-                        courses?.map((course: any) => (
-                          <SelectItem key={course.id} value={course.id}>
-                            {course.course_name} ({course.course_code})
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {!isUsingStaffPlanningData && courses?.length > 0 && (
-                    <p className='text-xs text-amber-600'>
-                      ⚠️ No staff planning found for semester &quot;
-                      {timetable?.semesters?.semester_name || timetable?.semester_id}&quot;. Showing all available
-                      courses.
-                    </p>
-                  )}
-                  {isUsingStaffPlanningData && (
-                    <p className='text-xs text-green-600'>
-                      ✓ Showing courses from staff planning for semester &quot;
-                      {timetable?.semesters?.semester_name || timetable?.semester_id}&quot;
-                    </p>
-                  )}
-                </div>
-
-                {/* Staff Selection */}
-                <div className='space-y-2'>
-                  <div className='flex items-center justify-between'>
-                    <div className='flex items-center gap-2'>
-                      <Label>
-                        Staff <span className='text-red-500'>*</span>
-                      </Label>
-                      <Badge variant='secondary' className='text-xs'>
-                        {displayStaff?.length || 0} available
-                      </Badge>
-                      <Badge
-                        variant='default'
-                        className='text-xs bg-green-100 text-green-800 border-green-300'
-                      >
-                        From Staff Planning Only
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <div
-                    className={`border rounded-md p-3 max-h-32 overflow-y-auto ${
-                      !selectedStaff ||
-                      selectedStaff.length === 0 ||
-                      selectedStaff.every((id) => id === 'none')
-                        ? 'border-red-300 bg-red-50'
-                        : ''
-                    }`}
-                  >
-                    {displayStaff?.map((staffMember: any) => (
-                      <div
-                        key={staffMember.id}
-                        className='flex items-center space-x-2 py-1'
-                      >
-                        <Checkbox
-                          id={`staff-${staffMember.id}`}
-                          checked={selectedStaff.includes(staffMember.id)}
-                          disabled={readOnly}
-                          onCheckedChange={(checked) => {
-                            if (!readOnly) {
-                              if (checked) {
-                                setSelectedStaff([
-                                  ...selectedStaff,
-                                  staffMember.id
-                                ]);
-                              } else {
-                                setSelectedStaff(
-                                  selectedStaff.filter(
-                                    (id: string) => id !== staffMember.id
-                                  )
-                                );
-                              }
-                            }
-                          }}
-                        />
-                        <Label
-                          htmlFor={`staff-${staffMember.id}`}
-                          className='text-sm flex items-center gap-2'
-                        >
-                          {staffMember.first_name} {staffMember.last_name}
-                          <Badge
-                            variant='outline'
-                            className='text-xs bg-green-50 text-green-700 border-green-200'
-                          >
-                            {staffMember.staff_id}
-                          </Badge>
-                        </Label>
                       </div>
-                    ))}
-
-                    {displayStaff?.length === 0 && (
-                      <div className='text-center py-4 text-gray-500 text-sm'>
-                        <div className='mb-2'>No staff available</div>
-                        <div className='text-xs text-gray-400'>
-                          Please assign staff to the selected course first
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  {(!selectedStaff ||
-                    selectedStaff.length === 0 ||
-                    selectedStaff.every((id) => id === 'none')) && (
-                    <p className='text-sm text-red-600'>
-                      At least one staff member is required
-                    </p>
-                  )}
-                  {displayStaff?.length === 0 && (
-                    <p className='text-xs text-red-600'>
-                      ❌ No staff assigned to this course in staff planning for
-                      semester &quot;
-                      {timetable?.semester_id}&quot;. Please assign staff in
-                      Staff Planning module first.
-                    </p>
-                  )}
-                  {displayStaff?.length > 0 && (
-                    <p className='text-xs text-green-600'>
-                      ✓ Showing staff assigned to this course from staff
-                      planning for semester &quot;
-                      {timetable?.semesters?.semester_name || timetable?.semester_id}&quot;
-                    </p>
-                  )}
-                </div>
-
-                {/* Section Selection - Updated: 2025-10-09 - Hide for section-level timetables */}
-                {timetable?.timetable_type === 'semester' ? (
-                  // Semester-level timetable: Show multi-section selector
-                  <div className='space-y-2'>
-                    <div className='flex items-center justify-between'>
-                      <Label>
-                        Sections <span className='text-red-500'>*</span>
-                      </Label>
-                      <Badge variant='secondary' className='text-xs'>
-                        Semester ({filteredSections?.length || 0})
-                      </Badge>
                     </div>
+
                     <div
-                      className={`border rounded-md p-2 max-h-32 overflow-y-auto ${
-                        !selectedSections ||
-                        selectedSections.length === 0 ||
-                        selectedSections.every((id) => id === 'none')
+                      className={`border rounded-md p-3 max-h-32 overflow-y-auto ${
+                        !selectedStaff ||
+                        selectedStaff.length === 0 ||
+                        selectedStaff.every((id) => id === 'none')
                           ? 'border-red-300 bg-red-50'
                           : ''
                       }`}
                     >
-                      {filteredSections?.map((section: any) => (
+                      {displayStaff?.map((staffMember: any) => (
                         <div
-                          key={section.id}
+                          key={staffMember.id}
                           className='flex items-center space-x-2 py-1'
                         >
                           <Checkbox
-                            id={`section-${section.id}`}
-                            checked={selectedSections.includes(section.id)}
+                            id={`staff-${staffMember.id}`}
+                            checked={selectedStaff.includes(staffMember.id)}
                             disabled={readOnly}
                             onCheckedChange={(checked) => {
                               if (!readOnly) {
                                 if (checked) {
-                                  setSelectedSections([
-                                    ...selectedSections,
-                                    section.id
+                                  setSelectedStaff([
+                                    ...selectedStaff,
+                                    staffMember.id
                                   ]);
                                 } else {
-                                  setSelectedSections(
-                                    selectedSections.filter(
-                                      (id: string) => id !== section.id
+                                  setSelectedStaff(
+                                    selectedStaff.filter(
+                                      (id: string) => id !== staffMember.id
                                     )
                                   );
                                 }
@@ -959,382 +1136,494 @@ export function SlotDialog({
                             }}
                           />
                           <Label
-                            htmlFor={`section-${section.id}`}
+                            htmlFor={`staff-${staffMember.id}`}
                             className='text-sm flex items-center gap-2'
                           >
-                            {section.section_name}
+                            {staffMember.first_name} {staffMember.last_name}
+                            <Badge
+                              variant='outline'
+                              className='text-xs bg-green-50 text-green-700 border-green-200'
+                            >
+                              {staffMember.staff_id}
+                            </Badge>
                           </Label>
                         </div>
                       ))}
 
-                      {filteredSections?.length === 0 &&
-                        !loadingFilteredSections && (
-                          <div className='text-center py-4 text-gray-500 text-sm'>
-                            <div className='mb-1'>
-                              No sections found for {timetable?.semester_id}
-                            </div>
-                            <div className='text-xs text-gray-400'>
-                              Please create sections for this semester first
-                            </div>
+                      {displayStaff?.length === 0 && (
+                        <div className='text-center py-4 text-gray-500 text-sm'>
+                          <div className='mb-2'>No staff available</div>
+                          <div className='text-xs text-gray-400'>
+                            Please assign staff to the selected course first
                           </div>
-                        )}
-                    </div>
-                    {(!selectedSections ||
-                      selectedSections.length === 0 ||
-                      selectedSections.every((id) => id === 'none')) && (
-                      <p className='text-sm text-red-600'>
-                        At least one section is required
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  // Section-level timetable: Show info message only
-                  <div className='space-y-2'>
-                    <div className='flex items-center justify-between'>
-                      <Label>Section</Label>
-                      <Badge
-                        variant='secondary'
-                        className='text-xs bg-blue-100 text-blue-800 border-blue-300'
-                      >
-                        Auto-assigned from timetable
-                      </Badge>
-                    </div>
-                    <div className='border rounded-md p-3 bg-blue-50 dark:bg-blue-900/20'>
-                      {timetable?.section_id && (
-                        <div className='flex items-center space-x-2 py-1'>
-                          <Checkbox
-                            id={`section-locked-${timetable.section_id}`}
-                            checked={true}
-                            disabled={true}
-                          />
-                          <Label
-                            htmlFor={`section-locked-${timetable.section_id}`}
-                            className='text-sm flex items-center gap-2 text-blue-700 dark:text-blue-300'
-                          >
-                            {timetable.sections?.section_name ||
-                              sections.find(
-                                (s: any) => s.id === timetable.section_id
-                              )?.section_name ||
-                              filteredSections.find(
-                                (s: any) => s.id === timetable.section_id
-                              )?.section_name ||
-                              'Unknown'}
-                            <Badge variant='outline' className='text-xs'>
-                              Locked
-                            </Badge>
-                          </Label>
                         </div>
                       )}
                     </div>
+                    {(!selectedStaff ||
+                      selectedStaff.length === 0 ||
+                      selectedStaff.every((id) => id === 'none')) && (
+                      <p className='text-sm text-red-600'>
+                        At least one staff member is required
+                      </p>
+                    )}
+                    {displayStaff?.length === 0 && (
+                      <p className='text-xs text-red-600'>
+                        ❌ No staff assigned to this course in staff planning
+                        for semester &quot;
+                        {timetable?.semester_id}&quot;. Please assign staff in
+                        Staff Planning module first.
+                      </p>
+                    )}
+                    {displayStaff?.length > 0 && (
+                      <p className='text-xs text-green-600'>
+                        ✓ Showing staff assigned to this course from staff
+                        planning for semester &quot;
+                        {timetable?.semesters?.semester_name ||
+                          timetable?.semester_id}
+                        &quot;
+                      </p>
+                    )}
                   </div>
-                )}
-              </div>
-            )}
 
-            {/* Combined Class Configuration - Only for semester-level timetables (Updated: 2025-10-13) */}
-            {!isBreakSlot && isCombinedClass && timetable?.timetable_type === 'semester' && (
-              <div className='space-y-4'>
-                <h4 className='font-medium'>Combined Class Configuration</h4>
-
-                {subSlots.map((subSlot: any, index: number) => (
-                  <div key={index} className='border rounded-lg p-4 space-y-4'>
-                    <div className='flex items-center justify-between'>
-                      <h5 className='font-medium'>Sub-slot {index + 1}</h5>
-                      <div className='flex items-center space-x-2'>
-                        <Checkbox
-                          id={`subSlotBreak-${index}`}
-                          checked={subSlot.is_break_slot}
-                          onCheckedChange={(checked) => {
-                            updateSubSlot(index, {
-                              is_break_slot: checked === true
-                            });
-                          }}
-                        />
-                        <Label
-                          htmlFor={`subSlotBreak-${index}`}
-                          className='text-sm'
-                        >
-                          Break Slot
+                  {/* Section Selection - Updated: 2025-10-09 - Hide for section-level timetables */}
+                  {timetable?.timetable_type === 'semester' ? (
+                    // Semester-level timetable: Show multi-section selector
+                    <div className='space-y-2'>
+                      <div className='flex items-center justify-between'>
+                        <Label>
+                          Sections <span className='text-red-500'>*</span>
                         </Label>
+                        <Badge variant='secondary' className='text-xs'>
+                          Semester ({filteredSections?.length || 0})
+                        </Badge>
+                      </div>
+                      <div
+                        className={`border rounded-md p-2 max-h-32 overflow-y-auto ${
+                          !selectedSections ||
+                          selectedSections.length === 0 ||
+                          selectedSections.every((id) => id === 'none')
+                            ? 'border-red-300 bg-red-50'
+                            : ''
+                        }`}
+                      >
+                        {filteredSections?.map((section: any) => (
+                          <div
+                            key={section.id}
+                            className='flex items-center space-x-2 py-1'
+                          >
+                            <Checkbox
+                              id={`section-${section.id}`}
+                              checked={selectedSections.includes(section.id)}
+                              disabled={readOnly}
+                              onCheckedChange={(checked) => {
+                                if (!readOnly) {
+                                  if (checked) {
+                                    setSelectedSections([
+                                      ...selectedSections,
+                                      section.id
+                                    ]);
+                                  } else {
+                                    setSelectedSections(
+                                      selectedSections.filter(
+                                        (id: string) => id !== section.id
+                                      )
+                                    );
+                                  }
+                                }
+                              }}
+                            />
+                            <Label
+                              htmlFor={`section-${section.id}`}
+                              className='text-sm flex items-center gap-2'
+                            >
+                              {section.section_name}
+                            </Label>
+                          </div>
+                        ))}
+
+                        {filteredSections?.length === 0 &&
+                          !loadingFilteredSections && (
+                            <div className='text-center py-4 text-gray-500 text-sm'>
+                              <div className='mb-1'>
+                                No sections found for {timetable?.semester_id}
+                              </div>
+                              <div className='text-xs text-gray-400'>
+                                Please create sections for this semester first
+                              </div>
+                            </div>
+                          )}
+                      </div>
+                      {(!selectedSections ||
+                        selectedSections.length === 0 ||
+                        selectedSections.every((id) => id === 'none')) && (
+                        <p className='text-sm text-red-600'>
+                          At least one section is required
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    // Section-level timetable: Show info message only
+                    <div className='space-y-2'>
+                      <div className='flex items-center justify-between'>
+                        <Label>Section</Label>
+                        <Badge
+                          variant='secondary'
+                          className='text-xs bg-blue-100 text-blue-800 border-blue-300'
+                        >
+                          Auto-assigned from timetable
+                        </Badge>
+                      </div>
+                      <div className='border rounded-md p-3 bg-blue-50 dark:bg-blue-900/20'>
+                        {timetable?.section_id && (
+                          <div className='flex items-center space-x-2 py-1'>
+                            <Checkbox
+                              id={`section-locked-${timetable.section_id}`}
+                              checked={true}
+                              disabled={true}
+                            />
+                            <Label
+                              htmlFor={`section-locked-${timetable.section_id}`}
+                              className='text-sm flex items-center gap-2 text-blue-700 dark:text-blue-300'
+                            >
+                              {timetable.sections?.section_name ||
+                                sections.find(
+                                  (s: any) => s.id === timetable.section_id
+                                )?.section_name ||
+                                filteredSections.find(
+                                  (s: any) => s.id === timetable.section_id
+                                )?.section_name ||
+                                'Unknown'}
+                              <Badge variant='outline' className='text-xs'>
+                                Locked
+                              </Badge>
+                            </Label>
+                          </div>
+                        )}
                       </div>
                     </div>
+                  )}
+                </div>
+              )}
 
-                    {subSlot.is_break_slot ? (
-                      <div className='space-y-2'>
-                        <Label>Break Description</Label>
-                        <Input
-                          value={subSlot.break_description || ''}
-                          onChange={(e) => {
-                            updateSubSlot(index, {
-                              break_description: e.target.value
-                            });
-                          }}
-                          placeholder='e.g., Short Break'
-                        />
+            {/* Combined Class Configuration - Only for semester-level timetables (Updated: 2025-10-13) */}
+            {!isBreakSlot &&
+              isCombinedClass &&
+              timetable?.timetable_type === 'semester' && (
+                <div className='space-y-4'>
+                  <h4 className='font-medium'>Combined Class Configuration</h4>
+
+                  {subSlots.map((subSlot: any, index: number) => (
+                    <div
+                      key={index}
+                      className='border rounded-lg p-4 space-y-4'
+                    >
+                      <div className='flex items-center justify-between'>
+                        <h5 className='font-medium'>Sub-slot {index + 1}</h5>
+                        <div className='flex items-center space-x-2'>
+                          <Checkbox
+                            id={`subSlotBreak-${index}`}
+                            checked={subSlot.is_break_slot}
+                            onCheckedChange={(checked) => {
+                              updateSubSlot(index, {
+                                is_break_slot: checked === true
+                              });
+                            }}
+                          />
+                          <Label
+                            htmlFor={`subSlotBreak-${index}`}
+                            className='text-sm'
+                          >
+                            Break Slot
+                          </Label>
+                        </div>
                       </div>
-                    ) : (
-                      <div className='space-y-4'>
-                        {/* Course Selection */}
+
+                      {subSlot.is_break_slot ? (
                         <div className='space-y-2'>
-                          <div className='flex items-center gap-2'>
-                            <Label>
-                              Course <span className='text-red-500'>*</span>
-                            </Label>
-                            <Badge variant='secondary' className='text-xs'>
-                              {courses?.length || 0} available
-                            </Badge>
-                            {isUsingStaffPlanningData && (
+                          <Label>Break Description</Label>
+                          <Input
+                            value={subSlot.break_description || ''}
+                            onChange={(e) => {
+                              updateSubSlot(index, {
+                                break_description: e.target.value
+                              });
+                            }}
+                            placeholder='e.g., Short Break'
+                          />
+                        </div>
+                      ) : (
+                        <div className='space-y-4'>
+                          {/* Course Selection */}
+                          <div className='space-y-2'>
+                            <div className='flex items-center gap-2'>
+                              <Label>
+                                Course <span className='text-red-500'>*</span>
+                              </Label>
+                              <Badge variant='secondary' className='text-xs'>
+                                {courses?.length || 0} available
+                              </Badge>
+                              {isUsingStaffPlanningData && (
+                                <Badge
+                                  variant='default'
+                                  className='text-xs bg-green-100 text-green-800 border-green-300'
+                                >
+                                  From Staff Planning
+                                </Badge>
+                              )}
+                            </div>
+                            <Select
+                              value={subSlot.course_id || ''}
+                              onValueChange={(value) => {
+                                updateSubSlot(index, { course_id: value });
+                              }}
+                            >
+                              <SelectTrigger
+                                className={
+                                  !subSlot.course_id ||
+                                  subSlot.course_id === 'none'
+                                    ? 'border-red-300'
+                                    : ''
+                                }
+                              >
+                                <SelectValue placeholder='Select a course (required)' />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {courses?.map((course: any) => (
+                                  <SelectItem key={course.id} value={course.id}>
+                                    {course.course_name} ({course.course_code})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {(!subSlot.course_id ||
+                              subSlot.course_id === 'none') && (
+                              <p className='text-sm text-red-600'>
+                                Course is required
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Staff Selection */}
+                          <div className='space-y-2'>
+                            <div className='flex items-center gap-2'>
+                              <Label>
+                                Staff <span className='text-red-500'>*</span>
+                              </Label>
+                              <Badge variant='secondary' className='text-xs'>
+                                {subSlotStaff[index]?.length || 0} available
+                              </Badge>
+                              {loadingSubSlotStaff[index] && (
+                                <Badge variant='outline' className='text-xs'>
+                                  Loading...
+                                </Badge>
+                              )}
                               <Badge
                                 variant='default'
                                 className='text-xs bg-green-100 text-green-800 border-green-300'
                               >
-                                From Staff Planning
-                              </Badge>
-                            )}
-                          </div>
-                          <Select
-                            value={subSlot.course_id || ''}
-                            onValueChange={(value) => {
-                              updateSubSlot(index, { course_id: value });
-                            }}
-                          >
-                            <SelectTrigger
-                              className={
-                                !subSlot.course_id ||
-                                subSlot.course_id === 'none'
-                                  ? 'border-red-300'
-                                  : ''
-                              }
-                            >
-                              <SelectValue placeholder='Select a course (required)' />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {courses?.map((course: any) => (
-                                <SelectItem key={course.id} value={course.id}>
-                                  {course.course_name} ({course.course_code})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {(!subSlot.course_id ||
-                            subSlot.course_id === 'none') && (
-                            <p className='text-sm text-red-600'>
-                              Course is required
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Staff Selection */}
-                        <div className='space-y-2'>
-                          <div className='flex items-center gap-2'>
-                            <Label>
-                              Staff <span className='text-red-500'>*</span>
-                            </Label>
-                            <Badge variant='secondary' className='text-xs'>
-                              {subSlotStaff[index]?.length || 0} available
-                            </Badge>
-                            {loadingSubSlotStaff[index] && (
-                              <Badge variant='outline' className='text-xs'>
-                                Loading...
-                              </Badge>
-                            )}
-                            <Badge
-                              variant='default'
-                              className='text-xs bg-green-100 text-green-800 border-green-300'
-                            >
-                              From Staff Planning Only
-                            </Badge>
-                          </div>
-                          <div
-                            className={`border rounded-md p-2 max-h-24 overflow-y-auto ${
-                              !subSlot.staff_ids ||
-                              subSlot.staff_ids.length === 0 ||
-                              subSlot.staff_ids.every(
-                                (id: string) => id === 'none'
-                              )
-                                ? 'border-red-300 bg-red-50'
-                                : ''
-                            }`}
-                          >
-                            {(subSlotStaff[index] || [])?.map((staffMember: any) => (
-                              <div
-                                key={staffMember.id}
-                                className='flex items-center space-x-2 py-1'
-                              >
-                                <Checkbox
-                                  id={`subSlotStaff-${index}-${staffMember.id}`}
-                                  checked={
-                                    subSlot.staff_ids?.includes(
-                                      staffMember.id
-                                    ) || false
-                                  }
-                                  onCheckedChange={(checked) => {
-                                    const currentStaff =
-                                      subSlot.staff_ids || [];
-                                    if (checked) {
-                                      updateSubSlot(index, {
-                                        staff_ids: [
-                                          ...currentStaff,
-                                          staffMember.id
-                                        ]
-                                      });
-                                    } else {
-                                      updateSubSlot(index, {
-                                        staff_ids: currentStaff.filter(
-                                          (id: string) => id !== staffMember.id
-                                        )
-                                      });
-                                    }
-                                  }}
-                                />
-                                <Label
-                                  htmlFor={`subSlotStaff-${index}-${staffMember.id}`}
-                                  className='text-xs flex items-center gap-1'
-                                >
-                                  {staffMember.first_name}{' '}
-                                  {staffMember.last_name}
-                                  <Badge
-                                    variant='outline'
-                                    className='text-xs bg-green-50 text-green-700 border-green-200'
-                                  >
-                                    {staffMember.staff_id}
-                                  </Badge>
-                                </Label>
-                              </div>
-                            ))}
-
-                            {(!subSlotStaff[index] || subSlotStaff[index]?.length === 0) && !loadingSubSlotStaff[index] && (
-                              <div className='text-center py-2 text-gray-500 text-xs'>
-                                <div className='mb-1'>
-                                  {subSlot.course_id ? 'No staff assigned to this course' : 'Select a course first'}
-                                </div>
-                                <div className='text-xs text-gray-400'>
-                                  {subSlot.course_id ? 'Please assign staff in Staff Planning module first' : 'Staff will appear after selecting a course'}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          {(!subSlot.staff_ids ||
-                            subSlot.staff_ids.length === 0 ||
-                            subSlot.staff_ids.every(
-                              (id: string) => id === 'none'
-                            )) && (
-                            <p className='text-sm text-red-600'>
-                              At least one staff member is required
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Section Selection - Updated: 2025-10-09 - Hide for section-level timetables */}
-                        {timetable?.timetable_type === 'semester' ? (
-                          // Semester-level timetable: Show multi-section selector
-                          <div className='space-y-2'>
-                            <div className='flex items-center justify-between'>
-                              <Label>
-                                Sections <span className='text-red-500'>*</span>
-                              </Label>
-                              <Badge variant='secondary' className='text-xs'>
-                                Semester ({filteredSections?.length || 0})
+                                From Staff Planning Only
                               </Badge>
                             </div>
                             <div
                               className={`border rounded-md p-2 max-h-24 overflow-y-auto ${
-                                !subSlot.section_ids ||
-                                subSlot.section_ids.length === 0 ||
-                                subSlot.section_ids.every(
+                                !subSlot.staff_ids ||
+                                subSlot.staff_ids.length === 0 ||
+                                subSlot.staff_ids.every(
                                   (id: string) => id === 'none'
                                 )
                                   ? 'border-red-300 bg-red-50'
                                   : ''
                               }`}
                             >
-                              {filteredSections?.map((section: any) => (
-                                <div
-                                  key={section.id}
-                                  className='flex items-center space-x-2 py-1'
-                                >
-                                  <Checkbox
-                                    id={`subSlotSection-${index}-${section.id}`}
-                                    checked={
-                                      subSlot.section_ids?.includes(
-                                        section.id
-                                      ) || false
-                                    }
-                                    onCheckedChange={(checked) => {
-                                      const currentSections =
-                                        subSlot.section_ids || [];
-                                      if (checked) {
-                                        updateSubSlot(index, {
-                                          section_ids: [
-                                            ...currentSections,
-                                            section.id
-                                          ]
-                                        });
-                                      } else {
-                                        updateSubSlot(index, {
-                                          section_ids: currentSections.filter(
-                                            (id: string) => id !== section.id
-                                          )
-                                        });
-                                      }
-                                    }}
-                                  />
-                                  <Label
-                                    htmlFor={`subSlotSection-${index}-${section.id}`}
-                                    className='text-xs'
+                              {(subSlotStaff[index] || [])?.map(
+                                (staffMember: any) => (
+                                  <div
+                                    key={staffMember.id}
+                                    className='flex items-center space-x-2 py-1'
                                   >
-                                    {section.section_name}
-                                  </Label>
-                                </div>
-                              ))}
-
-                              {filteredSections?.length === 0 && (
-                                <div className='text-center py-2 text-gray-500 text-xs'>
-                                  <div className='mb-1'>
-                                    No sections available for{' '}
-                                    {timetable?.semester_id}
+                                    <Checkbox
+                                      id={`subSlotStaff-${index}-${staffMember.id}`}
+                                      checked={
+                                        subSlot.staff_ids?.includes(
+                                          staffMember.id
+                                        ) || false
+                                      }
+                                      onCheckedChange={(checked) => {
+                                        const currentStaff =
+                                          subSlot.staff_ids || [];
+                                        if (checked) {
+                                          updateSubSlot(index, {
+                                            staff_ids: [
+                                              ...currentStaff,
+                                              staffMember.id
+                                            ]
+                                          });
+                                        } else {
+                                          updateSubSlot(index, {
+                                            staff_ids: currentStaff.filter(
+                                              (id: string) =>
+                                                id !== staffMember.id
+                                            )
+                                          });
+                                        }
+                                      }}
+                                    />
+                                    <Label
+                                      htmlFor={`subSlotStaff-${index}-${staffMember.id}`}
+                                      className='text-xs flex items-center gap-1'
+                                    >
+                                      {staffMember.first_name}{' '}
+                                      {staffMember.last_name}
+                                      <Badge
+                                        variant='outline'
+                                        className='text-xs bg-green-50 text-green-700 border-green-200'
+                                      >
+                                        {staffMember.staff_id}
+                                      </Badge>
+                                    </Label>
                                   </div>
-                                  <div className='text-xs text-gray-400'>
-                                    Create sections for this semester first
-                                  </div>
-                                </div>
+                                )
                               )}
+
+                              {(!subSlotStaff[index] ||
+                                subSlotStaff[index]?.length === 0) &&
+                                !loadingSubSlotStaff[index] && (
+                                  <div className='text-center py-2 text-gray-500 text-xs'>
+                                    <div className='mb-1'>
+                                      {subSlot.course_id
+                                        ? 'No staff assigned to this course'
+                                        : 'Select a course first'}
+                                    </div>
+                                    <div className='text-xs text-gray-400'>
+                                      {subSlot.course_id
+                                        ? 'Please assign staff in Staff Planning module first'
+                                        : 'Staff will appear after selecting a course'}
+                                    </div>
+                                  </div>
+                                )}
                             </div>
-                            {(!subSlot.section_ids ||
-                              subSlot.section_ids.length === 0 ||
-                              subSlot.section_ids.every(
+                            {(!subSlot.staff_ids ||
+                              subSlot.staff_ids.length === 0 ||
+                              subSlot.staff_ids.every(
                                 (id: string) => id === 'none'
                               )) && (
                               <p className='text-sm text-red-600'>
-                                At least one section is required
+                                At least one staff member is required
                               </p>
                             )}
                           </div>
-                        ) : (
-                          // Section-level timetable: Show info message only
-                          <div className='space-y-2'>
-                            <div className='flex items-center justify-between'>
-                              <Label>Section</Label>
-                              <Badge
-                                variant='secondary'
-                                className='text-xs bg-blue-100 text-blue-800 border-blue-300'
+
+                          {/* Section Selection - Updated: 2025-10-09 - Hide for section-level timetables */}
+                          {timetable?.timetable_type === 'semester' ? (
+                            // Semester-level timetable: Show multi-section selector
+                            <div className='space-y-2'>
+                              <div className='flex items-center justify-between'>
+                                <Label>
+                                  Sections{' '}
+                                  <span className='text-red-500'>*</span>
+                                </Label>
+                                <Badge variant='secondary' className='text-xs'>
+                                  Semester ({filteredSections?.length || 0})
+                                </Badge>
+                              </div>
+                              <div
+                                className={`border rounded-md p-2 max-h-24 overflow-y-auto ${
+                                  !subSlot.section_ids ||
+                                  subSlot.section_ids.length === 0 ||
+                                  subSlot.section_ids.every(
+                                    (id: string) => id === 'none'
+                                  )
+                                    ? 'border-red-300 bg-red-50'
+                                    : ''
+                                }`}
                               >
-                                Auto-assigned
-                              </Badge>
+                                {filteredSections?.map((section: any) => (
+                                  <div
+                                    key={section.id}
+                                    className='flex items-center space-x-2 py-1'
+                                  >
+                                    <Checkbox
+                                      id={`subSlotSection-${index}-${section.id}`}
+                                      checked={
+                                        subSlot.section_ids?.includes(
+                                          section.id
+                                        ) || false
+                                      }
+                                      onCheckedChange={(checked) => {
+                                        const currentSections =
+                                          subSlot.section_ids || [];
+                                        if (checked) {
+                                          updateSubSlot(index, {
+                                            section_ids: [
+                                              ...currentSections,
+                                              section.id
+                                            ]
+                                          });
+                                        } else {
+                                          updateSubSlot(index, {
+                                            section_ids: currentSections.filter(
+                                              (id: string) => id !== section.id
+                                            )
+                                          });
+                                        }
+                                      }}
+                                    />
+                                    <Label
+                                      htmlFor={`subSlotSection-${index}-${section.id}`}
+                                      className='text-xs'
+                                    >
+                                      {section.section_name}
+                                    </Label>
+                                  </div>
+                                ))}
+
+                                {filteredSections?.length === 0 && (
+                                  <div className='text-center py-2 text-gray-500 text-xs'>
+                                    <div className='mb-1'>
+                                      No sections available for{' '}
+                                      {timetable?.semester_id}
+                                    </div>
+                                    <div className='text-xs text-gray-400'>
+                                      Create sections for this semester first
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              {(!subSlot.section_ids ||
+                                subSlot.section_ids.length === 0 ||
+                                subSlot.section_ids.every(
+                                  (id: string) => id === 'none'
+                                )) && (
+                                <p className='text-sm text-red-600'>
+                                  At least one section is required
+                                </p>
+                              )}
                             </div>
-                            <div className='border rounded-md p-2 bg-blue-50 dark:bg-blue-900/20'>
-                              <p className='text-xs text-blue-700 dark:text-blue-300'>
-                                ℹ️ Section auto-assigned from timetable
-                              </p>
+                          ) : (
+                            // Section-level timetable: Show info message only
+                            <div className='space-y-2'>
+                              <div className='flex items-center justify-between'>
+                                <Label>Section</Label>
+                                <Badge
+                                  variant='secondary'
+                                  className='text-xs bg-blue-100 text-blue-800 border-blue-300'
+                                >
+                                  Auto-assigned
+                                </Badge>
+                              </div>
+                              <div className='border rounded-md p-2 bg-blue-50 dark:bg-blue-900/20'>
+                                <p className='text-xs text-blue-700 dark:text-blue-300'>
+                                  ℹ️ Section auto-assigned from timetable
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
           </div>
 
           <DialogFooter className='flex items-center justify-between'>
