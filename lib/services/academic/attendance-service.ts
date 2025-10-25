@@ -1,5 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { toast } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import type {
   StudentAttendance,
   // CreateStudentAttendanceDto,
@@ -410,7 +410,9 @@ export class AttendanceService {
             const slotData = data.attendance_data[period.timetable_slot_id];
             if (slotData && slotData.students && slotData.students.length > 0) {
               isMarked = true;
-              console.log(`✅ Slot ${period.timetable_slot_id} has direct data`);
+              console.log(
+                `✅ Slot ${period.timetable_slot_id} has direct data`
+              );
             }
           }
 
@@ -1656,9 +1658,15 @@ export class AttendanceService {
       console.log('🎯 getStudentsForAttendance called with filters:', filters);
 
       // First, check current user authentication and profile
-      const { data: { user }, error: authError } = await this.supabase.auth.getUser();
+      const {
+        data: { user },
+        error: authError
+      } = await this.supabase.auth.getUser();
       if (authError || !user) {
-        console.error('❌ Authentication error in getStudentsForAttendance:', authError);
+        console.error(
+          '❌ Authentication error in getStudentsForAttendance:',
+          authError
+        );
         throw new Error('User not authenticated');
       }
 
@@ -1667,7 +1675,9 @@ export class AttendanceService {
       // Get current user's profile to understand RLS context
       const { data: profileData, error: profileError } = await this.supabase
         .from('profiles')
-        .select('id, role, institution_id, department_id, is_super_admin, email')
+        .select(
+          'id, role, institution_id, department_id, is_super_admin, email'
+        )
         .eq('id', user.id)
         .single();
 
@@ -1685,10 +1695,14 @@ export class AttendanceService {
       });
 
       // Check if user meets RLS policy requirements
-      const hasInstitutionAccess = profileData.institution_id === filters.institution_id;
-      const hasDepartmentAccess = profileData.department_id === filters.department_id;
+      const hasInstitutionAccess =
+        profileData.institution_id === filters.institution_id;
+      const hasDepartmentAccess =
+        profileData.department_id === filters.department_id;
       const isSuperAdmin = profileData.is_super_admin === true;
-      const isPrivilegedRole = ['admission', 'administrator'].includes(profileData.role);
+      const isPrivilegedRole = ['admission', 'administrator'].includes(
+        profileData.role
+      );
 
       console.log('🔐 RLS Policy Check:', {
         hasInstitutionAccess,
@@ -1696,7 +1710,10 @@ export class AttendanceService {
         isSuperAdmin,
         isPrivilegedRole,
         userRole: profileData.role,
-        canAccess: isSuperAdmin || isPrivilegedRole || (hasInstitutionAccess && hasDepartmentAccess)
+        canAccess:
+          isSuperAdmin ||
+          isPrivilegedRole ||
+          (hasInstitutionAccess && hasDepartmentAccess)
       });
 
       let query = this.supabase
@@ -1733,9 +1750,14 @@ export class AttendanceService {
       // Only apply department filter for super admin and privileged roles
       if (filters.department_id && (isSuperAdmin || isPrivilegedRole)) {
         query = query.eq('department_id', filters.department_id);
-        console.log('🔐 Applied department_id filter (admin/privileged role):', filters.department_id);
+        console.log(
+          '🔐 Applied department_id filter (admin/privileged role):',
+          filters.department_id
+        );
       } else if (filters.department_id && profileData.role === 'faculty') {
-        console.log('⚠️ Skipping department_id filter for faculty user - allowing cross-department teaching');
+        console.log(
+          '⚠️ Skipping department_id filter for faculty user - allowing cross-department teaching'
+        );
       }
 
       if (filters.semester_id) {
@@ -1752,7 +1774,9 @@ export class AttendanceService {
       }
 
       // Order by section_id first, then roll_number for better grouping
-      query = query.order('section_id', { ascending: true }).order('roll_number', { ascending: true });
+      query = query
+        .order('section_id', { ascending: true })
+        .order('roll_number', { ascending: true });
 
       console.log('🔍 Executing students query with filters:', filters);
       const { data, error } = await query;
@@ -1768,11 +1792,16 @@ export class AttendanceService {
         throw error;
       }
 
-      console.log('✅ Query executed successfully, found students:', data?.length || 0);
+      console.log(
+        '✅ Query executed successfully, found students:',
+        data?.length || 0
+      );
 
       if (!data || data.length === 0) {
         console.warn('⚠️ No students found. This could be due to:');
-        console.warn('  1. RLS policy blocking access (check institution_id and department_id match)');
+        console.warn(
+          '  1. RLS policy blocking access (check institution_id and department_id match)'
+        );
         console.warn('  2. No students exist with the given filters');
         console.warn('  3. All students are inactive');
         console.warn('Current filter values:', filters);
@@ -1791,11 +1820,18 @@ export class AttendanceService {
           'Unknown Student'
       })) as AttendanceStudent[];
 
-      console.log('📊 Returning transformed student data:', transformedData.length, 'students');
+      console.log(
+        '📊 Returning transformed student data:',
+        transformedData.length,
+        'students'
+      );
       return transformedData;
     } catch (error) {
       console.error('💥 Error in getStudentsForAttendance:', error);
-      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      console.error(
+        'Error stack:',
+        error instanceof Error ? error.stack : 'No stack trace'
+      );
       throw error;
     }
   }
@@ -2227,7 +2263,9 @@ export class AttendanceService {
       // For section-level timetables: Filter by timetable section_id (old architecture)
       if (filters.section) {
         console.log('Section filter specified:', filters.section);
-        console.log('Note: Will filter by BOTH timetable section_id (for section-level) AND slot section_ids (for semester-level)');
+        console.log(
+          'Note: Will filter by BOTH timetable section_id (for section-level) AND slot section_ids (for semester-level)'
+        );
       } else {
         console.log(
           'No section filter specified - getting all timetables regardless of section'
@@ -2244,10 +2282,19 @@ export class AttendanceService {
       } catch (networkError) {
         console.error('❌ Network error fetching timetables:', networkError);
         console.error('Network error details:', {
-          message: networkError instanceof Error ? networkError.message : 'Unknown error',
+          message:
+            networkError instanceof Error
+              ? networkError.message
+              : 'Unknown error',
           stack: networkError instanceof Error ? networkError.stack : undefined
         });
-        throw new Error(`Failed to fetch timetables: ${networkError instanceof Error ? networkError.message : 'Network error'}`);
+        throw new Error(
+          `Failed to fetch timetables: ${
+            networkError instanceof Error
+              ? networkError.message
+              : 'Network error'
+          }`
+        );
       }
 
       console.log('Timetables query result:', {
@@ -2258,7 +2305,11 @@ export class AttendanceService {
 
       if (timetableError) {
         console.error('❌ Database error fetching timetables:', timetableError);
-        throw new Error(`Database error: ${timetableError.message || 'Unknown database error'}`);
+        throw new Error(
+          `Database error: ${
+            timetableError.message || 'Unknown database error'
+          }`
+        );
       }
 
       if (!timetables || timetables.length === 0) {
@@ -2296,17 +2347,23 @@ export class AttendanceService {
         timetables = timetables.filter((t: any) => {
           // For semester-level timetables, keep them (we'll filter by slot section_ids later)
           if (t.timetable_type === 'semester') {
-            console.log(`✅ Keeping semester-level timetable ${t.id} - will filter slots by section_ids`);
+            console.log(
+              `✅ Keeping semester-level timetable ${t.id} - will filter slots by section_ids`
+            );
             return true;
           }
 
           // For section-level timetables, only keep if section_id matches
           if (t.section_id === filters.section) {
-            console.log(`✅ Keeping section-level timetable ${t.id} - section_id matches ${filters.section}`);
+            console.log(
+              `✅ Keeping section-level timetable ${t.id} - section_id matches ${filters.section}`
+            );
             return true;
           }
 
-          console.log(`❌ Filtering out section-level timetable ${t.id} - section_id ${t.section_id} doesn't match ${filters.section}`);
+          console.log(
+            `❌ Filtering out section-level timetable ${t.id} - section_id ${t.section_id} doesn't match ${filters.section}`
+          );
           return false;
         });
 
@@ -2416,24 +2473,38 @@ export class AttendanceService {
               }
 
               console.log('Processing batch timetable for date:', date);
-              console.log('Timetable selected_dates:', timetable.selected_dates);
-              console.log('🔍 Full timetable_data structure:', JSON.stringify(timetableData, null, 2));
+              console.log(
+                'Timetable selected_dates:',
+                timetable.selected_dates
+              );
+              console.log(
+                '🔍 Full timetable_data structure:',
+                JSON.stringify(timetableData, null, 2)
+              );
 
               // For batch timetables, extract slots for the specific date
               // Strategy: Find the date range that contains the query date, then look for slots
               // from dates in that range and apply the pattern to the query date
 
-              console.log('🔍 Strategy: Find slots from same date range and apply pattern to query date');
+              console.log(
+                '🔍 Strategy: Find slots from same date range and apply pattern to query date'
+              );
 
               // Step 1: Find which date range contains the query date
               let matchingRangeStart = null;
               let matchingRangeEnd = null;
 
-              if (timetable.selected_dates && Array.isArray(timetable.selected_dates)) {
+              if (
+                timetable.selected_dates &&
+                Array.isArray(timetable.selected_dates)
+              ) {
                 const queryDate = new Date(date);
 
                 for (const dateItem of timetable.selected_dates) {
-                  if (typeof dateItem === 'string' && dateItem.startsWith('RANGE:')) {
+                  if (
+                    typeof dateItem === 'string' &&
+                    dateItem.startsWith('RANGE:')
+                  ) {
                     const parts = dateItem.split(':');
                     if (parts.length === 3) {
                       const rangeStart = new Date(parts[1]);
@@ -2516,7 +2587,9 @@ export class AttendanceService {
                 });
               }
 
-              console.log(`Extracted ${slots.length} slots for date ${date} from batch timetable`);
+              console.log(
+                `Extracted ${slots.length} slots for date ${date} from batch timetable`
+              );
             } else {
               // For regular timetables, extract slots for the specific day
               const daySlots = timetableData[dayOfWeek];
@@ -2551,13 +2624,21 @@ export class AttendanceService {
             const uniqueCourseIds = [
               ...new Set([
                 ...slots.map((s) => s.course_id).filter(Boolean),
-                ...slots.flatMap((s) => (s.sub_slots || []).map((ss: any) => ss.course_id)).filter(Boolean)
+                ...slots
+                  .flatMap((s) =>
+                    (s.sub_slots || []).map((ss: any) => ss.course_id)
+                  )
+                  .filter(Boolean)
               ])
             ];
             const uniqueStaffIds = [
               ...new Set([
                 ...slots.flatMap((s) => s.staff_ids || []).filter(Boolean),
-                ...slots.flatMap((s) => (s.sub_slots || []).flatMap((ss: any) => ss.staff_ids || [])).filter(Boolean)
+                ...slots
+                  .flatMap((s) =>
+                    (s.sub_slots || []).flatMap((ss: any) => ss.staff_ids || [])
+                  )
+                  .filter(Boolean)
               ])
             ];
             const uniqueSectionIds = [
@@ -2615,7 +2696,10 @@ export class AttendanceService {
               // For section-level timetables, get section name from timetable.sections
               // For semester-level timetables, get from slot.section_ids
               let sectionName = '';
-              if (timetable.timetable_type === 'section' && (timetable as any).sections?.section_name) {
+              if (
+                timetable.timetable_type === 'section' &&
+                (timetable as any).sections?.section_name
+              ) {
                 sectionName = (timetable as any).sections.section_name;
               } else if (slot.section_ids && slot.section_ids.length > 0) {
                 const firstSection = sectionsMap.get(slot.section_ids[0]);
@@ -2623,16 +2707,24 @@ export class AttendanceService {
               }
 
               // Updated: 2025-10-13 - Enhance sub_slots with course data
-              const enhancedSubSlots = (slot.sub_slots || []).map((subSlot: any) => ({
-                ...subSlot,
-                // Add course details from coursesMap if course_id exists
-                course_name: subSlot.course_id ? coursesMap.get(subSlot.course_id)?.course_name || subSlot.course_name : subSlot.course_name,
-                course_code: subSlot.course_id ? coursesMap.get(subSlot.course_id)?.course_code || subSlot.course_code : subSlot.course_code,
-                // Add staff members from staffMap
-                staff_members: (subSlot.staff_ids || [])
-                  .map((id: string) => staffMap.get(id))
-                  .filter(Boolean)
-              }));
+              const enhancedSubSlots = (slot.sub_slots || []).map(
+                (subSlot: any) => ({
+                  ...subSlot,
+                  // Add course details from coursesMap if course_id exists
+                  course_name: subSlot.course_id
+                    ? coursesMap.get(subSlot.course_id)?.course_name ||
+                      subSlot.course_name
+                    : subSlot.course_name,
+                  course_code: subSlot.course_id
+                    ? coursesMap.get(subSlot.course_id)?.course_code ||
+                      subSlot.course_code
+                    : subSlot.course_code,
+                  // Add staff members from staffMap
+                  staff_members: (subSlot.staff_ids || [])
+                    .map((id: string) => staffMap.get(id))
+                    .filter(Boolean)
+                })
+              );
 
               return {
                 ...slot,
@@ -2671,11 +2763,18 @@ export class AttendanceService {
                 .eq('id', userData.user.id)
                 .single();
 
-              if (profile?.role === 'hod' && profile.department_id === filters.department_id) {
-                console.log('User is HOD for this department - allowing access to periods');
+              if (
+                profile?.role === 'hod' &&
+                profile.department_id === filters.department_id
+              ) {
+                console.log(
+                  'User is HOD for this department - allowing access to periods'
+                );
                 isHODUser = true;
               } else {
-                console.log('No staff ID found for current user - skipping timetable');
+                console.log(
+                  'No staff ID found for current user - skipping timetable'
+                );
                 continue; // Skip this timetable if user has no staff access and is not HOD
               }
             } else {
@@ -2683,7 +2782,10 @@ export class AttendanceService {
               continue;
             }
           } else {
-            console.log('Will filter periods for staff ID:', staffIdForFiltering);
+            console.log(
+              'Will filter periods for staff ID:',
+              staffIdForFiltering
+            );
           }
         } else {
           console.log(
@@ -2718,7 +2820,9 @@ export class AttendanceService {
           // Filter slots by staff assignment if needed (but not for super admin or HOD users)
           let filteredSlots = slots;
           if (isHODUser) {
-            console.log('HOD user detected - showing all periods from department without staff filtering');
+            console.log(
+              'HOD user detected - showing all periods from department without staff filtering'
+            );
           } else if (staffIdForFiltering && !options.isSuperAdmin) {
             console.log(`Filtering slots for staff ID: ${staffIdForFiltering}`);
 
@@ -2846,7 +2950,9 @@ export class AttendanceService {
           // Find the period data for this slot
           const periodData = periodsData.find((p) => p.id === slot.period_id);
           // Find the timetable for this slot to get related names
-          const timetableData = timetables.find((t: any) => t.id === slot.timetable_id);
+          const timetableData = timetables.find(
+            (t: any) => t.id === slot.timetable_id
+          );
 
           return {
             timetable_slot_id: slot.slot_id || slot.id,
@@ -2857,20 +2963,29 @@ export class AttendanceService {
             end_time: periodData?.end_time || '',
             is_break: periodData?.is_break || false,
             // Add the hierarchy names from timetable relations
-            degree_name: Array.isArray(timetableData?.degrees) ? timetableData.degrees[0]?.degree_name || '' : (timetableData?.degrees as any)?.degree_name || '',
-            program_name: Array.isArray(timetableData?.programs) ? timetableData.programs[0]?.program_name || '' : (timetableData?.programs as any)?.program_name || '',
-            department_name: Array.isArray(timetableData?.departments) ? timetableData.departments[0]?.department_name || '' : (timetableData?.departments as any)?.department_name || '',
-            semester_name: Array.isArray(timetableData?.semesters) ? timetableData.semesters[0]?.semester_name || '' : (timetableData?.semesters as any)?.semester_name || '',
+            degree_name: Array.isArray(timetableData?.degrees)
+              ? timetableData.degrees[0]?.degree_name || ''
+              : (timetableData?.degrees as any)?.degree_name || '',
+            program_name: Array.isArray(timetableData?.programs)
+              ? timetableData.programs[0]?.program_name || ''
+              : (timetableData?.programs as any)?.program_name || '',
+            department_name: Array.isArray(timetableData?.departments)
+              ? timetableData.departments[0]?.department_name || ''
+              : (timetableData?.departments as any)?.department_name || '',
+            semester_name: Array.isArray(timetableData?.semesters)
+              ? timetableData.semesters[0]?.semester_name || ''
+              : (timetableData?.semesters as any)?.semester_name || '',
             // Updated: 2025-10-09 - Fix section name for section-level timetables
             // Priority 1: slot.section_name (direct property from slot data)
             // Priority 2: timetableData.sections from join (section-level timetables)
             // Priority 3: slot.sections array with 'name' property (semester-level slots)
             // Priority 4: slot.sections array with 'section_name' property (fallback)
-            section_name: slot.section_name ||
-                         (timetableData?.sections as any)?.section_name ||
-                         (Array.isArray(slot.sections) && slot.sections.length > 0
-                           ? (slot.sections[0]?.name || slot.sections[0]?.section_name || '')
-                           : ''),
+            section_name:
+              slot.section_name ||
+              (timetableData?.sections as any)?.section_name ||
+              (Array.isArray(slot.sections) && slot.sections.length > 0
+                ? slot.sections[0]?.name || slot.sections[0]?.section_name || ''
+                : ''),
             course: slot.course
               ? {
                   id: slot.course.id,
@@ -2899,42 +3014,64 @@ export class AttendanceService {
       // For subdivided slots (practical/lab groups), create one period entry per group
       const expandedPeriods = availablePeriods.flatMap((period: any) => {
         // Check if this is a subdivided slot with sub_slots
-        if (period.sub_slots && Array.isArray(period.sub_slots) && period.sub_slots.length > 0) {
-          console.log(`[attendance-service] Expanding subdivided slot into ${period.sub_slots.length} separate period entries`);
+        if (
+          period.sub_slots &&
+          Array.isArray(period.sub_slots) &&
+          period.sub_slots.length > 0
+        ) {
+          console.log(
+            `[attendance-service] Expanding subdivided slot into ${period.sub_slots.length} separate period entries`
+          );
 
           // Filter sub-slots by staff assignment if needed
           let subSlotsToExpand = period.sub_slots;
 
-          if (period._staff_filter_id && !period._is_hod_user && !period._is_super_admin) {
+          if (
+            period._staff_filter_id &&
+            !period._is_hod_user &&
+            !period._is_super_admin
+          ) {
             // Filter to only sub-slots where this staff member is assigned
             subSlotsToExpand = period.sub_slots.filter((subSlot: any) => {
-              const isAssignedToSubSlot = subSlot.staff_ids &&
-                                         Array.isArray(subSlot.staff_ids) &&
-                                         subSlot.staff_ids.includes(period._staff_filter_id);
+              const isAssignedToSubSlot =
+                subSlot.staff_ids &&
+                Array.isArray(subSlot.staff_ids) &&
+                subSlot.staff_ids.includes(period._staff_filter_id);
 
               if (isAssignedToSubSlot) {
-                console.log(`[attendance-service] Staff ${period._staff_filter_id} is assigned to ${subSlot.group_name}`);
+                console.log(
+                  `[attendance-service] Staff ${period._staff_filter_id} is assigned to ${subSlot.group_name}`
+                );
               } else {
-                console.log(`[attendance-service] Staff ${period._staff_filter_id} is NOT assigned to ${subSlot.group_name} - filtering out`);
+                console.log(
+                  `[attendance-service] Staff ${period._staff_filter_id} is NOT assigned to ${subSlot.group_name} - filtering out`
+                );
               }
 
               return isAssignedToSubSlot;
             });
 
-            console.log(`[attendance-service] Staff filtering: ${subSlotsToExpand.length} of ${period.sub_slots.length} groups visible to this staff member`);
+            console.log(
+              `[attendance-service] Staff filtering: ${subSlotsToExpand.length} of ${period.sub_slots.length} groups visible to this staff member`
+            );
           } else {
-            console.log(`[attendance-service] No staff filtering applied (super admin or HOD user)`);
+            console.log(
+              `[attendance-service] No staff filtering applied (super admin or HOD user)`
+            );
           }
 
           // If no sub-slots remain after filtering, return empty array (hide this period)
           if (subSlotsToExpand.length === 0) {
-            console.log(`[attendance-service] No sub-slots visible to this user - hiding period`);
+            console.log(
+              `[attendance-service] No sub-slots visible to this user - hiding period`
+            );
             return [];
           }
 
           // Create a separate period entry for each sub-slot/group
           return subSlotsToExpand.map((subSlot: any, index: number) => {
-            const groupName = subSlot.group_name || `Group ${String.fromCharCode(65 + index)}`;
+            const groupName =
+              subSlot.group_name || `Group ${String.fromCharCode(65 + index)}`;
             const groupOrder = subSlot.sub_slot_order || index + 1;
 
             const groupPeriod = {
@@ -2947,8 +3084,10 @@ export class AttendanceService {
               course: subSlot.course_id
                 ? {
                     id: subSlot.course_id,
-                    course_name: subSlot.course_name || period.course?.course_name || '',
-                    course_code: subSlot.course_code || period.course?.course_code || ''
+                    course_name:
+                      subSlot.course_name || period.course?.course_name || '',
+                    course_code:
+                      subSlot.course_code || period.course?.course_code || ''
                   }
                 : period.course,
               // Updated: 2025-10-13 - Override section_name to include group info for better identification
@@ -2974,10 +3113,12 @@ export class AttendanceService {
             console.log(`[attendance-service] Created group period:`, {
               group_name: groupPeriod.subdivision_group.group_name,
               slot_id: groupPeriod.timetable_slot_id,
-              student_count: groupPeriod.subdivision_group.student_ids?.length || 0,
+              student_count:
+                groupPeriod.subdivision_group.student_ids?.length || 0,
               staff_ids_in_group: groupPeriod.subdivision_group.staff_ids,
               staff_members_count: groupPeriod.staff_members?.length || 0,
-              staff_ids_count: groupPeriod.subdivision_group.staff_ids?.length || 0
+              staff_ids_count:
+                groupPeriod.subdivision_group.staff_ids?.length || 0
             });
 
             return groupPeriod;
@@ -2991,7 +3132,8 @@ export class AttendanceService {
       console.log(`[attendance-service] Period expansion complete:`, {
         original_count: availablePeriods.length,
         expanded_count: expandedPeriods.length,
-        subdivided_slots_expanded: expandedPeriods.length - availablePeriods.length
+        subdivided_slots_expanded:
+          expandedPeriods.length - availablePeriods.length
       });
 
       // Updated: 2025-10-09 - Remove duplicates based on timetable_slot_id (not period id)
@@ -3000,7 +3142,10 @@ export class AttendanceService {
       // Updated: 2025-10-13 - Use expandedPeriods instead of availablePeriods
       const uniquePeriods = expandedPeriods.filter(
         (period, index, self) =>
-          index === self.findIndex((p) => p.timetable_slot_id === period.timetable_slot_id)
+          index ===
+          self.findIndex(
+            (p) => p.timetable_slot_id === period.timetable_slot_id
+          )
       );
 
       const sortedPeriods = uniquePeriods.sort((a, b) => {
@@ -3011,7 +3156,12 @@ export class AttendanceService {
 
       // Updated: 2025-10-13 - Clean up internal metadata fields before returning
       const cleanedPeriods = sortedPeriods.map((period: any) => {
-        const { _staff_filter_id, _is_hod_user, _is_super_admin, ...cleanPeriod } = period;
+        const {
+          _staff_filter_id,
+          _is_hod_user,
+          _is_super_admin,
+          ...cleanPeriod
+        } = period;
         return cleanPeriod;
       });
 
@@ -3357,7 +3507,9 @@ export class AttendanceService {
   }
 
   // New helper method to check HOD department-based access
-  static async checkHODDepartmentAccess(timetableSlotId: string): Promise<boolean> {
+  static async checkHODDepartmentAccess(
+    timetableSlotId: string
+  ): Promise<boolean> {
     try {
       const { data: userData, error: userError } =
         await this.supabase.auth.getUser();
@@ -3398,14 +3550,17 @@ export class AttendanceService {
       if (timetableError) {
         // If direct lookup fails, it might be we need to get timetable info differently
         // Let's try to get it from the timetable structure
-        console.log('Could not find timetable by direct ID, checking timetable data...');
+        console.log(
+          'Could not find timetable by direct ID, checking timetable data...'
+        );
 
         // Alternative approach: Search through timetables for this slot
-        const { data: allTimetables, error: allTimetablesError } = await this.supabase
-          .from('timetables')
-          .select('id, department_id, timetable_data')
-          .eq('department_id', profile.department_id)
-          .eq('is_active', true);
+        const { data: allTimetables, error: allTimetablesError } =
+          await this.supabase
+            .from('timetables')
+            .select('id, department_id, timetable_data')
+            .eq('department_id', profile.department_id)
+            .eq('is_active', true);
 
         if (allTimetablesError || !allTimetables) {
           console.log('Could not fetch department timetables');
@@ -3413,14 +3568,16 @@ export class AttendanceService {
         }
 
         // Check if any timetable in the department contains this slot
-        const hasSlot = allTimetables.some(timetable => {
+        const hasSlot = allTimetables.some((timetable) => {
           const timetableData = timetable.timetable_data as any;
           if (!timetableData) return false;
 
           // Check if timetableSlotId exists in the timetable_data
           for (const dayData of Object.values(timetableData)) {
             if (dayData && typeof dayData === 'object') {
-              for (const [slotId] of Object.entries(dayData as Record<string, any>)) {
+              for (const [slotId] of Object.entries(
+                dayData as Record<string, any>
+              )) {
                 if (slotId === timetableSlotId) {
                   return true;
                 }
@@ -3434,10 +3591,13 @@ export class AttendanceService {
       }
 
       // Check if the timetable belongs to the HOD's department
-      const belongsToHODDepartment = timetableData.department_id === profile.department_id;
+      const belongsToHODDepartment =
+        timetableData.department_id === profile.department_id;
 
       if (belongsToHODDepartment) {
-        console.log(`Timetable slot belongs to HOD's department: ${profile.department_id}`);
+        console.log(
+          `Timetable slot belongs to HOD's department: ${profile.department_id}`
+        );
         return true;
       }
 
@@ -3951,6 +4111,129 @@ export class AttendanceService {
         }`
       );
       return { totalFound: 0, fixedCount: 0, errors, summary };
+    }
+  }
+
+  // =====================
+  // PRACTICAL PERIOD METHODS (Dual-Mode Period System)
+  // Updated: 2025-10-25
+  // =====================
+
+  /**
+   * Check if a batch already has attendance marked for a specific period/date
+   * Prevents duplicate batch attendance for practical periods
+   */
+  static async checkPracticalConflict(params: {
+    timetable_id: string;
+    period_slot_id: string;
+    batch_id: string;
+    date: string;
+  }): Promise<{
+    hasConflict: boolean;
+    message?: string;
+    existingRecord?: {
+      lab: string;
+      time: string;
+      course: string;
+    };
+  }> {
+    try {
+      const { timetable_id, period_slot_id, batch_id, date } = params;
+
+      console.log('[academic/attendance] Checking practical conflict:', params);
+
+      // Query student_attendance for this timetable, date, and period
+      const { data: existingAttendance, error } = await this.supabase
+        .from('student_attendance')
+        .select('id, attendance_data, created_at')
+        .eq('timetable_id', timetable_id)
+        .eq('attendance_date', date)
+        .eq('period_slot_id', period_slot_id);
+
+      if (error) {
+        console.error('[academic/attendance] Error checking conflict:', error);
+        throw error;
+      }
+
+      // Check if any record has this batch_id in attendance_data
+      if (existingAttendance && existingAttendance.length > 0) {
+        for (const record of existingAttendance) {
+          const attendanceData = record.attendance_data as any;
+          const periodData = attendanceData[period_slot_id];
+
+          if (periodData && periodData.period_mode === 'practical') {
+            // Check if this batch was already marked
+            if (periodData.batch_selected?.batch_id === batch_id) {
+              // Conflict found!
+              return {
+                hasConflict: true,
+                message: `Attendance already marked for this batch on ${date}`,
+                existingRecord: {
+                  lab: periodData.lab_selected || 'Unknown Lab',
+                  course: periodData.course_selected || 'Unknown Course',
+                  time: new Date(record.created_at).toLocaleTimeString()
+                }
+              };
+            }
+          }
+        }
+      }
+
+      // No conflict found
+      return {
+        hasConflict: false
+      };
+    } catch (error) {
+      console.error(
+        '[academic/attendance] Error in checkPracticalConflict:',
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Get practical period configuration from timetable data
+   */
+  static async getPracticalPeriodConfig(
+    timetableId: string,
+    periodSlotId: string
+  ): Promise<any | null> {
+    try {
+      const { data: timetableData, error } = await this.supabase
+        .from('timetables')
+        .select('timetable_data')
+        .eq('id', timetableId)
+        .single();
+
+      if (error || !timetableData) {
+        console.error(
+          '[academic/attendance] Error fetching timetable data:',
+          error
+        );
+        return null;
+      }
+
+      const timetableDataObj = timetableData.timetable_data || {};
+
+      // Search through all days to find the period slot
+      for (const day of Object.keys(timetableDataObj)) {
+        const dayData = timetableDataObj[day];
+        if (dayData[periodSlotId]) {
+          const periodConfig = dayData[periodSlotId];
+          if (periodConfig.period_mode === 'practical') {
+            return periodConfig.practical_config || null;
+          }
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error(
+        '[academic/attendance] Error in getPracticalPeriodConfig:',
+        error
+      );
+      return null;
     }
   }
 }

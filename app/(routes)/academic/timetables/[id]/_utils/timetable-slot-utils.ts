@@ -95,7 +95,21 @@ export function validateSlotData(slotData: any): {
 
   // Validate non-break slots
   if (!slotData.is_break_slot) {
-    if (slotData.is_subdivided) {
+    // NEW: Skip standard validations for practical mode (Updated: 2025-10-25)
+    if (slotData.period_mode === 'practical') {
+      // Validate practical mode configuration
+      if (!slotData.practical_config) {
+        errors.push('Practical configuration is required for practical periods');
+      } else {
+        if (!slotData.practical_config.batches || slotData.practical_config.batches.length === 0) {
+          errors.push('At least one batch is required for practical periods');
+        }
+
+        if (!slotData.practical_config.available_courses || slotData.practical_config.available_courses.length === 0) {
+          errors.push('At least one course is required for practical periods');
+        }
+      }
+    } else if (slotData.is_subdivided) {
       // Validate subdivided slot
       if (!slotData.sub_slots || slotData.sub_slots.length === 0) {
         errors.push('Subdivided slot must have at least one sub-slot');

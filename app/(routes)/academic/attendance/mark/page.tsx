@@ -47,7 +47,8 @@ import {
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { AttendanceSummaryModal } from './components/attendance-summary-modal';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
-import type { SubdivisionGroup } from '@/types/academics';
+import { PracticalAttendanceSelector } from './_components/practical-attendance-selector';
+import type { SubdivisionGroup, PeriodMode, PracticalConfig } from '@/types/academics';
 import { cn } from '@/lib/utils';
 
 export default function AttendanceMarkPage() {
@@ -112,6 +113,17 @@ export default function AttendanceMarkPage() {
     SubdivisionGroup[]
   >([]);
   const [subdivisionType, setSubdivisionType] = useState<string>('practical');
+
+  // NEW: Dual-Mode Period System state (Updated: 2025-10-25)
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('standard');
+  const [practicalConfig, setPracticalConfig] = useState<PracticalConfig | null>(null);
+  const [practicalSelection, setPracticalSelection] = useState<{
+    batch_id: string;
+    batch_name: string;
+    course_id: string;
+    course_name: string;
+    section_ids: string[];
+  } | null>(null);
 
   const { saveConsolidatedAttendance } = useConsolidatedAttendance();
 
@@ -390,6 +402,16 @@ export default function AttendanceMarkPage() {
                     setSubdivisionGroups([]);
                   }
 
+                  // NEW: Check if this is a practical period (Updated: 2025-10-25)
+                  if (slot.period_mode === 'practical' && slot.practical_config) {
+                    console.log('[academic/attendance] Practical period detected:', slot);
+                    setPeriodMode('practical');
+                    setPracticalConfig(slot.practical_config);
+                  } else {
+                    setPeriodMode('standard');
+                    setPracticalConfig(null);
+                  }
+
                   if (
                     slot.section_ids &&
                     Array.isArray(slot.section_ids) &&
@@ -520,11 +542,26 @@ export default function AttendanceMarkPage() {
         return;
       }
 
+      // NEW: For practical periods, wait for batch/lab selection (Updated: 2025-10-25)
+      if (periodMode === 'practical' && !practicalSelection) {
+        console.log(
+          '[academic/attendance/mark] Practical period - waiting for batch/lab selection'
+        );
+        setLoadingStudents(false);
+        return;
+      }
+
+      // For practical periods, use section_ids from practical selection
+      // For standard periods, use section_ids from context
+      const effectiveSectionIds = practicalSelection
+        ? practicalSelection.section_ids
+        : contextData.section_ids;
+
       // For multi-section slots, section_ids array should be populated
       // For single-section, section_id should be set
       if (
         !contextData.section_id &&
-        (!contextData.section_ids || contextData.section_ids.length === 0)
+        (!effectiveSectionIds || effectiveSectionIds.length === 0)
       ) {
         console.log(
           '[academic/attendance/mark] No section_id or section_ids - returning early'
@@ -535,10 +572,10 @@ export default function AttendanceMarkPage() {
       try {
         setLoadingStudents(true);
 
-        // Updated: 2025-10-08 - Support for multi-section slots
-        // Use section_ids if it has values, otherwise use section_id
+        // Updated: 2025-10-25 - Support for practical periods with batch selection
+        // Use effective section_ids (from practical selection or context)
         const hasMultipleSections =
-          contextData.section_ids && contextData.section_ids.length > 0;
+          effectiveSectionIds && effectiveSectionIds.length > 0;
 
         console.log(
           '[academic/attendance/mark] Fetching students with filters:',
@@ -549,8 +586,10 @@ export default function AttendanceMarkPage() {
             department_id: contextData.department_id,
             semester_id: contextData.semester_id,
             section_id: contextData.section_id,
-            section_ids: contextData.section_ids,
-            hasMultipleSections
+            section_ids: effectiveSectionIds,
+            hasMultipleSections,
+            periodMode,
+            practicalSelection: practicalSelection ? 'Yes' : 'No'
           }
         );
 
@@ -560,9 +599,9 @@ export default function AttendanceMarkPage() {
           program_id: contextData.program_id,
           department_id: contextData.department_id,
           semester_id: contextData.semester_id,
-          // Updated: Use section_ids if populated, otherwise use section_id
+          // Updated: Use effective section_ids (practical or context)
           ...(hasMultipleSections
-            ? { section_ids: contextData.section_ids }
+            ? { section_ids: effectiveSectionIds }
             : { section_id: contextData.section_id })
         });
 
@@ -667,7 +706,9 @@ export default function AttendanceMarkPage() {
     contextData,
     isSubdividedFromUrl,
     subdivisionStudentIds,
-    subdivisionGroupName
+    subdivisionGroupName,
+    periodMode,
+    practicalSelection
   ]);
 
   // Check for existing attendance after context is loaded
@@ -1286,12 +1327,19 @@ export default function AttendanceMarkPage() {
         }
       }
 
-      const correctCourseInfo = {
-        course_id: courseDetails?.id || courseId || null,
-        course_name:
-          courseDetails?.course_name || courseName || 'Unknown Course',
-        course_code: courseDetails?.course_code || 'N/A'
-      };
+      // NEW: For practical periods, use course from practical selection (Updated: 2025-10-25)
+      const correctCourseInfo = practicalSelection
+        ? {
+            course_id: practicalSelection.course_id,
+            course_name: practicalSelection.course_name,
+            course_code: 'N/A' // Course code may not be available from practical selection
+          }
+        : {
+            course_id: courseDetails?.id || courseId || null,
+            course_name:
+              courseDetails?.course_name || courseName || 'Unknown Course',
+            course_code: courseDetails?.course_code || 'N/A'
+          };
 
       // Updated: 2025-10-09 - Allow semester-level timetables with multi-section support
       // Use first section from section_ids array for multi-section periods
@@ -1369,6 +1417,16 @@ export default function AttendanceMarkPage() {
             }))
           }),
 
+          // NEW: Add practical period metadata if applicable (Updated: 2025-10-25)
+          ...(periodMode === 'practical' && practicalSelection && {
+            period_mode: 'practical',
+            batch_selected: {
+              batch_id: practicalSelection.batch_id,
+              batch_name: practicalSelection.batch_name
+            },
+            course_selected: practicalSelection.course_id
+          }),
+
           // Add all assigned faculty information
           assigned_faculty: assignedFacultyData,
           // Add marker details - always use profile ID for consistency across all user types
@@ -1397,15 +1455,16 @@ export default function AttendanceMarkPage() {
 
       // Debug: Log the payload being sent
 
-      // Updated: 2025-10-09 - Add section_ids array for multi-section support
+      // Updated: 2025-10-25 - Add practical period support with batch section_ids
       // Save attendance - use validated institution_id
       const result = await saveConsolidatedAttendance({
         timetable_id: timetableId,
         section_id: effectiveSectionId,
-        section_ids:
-          contextData?.section_ids && contextData.section_ids.length > 1
-            ? contextData.section_ids
-            : undefined, // Only include for multi-section
+        section_ids: practicalSelection
+          ? practicalSelection.section_ids // Use section_ids from selected batch
+          : contextData?.section_ids && contextData.section_ids.length > 1
+          ? contextData.section_ids
+          : undefined, // Only include for multi-section or practical periods
         attendance_date: date,
         attendance_data: attendancePayload,
         marked_by: profile?.id || '',
@@ -2083,9 +2142,28 @@ export default function AttendanceMarkPage() {
           </Card>
         </div>
 
-        {/* Modern Actions Bar */}
-        <Card className='border-0 shadow-lg bg-gradient-to-r from-slate-50 to-gray-50 dark:from-gray-800 dark:to-gray-900'>
-          <CardContent className='p-6'>
+        {/* NEW: Practical Attendance Selector (Updated: 2025-10-25) */}
+        {periodMode === 'practical' && practicalConfig && !practicalSelection && (
+          <PracticalAttendanceSelector
+            practicalConfig={practicalConfig}
+            periodId={periodId || ''}
+            date={date || ''}
+            timetableId={timetableId || ''}
+            onSelectionComplete={(selection) => {
+              console.log('[academic/attendance] Practical selection:', selection);
+              setPracticalSelection(selection);
+              // Students will be loaded in the existing useEffect when practicalSelection changes
+            }}
+            onConflictCheck={AttendanceService.checkPracticalConflict}
+          />
+        )}
+
+        {/* Show only after practical selection is made (if practical period) or always (if standard period) */}
+        {(periodMode === 'standard' || practicalSelection) && (
+          <>
+            {/* Modern Actions Bar */}
+            <Card className='border-0 shadow-lg bg-gradient-to-r from-slate-50 to-gray-50 dark:from-gray-800 dark:to-gray-900'>
+              <CardContent className='p-6'>
             <div className='flex flex-col lg:flex-row gap-4 items-center justify-between'>
               <div className='relative w-full lg:w-96'>
                 <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4' />
@@ -2440,6 +2518,8 @@ export default function AttendanceMarkPage() {
               </div>
             </CardContent>
           </Card>
+        )}
+        </>
         )}
 
         {/* Attendance Summary Modal */}
