@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Poppins } from 'next/font/google';
 import './globals.css';
-import { ToastProvider } from '@/providers/toast-provider';
 import { PushNotificationProvider } from '@/components/notifications/push-notification-provider';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
@@ -171,7 +170,6 @@ export default function RootLayout({
           storageKey='theme-preference'
         >
           <PWAProvider>
-            <ToastProvider />
             <PushNotificationProvider>{children}</PushNotificationProvider>
             <SpeedInsights />
           </PWAProvider>
