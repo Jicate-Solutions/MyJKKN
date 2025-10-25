@@ -48,7 +48,8 @@
       "mcp__supabase__search_docs",
       "Read(//c/Users/Boobalan/Pictures/**)",
       "Bash(timeout 60 npx tsc:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "mcp__actor-critic-thinking__actor-critic-thinking"
     ],
     "deny": [],
     "ask": []
