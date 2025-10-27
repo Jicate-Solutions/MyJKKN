@@ -58,6 +58,9 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
   /**
    * Fetch timetable data from server
    * @param preserveUnsavedDates - Whether to preserve current date selections (for batch mode)
+   *
+   * Fixed: 2025-10-27 - Removed selectedDates from dependency array to prevent stale closures
+   * Now uses a ref pattern to access current selectedDates value
    */
   const fetchTimetableData = useCallback(async (preserveUnsavedDates: boolean = false) => {
     console.log(
@@ -69,8 +72,14 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
       setLoading(true);
       setError(null);
 
-      // Store current unsaved dates if preserving
-      const currentSelectedDates = preserveUnsavedDates ? selectedDates : [];
+      // Use functional setState to access current selectedDates without adding to dependencies
+      let currentSelectedDates: string[] = [];
+      if (preserveUnsavedDates) {
+        setSelectedDates((prev) => {
+          currentSelectedDates = prev;
+          return prev; // Don't change state, just capture current value
+        });
+      }
 
       // Fetch timetable data
       const timetableData = await TimetableService.getTimetable(timetableId);
@@ -81,10 +90,8 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
 
       setTimetable(timetableData);
 
-      // Check attendance status
-      const attendanceStatus = await TimetableService.hasAttendanceMarked(timetableId);
-      setHasAttendance(attendanceStatus.hasAttendance);
-      setMarkedPeriods(attendanceStatus.markedPeriods);
+      // Check attendance status in parallel with other operations
+      const attendanceStatusPromise = TimetableService.hasAttendanceMarked(timetableId);
 
       // Update timetable format
       if (timetableData.timetable_format) {
@@ -114,15 +121,24 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
         }
       }
 
-      // Load available periods
+      // Load available periods in parallel
+      const periodsPromise = PeriodService.getPeriods({
+        institution_id: timetableData.institution_id,
+        limit: 100
+      });
+
+      // Wait for parallel operations
       try {
-        const periodsResponse = await PeriodService.getPeriods({
-          institution_id: timetableData.institution_id,
-          limit: 100
-        });
+        const [attendanceStatus, periodsResponse] = await Promise.all([
+          attendanceStatusPromise,
+          periodsPromise
+        ]);
+
+        setHasAttendance(attendanceStatus.hasAttendance);
+        setMarkedPeriods(attendanceStatus.markedPeriods);
         setPeriods(periodsResponse.data || []);
       } catch (error) {
-        console.error('[useTimetableDetail] Error fetching periods:', error);
+        console.error('[useTimetableDetail] Error fetching parallel data:', error);
       }
 
       // Set slots (use enriched slots from timetable data)
@@ -132,8 +148,8 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
         timetableData.slots?.length
       );
 
-      // Debug: Log sample subdivided slot
-      if (timetableData.slots && timetableData.slots.length > 0) {
+      // Debug: Log sample subdivided slot (only in development)
+      if (process.env.NODE_ENV === 'development' && timetableData.slots && timetableData.slots.length > 0) {
         const sampleSlot = timetableData.slots.find((s: any) => s.is_subdivided);
         if (sampleSlot) {
           console.log('[useTimetableDetail] Sample subdivided slot:', {
@@ -151,7 +167,7 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
     } finally {
       setLoading(false);
     }
-  }, [timetableId, selectedDates]);
+  }, [timetableId]); // Removed selectedDates from dependencies
 
   // Initial load
   useEffect(() => {

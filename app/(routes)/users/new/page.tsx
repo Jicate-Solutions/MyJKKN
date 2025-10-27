@@ -124,24 +124,28 @@ export default function NewUserPage() {
     fetchInstitutions();
   }, []);
 
+  // Watch institution_id field for changes
+  const selectedInstitutionId = form.watch('institution_id');
+
   // Fetch departments when institution changes
   useEffect(() => {
     const fetchDepartments = async () => {
-      // Extract the watched value to a variable to satisfy exhaustive-deps
-      const institutionId = form.watch('institution_id');
-      if (!institutionId || institutionId === 'none') {
+      if (!selectedInstitutionId || selectedInstitutionId === 'none') {
         setDepartments([]);
+        form.setValue('department_id', 'none'); // Reset department when institution changes
         return;
       }
 
       try {
         setDepartmentsLoading(true);
-        console.log('Fetching departments for institution:', institutionId);
-        const response = await fetch(`/api/departments?institution_id=${institutionId}`);
+        console.log('Fetching departments for institution:', selectedInstitutionId);
+        const response = await fetch(`/api/departments?institution_id=${selectedInstitutionId}`);
         if (response.ok) {
           const data = await response.json();
           console.log('Departments loaded:', data?.length || 0, data);
           setDepartments(data || []);
+          // Reset department selection when institution changes
+          form.setValue('department_id', 'none');
         } else {
           console.error('Failed to fetch departments:', response.status, response.statusText);
           setDepartments([]);
@@ -155,8 +159,7 @@ export default function NewUserPage() {
     };
 
     fetchDepartments();
-    // Add form to dependencies since we're using form.watch
-  }, [form]);
+  }, [selectedInstitutionId, form]);
 
   const onSubmit = async (data: FormValues) => {
     // Check if email is available before submitting

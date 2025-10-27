@@ -49,7 +49,23 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
   const dataTableRefreshRef = useRef<(() => void) | null>(null);
 
   // Wait for permissions and profile to be loaded before rendering the table
+  // Fixed: 2025-10-27 - Added timeout state to prevent infinite loading
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
   const isReady = !permissionsLoading && !!userProfile;
+
+  // Safety timeout: If permissions don't load within 10 seconds, show error
+  useEffect(() => {
+    if (permissionsLoading) {
+      const timeoutId = setTimeout(() => {
+        setLoadingTimeout(true);
+        console.error('[academic/timetables] Permissions loading timeout');
+      }, 10000); // 10 seconds
+
+      return () => clearTimeout(timeoutId);
+    } else {
+      setLoadingTimeout(false);
+    }
+  }, [permissionsLoading]);
 
   // Permission checks
   const canCreateTimetable =
@@ -58,33 +74,26 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
     isSuperAdmin || canAccess('academic.timetables', 'delete');
 
   // Auto-refresh mechanism to catch automatic sync updates
+  // Fixed: 2025-10-27 - Removed lastRefresh from dependency array to prevent infinite loop
   useEffect(() => {
     if (!autoRefreshEnabled) return;
 
-    const checkForUpdates = () => {
-      // Only refresh if it's been more than 30 seconds since last refresh
-      const now = new Date();
-      const timeSinceLastRefresh = now.getTime() - lastRefresh.getTime();
-
-      if (timeSinceLastRefresh > 30000) {
-        // 30 seconds
-        setLastRefresh(now);
-        if (dataTableRefreshRef.current) {
-          dataTableRefreshRef.current();
-          toast.success('🔄 Timetable data refreshed automatically');
-        }
+    // Check for updates every 2 minutes (120 seconds)
+    refreshIntervalRef.current = setInterval(() => {
+      setLastRefresh(new Date());
+      if (dataTableRefreshRef.current) {
+        console.log('[academic/timetables] Auto-refreshing timetable data...');
+        dataTableRefreshRef.current();
+        toast.success('🔄 Timetable data refreshed', { duration: 2000 });
       }
-    };
-
-    // Check for updates every 2 minutes
-    refreshIntervalRef.current = setInterval(checkForUpdates, 120000);
+    }, 120000); // 2 minutes
 
     return () => {
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
       }
     };
-  }, [autoRefreshEnabled, lastRefresh]);
+  }, [autoRefreshEnabled]); // Only depend on autoRefreshEnabled, NOT lastRefresh
 
   const fetchData = async (params: {
     page: number;
@@ -297,6 +306,30 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
 
   // Show loading state while waiting for permissions and profile
   if (!isReady) {
+    // Show error if loading times out
+    if (loadingTimeout) {
+      return (
+        <div className='space-y-4 p-6 border border-red-300 rounded-lg bg-red-50'>
+          <div className='flex items-center gap-2 text-red-700'>
+            <AlertTriangle className='h-5 w-5' />
+            <h3 className='font-semibold'>Loading Timeout</h3>
+          </div>
+          <p className='text-sm text-red-600'>
+            The page is taking longer than expected to load. This could be due to network issues or permission settings.
+          </p>
+          <Button
+            onClick={() => window.location.reload()}
+            variant='outline'
+            className='border-red-300 text-red-700 hover:bg-red-100'
+          >
+            <RefreshCcw className='mr-2 h-4 w-4' />
+            Reload Page
+          </Button>
+        </div>
+      );
+    }
+
+    // Show loading skeleton
     return (
       <div className='space-y-4'>
         <div className='flex items-center justify-between'>

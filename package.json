@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "clean": "rimraf .next/cache node_modules/.cache .tsbuildinfo",
+    "clean:all": "rimraf .next node_modules/.cache .tsbuildinfo"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

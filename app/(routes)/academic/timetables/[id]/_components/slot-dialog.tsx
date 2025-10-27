@@ -43,7 +43,7 @@ interface SlotDialogProps {
   onClose: () => void;
   timetable: Timetable | null;
   existingSlot?: any;
-  onSave: (slotData: any) => void;
+  onSave: (slotData: any, shouldConfigureSubdivision?: boolean) => void;
   onDelete: () => void;
   courses: any[];
   staff: any[];
@@ -53,6 +53,8 @@ interface SlotDialogProps {
   isUsingStaffPlanningData?: boolean;
   loadingStaffPlanData?: boolean;
   readOnly?: boolean;
+  // NEW: Added 2025-10-27 - Pass period to check if it's a break period
+  selectedPeriod?: Period | null;
 }
 
 export function SlotDialog({
@@ -69,7 +71,8 @@ export function SlotDialog({
   loadingFilteredSections,
   isUsingStaffPlanningData = false,
   loadingStaffPlanData = false,
-  readOnly = false
+  readOnly = false,
+  selectedPeriod = null
 }: SlotDialogProps) {
   const [slotType, setSlotType] = useState<'regular' | 'break'>('regular');
   const [isBreakSlot, setIsBreakSlot] = useState(false);
@@ -110,6 +113,9 @@ export function SlotDialog({
 
   const isBatchMode = timetable?.timetable_format === 'batch';
 
+  // NEW: Check if the selected period is a break period (Added: 2025-10-27)
+  const isPeriodBreak = selectedPeriod?.is_break === true;
+
   // Helper function to update a specific sub-slot
   const updateSubSlot = (index: number, updates: any) => {
     setSubSlots((prevSubSlots) => {
@@ -118,6 +124,29 @@ export function SlotDialog({
       return newSubSlots;
     });
   };
+
+  // NEW: Auto-detect break period and enforce break slot type (Added: 2025-10-27)
+  useEffect(() => {
+    if (isPeriodBreak && !existingSlot) {
+      // If the period is marked as a break in the periods table, automatically set as break slot
+      console.log('[academic/timetables/slot-dialog] Period is marked as break, enforcing break slot', {
+        periodId: selectedPeriod?.id,
+        periodName: selectedPeriod?.period_name,
+        isBreak: selectedPeriod?.is_break
+      });
+
+      setSlotType('break');
+      setIsBreakSlot(true);
+      setBreakDescription(selectedPeriod?.period_name || 'Break');
+
+      // Clear any course/staff selections
+      setSelectedCourse('');
+      setSelectedStaff([]);
+      setSelectedSections([]);
+      setIsCombinedClass(false);
+      setIsSubdivided(false);
+    }
+  }, [isPeriodBreak, existingSlot, selectedPeriod]);
 
   // Populate form when existing slot is provided
   useEffect(() => {
@@ -378,8 +407,23 @@ export function SlotDialog({
       practical_config: periodMode === 'practical' ? practicalConfig : undefined
     };
 
-    // Pass the slot data to the parent along with the date
-    onSave(slotData);
+    // DEBUGGING: Log practical mode data (Updated: 2025-10-27)
+    if (periodMode === 'practical') {
+      console.log('[academic/timetables/slot-dialog] Saving practical mode slot:', {
+        periodMode,
+        practicalConfig,
+        practicalConfigExists: !!practicalConfig,
+        batchCount: practicalConfig?.batches?.length || 0,
+        courseCount: practicalConfig?.available_courses?.length || 0,
+        completeSlotData: slotData
+      });
+    }
+
+    // Pass the slot data to the parent
+    // Updated: 2025-10-27 - Pass shouldConfigureSubdivision flag for new subdivided slots
+    // For new subdivided slots (not editing existing), open subdivision config dialog
+    const shouldConfigureSubdivision = isSubdivided && !existingSlot;
+    onSave(slotData, shouldConfigureSubdivision);
   };
 
   const fetchCourseAssignedStaff = useCallback(
@@ -644,24 +688,43 @@ export function SlotDialog({
             {/* Slot Type Selection */}
             <div className='space-y-3'>
               <Label className='text-sm font-medium'>Slot Type</Label>
+
+              {/* NEW: Warning for break periods (Added: 2025-10-27) */}
+              {isPeriodBreak && (
+                <Alert className='bg-amber-50 border-amber-300'>
+                  <AlertCircle className='h-4 w-4 text-amber-600' />
+                  <AlertDescription className='text-sm text-amber-800'>
+                    <strong>Break Period Detected:</strong> This period (&quot;{selectedPeriod?.period_name}&quot;) is marked as a break period in your periods configuration.
+                    You cannot assign courses or staff to break periods. Only break descriptions can be added.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <RadioGroup
                 value={slotType}
                 onValueChange={(value: 'regular' | 'break') => {
-                  if (!readOnly) {
+                  if (!readOnly && !isPeriodBreak) {
                     setSlotType(value);
                     setIsBreakSlot(value === 'break');
                   }
                 }}
                 className='flex gap-6'
-                disabled={readOnly}
+                disabled={readOnly || isPeriodBreak}
               >
                 <div className='flex items-center space-x-2'>
                   <RadioGroupItem
                     value='regular'
                     id='regularSlot'
-                    disabled={readOnly}
+                    disabled={readOnly || isPeriodBreak}
                   />
-                  <Label htmlFor='regularSlot'>Regular Class</Label>
+                  <Label htmlFor='regularSlot' className={isPeriodBreak ? 'text-gray-400' : ''}>
+                    Regular Class
+                    {isPeriodBreak && (
+                      <Badge variant='outline' className='ml-2 text-xs bg-gray-100 text-gray-500'>
+                        Not available for break periods
+                      </Badge>
+                    )}
+                  </Label>
                 </div>
                 <div className='flex items-center space-x-2'>
                   <RadioGroupItem

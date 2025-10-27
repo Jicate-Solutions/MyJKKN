@@ -2918,7 +2918,21 @@ export class AttendanceService {
             console.error('Error fetching periods:', periodsError);
           } else {
             periodsData = periods || [];
-            console.log('Fetched periods:', periodsData.length);
+            console.log('[academic/attendance] Fetched periods:', periodsData.length);
+
+            // Enhanced logging for break periods
+            const breakPeriods = periodsData.filter(p => p.is_break);
+            if (breakPeriods.length > 0) {
+              console.warn('[academic/attendance] ⚠️ Break periods detected (will be filtered out):', {
+                count: breakPeriods.length,
+                periods: breakPeriods.map(p => ({
+                  name: p.period_name,
+                  id: p.id,
+                  is_break: p.is_break,
+                  time: `${p.start_time} - ${p.end_time}`
+                }))
+              });
+            }
           }
         } catch (error) {
           console.error('Error fetching periods data:', error);
@@ -2926,20 +2940,25 @@ export class AttendanceService {
       }
 
       // Map all collected slots to AttendancePeriodOption with validation
+      let filteredOutBreakCount = 0;
       const availablePeriods = allSlots
         .filter((slot: any) => {
           // Ensure slot has required fields
           if (!slot || !slot.period_id) {
-            console.warn('Invalid slot found, skipping:', slot);
+            console.warn('[academic/attendance] Invalid slot found, skipping:', slot);
             return false;
           }
 
           // Filter out break periods - they should not appear in attendance
           const periodData = periodsData.find((p) => p.id === slot.period_id);
           if (periodData?.is_break) {
-            console.log('Filtering out break period from attendance:', {
+            filteredOutBreakCount++;
+            console.warn('[academic/attendance] ✅ Filtering out break period from attendance:', {
               period_name: periodData.period_name,
-              period_id: slot.period_id
+              period_id: slot.period_id,
+              time: `${periodData.start_time} - ${periodData.end_time}`,
+              course: slot.course?.course_name || 'No course',
+              staff: slot.staff_members?.map((s: any) => s.full_name || s.name).join(', ') || 'No staff'
             });
             return false;
           }
@@ -3163,6 +3182,15 @@ export class AttendanceService {
           ...cleanPeriod
         } = period;
         return cleanPeriod;
+      });
+
+      // Final summary log
+      console.log('[academic/attendance] 📊 Final Period Filtering Summary:', {
+        total_slots_found: allSlots.length,
+        break_periods_filtered_out: filteredOutBreakCount,
+        periods_after_filtering: availablePeriods.length,
+        periods_after_expansion: expandedPeriods.length,
+        final_periods_returned: cleanedPeriods.length
       });
 
       // Final validation to ensure we always return an array
