@@ -27,11 +27,12 @@ interface UseTimetablePeriodsResult {
 /**
  * Custom hook for managing timetable period selections
  * Handles selected periods, locked periods, and local storage
+ * Updated: 2025-10-27 - timetablePeriods can be either string IDs or Period objects
  */
 export function useTimetablePeriods(
   timetableId: string,
   availablePeriods: Period[],
-  timetablePeriods?: Period[]
+  timetablePeriods?: Period[] | string[]
 ): UseTimetablePeriodsResult {
   const [selectedPeriods, setSelectedPeriods] = useState<Period[]>([]);
   const [lockedPeriods, setLockedPeriods] = useState<string[]>([]);
@@ -39,25 +40,50 @@ export function useTimetablePeriods(
 
   /**
    * Load selected periods from timetable data or localStorage
+   * Updated: 2025-10-27 - Fixed issue where period IDs (strings) were treated as objects
    */
   useEffect(() => {
     if (timetablePeriods && Array.isArray(timetablePeriods) && timetablePeriods.length > 0) {
-      // Map periods to expected format
-      const mappedPeriods = timetablePeriods
-        .map((period: any) => ({
-          ...period,
-          id: period.period_id || period.id
-        }))
-        .filter((period: any) => period && period.id);
+      // Check if timetablePeriods contains IDs (strings) or full period objects
+      const isIdArray = typeof timetablePeriods[0] === 'string';
+
+      let mappedPeriods: Period[] = [];
+
+      if (isIdArray) {
+        // Database returns period IDs as strings - map them to full Period objects
+        mappedPeriods = (timetablePeriods as string[])
+          .map((periodId) =>
+            availablePeriods.find(
+              (p) => p.id === periodId || (p as any).period_id === periodId
+            )
+          )
+          .filter(Boolean)
+          .map((period: any) => ({
+            ...period,
+            id: period.period_id || period.id
+          })) as Period[];
+      } else {
+        // Already full objects (legacy data or direct objects) - just normalize
+        mappedPeriods = timetablePeriods
+          .map((period: any) => ({
+            ...period,
+            id: period.period_id || period.id
+          }))
+          .filter((period: any) => period && period.id) as Period[];
+      }
 
       setSelectedPeriods(mappedPeriods);
 
-      // Clear localStorage since we're using timetable's saved periods
-      if (typeof window !== 'undefined' && timetableId) {
-        localStorage.removeItem(`selectedPeriods-${timetableId}`);
+      // Keep localStorage in sync but don't clear it - it serves as backup
+      if (typeof window !== 'undefined' && timetableId && mappedPeriods.length > 0) {
+        const periodIds = mappedPeriods.map((period) => period.id);
+        localStorage.setItem(
+          `selectedPeriods-${timetableId}`,
+          JSON.stringify(periodIds)
+        );
       }
     } else if (typeof window !== 'undefined' && timetableId && availablePeriods.length > 0) {
-      // Try loading from localStorage
+      // Try loading from localStorage as fallback
       const storedPeriods = localStorage.getItem(`selectedPeriods-${timetableId}`);
       if (storedPeriods) {
         try {

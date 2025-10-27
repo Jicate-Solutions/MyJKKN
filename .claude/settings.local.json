@@ -50,7 +50,8 @@
       "Bash(timeout 60 npx tsc:*)",
       "WebFetch(domain:github.com)",
       "mcp__actor-critic-thinking__actor-critic-thinking",
-      "Read(//d/Projects/JKKN/**)"
+      "Read(//d/Projects/JKKN/**)",
+      "Read(//c/Users/Admin/Pictures/Screenshots/**)"
     ],
     "deny": [],
     "ask": []
@@ -60,6 +61,7 @@
     "supabase",
     "sequential-thinking",
     "memory",
-    "actor-critic-thinking"
+    "actor-critic-thinking",
+    "chrome-devtools"
   ]
 }

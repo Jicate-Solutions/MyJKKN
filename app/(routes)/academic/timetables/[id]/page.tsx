@@ -274,6 +274,7 @@ export default function TimetableDetailPage({
   }, [setSelectedPeriods, setLockedPeriods]);
 
   // Wrapper for save periods that includes all parameters
+  // Updated: 2025-10-27 - Added modal close after successful save
   const savePeriodSelections = useCallback(async () => {
     if (!timetable) return;
     await savePeriods(
@@ -284,13 +285,15 @@ export default function TimetableDetailPage({
     );
     setHasUnsavedChanges(false);
     await fetchTimetableData(true);
+    periodSelectorDialog.close(); // Close the modal after successful save
   }, [
     timetable,
     savePeriods,
     selectedDays,
     selectedDates,
     timetableFormat,
-    fetchTimetableData
+    fetchTimetableData,
+    periodSelectorDialog
   ]);
 
   // ===================================
