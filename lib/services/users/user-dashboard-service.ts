@@ -50,22 +50,46 @@ export class UserDashboardService {
 
   /**
    * Get user activity summary for quick insights
+   * Fixed: 2025-10-27 - Added pagination to fetch all users (removed 1000 row limit)
    */
   static async getUserActivitySummary(institutionId?: string) {
     try {
-      let query = this.supabase
-        .from('profiles')
-        .select('last_login, is_active, created_at')
-        .order('last_login', { ascending: false });
+      // Fetch all users with pagination
+      let allData: any[] = [];
+      let from = 0;
+      const batchSize = 1000;
+      let hasMore = true;
 
-      // Only apply institution filter if institutionId is provided
-      if (institutionId) {
-        query = query.eq('institution_id', institutionId);
+      while (hasMore) {
+        let query = this.supabase
+          .from('profiles')
+          .select('last_login, is_active, created_at')
+          .order('last_login', { ascending: false })
+          .range(from, from + batchSize - 1);
+
+        // Only apply institution filter if institutionId is provided
+        if (institutionId) {
+          query = query.eq('institution_id', institutionId);
+        }
+
+        const { data: batch, error } = await query;
+
+        if (error) throw error;
+
+        if (batch && batch.length > 0) {
+          allData = allData.concat(batch);
+          from += batchSize;
+
+          if (batch.length < batchSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
       }
 
-      const { data, error } = await query;
-
-      if (error) throw error;
+      const data = allData;
+      console.log(`[user-activity-summary] Fetched ${data.length} total users`);
 
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -100,18 +124,44 @@ export class UserDashboardService {
 
   /**
    * Get role-based user statistics
+   * Fixed: 2025-10-27 - Added pagination to fetch all users (removed 1000 row limit)
    */
   static async getRoleBasedStats(institutionId?: string) {
     try {
-      let query = this.supabase.from('profiles').select('role, is_active');
+      // Fetch all users with pagination
+      let allData: any[] = [];
+      let from = 0;
+      const batchSize = 1000;
+      let hasMore = true;
 
-      if (institutionId) {
-        query = query.eq('institution_id', institutionId);
+      while (hasMore) {
+        let query = this.supabase
+          .from('profiles')
+          .select('role, is_active')
+          .range(from, from + batchSize - 1);
+
+        if (institutionId) {
+          query = query.eq('institution_id', institutionId);
+        }
+
+        const { data: batch, error } = await query;
+
+        if (error) throw error;
+
+        if (batch && batch.length > 0) {
+          allData = allData.concat(batch);
+          from += batchSize;
+
+          if (batch.length < batchSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
       }
 
-      const { data, error } = await query;
-
-      if (error) throw error;
+      const data = allData;
+      console.log(`[role-based-stats] Fetched ${data.length} total users`);
 
       const roleStats: Record<string, { total: number; active: number }> = {};
 
@@ -205,17 +255,43 @@ export class UserDashboardService {
 
   /**
    * Get institution-wise user distribution
+   * Fixed: 2025-10-27 - Added pagination to fetch all users (removed 1000 row limit)
    */
   static async getInstitutionDistribution() {
     try {
-      const { data, error } = await this.supabase.from('profiles').select(`
-          institution_id,
-          role,
-          is_active,
-          institutions(name, counselling_code)
-        `);
+      // Fetch all users with pagination
+      let allData: any[] = [];
+      let from = 0;
+      const batchSize = 1000;
+      let hasMore = true;
 
-      if (error) throw error;
+      while (hasMore) {
+        const { data: batch, error } = await this.supabase
+          .from('profiles')
+          .select(`
+            institution_id,
+            role,
+            is_active,
+            institutions(name, counselling_code)
+          `)
+          .range(from, from + batchSize - 1);
+
+        if (error) throw error;
+
+        if (batch && batch.length > 0) {
+          allData = allData.concat(batch);
+          from += batchSize;
+
+          if (batch.length < batchSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+
+      const data = allData;
+      console.log(`[institution-distribution] Fetched ${data.length} total users`);
 
       const institutionStats: Record<
         string,

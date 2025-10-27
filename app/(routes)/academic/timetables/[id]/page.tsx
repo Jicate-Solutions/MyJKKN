@@ -248,11 +248,25 @@ export default function TimetableDetailPage({
 
   const removePeriod = useCallback(
     (period: Period) => {
+      // Updated: 2025-10-27 - Added validation and logging for period deletion
+      console.log('[academic/timetables] Removing period:', {
+        periodId: period.id,
+        periodName: period.period_name,
+        currentSelectedCount: selectedPeriods.length
+      });
+
       const newSelectedPeriods = selectedPeriods.filter(
         (p: Period) => p.id !== period.id
       );
+
+      console.log('[academic/timetables] After removal:', {
+        newSelectedCount: newSelectedPeriods.length,
+        removed: selectedPeriods.length - newSelectedPeriods.length
+      });
+
       setSelectedPeriods(newSelectedPeriods);
       setHasUnsavedChanges(true);
+      toast.success(`Period "${period.period_name}" removed. Click "Save Periods" to confirm.`);
     },
     [selectedPeriods, setSelectedPeriods]
   );
@@ -532,11 +546,26 @@ export default function TimetableDetailPage({
             slot_date: day as string
           };
 
+          // DEBUGGING: Log validation data for practical mode (Updated: 2025-10-27)
+          if (slotData.period_mode === 'practical') {
+            console.log('[academic/timetables/page] Validating practical mode slot:', {
+              completeSlotData,
+              period_mode: completeSlotData.period_mode,
+              practical_config: completeSlotData.practical_config,
+              hasPracticalConfig: !!completeSlotData.practical_config,
+              batchCount: completeSlotData.practical_config?.batches?.length || 0,
+              courseCount: completeSlotData.practical_config?.available_courses?.length || 0
+            });
+          }
+
           const validation = validateSlotData(completeSlotData);
           if (!validation.valid) {
+            console.error('[academic/timetables/page] Validation failed:', validation.errors);
             toast.error(validation.errors.join(', '));
             return;
           }
+
+          console.log('[academic/timetables/page] Validation passed, saving slot...');
 
           await TimetableService.updateTimetableSlot(
             timetableId,
@@ -627,7 +656,11 @@ export default function TimetableDetailPage({
   const confirmSlotDeletion = useCallback(async () => {
     try {
       const slotData = deleteDialog.data.slotToDelete;
-      if (!slotData?.id) {
+
+      // Fixed: 2025-10-27 - Check for period_id instead of id
+      // Slots don't have an 'id' field, they have 'period_id', 'timetable_id', and 'day_of_week'/'slot_date'
+      if (!slotData || !slotData.period_id) {
+        console.error('[academic/timetables] Invalid slot data for deletion:', slotData);
         toast.error('No slot selected for deletion');
         return;
       }
@@ -637,9 +670,17 @@ export default function TimetableDetailPage({
       const periodId = slotData.period_id;
 
       if (!day || !periodId) {
+        console.error('[academic/timetables] Missing day or period ID:', { day, periodId, slotData });
         toast.error('Invalid slot data');
         return;
       }
+
+      console.log('[academic/timetables] Deleting slot:', {
+        timetableId,
+        day,
+        periodId,
+        format: timetableFormat
+      });
 
       await TimetableService.deleteTimetableSlot(
         timetableId,
@@ -1002,6 +1043,7 @@ export default function TimetableDetailPage({
             isUsingStaffPlanningData={staffPlanningCourses.length > 0}
             loadingStaffPlanData={loadingStaffPlanData}
             readOnly={slotDialog.data.readOnly}
+            selectedPeriod={slotDialog.data.selectedPeriod}
           />
         </Suspense>
 
@@ -1075,8 +1117,19 @@ export default function TimetableDetailPage({
             savingPeriods={savingPeriods}
             onDragEnd={handleDragEnd}
             onRemovePeriod={(periodId: string) => {
+              // Updated: 2025-10-27 - Added validation and error handling
+              console.log('[academic/timetables] onRemovePeriod called with ID:', periodId);
               const period = selectedPeriods.find(p => p.id === periodId);
-              if (period) removePeriod(period);
+              if (period) {
+                console.log('[academic/timetables] Found period to remove:', period.period_name);
+                removePeriod(period);
+              } else {
+                console.error('[academic/timetables] Period not found in selectedPeriods!', {
+                  searchingFor: periodId,
+                  availableIds: selectedPeriods.map(p => ({ id: p.id, name: p.period_name }))
+                });
+                toast.error('Unable to remove period. Please try again.');
+              }
             }}
             onToggleLock={toggleLockPeriod}
             onSelectAllClassPeriods={() => {

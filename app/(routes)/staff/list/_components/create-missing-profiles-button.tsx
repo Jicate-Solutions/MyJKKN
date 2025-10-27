@@ -14,17 +14,30 @@ import {
   DialogTrigger
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
 
 interface ProcessResult {
   total_processed: number;
   successful: number;
   failed: number;
+  created_count: number; // Number of new profiles created
+  updated_count: number; // Number of existing profiles updated
   created_profiles: Array<{
     staff_id: string;
     email: string;
     full_name: string;
     user_id: string;
     temp_password: string;
+    action?: string; // 'created', 'updated', or 'skipped'
     success: boolean;
   }>;
   errors: Array<{
@@ -42,6 +55,10 @@ export function CreateMissingProfilesButton() {
   const [result, setResult] = useState<ProcessResult | null>(null);
   const [checkData, setCheckData] = useState<any>(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(
+    new Set()
+  );
+  const [showPreview, setShowPreview] = useState(false);
 
   // Check status when dialog opens
   const handleDialogOpen = async (open: boolean) => {
@@ -67,6 +84,16 @@ export function CreateMissingProfilesButton() {
       }
 
       setCheckData(data);
+
+      // Auto-select all staff needing sync
+      const allNeedingSyncIds = new Set<string>();
+      data.details.staff_with_incomplete_profiles?.forEach((staff: any) => {
+        allNeedingSyncIds.add(staff.staff_id);
+      });
+      data.details.staff_without_profiles?.forEach((staff: any) => {
+        allNeedingSyncIds.add(staff.staff_id);
+      });
+      setSelectedStaffIds(allNeedingSyncIds);
     } catch (error) {
       console.error('Error checking profiles:', error);
       toast.error(
@@ -77,16 +104,54 @@ export function CreateMissingProfilesButton() {
     }
   };
 
+  const toggleStaffSelection = (staffId: string) => {
+    setSelectedStaffIds((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(staffId)) {
+        newSet.delete(staffId);
+      } else {
+        newSet.add(staffId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedStaffIds.size > 0) {
+      setSelectedStaffIds(new Set());
+    } else {
+      const allIds = new Set<string>();
+      checkData?.details.staff_with_incomplete_profiles?.forEach(
+        (staff: any) => {
+          allIds.add(staff.staff_id);
+        }
+      );
+      checkData?.details.staff_without_profiles?.forEach((staff: any) => {
+        allIds.add(staff.staff_id);
+      });
+      setSelectedStaffIds(allIds);
+    }
+  };
+
   const handleCreateProfiles = async () => {
     try {
       setIsLoading(true);
+
+      if (selectedStaffIds.size === 0) {
+        toast.error('Please select at least one staff member to sync');
+        setIsLoading(false);
+        return;
+      }
 
       const response = await fetch('/api/staff/create-missing-profiles', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        credentials: 'include'
+        credentials: 'include',
+        body: JSON.stringify({
+          staff_ids: Array.from(selectedStaffIds)
+        })
       });
 
       const data = await response.json();
@@ -124,6 +189,8 @@ export function CreateMissingProfilesButton() {
     setResult(null);
     setCheckData(null);
     setIsOpen(false);
+    setShowPreview(false);
+    setSelectedStaffIds(new Set());
   };
 
   return (
@@ -146,13 +213,10 @@ export function CreateMissingProfilesButton() {
             {isChecking
               ? 'Checking current status...'
               : checkData
-              ? `Found ${checkData.summary.without_profiles} staff members without profiles out of ${checkData.summary.total_staff} total.`
-              : "This will create user accounts and profiles for staff members who don't have them yet."}
-            {!result &&
-              !isChecking &&
-              checkData &&
-              checkData.summary.without_profiles > 0 &&
-              ' Each staff member will receive a temporary password.'}
+              ? checkData.summary.total_needing_sync > 0
+                ? `Found ${checkData.summary.total_needing_sync} staff members needing profile sync (${checkData.summary.with_incomplete_profiles} incomplete, ${checkData.summary.without_profiles} missing) out of ${checkData.summary.total_staff} total.`
+                : `All ${checkData.summary.total_staff} staff members have complete profiles.`
+              : "This will sync profiles for staff members, creating missing ones and updating incomplete ones."}
           </DialogDescription>
         </DialogHeader>
 
@@ -163,13 +227,13 @@ export function CreateMissingProfilesButton() {
           </div>
         ) : !result && checkData ? (
           <>
-            {checkData.summary.without_profiles === 0 ? (
+            {checkData.summary.total_needing_sync === 0 ? (
               <Alert className='border-green-200 bg-green-50'>
                 <CheckCircle className='h-4 w-4' />
                 <AlertTitle>All Set!</AlertTitle>
                 <AlertDescription>
-                  All {checkData.summary.total_staff} staff members already have
-                  user profiles. No action needed.
+                  All {checkData.summary.total_staff} staff members have
+                  complete and correct user profiles. No action needed.
                 </AlertDescription>
               </Alert>
             ) : (
@@ -184,21 +248,29 @@ export function CreateMissingProfilesButton() {
                         <strong>{checkData.summary.total_staff}</strong>
                       </div>
                       <div className='text-green-600'>
-                        With Profiles:{' '}
-                        <strong>{checkData.summary.with_profiles}</strong>
+                        Complete Profiles:{' '}
+                        <strong>
+                          {checkData.summary.with_complete_profiles}
+                        </strong>
                       </div>
-                      <div className='text-orange-600'>
-                        Missing Profiles:{' '}
-                        <strong>{checkData.summary.without_profiles}</strong>
-                      </div>
-                      {checkData.summary.with_auth_but_no_profile > 0 && (
-                        <div className='text-blue-600'>
-                          Have Auth but Missing Profile:{' '}
+                      {checkData.summary.with_incomplete_profiles > 0 && (
+                        <div className='text-orange-600'>
+                          Incomplete Profiles (need update):{' '}
                           <strong>
-                            {checkData.summary.with_auth_but_no_profile}
+                            {checkData.summary.with_incomplete_profiles}
                           </strong>
                         </div>
                       )}
+                      {checkData.summary.without_profiles > 0 && (
+                        <div className='text-red-600'>
+                          Missing Profiles (need creation):{' '}
+                          <strong>{checkData.summary.without_profiles}</strong>
+                        </div>
+                      )}
+                      <div className='text-blue-600 font-semibold pt-1 border-t'>
+                        Total Needing Sync:{' '}
+                        <strong>{checkData.summary.total_needing_sync}</strong>
+                      </div>
                     </div>
                   </AlertDescription>
                 </Alert>
@@ -208,21 +280,181 @@ export function CreateMissingProfilesButton() {
                   <AlertTitle>This process will:</AlertTitle>
                   <AlertDescription>
                     <ul className='list-disc list-inside mt-2 space-y-1'>
+                      {checkData.summary.with_incomplete_profiles > 0 && (
+                        <>
+                          <li className='text-orange-600 font-medium'>
+                            Update {checkData.summary.with_incomplete_profiles}{' '}
+                            existing profiles with correct role, institution,
+                            and department
+                          </li>
+                        </>
+                      )}
+                      {checkData.summary.without_profiles > 0 && (
+                        <>
+                          <li>
+                            Create {checkData.summary.without_profiles} new
+                            profiles for staff without them
+                          </li>
+                          <li>
+                            Set all new profiles with &apos;faculty&apos; role
+                          </li>
+                        </>
+                      )}
                       <li>
-                        Create authentication accounts for staff without them
+                        Link all profiles to their respective institutions and
+                        departments
                       </li>
-                      <li>
-                        Create profiles for all{' '}
-                        {checkData.summary.without_profiles} missing staff
-                      </li>
-                      <li>Generate temporary passwords for new accounts</li>
-                      <li>
-                        Set all new accounts with &apos;faculty&apos; role
-                      </li>
-                      <li>Link accounts to their respective institutions</li>
+                      <li>Enable OAuth login for all staff members</li>
                     </ul>
                   </AlertDescription>
                 </Alert>
+              </>
+            )}
+
+            {!showPreview && checkData.summary.total_needing_sync > 0 && (
+              <Button
+                onClick={() => setShowPreview(true)}
+                className='w-full gap-2'
+              >
+                <AlertCircle className='h-4 w-4' />
+                Preview Changes Before Sync
+              </Button>
+            )}
+
+            {showPreview && checkData.summary.total_needing_sync > 0 && (
+              <>
+                {/* Preview Section */}
+                <div className='border rounded-lg p-4 space-y-4 bg-slate-50'>
+                  <div className='flex items-center justify-between'>
+                    <h4 className='font-semibold text-sm'>
+                      Review Changes ({selectedStaffIds.size} selected)
+                    </h4>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={toggleSelectAll}
+                    >
+                      {selectedStaffIds.size > 0
+                        ? 'Deselect All'
+                        : 'Select All'}
+                    </Button>
+                  </div>
+
+                  <div className='max-h-96 overflow-y-auto border rounded bg-white'>
+                    {/* Incomplete Profiles Section */}
+                    {checkData.details.staff_with_incomplete_profiles?.length >
+                      0 && (
+                      <div className='p-3 border-b bg-orange-50'>
+                        <h5 className='font-medium text-sm text-orange-800 mb-2'>
+                          Profiles Needing Updates (
+                          {
+                            checkData.details.staff_with_incomplete_profiles
+                              .length
+                          }
+                          )
+                        </h5>
+                        {checkData.details.staff_with_incomplete_profiles.map(
+                          (staff: any) => (
+                            <div
+                              key={staff.staff_id}
+                              className='mb-3 last:mb-0 bg-white rounded p-3 shadow-sm'
+                            >
+                              <div className='flex items-start gap-2 mb-2'>
+                                <Checkbox
+                                  checked={selectedStaffIds.has(
+                                    staff.staff_id
+                                  )}
+                                  onCheckedChange={() =>
+                                    toggleStaffSelection(staff.staff_id)
+                                  }
+                                  className='mt-1'
+                                />
+                                <div className='flex-1'>
+                                  <div className='font-medium text-sm'>
+                                    {staff.name}
+                                  </div>
+                                  <div className='text-xs text-muted-foreground'>
+                                    {staff.email}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Field Changes */}
+                              <div className='ml-6 space-y-1 text-xs'>
+                                {Object.entries(staff.changes).map(
+                                  ([field, change]: [string, any]) =>
+                                    change.changed && (
+                                      <div
+                                        key={field}
+                                        className='flex items-center gap-2 py-1'
+                                      >
+                                        <Badge
+                                          variant='outline'
+                                          className='text-xs font-mono min-w-28'
+                                        >
+                                          {field}
+                                        </Badge>
+                                        <span className='text-red-600 line-through'>
+                                          {change.current || '(empty)'}
+                                        </span>
+                                        <span>→</span>
+                                        <span className='text-green-600 font-medium'>
+                                          {change.new}
+                                        </span>
+                                      </div>
+                                    )
+                                )}
+                              </div>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )}
+
+                    {/* Missing Profiles Section */}
+                    {checkData.details.staff_without_profiles?.length > 0 && (
+                      <div className='p-3 bg-red-50'>
+                        <h5 className='font-medium text-sm text-red-800 mb-2'>
+                          New Profiles to Create (
+                          {checkData.details.staff_without_profiles.length})
+                        </h5>
+                        {checkData.details.staff_without_profiles.map(
+                          (staff: any) => (
+                            <div
+                              key={staff.staff_id}
+                              className='mb-2 last:mb-0 bg-white rounded p-3 shadow-sm'
+                            >
+                              <div className='flex items-center gap-2'>
+                                <Checkbox
+                                  checked={selectedStaffIds.has(
+                                    staff.staff_id
+                                  )}
+                                  onCheckedChange={() =>
+                                    toggleStaffSelection(staff.staff_id)
+                                  }
+                                />
+                                <div className='flex-1'>
+                                  <div className='font-medium text-sm'>
+                                    {staff.name}
+                                  </div>
+                                  <div className='text-xs text-muted-foreground'>
+                                    {staff.email}
+                                  </div>
+                                  <Badge
+                                    variant='secondary'
+                                    className='mt-1 text-xs'
+                                  >
+                                    New Profile
+                                  </Badge>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </>
             )}
 
@@ -234,7 +466,7 @@ export function CreateMissingProfilesButton() {
               >
                 Cancel
               </Button>
-              {checkData.summary.without_profiles > 0 && (
+              {showPreview && selectedStaffIds.size > 0 && (
                 <Button
                   onClick={handleCreateProfiles}
                   disabled={isLoading}
@@ -243,12 +475,12 @@ export function CreateMissingProfilesButton() {
                   {isLoading ? (
                     <>
                       <Loader2 className='h-4 w-4 animate-spin' />
-                      Creating Profiles...
+                      Syncing {selectedStaffIds.size} Profiles...
                     </>
                   ) : (
                     <>
                       <UserPlus className='h-4 w-4' />
-                      Create {checkData.summary.without_profiles} Profiles
+                      Sync {selectedStaffIds.size} Selected Profiles
                     </>
                   )}
                 </Button>
@@ -315,8 +547,18 @@ export function CreateMissingProfilesButton() {
                     <div>
                       Total processed: <strong>{result.total_processed}</strong>
                     </div>
+                    {result.created_count > 0 && (
+                      <div className='text-green-600'>
+                        Created: <strong>{result.created_count}</strong>
+                      </div>
+                    )}
+                    {result.updated_count > 0 && (
+                      <div className='text-blue-600'>
+                        Updated: <strong>{result.updated_count}</strong>
+                      </div>
+                    )}
                     <div className='text-green-600'>
-                      Successfully created: <strong>{result.successful}</strong>
+                      Total successful: <strong>{result.successful}</strong>
                     </div>
                     {result.failed > 0 && (
                       <div className='text-red-600'>
@@ -330,12 +572,27 @@ export function CreateMissingProfilesButton() {
               {result.created_profiles.length > 0 && (
                 <div>
                   <h4 className='font-semibold mb-2'>
-                    Successfully Created Profiles:
+                    Successfully Processed Profiles:
                   </h4>
                   <div className='max-h-32 overflow-y-auto border rounded p-2 text-sm'>
                     {result.created_profiles.map((profile, index) => (
                       <div key={index} className='flex justify-between py-1'>
-                        <span>{profile.full_name}</span>
+                        <span>
+                          {profile.full_name}{' '}
+                          {profile.action && (
+                            <span
+                              className={`text-xs ${
+                                profile.action === 'created'
+                                  ? 'text-green-600'
+                                  : profile.action === 'updated'
+                                  ? 'text-blue-600'
+                                  : 'text-gray-500'
+                              }`}
+                            >
+                              ({profile.action})
+                            </span>
+                          )}
+                        </span>
                         <span className='text-muted-foreground'>
                           {profile.email}
                         </span>

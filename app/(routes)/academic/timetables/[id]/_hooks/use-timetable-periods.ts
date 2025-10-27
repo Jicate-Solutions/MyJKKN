@@ -27,7 +27,10 @@ interface UseTimetablePeriodsResult {
 /**
  * Custom hook for managing timetable period selections
  * Handles selected periods, locked periods, and local storage
- * Updated: 2025-10-27 - timetablePeriods can be either string IDs or Period objects
+ *
+ * Updates:
+ * - 2025-10-27: timetablePeriods can be either string IDs or Period objects
+ * - 2025-10-27: Added support for legacy format with period_id field (maps to id)
  */
 export function useTimetablePeriods(
   timetableId: string,
@@ -40,7 +43,10 @@ export function useTimetablePeriods(
 
   /**
    * Load selected periods from timetable data or localStorage
-   * Updated: 2025-10-27 - Fixed issue where period IDs (strings) were treated as objects
+   *
+   * Updates:
+   * - 2025-10-27: Fixed issue where period IDs (strings) were treated as objects
+   * - 2025-10-27: Added support for legacy format with period_id field instead of id
    */
   useEffect(() => {
     if (timetablePeriods && Array.isArray(timetablePeriods) && timetablePeriods.length > 0) {
@@ -51,25 +57,59 @@ export function useTimetablePeriods(
 
       if (isIdArray) {
         // Database returns period IDs as strings - map them to full Period objects
+        // Updated: 2025-10-27 - Removed period_id fallback as Period type only has id
         mappedPeriods = (timetablePeriods as string[])
           .map((periodId) =>
-            availablePeriods.find(
-              (p) => p.id === periodId || (p as any).period_id === periodId
-            )
+            availablePeriods.find((p) => p.id === periodId)
           )
-          .filter(Boolean)
-          .map((period: any) => ({
-            ...period,
-            id: period.period_id || period.id
-          })) as Period[];
+          .filter(Boolean) as Period[];
       } else {
-        // Already full objects (legacy data or direct objects) - just normalize
+        // Already full objects (legacy data or direct objects)
+        // Handle both new format (period.id) and legacy format (period.period_id)
+        let legacyCount = 0;
+        let modernCount = 0;
+
         mappedPeriods = timetablePeriods
-          .map((period: any) => ({
-            ...period,
-            id: period.period_id || period.id
-          }))
-          .filter((period: any) => period && period.id) as Period[];
+          .map((period: any) => {
+            if (!period) return null;
+
+            // Legacy format: has period_id instead of id
+            if (period.period_id && !period.id) {
+              legacyCount++;
+              console.log('[academic/timetables] Converting legacy period format:', {
+                period_id: period.period_id,
+                period_name: period.period_name
+              });
+
+              return {
+                id: period.period_id,
+                period_name: period.period_name,
+                start_time: period.start_time,
+                end_time: period.end_time,
+                is_break: period.is_break || false,
+                institution_id: period.institution_id,
+                created_at: period.created_at || new Date().toISOString(),
+                updated_at: period.updated_at || new Date().toISOString()
+              } as Period;
+            }
+
+            // New format: already has id field
+            if (period.id) {
+              modernCount++;
+              return period as Period;
+            }
+
+            return null;
+          })
+          .filter(Boolean) as Period[];
+
+        if (legacyCount > 0) {
+          console.log('[academic/timetables] Loaded timetable with legacy period format', {
+            legacyCount,
+            modernCount,
+            totalMapped: mappedPeriods.length
+          });
+        }
       }
 
       setSelectedPeriods(mappedPeriods);
@@ -90,15 +130,9 @@ export function useTimetablePeriods(
           const periodIds = JSON.parse(storedPeriods);
           const orderedPeriods = periodIds
             .map((id: string) =>
-              availablePeriods.find(
-                (period) => period.id === id || (period as any).period_id === id
-              )
+              availablePeriods.find((period) => period.id === id)
             )
-            .filter(Boolean)
-            .map((period: any) => ({
-              ...period,
-              id: period.period_id || period.id
-            }));
+            .filter(Boolean) as Period[];
 
           if (orderedPeriods.length > 0) {
             setSelectedPeriods(orderedPeriods);

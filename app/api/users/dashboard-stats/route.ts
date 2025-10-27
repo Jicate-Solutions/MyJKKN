@@ -87,8 +87,17 @@ export async function GET(request: NextRequest) {
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    // Get all users data
-    let baseQuery = supabase.from('profiles').select(`
+    // Get all users data with pagination to handle more than 1000 users
+    // Fixed: 2025-10-27 - Supabase has a default limit of 1000 rows, need pagination
+
+    let allUsers: any[] = [];
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
+
+    // Build base query function to avoid duplication
+    const buildQuery = () => {
+      let query = supabase.from('profiles').select(`
         id,
         email,
         full_name,
@@ -102,22 +111,45 @@ export async function GET(request: NextRequest) {
         institutions!inner(id, name, counselling_code)
       `);
 
-    // Apply institution filter
-    if (targetInstitutionId) {
-      baseQuery = baseQuery.eq('institution_id', targetInstitutionId);
+      // Apply institution filter
+      if (targetInstitutionId) {
+        query = query.eq('institution_id', targetInstitutionId);
+      }
+
+      // Apply role filter
+      if (filters.roles && filters.roles.length > 0) {
+        query = query.in('role', filters.roles);
+      }
+
+      return query;
+    };
+
+    // Fetch all users in batches
+    while (hasMore) {
+      const { data: batch, error: usersError } = await buildQuery()
+        .range(from, from + batchSize - 1);
+
+      if (usersError) {
+        console.error('Error fetching users batch:', usersError);
+        throw usersError;
+      }
+
+      if (batch && batch.length > 0) {
+        allUsers = allUsers.concat(batch);
+        from += batchSize;
+
+        // If we got less than batchSize, we've fetched all users
+        if (batch.length < batchSize) {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
     }
 
-    // Apply role filter
-    if (filters.roles && filters.roles.length > 0) {
-      baseQuery = baseQuery.in('role', filters.roles);
-    }
+    console.log(`[dashboard-stats] Fetched ${allUsers.length} total users`);
 
-    const { data: allUsers, error: usersError } = await baseQuery;
-
-    if (usersError) {
-      console.error('Error fetching users:', usersError);
-      throw usersError;
-    }
+    const usersError = null; // No error if we got here
 
     // Get all institutions for percentage calculations
     const { data: institutions, error: institutionsError } = await supabase

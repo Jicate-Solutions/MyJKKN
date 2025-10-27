@@ -17,6 +17,20 @@ const supabaseAdmin = createClient(
   }
 );
 
+// Type for staff with profile_id
+interface StaffWithProfileId {
+  id: string;
+  first_name: string;
+  last_name: string;
+  institution_email: string;
+  phone: string;
+  institution_id: string;
+  department_id: string;
+  gender: string;
+  designation: string;
+  profile_id: string;
+}
+
 // Function to generate temporary password
 function generateTemporaryPassword(): string {
   const chars =
@@ -28,7 +42,7 @@ function generateTemporaryPassword(): string {
   return password + '!';
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const cookieStore = await cookies();
     const supabase = createServerClient(
@@ -79,94 +93,343 @@ export async function POST() {
       );
     }
 
-    // Get staff without profiles
-    const { data: staffWithoutProfiles, error: staffError } =
-      await supabaseAdmin
-        .from('staff')
-        .select(
-          `
+    // Get selected staff IDs from request body (optional - if not provided, sync all)
+    const body = await request.json().catch(() => ({}));
+    const selectedStaffIds: string[] | undefined = body.staff_ids;
+
+    // Get all staff with institution emails
+    const { data: allStaff, error: staffError } = await supabaseAdmin
+      .from('staff')
+      .select(
+        `
         id,
         first_name,
         last_name,
         institution_email,
         phone,
-        institution_id
+        institution_id,
+        department_id,
+        gender,
+        designation
       `
-        )
-        .not('institution_email', 'is', null)
-        .not('institution_email', 'eq', '');
+      )
+      .not('institution_email', 'is', null)
+      .not('institution_email', 'eq', '');
 
     if (staffError) {
       throw staffError;
     }
 
-    // Get existing profiles to avoid duplicates
+    // Get existing profiles with all fields to check if they need updates
     const { data: existingProfiles, error: profilesError } = await supabaseAdmin
       .from('profiles')
-      .select('email, id')
+      .select('email, id, role, institution_id, department_id, gender, phone_number, designation')
       .in(
         'email',
-        staffWithoutProfiles.map((s) => s.institution_email)
+        allStaff.map((s) => s.institution_email)
       );
 
     if (profilesError) {
       throw profilesError;
     }
 
-    // Since we can't access auth.users table, only check profiles
-    // We'll create profiles for staff that don't have them, and let Google OAuth handle auth
-    const existingProfileEmails = new Set(existingProfiles.map((p) => p.email));
-    const staffNeedingProfiles = staffWithoutProfiles.filter(
-      (staff) => !existingProfileEmails.has(staff.institution_email)
+    // Create a map of profiles by email
+    const profilesByEmail = new Map(
+      existingProfiles.map((p) => [p.email, p])
     );
 
+    // Categorize staff into: needs new profile, needs profile update
+    const staffNeedingNewProfiles: any[] = [];
+    const staffNeedingProfileUpdates: StaffWithProfileId[] = [];
+
+    for (const staff of allStaff) {
+      const profile = profilesByEmail.get(staff.institution_email);
+
+      if (!profile) {
+        // No profile exists - needs creation
+        staffNeedingNewProfiles.push(staff);
+      } else {
+        // Profile exists - check if it needs updates
+        // Accept faculty and elevated roles as valid (case-insensitive)
+        const validRoles = [
+          'faculty',
+          'hod',
+          'principal',
+          'dean',
+          'administrator',
+          'super_admin',
+          'accounts',
+          'admission',
+          'digital_coordinator'
+        ];
+        const hasValidRole = validRoles.includes(profile.role?.toLowerCase());
+        const hasInstitutionId = profile.institution_id === staff.institution_id;
+        const hasDepartmentId = profile.department_id === staff.department_id;
+        const hasCorrectGender = profile.gender === staff.gender;
+        const hasCorrectPhone = profile.phone_number === staff.phone;
+        const hasCorrectDesignation = profile.designation === staff.designation;
+
+        if (
+          !hasValidRole ||
+          !hasInstitutionId ||
+          !hasDepartmentId ||
+          !hasCorrectGender ||
+          !hasCorrectPhone ||
+          !hasCorrectDesignation
+        ) {
+          // Profile needs updates
+          staffNeedingProfileUpdates.push({
+            ...staff,
+            profile_id: profile.id,
+            current_role: profile.role,
+            has_valid_role: hasValidRole
+          } as StaffWithProfileId & {
+            current_role: string;
+            has_valid_role: boolean;
+          });
+        }
+      }
+    }
+
+    // Filter by selected staff IDs if provided
+    let filteredStaffNeedingNewProfiles: any[] = staffNeedingNewProfiles;
+    let filteredStaffNeedingProfileUpdates: StaffWithProfileId[] =
+      staffNeedingProfileUpdates;
+
+    if (selectedStaffIds && selectedStaffIds.length > 0) {
+      const selectedIdsSet = new Set(selectedStaffIds);
+      filteredStaffNeedingNewProfiles = staffNeedingNewProfiles.filter((s) =>
+        selectedIdsSet.has(s.id)
+      );
+      filteredStaffNeedingProfileUpdates = staffNeedingProfileUpdates.filter(
+        (s) => selectedIdsSet.has(s.id)
+      );
+
+      console.log(
+        `Processing only ${selectedStaffIds.length} selected staff members`
+      );
+    }
+
     console.log(
-      `Found ${staffNeedingProfiles.length} staff members needing profiles`
+      `Found ${filteredStaffNeedingNewProfiles.length} staff members needing NEW profiles`
     );
-    console.log(`Existing profiles: ${existingProfileEmails.size}`);
+    console.log(
+      `Found ${filteredStaffNeedingProfileUpdates.length} staff members needing profile UPDATES`
+    );
+    console.log(
+      `Total profiles to process: ${filteredStaffNeedingNewProfiles.length + filteredStaffNeedingProfileUpdates.length}`
+    );
 
     const results = [];
     const errors = [];
+    let createdCount = 0;
+    let updatedCount = 0;
 
-    // Process each staff member
-    for (const staff of staffNeedingProfiles) {
+    // Process staff needing profile UPDATES first
+    for (const staff of filteredStaffNeedingProfileUpdates) {
       try {
         const fullName = `${staff.first_name} ${staff.last_name}`.trim();
 
-        console.log(`Processing: ${fullName} (${staff.institution_email})`);
+        console.log(
+          `Updating profile for: ${fullName} (${staff.institution_email})`
+        );
+        console.log(`Profile ID to update: ${staff.profile_id}`);
+        console.log(`Staff ID: ${staff.id}`);
+
+        // Type assertion to ensure profile_id exists
+        const profileId = (staff as any).profile_id;
+
+        if (!profileId) {
+          throw new Error(`Profile ID not found for ${staff.institution_email}`);
+        }
+
+        // Determine role to set: Keep valid roles, otherwise set to faculty
+        const validRoles = [
+          'faculty',
+          'hod',
+          'principal',
+          'dean',
+          'administrator',
+          'super_admin',
+          'accounts',
+          'admission',
+          'digital_coordinator'
+        ];
+        const currentRole = (staff as any).current_role;
+        const hasValidRole = (staff as any).has_valid_role;
+        const roleToSet = hasValidRole ? currentRole : 'faculty';
+
+        console.log(`Attempting update with values:`, {
+          role: roleToSet,
+          current_role: currentRole,
+          preserve_role: hasValidRole,
+          institution_id: staff.institution_id,
+          department_id: staff.department_id,
+          gender: staff.gender,
+          designation: staff.designation,
+          profile_id: profileId
+        });
+
+        // Build update object - only include role if it needs to be changed
+        const updateData: any = {
+          institution_id: staff.institution_id,
+          department_id: staff.department_id,
+          full_name: fullName,
+          phone_number: staff.phone,
+          gender: staff.gender,
+          designation: staff.designation,
+          updated_at: new Date().toISOString()
+        };
+
+        // Only update role if it's not already valid (faculty or HOD)
+        if (!hasValidRole) {
+          updateData.role = 'faculty';
+        }
+
+        // Update existing profile with correct data
+        const { data: updatedProfile, error: updateError } = await supabaseAdmin
+          .from('profiles')
+          .update(updateData)
+          .eq('id', profileId)
+          .select()
+          .single();
+
+        console.log(`Update result:`, { updatedProfile, updateError });
+
+        if (updateError) {
+          console.error(
+            `Profile update error for ${staff.institution_email}:`,
+            updateError
+          );
+          throw updateError;
+        }
+
+        console.log(`Successfully updated profile for: ${fullName}`);
+        updatedCount++;
+
+        results.push({
+          staff_id: staff.id,
+          email: staff.institution_email,
+          full_name: fullName,
+          user_id: staff.profile_id,
+          action: 'updated',
+          temp_password: 'Profile updated - existing auth',
+          success: true
+        });
+      } catch (error) {
+        console.error(
+          `Error updating profile for ${staff.institution_email}:`,
+          error
+        );
+
+        errors.push({
+          staff_id: staff.id,
+          email: staff.institution_email,
+          full_name: `${staff.first_name} ${staff.last_name}`.trim(),
+          error: error instanceof Error ? error.message : 'Unknown error',
+          success: false
+        });
+      }
+    }
+
+    // Process staff needing NEW profiles
+    for (const staff of filteredStaffNeedingNewProfiles) {
+      try {
+        const fullName = `${staff.first_name} ${staff.last_name}`.trim();
+
+        console.log(`Creating profile for: ${fullName} (${staff.institution_email})`);
 
         // Double-check if profile already exists (real-time check)
         const { data: existingProfileCheck } = await supabaseAdmin
           .from('profiles')
-          .select('id, email')
+          .select('id, email, role, institution_id, department_id, gender, phone_number, designation')
           .eq('email', staff.institution_email)
           .maybeSingle();
 
         if (existingProfileCheck) {
-          console.log(
-            `Profile already exists for ${staff.institution_email}, skipping`
+          // Profile exists, check if it needs updates
+          const validRoles = [
+            'faculty',
+            'hod',
+            'principal',
+            'dean',
+            'administrator',
+            'super_admin',
+            'accounts',
+            'admission',
+            'digital_coordinator'
+          ];
+          const hasValidRole = validRoles.includes(
+            existingProfileCheck.role?.toLowerCase()
           );
-          results.push({
-            staff_id: staff.id,
-            email: staff.institution_email,
-            full_name: fullName,
-            user_id: existingProfileCheck.id,
-            temp_password: 'Profile already existed',
-            auth_user_existed: true,
-            success: true
-          });
-          continue; // Skip to next staff member
+
+          const needsUpdate =
+            !hasValidRole ||
+            existingProfileCheck.institution_id !== staff.institution_id ||
+            existingProfileCheck.department_id !== staff.department_id ||
+            existingProfileCheck.gender !== staff.gender ||
+            existingProfileCheck.phone_number !== staff.phone ||
+            existingProfileCheck.designation !== staff.designation;
+
+          if (needsUpdate) {
+            // Build update object
+            const updateData: any = {
+              institution_id: staff.institution_id,
+              department_id: staff.department_id,
+              full_name: fullName,
+              phone_number: staff.phone,
+              gender: staff.gender,
+              designation: staff.designation,
+              updated_at: new Date().toISOString()
+            };
+
+            // Only update role if it's not already valid (faculty or HOD)
+            if (!hasValidRole) {
+              updateData.role = 'faculty';
+            }
+
+            // Update the profile
+            const { error: updateError } = await supabaseAdmin
+              .from('profiles')
+              .update(updateData)
+              .eq('id', existingProfileCheck.id);
+
+            if (updateError) throw updateError;
+
+            console.log(`Updated existing profile for ${staff.institution_email}`);
+            updatedCount++;
+
+            results.push({
+              staff_id: staff.id,
+              email: staff.institution_email,
+              full_name: fullName,
+              user_id: existingProfileCheck.id,
+              action: 'updated',
+              temp_password: 'Profile updated',
+              success: true
+            });
+          } else {
+            console.log(
+              `Profile already correct for ${staff.institution_email}, skipping`
+            );
+            results.push({
+              staff_id: staff.id,
+              email: staff.institution_email,
+              full_name: fullName,
+              user_id: existingProfileCheck.id,
+              action: 'skipped',
+              temp_password: 'Profile already correct',
+              success: true
+            });
+          }
+          continue;
         }
 
         // Generate a placeholder UUID for profile creation
-        // In OAuth-only system, profiles can exist without auth users initially
         const profileId = crypto.randomUUID();
-        console.log(`Creating profile with placeholder ID: ${profileId}`);
+        console.log(`Creating new profile with ID: ${profileId}`);
 
-        // Create profile with placeholder ID for OAuth-only system
-        console.log(`Creating profile for user: ${profileId}`);
-
-        // Use insert with generated UUID and set is_pre_registered = true
+        // Create new profile
         const { data: profileData, error: profileError } = await supabaseAdmin
           .from('profiles')
           .insert({
@@ -176,9 +439,12 @@ export async function POST() {
             role: 'faculty',
             phone_number: staff.phone,
             institution_id: staff.institution_id,
+            department_id: staff.department_id,
+            gender: staff.gender,
+            designation: staff.designation,
             is_active: true,
-            profile_completed: 'false',
-            is_pre_registered: true // Set to true to bypass auth user validation
+            profile_completed: false,
+            is_pre_registered: true
           })
           .select()
           .single();
@@ -191,15 +457,16 @@ export async function POST() {
           throw profileError;
         }
 
-        console.log(`Successfully created/updated profile for: ${fullName}`);
+        console.log(`Successfully created profile for: ${fullName}`);
+        createdCount++;
 
         results.push({
           staff_id: staff.id,
           email: staff.institution_email,
           full_name: fullName,
           user_id: profileId,
+          action: 'created',
           temp_password: 'OAuth-only system - no password needed',
-          auth_user_existed: false,
           success: true
         });
       } catch (error) {
@@ -207,45 +474,6 @@ export async function POST() {
           `Error creating profile for ${staff.institution_email}:`,
           error
         );
-
-        // Handle specific duplicate key errors
-        if (error && typeof error === 'object' && 'code' in error) {
-          const dbError = error as any;
-          if (
-            dbError.code === '23505' &&
-            dbError.message?.includes('profiles_pkey')
-          ) {
-            // This profile already exists, let's check if we can retrieve it
-            try {
-              const { data: existingProfile } = await supabaseAdmin
-                .from('profiles')
-                .select('*')
-                .eq('email', staff.institution_email)
-                .single();
-
-              if (existingProfile) {
-                console.log(
-                  `Found existing profile for ${staff.institution_email}, marking as success`
-                );
-                results.push({
-                  staff_id: staff.id,
-                  email: staff.institution_email,
-                  full_name: `${staff.first_name} ${staff.last_name}`.trim(),
-                  user_id: existingProfile.id,
-                  temp_password: 'Profile already existed',
-                  auth_user_existed: true,
-                  success: true
-                });
-                continue; // Skip to next staff member
-              }
-            } catch (retrieveError) {
-              console.error(
-                `Could not retrieve existing profile for ${staff.institution_email}:`,
-                retrieveError
-              );
-            }
-          }
-        }
 
         errors.push({
           staff_id: staff.id,
@@ -257,13 +485,19 @@ export async function POST() {
       }
     }
 
+    const totalProcessed =
+      filteredStaffNeedingNewProfiles.length +
+      filteredStaffNeedingProfileUpdates.length;
+
     return NextResponse.json({
       success: true,
-      message: `Processed ${staffNeedingProfiles.length} staff members`,
+      message: `Processed ${totalProcessed} staff members (${createdCount} created, ${updatedCount} updated)`,
       results: {
-        total_processed: staffNeedingProfiles.length,
+        total_processed: totalProcessed,
         successful: results.length,
         failed: errors.length,
+        created_count: createdCount,
+        updated_count: updatedCount,
         created_profiles: results,
         errors: errors
       }
