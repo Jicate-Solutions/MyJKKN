@@ -51,7 +51,10 @@
       "WebFetch(domain:github.com)",
       "mcp__actor-critic-thinking__actor-critic-thinking",
       "Read(//d/Projects/JKKN/**)",
-      "Read(//c/Users/Admin/Pictures/Screenshots/**)"
+      "Read(//c/Users/Admin/Pictures/Screenshots/**)",
+      "Skill(skill-creator)",
+      "Bash(py \".claude/skills/skill-creator/scripts/init_skill.py\" supabase-expert --path \".claude/skills/\")",
+      "Read(//d/JKKN/MYJKKN Portal/**)"
     ],
     "deny": [],
     "ask": []
