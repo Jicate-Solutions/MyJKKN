@@ -210,6 +210,14 @@ export function AIInsightsTab({
 
   // Error state
   if (error) {
+    // Log detailed error for debugging
+    console.error('[AI Insights] Full error details:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+
     return (
       <Card className='border-destructive'>
         <CardContent className='pt-6'>
@@ -221,6 +229,13 @@ export function AIInsightsTab({
             <AlertDescription className='mt-2 text-base'>
               {error.message}
             </AlertDescription>
+            {process.env.NODE_ENV === 'development' && (
+              <AlertDescription className='mt-3 text-xs font-mono bg-destructive/10 p-3 rounded-md'>
+                <div className='font-bold mb-1'>Debug Info:</div>
+                <div>Error Name: {error.name}</div>
+                <div>Timestamp: {new Date().toISOString()}</div>
+              </AlertDescription>
+            )}
           </Alert>
           <div className='mt-6 flex justify-center gap-3'>
             <Button onClick={onRefresh} variant='outline' size='lg'>
