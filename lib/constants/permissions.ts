@@ -308,10 +308,12 @@ export const PERMISSION_CATEGORIES = [
     name: 'Admissions',
     key: 'admissions',
     permissions: [
+      { key: 'admissions.dashboard', label: 'View Analytics Dashboard' },
       { key: 'admissions.view', label: 'View Admissions' },
       { key: 'admissions.create', label: 'Create Admissions' },
       { key: 'admissions.edit', label: 'Edit Admissions' },
-      { key: 'admissions.delete', label: 'Delete Admissions' }
+      { key: 'admissions.delete', label: 'Delete Admissions' },
+      { key: 'admissions.crm.view', label: 'View Enquiry CRM' }
     ]
   },
   {

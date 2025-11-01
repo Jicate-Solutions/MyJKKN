@@ -4,7 +4,9 @@ import {
   AdmissionFilters,
   AdmissionListResponse,
   CreateAdmissionDto,
-  UpdateAdmissionDto
+  UpdateAdmissionDto,
+  AdmissionAnalyticsFilters,
+  AdmissionDashboardAnalytics
 } from '@/types/admission';
 import { StudentService } from '@/lib/services/student/student-service';
 import toast from 'react-hot-toast';
@@ -563,6 +565,399 @@ export class AdmissionService {
     } catch (error) {
       console.error('Error fetching admission stats:', error);
       toast.error('Failed to fetch admission statistics');
+      throw error;
+    }
+  }
+
+  /**
+   * Get comprehensive dashboard analytics with institution filtering
+   *
+   * @param filters - Analytics filters
+   * @param supabaseClient - Optional Supabase client (for server-side calls)
+   * @param userContext - Optional user context (for server-side calls)
+   */
+  static async getDashboardAnalytics(
+    filters: AdmissionAnalyticsFilters = {},
+    supabaseClient?: any,
+    userContext?: { userId: string; institutionId?: string; isSuperAdmin: boolean }
+  ): Promise<AdmissionDashboardAnalytics> {
+    try {
+      console.log('[admissions/analytics] Fetching dashboard analytics with filters:', filters);
+
+      // Use provided client or default to class instance
+      const supabase = supabaseClient || this.supabase;
+
+      let effectiveFilters = { ...filters };
+
+      // If user context is provided (from API route), use it directly
+      if (userContext) {
+        if (!userContext.isSuperAdmin && userContext.institutionId) {
+          effectiveFilters.institution_id = userContext.institutionId;
+          console.log('[admissions/analytics] Non-super-admin user, filtering to institution:', userContext.institutionId);
+        }
+      } else {
+        // Otherwise, get current user from client-side auth
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('User not authenticated');
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('institution_id, is_super_admin, role')
+          .eq('id', user.id)
+          .single();
+
+        // Force institution filter for non-super-admin
+        const isSuperAdmin = profile?.is_super_admin || profile?.role === 'super_admin';
+        if (!isSuperAdmin && profile?.institution_id) {
+          effectiveFilters.institution_id = profile.institution_id;
+          console.log('[admissions/analytics] Non-super-admin user, filtering to institution:', profile.institution_id);
+        }
+      }
+
+      // Build base query
+      let baseQuery = supabase.from('admissions').select('*', { count: 'exact' });
+
+      // Apply filters
+      if (effectiveFilters.institution_id) {
+        baseQuery = baseQuery.eq('institution_id', effectiveFilters.institution_id);
+      }
+      if (effectiveFilters.degree_id) {
+        baseQuery = baseQuery.eq('degree_id', effectiveFilters.degree_id);
+      }
+      if (effectiveFilters.department_id) {
+        baseQuery = baseQuery.eq('department_id', effectiveFilters.department_id);
+      }
+      if (effectiveFilters.program_id) {
+        baseQuery = baseQuery.eq('program_id', effectiveFilters.program_id);
+      }
+      if (effectiveFilters.status) {
+        baseQuery = baseQuery.eq('status', effectiveFilters.status);
+      }
+      if (effectiveFilters.dateRange?.from) {
+        baseQuery = baseQuery.gte('created_at', effectiveFilters.dateRange.from.toISOString());
+      }
+      if (effectiveFilters.dateRange?.to) {
+        const nextDay = new Date(effectiveFilters.dateRange.to);
+        nextDay.setDate(nextDay.getDate() + 1);
+        baseQuery = baseQuery.lt('created_at', nextDay.toISOString());
+      }
+
+      // Execute main query
+      const { data: admissions, error } = await baseQuery;
+
+      if (error) throw error;
+
+      const total = admissions?.length || 0;
+
+      console.log('[admissions/analytics] Processing', total, 'admissions');
+
+      // Calculate overview stats
+      const statusCounts = {
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        waitlisted: 0,
+        enrolled: 0
+      };
+
+      let totalProcessingDays = 0;
+      let processedCount = 0;
+
+      admissions?.forEach((admission) => {
+        // Count by status
+        const status = admission.status.toLowerCase();
+        if (status in statusCounts) {
+          statusCounts[status as keyof typeof statusCounts]++;
+        }
+
+        // Calculate processing time for approved/rejected
+        if (status === 'approved' || status === 'rejected') {
+          const created = new Date(admission.created_at);
+          const updated = new Date(admission.updated_at);
+          const days = Math.floor((updated.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+          totalProcessingDays += days;
+          processedCount++;
+        }
+      });
+
+      const conversionRate = total > 0
+        ? ((statusCounts.approved + statusCounts.enrolled) / total) * 100
+        : 0;
+
+      const avgProcessingDays = processedCount > 0
+        ? totalProcessingDays / processedCount
+        : 0;
+
+      // Calculate status breakdown
+      const statusBreakdown = Object.entries(statusCounts).map(([status, count]) => ({
+        status,
+        count,
+        percentage: total > 0 ? (count / total) * 100 : 0
+      }));
+
+      // Calculate demographics
+      const genderCounts: Record<string, number> = {};
+      const religionCounts: Record<string, number> = {};
+      const communityCounts: Record<string, number> = {};
+      const firstGraduateCounts = { 'First Graduate': 0, 'Regular': 0 };
+
+      admissions?.forEach((admission) => {
+        genderCounts[admission.gender] = (genderCounts[admission.gender] || 0) + 1;
+        religionCounts[admission.religion] = (religionCounts[admission.religion] || 0) + 1;
+        communityCounts[admission.community] = (communityCounts[admission.community] || 0) + 1;
+        if (admission.first_graduate) {
+          firstGraduateCounts['First Graduate']++;
+        } else {
+          firstGraduateCounts['Regular']++;
+        }
+      });
+
+      const demographics = {
+        gender: Object.entries(genderCounts).map(([label, count]) => ({ label, count })),
+        religion: Object.entries(religionCounts).map(([label, count]) => ({ label, count })),
+        community: Object.entries(communityCounts).map(([label, count]) => ({ label, count })),
+        firstGraduate: Object.entries(firstGraduateCounts).map(([label, count]) => ({ label, count }))
+      };
+
+      // Calculate academic performance
+      const tenthMarksRanges = { '0-50': 0, '51-60': 0, '61-70': 0, '71-80': 0, '81-90': 0, '91-100': 0 };
+      const twelfthMarksRanges = { '0-50': 0, '51-60': 0, '61-70': 0, '71-80': 0, '81-90': 0, '91-100': 0 };
+      const neetScoreRanges = { '0-200': 0, '201-300': 0, '301-400': 0, '401-500': 0, '501-600': 0, '601-720': 0 };
+
+      let totalTenth = 0;
+      let totalTwelfth = 0;
+      let totalNeet = 0;
+      let neetCount = 0;
+
+      admissions?.forEach((admission) => {
+        // Tenth marks
+        const tenthPct = parseFloat(admission.tenth_marks.percentage);
+        if (!isNaN(tenthPct)) {
+          totalTenth += tenthPct;
+          if (tenthPct <= 50) tenthMarksRanges['0-50']++;
+          else if (tenthPct <= 60) tenthMarksRanges['51-60']++;
+          else if (tenthPct <= 70) tenthMarksRanges['61-70']++;
+          else if (tenthPct <= 80) tenthMarksRanges['71-80']++;
+          else if (tenthPct <= 90) tenthMarksRanges['81-90']++;
+          else tenthMarksRanges['91-100']++;
+        }
+
+        // Twelfth marks
+        const twelfthPct = parseFloat(admission.twelfth_marks.percentage);
+        if (!isNaN(twelfthPct)) {
+          totalTwelfth += twelfthPct;
+          if (twelfthPct <= 50) twelfthMarksRanges['0-50']++;
+          else if (twelfthPct <= 60) twelfthMarksRanges['51-60']++;
+          else if (twelfthPct <= 70) twelfthMarksRanges['61-70']++;
+          else if (twelfthPct <= 80) twelfthMarksRanges['71-80']++;
+          else if (twelfthPct <= 90) twelfthMarksRanges['81-90']++;
+          else twelfthMarksRanges['91-100']++;
+        }
+
+        // NEET score
+        if (admission.neet_score) {
+          const neetScore = parseFloat(admission.neet_score);
+          if (!isNaN(neetScore)) {
+            totalNeet += neetScore;
+            neetCount++;
+            if (neetScore <= 200) neetScoreRanges['0-200']++;
+            else if (neetScore <= 300) neetScoreRanges['201-300']++;
+            else if (neetScore <= 400) neetScoreRanges['301-400']++;
+            else if (neetScore <= 500) neetScoreRanges['401-500']++;
+            else if (neetScore <= 600) neetScoreRanges['501-600']++;
+            else neetScoreRanges['601-720']++;
+          }
+        }
+      });
+
+      const academicPerformance = {
+        tenthMarksDistribution: Object.entries(tenthMarksRanges).map(([range, count]) => ({ range, count })),
+        twelfthMarksDistribution: Object.entries(twelfthMarksRanges).map(([range, count]) => ({ range, count })),
+        neetScoreDistribution: Object.entries(neetScoreRanges).map(([range, count]) => ({ range, count })),
+        averageMarks: {
+          tenth: total > 0 ? Math.round((totalTenth / total) * 100) / 100 : 0,
+          twelfth: total > 0 ? Math.round((totalTwelfth / total) * 100) / 100 : 0,
+          neet: neetCount > 0 ? Math.round((totalNeet / neetCount) * 100) / 100 : null
+        }
+      };
+
+      // Calculate institution distribution (with joins for names)
+      const institutionCounts: Record<string, number> = {};
+      const degreeCounts: Record<string, number> = {};
+      const departmentCounts: Record<string, number> = {};
+      const programCounts: Record<string, number> = {};
+
+      // Use Set to get unique IDs for lookup
+      const institutionIds = new Set<string>();
+      const degreeIds = new Set<string>();
+      const departmentIds = new Set<string>();
+      const programIds = new Set<string>();
+
+      admissions?.forEach((admission) => {
+        if (admission.institution_id) institutionIds.add(admission.institution_id);
+        if (admission.degree_id) degreeIds.add(admission.degree_id);
+        if (admission.department_id) departmentIds.add(admission.department_id);
+        if (admission.program_id) programIds.add(admission.program_id);
+      });
+
+      // Fetch names for institutions, degrees, departments, programs
+      const [institutions, degrees, departments, programs] = await Promise.all([
+        institutionIds.size > 0
+          ? this.supabase.from('institutions').select('id, name').in('id', Array.from(institutionIds))
+          : { data: [] },
+        degreeIds.size > 0
+          ? this.supabase.from('degrees').select('id, degree_name').in('id', Array.from(degreeIds))
+          : { data: [] },
+        departmentIds.size > 0
+          ? this.supabase.from('departments').select('id, department_name').in('id', Array.from(departmentIds))
+          : { data: [] },
+        programIds.size > 0
+          ? this.supabase.from('programs').select('id, program_name').in('id', Array.from(programIds))
+          : { data: [] }
+      ]);
+
+      // Create lookup maps
+      const institutionMap = new Map(institutions.data?.map(i => [i.id, i.name]));
+      const degreeMap = new Map(degrees.data?.map(d => [d.id, d.degree_name]));
+      const departmentMap = new Map(departments.data?.map(d => [d.id, d.department_name]));
+      const programMap = new Map(programs.data?.map(p => [p.id, p.program_name]));
+
+      // Count by names
+      admissions?.forEach((admission) => {
+        if (admission.institution_id) {
+          const name = institutionMap.get(admission.institution_id) || 'Unknown';
+          institutionCounts[name] = (institutionCounts[name] || 0) + 1;
+        }
+        if (admission.degree_id) {
+          const name = degreeMap.get(admission.degree_id) || 'Unknown';
+          degreeCounts[name] = (degreeCounts[name] || 0) + 1;
+        }
+        if (admission.department_id) {
+          const name = departmentMap.get(admission.department_id) || 'Unknown';
+          departmentCounts[name] = (departmentCounts[name] || 0) + 1;
+        }
+        if (admission.program_id) {
+          const name = programMap.get(admission.program_id) || 'Unknown';
+          programCounts[name] = (programCounts[name] || 0) + 1;
+        }
+      });
+
+      const institutionDistribution = {
+        institutions: Object.entries(institutionCounts)
+          .map(([name, count]) => ({
+            name,
+            count,
+            percentage: total > 0 ? (count / total) * 100 : 0
+          }))
+          .sort((a, b) => b.count - a.count),
+        degrees: Object.entries(degreeCounts)
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => b.count - a.count),
+        departments: Object.entries(departmentCounts)
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => b.count - a.count),
+        programs: Object.entries(programCounts)
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => b.count - a.count)
+      };
+
+      // Calculate geographic distribution
+      const stateCounts: Record<string, number> = {};
+      const districtCounts: Record<string, number> = {};
+
+      admissions?.forEach((admission) => {
+        const state = admission.permanent_address_state;
+        const district = admission.permanent_address_district;
+
+        stateCounts[state] = (stateCounts[state] || 0) + 1;
+        districtCounts[district] = (districtCounts[district] || 0) + 1;
+      });
+
+      const geographic = {
+        states: Object.entries(stateCounts)
+          .map(([state, count]) => ({ state, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 20),
+        districts: Object.entries(districtCounts)
+          .map(([district, count]) => ({ district, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 20),
+        topLocations: Object.entries(districtCounts)
+          .map(([location, count]) => ({ location, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 10)
+      };
+
+      // Calculate reference sources
+      const referenceCounts: Record<string, number> = {};
+      admissions?.forEach((admission) => {
+        const type = admission.reference_type || 'Direct';
+        referenceCounts[type] = (referenceCounts[type] || 0) + 1;
+      });
+
+      const referenceSources = Object.entries(referenceCounts).map(([type, count]) => ({
+        type,
+        count,
+        percentage: total > 0 ? (count / total) * 100 : 0
+      }));
+
+      // Calculate time trends
+      const dailyCounts: Record<string, { count: number; approved: number; rejected: number }> = {};
+      const monthlyCounts: Record<string, number> = {};
+
+      admissions?.forEach((admission) => {
+        const date = new Date(admission.created_at);
+        const dateKey = date.toISOString().split('T')[0];
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+        if (!dailyCounts[dateKey]) {
+          dailyCounts[dateKey] = { count: 0, approved: 0, rejected: 0 };
+        }
+        dailyCounts[dateKey].count++;
+        if (admission.status === 'approved') dailyCounts[dateKey].approved++;
+        if (admission.status === 'rejected') dailyCounts[dateKey].rejected++;
+
+        monthlyCounts[monthKey] = (monthlyCounts[monthKey] || 0) + 1;
+      });
+
+      const timeTrends = {
+        daily: Object.entries(dailyCounts)
+          .map(([date, data]) => ({ date, ...data }))
+          .sort((a, b) => a.date.localeCompare(b.date)),
+        monthly: Object.entries(monthlyCounts)
+          .map(([month, count]) => ({ month, count }))
+          .sort((a, b) => a.month.localeCompare(b.month)),
+        peakPeriods: Object.entries(monthlyCounts)
+          .map(([period, count]) => ({ period, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 5)
+      };
+
+      return {
+        overview: {
+          total,
+          ...statusCounts,
+          conversionRate: Math.round(conversionRate * 100) / 100,
+          avgProcessingDays: Math.round(avgProcessingDays * 100) / 100
+        },
+        statusBreakdown,
+        demographics,
+        academicPerformance,
+        institutionDistribution,
+        geographic,
+        referenceSources,
+        timeTrends,
+        metadata: {
+          totalRecords: total,
+          dateRange: {
+            from: effectiveFilters.dateRange?.from?.toISOString() || '',
+            to: effectiveFilters.dateRange?.to?.toISOString() || ''
+          },
+          lastUpdated: new Date().toISOString()
+        }
+      };
+    } catch (error) {
+      console.error('[admissions/analytics] Error fetching dashboard analytics:', error);
       throw error;
     }
   }

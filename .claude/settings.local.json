@@ -57,7 +57,8 @@
       "Read(//d/JKKN/MYJKKN Portal/**)",
       "Bash(py scripts/init_skill.py brand-styling --path \"D:\\JKKN\\MYJKKN Portal\\MyJKKN\\.claude\\skills\")",
       "Bash(py:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Skill(brainstorming)"
     ],
     "deny": [],
     "ask": []
