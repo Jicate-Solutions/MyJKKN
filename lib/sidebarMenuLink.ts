@@ -105,6 +105,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admissions': 'admissions.view',
   '/admissions/new': 'admissions.create',
   '/admissions/crm': 'admissions.crm.view',
+  '/admissions/analytics': 'admissions.dashboard',
 
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
@@ -618,6 +619,13 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Admissions Management',
       menus: [
+        {
+          href: '/admissions/analytics',
+          label: 'Analytics Dashboard',
+          active: pathname.startsWith('/admissions/analytics'),
+          icon: BarChart,
+          submenus: []
+        },
         {
           href: '/admissions',
           label: 'All Admissions',

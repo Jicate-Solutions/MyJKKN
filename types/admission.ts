@@ -133,3 +133,152 @@ export interface AdmissionListResponse {
     totalPages: number;
   };
 }
+
+// ============================================================================
+// ANALYTICS DASHBOARD TYPES
+// ============================================================================
+
+/**
+ * Filters for analytics dashboard
+ */
+export interface AdmissionAnalyticsFilters {
+  dateRange?: {
+    from: Date;
+    to: Date;
+  };
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  status?: string;
+}
+
+/**
+ * Complete analytics data structure for dashboard
+ */
+export interface AdmissionDashboardAnalytics {
+  // Overview KPI metrics
+  overview: {
+    total: number;
+    pending: number;
+    approved: number;
+    rejected: number;
+    waitlisted: number;
+    enrolled: number;
+    conversionRate: number; // Percentage (approved + enrolled) / total
+    avgProcessingDays: number; // Average days from created to approved/rejected
+  };
+
+  // Status breakdown with percentages
+  statusBreakdown: {
+    status: string;
+    count: number;
+    percentage: number;
+  }[];
+
+  // Demographic analytics
+  demographics: {
+    gender: { label: string; count: number }[];
+    religion: { label: string; count: number }[];
+    community: { label: string; count: number }[];
+    firstGraduate: { label: string; count: number }[];
+  };
+
+  // Academic performance metrics
+  academicPerformance: {
+    tenthMarksDistribution: { range: string; count: number }[];
+    twelfthMarksDistribution: { range: string; count: number }[];
+    neetScoreDistribution: { range: string; count: number }[];
+    averageMarks: {
+      tenth: number;
+      twelfth: number;
+      neet: number | null;
+    };
+  };
+
+  // Institution and program distribution
+  institutionDistribution: {
+    institutions: { name: string; count: number; percentage: number }[];
+    degrees: { name: string; count: number }[];
+    departments: { name: string; count: number }[];
+    programs: { name: string; count: number }[];
+  };
+
+  // Geographic distribution
+  geographic: {
+    states: { state: string; count: number }[];
+    districts: { district: string; count: number }[];
+    topLocations: { location: string; count: number }[];
+  };
+
+  // Reference source tracking
+  referenceSources: {
+    type: string;
+    count: number;
+    percentage: number;
+  }[];
+
+  // Time-based trends
+  timeTrends: {
+    daily: { date: string; count: number; approved: number; rejected: number }[];
+    monthly: { month: string; count: number }[];
+    peakPeriods: { period: string; count: number }[];
+  };
+
+  // Metadata about the analytics
+  metadata: {
+    totalRecords: number;
+    dateRange: { from: string; to: string };
+    lastUpdated: string;
+  };
+}
+
+/**
+ * AI-generated insights response
+ */
+export interface AdmissionAIInsights {
+  summary: string; // Executive summary of key findings
+  keyFindings: {
+    title: string;
+    description: string;
+    severity: 'critical' | 'warning' | 'info' | 'success';
+  }[];
+  recommendations: {
+    category: string; // e.g., 'Outreach', 'Process Efficiency'
+    priority: 'high' | 'medium' | 'low';
+    insight: string; // What the data shows
+    action: string; // Specific actionable recommendation
+    expectedImpact: string; // Expected outcome
+    implementationSteps: string[]; // Step-by-step guide
+  }[];
+  predictions: {
+    metric: string; // e.g., 'Application Volume'
+    prediction: string; // What is likely to happen
+    confidence: 'high' | 'medium' | 'low';
+    timeline: string; // When this is expected
+    reasoning: string; // Why this is predicted
+  }[];
+  trends: {
+    trend: string; // Description of trend
+    direction: 'up' | 'down' | 'stable';
+    impact: string; // Potential impact
+    significance: 'high' | 'medium' | 'low';
+  }[];
+  riskAssessment: {
+    risk: string;
+    severity: 'high' | 'medium' | 'low';
+    likelihood: 'high' | 'medium' | 'low';
+    mitigation: string;
+  }[];
+  opportunities: {
+    opportunity: string;
+    potential: 'high' | 'medium' | 'low';
+    actionPlan: string;
+  }[];
+  competitiveInsights: {
+    insight: string;
+    comparison: string;
+    recommendation: string;
+  }[];
+  generatedAt: string; // ISO timestamp
+}
