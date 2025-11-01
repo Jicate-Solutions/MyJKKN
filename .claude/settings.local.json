@@ -55,7 +55,9 @@
       "Skill(skill-creator)",
       "Bash(py \".claude/skills/skill-creator/scripts/init_skill.py\" supabase-expert --path \".claude/skills/\")",
       "Read(//d/JKKN/MYJKKN Portal/**)",
-      "Bash(py scripts/init_skill.py brand-styling --path \"D:\\JKKN\\MYJKKN Portal\\MyJKKN\\.claude\\skills\")"
+      "Bash(py scripts/init_skill.py brand-styling --path \"D:\\JKKN\\MYJKKN Portal\\MyJKKN\\.claude\\skills\")",
+      "Bash(py:*)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []
