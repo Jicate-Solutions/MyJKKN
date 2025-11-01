@@ -60,9 +60,9 @@ export class AdmissionAIService {
       // Build comprehensive prompt
       const prompt = this.buildAnalysisPrompt(analyticsSummary, analytics);
 
-      // Call Claude API with Haiku 4.5
+      // Call Claude API with Claude 3.5 Haiku
       const response = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-3-5-haiku-20241022',
         max_tokens: 4096,
         temperature: 0.7,
         messages: [
