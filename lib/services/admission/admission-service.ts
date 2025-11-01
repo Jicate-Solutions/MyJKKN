@@ -579,25 +579,37 @@ export class AdmissionService {
   static async getDashboardAnalytics(
     filters: AdmissionAnalyticsFilters = {},
     supabaseClient?: any,
-    userContext?: { userId: string; institutionId?: string; isSuperAdmin: boolean }
+    userContext?: {
+      userId: string;
+      institutionId?: string;
+      isSuperAdmin: boolean;
+    }
   ): Promise<AdmissionDashboardAnalytics> {
     try {
-      console.log('[admissions/analytics] Fetching dashboard analytics with filters:', filters);
+      console.log(
+        '[admissions/analytics] Fetching dashboard analytics with filters:',
+        filters
+      );
 
       // Use provided client or default to class instance
       const supabase = supabaseClient || this.supabase;
 
-      let effectiveFilters = { ...filters };
+      const effectiveFilters = { ...filters };
 
       // If user context is provided (from API route), use it directly
       if (userContext) {
         if (!userContext.isSuperAdmin && userContext.institutionId) {
           effectiveFilters.institution_id = userContext.institutionId;
-          console.log('[admissions/analytics] Non-super-admin user, filtering to institution:', userContext.institutionId);
+          console.log(
+            '[admissions/analytics] Non-super-admin user, filtering to institution:',
+            userContext.institutionId
+          );
         }
       } else {
         // Otherwise, get current user from client-side auth
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user }
+        } = await supabase.auth.getUser();
         if (!user) throw new Error('User not authenticated');
 
         const { data: profile } = await supabase
@@ -607,25 +619,37 @@ export class AdmissionService {
           .single();
 
         // Force institution filter for non-super-admin
-        const isSuperAdmin = profile?.is_super_admin || profile?.role === 'super_admin';
+        const isSuperAdmin =
+          profile?.is_super_admin || profile?.role === 'super_admin';
         if (!isSuperAdmin && profile?.institution_id) {
           effectiveFilters.institution_id = profile.institution_id;
-          console.log('[admissions/analytics] Non-super-admin user, filtering to institution:', profile.institution_id);
+          console.log(
+            '[admissions/analytics] Non-super-admin user, filtering to institution:',
+            profile.institution_id
+          );
         }
       }
 
       // Build base query
-      let baseQuery = supabase.from('admissions').select('*', { count: 'exact' });
+      let baseQuery = supabase
+        .from('admissions')
+        .select('*', { count: 'exact' });
 
       // Apply filters
       if (effectiveFilters.institution_id) {
-        baseQuery = baseQuery.eq('institution_id', effectiveFilters.institution_id);
+        baseQuery = baseQuery.eq(
+          'institution_id',
+          effectiveFilters.institution_id
+        );
       }
       if (effectiveFilters.degree_id) {
         baseQuery = baseQuery.eq('degree_id', effectiveFilters.degree_id);
       }
       if (effectiveFilters.department_id) {
-        baseQuery = baseQuery.eq('department_id', effectiveFilters.department_id);
+        baseQuery = baseQuery.eq(
+          'department_id',
+          effectiveFilters.department_id
+        );
       }
       if (effectiveFilters.program_id) {
         baseQuery = baseQuery.eq('program_id', effectiveFilters.program_id);
@@ -634,7 +658,10 @@ export class AdmissionService {
         baseQuery = baseQuery.eq('status', effectiveFilters.status);
       }
       if (effectiveFilters.dateRange?.from) {
-        baseQuery = baseQuery.gte('created_at', effectiveFilters.dateRange.from.toISOString());
+        baseQuery = baseQuery.gte(
+          'created_at',
+          effectiveFilters.dateRange.from.toISOString()
+        );
       }
       if (effectiveFilters.dateRange?.to) {
         const nextDay = new Date(effectiveFilters.dateRange.to);
@@ -663,7 +690,7 @@ export class AdmissionService {
       let totalProcessingDays = 0;
       let processedCount = 0;
 
-      admissions?.forEach((admission) => {
+      admissions?.forEach((admission: Admission) => {
         // Count by status
         const status = admission.status.toLowerCase();
         if (status in statusCounts) {
@@ -674,37 +701,44 @@ export class AdmissionService {
         if (status === 'approved' || status === 'rejected') {
           const created = new Date(admission.created_at);
           const updated = new Date(admission.updated_at);
-          const days = Math.floor((updated.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+          const days = Math.floor(
+            (updated.getTime() - created.getTime()) / (1000 * 60 * 60 * 24)
+          );
           totalProcessingDays += days;
           processedCount++;
         }
       });
 
-      const conversionRate = total > 0
-        ? ((statusCounts.approved + statusCounts.enrolled) / total) * 100
-        : 0;
+      const conversionRate =
+        total > 0
+          ? ((statusCounts.approved + statusCounts.enrolled) / total) * 100
+          : 0;
 
-      const avgProcessingDays = processedCount > 0
-        ? totalProcessingDays / processedCount
-        : 0;
+      const avgProcessingDays =
+        processedCount > 0 ? totalProcessingDays / processedCount : 0;
 
       // Calculate status breakdown
-      const statusBreakdown = Object.entries(statusCounts).map(([status, count]) => ({
-        status,
-        count,
-        percentage: total > 0 ? (count / total) * 100 : 0
-      }));
+      const statusBreakdown = Object.entries(statusCounts).map(
+        ([status, count]) => ({
+          status,
+          count,
+          percentage: total > 0 ? (count / total) * 100 : 0
+        })
+      );
 
       // Calculate demographics
       const genderCounts: Record<string, number> = {};
       const religionCounts: Record<string, number> = {};
       const communityCounts: Record<string, number> = {};
-      const firstGraduateCounts = { 'First Graduate': 0, 'Regular': 0 };
+      const firstGraduateCounts = { 'First Graduate': 0, Regular: 0 };
 
-      admissions?.forEach((admission) => {
-        genderCounts[admission.gender] = (genderCounts[admission.gender] || 0) + 1;
-        religionCounts[admission.religion] = (religionCounts[admission.religion] || 0) + 1;
-        communityCounts[admission.community] = (communityCounts[admission.community] || 0) + 1;
+      admissions?.forEach((admission: Admission) => {
+        genderCounts[admission.gender] =
+          (genderCounts[admission.gender] || 0) + 1;
+        religionCounts[admission.religion] =
+          (religionCounts[admission.religion] || 0) + 1;
+        communityCounts[admission.community] =
+          (communityCounts[admission.community] || 0) + 1;
         if (admission.first_graduate) {
           firstGraduateCounts['First Graduate']++;
         } else {
@@ -713,23 +747,55 @@ export class AdmissionService {
       });
 
       const demographics = {
-        gender: Object.entries(genderCounts).map(([label, count]) => ({ label, count })),
-        religion: Object.entries(religionCounts).map(([label, count]) => ({ label, count })),
-        community: Object.entries(communityCounts).map(([label, count]) => ({ label, count })),
-        firstGraduate: Object.entries(firstGraduateCounts).map(([label, count]) => ({ label, count }))
+        gender: Object.entries(genderCounts).map(([label, count]) => ({
+          label,
+          count
+        })),
+        religion: Object.entries(religionCounts).map(([label, count]) => ({
+          label,
+          count
+        })),
+        community: Object.entries(communityCounts).map(([label, count]) => ({
+          label,
+          count
+        })),
+        firstGraduate: Object.entries(firstGraduateCounts).map(
+          ([label, count]) => ({ label, count })
+        )
       };
 
       // Calculate academic performance
-      const tenthMarksRanges = { '0-50': 0, '51-60': 0, '61-70': 0, '71-80': 0, '81-90': 0, '91-100': 0 };
-      const twelfthMarksRanges = { '0-50': 0, '51-60': 0, '61-70': 0, '71-80': 0, '81-90': 0, '91-100': 0 };
-      const neetScoreRanges = { '0-200': 0, '201-300': 0, '301-400': 0, '401-500': 0, '501-600': 0, '601-720': 0 };
+      const tenthMarksRanges = {
+        '0-50': 0,
+        '51-60': 0,
+        '61-70': 0,
+        '71-80': 0,
+        '81-90': 0,
+        '91-100': 0
+      };
+      const twelfthMarksRanges = {
+        '0-50': 0,
+        '51-60': 0,
+        '61-70': 0,
+        '71-80': 0,
+        '81-90': 0,
+        '91-100': 0
+      };
+      const neetScoreRanges = {
+        '0-200': 0,
+        '201-300': 0,
+        '301-400': 0,
+        '401-500': 0,
+        '501-600': 0,
+        '601-720': 0
+      };
 
       let totalTenth = 0;
       let totalTwelfth = 0;
       let totalNeet = 0;
       let neetCount = 0;
 
-      admissions?.forEach((admission) => {
+      admissions?.forEach((admission: Admission) => {
         // Tenth marks
         const tenthPct = parseFloat(admission.tenth_marks.percentage);
         if (!isNaN(tenthPct)) {
@@ -771,13 +837,23 @@ export class AdmissionService {
       });
 
       const academicPerformance = {
-        tenthMarksDistribution: Object.entries(tenthMarksRanges).map(([range, count]) => ({ range, count })),
-        twelfthMarksDistribution: Object.entries(twelfthMarksRanges).map(([range, count]) => ({ range, count })),
-        neetScoreDistribution: Object.entries(neetScoreRanges).map(([range, count]) => ({ range, count })),
+        tenthMarksDistribution: Object.entries(tenthMarksRanges).map(
+          ([range, count]) => ({ range, count })
+        ),
+        twelfthMarksDistribution: Object.entries(twelfthMarksRanges).map(
+          ([range, count]) => ({ range, count })
+        ),
+        neetScoreDistribution: Object.entries(neetScoreRanges).map(
+          ([range, count]) => ({ range, count })
+        ),
         averageMarks: {
           tenth: total > 0 ? Math.round((totalTenth / total) * 100) / 100 : 0,
-          twelfth: total > 0 ? Math.round((totalTwelfth / total) * 100) / 100 : 0,
-          neet: neetCount > 0 ? Math.round((totalNeet / neetCount) * 100) / 100 : null
+          twelfth:
+            total > 0 ? Math.round((totalTwelfth / total) * 100) / 100 : 0,
+          neet:
+            neetCount > 0
+              ? Math.round((totalNeet / neetCount) * 100) / 100
+              : null
         }
       };
 
@@ -793,8 +869,9 @@ export class AdmissionService {
       const departmentIds = new Set<string>();
       const programIds = new Set<string>();
 
-      admissions?.forEach((admission) => {
-        if (admission.institution_id) institutionIds.add(admission.institution_id);
+      admissions?.forEach((admission: Admission) => {
+        if (admission.institution_id)
+          institutionIds.add(admission.institution_id);
         if (admission.degree_id) degreeIds.add(admission.degree_id);
         if (admission.department_id) departmentIds.add(admission.department_id);
         if (admission.program_id) programIds.add(admission.program_id);
@@ -803,29 +880,50 @@ export class AdmissionService {
       // Fetch names for institutions, degrees, departments, programs
       const [institutions, degrees, departments, programs] = await Promise.all([
         institutionIds.size > 0
-          ? this.supabase.from('institutions').select('id, name').in('id', Array.from(institutionIds))
+          ? this.supabase
+              .from('institutions')
+              .select('id, name')
+              .in('id', Array.from(institutionIds))
           : { data: [] },
         degreeIds.size > 0
-          ? this.supabase.from('degrees').select('id, degree_name').in('id', Array.from(degreeIds))
+          ? this.supabase
+              .from('degrees')
+              .select('id, degree_name')
+              .in('id', Array.from(degreeIds))
           : { data: [] },
         departmentIds.size > 0
-          ? this.supabase.from('departments').select('id, department_name').in('id', Array.from(departmentIds))
+          ? this.supabase
+              .from('departments')
+              .select('id, department_name')
+              .in('id', Array.from(departmentIds))
           : { data: [] },
         programIds.size > 0
-          ? this.supabase.from('programs').select('id, program_name').in('id', Array.from(programIds))
+          ? this.supabase
+              .from('programs')
+              .select('id, program_name')
+              .in('id', Array.from(programIds))
           : { data: [] }
       ]);
 
       // Create lookup maps
-      const institutionMap = new Map(institutions.data?.map(i => [i.id, i.name]));
-      const degreeMap = new Map(degrees.data?.map(d => [d.id, d.degree_name]));
-      const departmentMap = new Map(departments.data?.map(d => [d.id, d.department_name]));
-      const programMap = new Map(programs.data?.map(p => [p.id, p.program_name]));
+      const institutionMap = new Map(
+        institutions.data?.map((i) => [i.id, i.name])
+      );
+      const degreeMap = new Map(
+        degrees.data?.map((d) => [d.id, d.degree_name])
+      );
+      const departmentMap = new Map(
+        departments.data?.map((d) => [d.id, d.department_name])
+      );
+      const programMap = new Map(
+        programs.data?.map((p) => [p.id, p.program_name])
+      );
 
       // Count by names
-      admissions?.forEach((admission) => {
+      admissions?.forEach((admission: Admission) => {
         if (admission.institution_id) {
-          const name = institutionMap.get(admission.institution_id) || 'Unknown';
+          const name =
+            institutionMap.get(admission.institution_id) || 'Unknown';
           institutionCounts[name] = (institutionCounts[name] || 0) + 1;
         }
         if (admission.degree_id) {
@@ -865,7 +963,7 @@ export class AdmissionService {
       const stateCounts: Record<string, number> = {};
       const districtCounts: Record<string, number> = {};
 
-      admissions?.forEach((admission) => {
+      admissions?.forEach((admission: Admission) => {
         const state = admission.permanent_address_state;
         const district = admission.permanent_address_district;
 
@@ -890,25 +988,32 @@ export class AdmissionService {
 
       // Calculate reference sources
       const referenceCounts: Record<string, number> = {};
-      admissions?.forEach((admission) => {
+      admissions?.forEach((admission: Admission) => {
         const type = admission.reference_type || 'Direct';
         referenceCounts[type] = (referenceCounts[type] || 0) + 1;
       });
 
-      const referenceSources = Object.entries(referenceCounts).map(([type, count]) => ({
-        type,
-        count,
-        percentage: total > 0 ? (count / total) * 100 : 0
-      }));
+      const referenceSources = Object.entries(referenceCounts).map(
+        ([type, count]) => ({
+          type,
+          count,
+          percentage: total > 0 ? (count / total) * 100 : 0
+        })
+      );
 
       // Calculate time trends
-      const dailyCounts: Record<string, { count: number; approved: number; rejected: number }> = {};
+      const dailyCounts: Record<
+        string,
+        { count: number; approved: number; rejected: number }
+      > = {};
       const monthlyCounts: Record<string, number> = {};
 
-      admissions?.forEach((admission) => {
+      admissions?.forEach((admission: Admission) => {
         const date = new Date(admission.created_at);
         const dateKey = date.toISOString().split('T')[0];
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        const monthKey = `${date.getFullYear()}-${String(
+          date.getMonth() + 1
+        ).padStart(2, '0')}`;
 
         if (!dailyCounts[dateKey]) {
           dailyCounts[dateKey] = { count: 0, approved: 0, rejected: 0 };
@@ -957,7 +1062,10 @@ export class AdmissionService {
         }
       };
     } catch (error) {
-      console.error('[admissions/analytics] Error fetching dashboard analytics:', error);
+      console.error(
+        '[admissions/analytics] Error fetching dashboard analytics:',
+        error
+      );
       throw error;
     }
   }
