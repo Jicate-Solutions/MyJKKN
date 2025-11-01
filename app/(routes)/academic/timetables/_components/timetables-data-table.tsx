@@ -5,7 +5,7 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { TimetablesSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, RefreshCcw } from 'lucide-react';
+import { Plus, TrashIcon, RefreshCcw, AlertTriangle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { Timetable } from '@/types/academics';
@@ -124,7 +124,8 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
           search.department_id ||
           // For HOD and faculty users, filter by their department
           ((userProfile?.role === 'hod' || userProfile?.role === 'faculty') &&
-           userProfile?.department_id && !isSuperAdmin
+          userProfile?.department_id &&
+          !isSuperAdmin
             ? userProfile.department_id
             : undefined),
         semester: search.semester || undefined,
@@ -151,7 +152,7 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
         dataCount: data?.length || 0,
         firstItem: data?.[0] || null,
         hasSemstersOnFirst: data?.[0]?.semesters || 'no semesters property',
-        hasSectionsOnFirst: data?.[0]?.sections || 'no sections property',
+        hasSectionsOnFirst: data?.[0]?.sections || 'no sections property'
       });
 
       return {
@@ -315,7 +316,8 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
             <h3 className='font-semibold'>Loading Timeout</h3>
           </div>
           <p className='text-sm text-red-600'>
-            The page is taking longer than expected to load. This could be due to network issues or permission settings.
+            The page is taking longer than expected to load. This could be due
+            to network issues or permission settings.
           </p>
           <Button
             onClick={() => window.location.reload()}
