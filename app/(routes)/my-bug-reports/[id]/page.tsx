@@ -1,8 +1,11 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useEffect } from 'react';
-import { useBugReport } from '@/hooks/bug-reports/use-bug-reports';
+import { useEffect, useState } from 'react';
+import {
+  useBugReport,
+  useReopenBugReport
+} from '@/hooks/bug-reports/use-bug-reports';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,7 +24,8 @@ import {
   Clock,
   AlertCircle,
   XCircle,
-  Eye
+  Eye,
+  RefreshCw
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -32,6 +36,8 @@ import {
   AccordionItem,
   AccordionTrigger
 } from '@/components/ui/accordion';
+import toast from 'react-hot-toast';
+import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
 
 const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   const statusConfig: Record<
@@ -43,27 +49,27 @@ const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   > = {
     new: {
       colorClass:
-        'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200',
+        'bg-blue-100 text-blue-800 hover:bg-blue-200 hover:text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200',
       icon: AlertCircle
     },
     seen: {
       colorClass:
-        'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-200',
+        'bg-gray-100 text-gray-800 hover:bg-gray-200 hover:text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-200',
       icon: Eye
     },
     in_progress: {
       colorClass:
-        'bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200',
+        'bg-yellow-50 text-yellow-800 hover:bg-yellow-200 hover:text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200',
       icon: Clock
     },
     resolved: {
       colorClass:
-        'bg-green-100 text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200',
+        'bg-green-100 text-green-800 hover:bg-green-200 hover:text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200',
       icon: CheckCircle
     },
     wont_fix: {
       colorClass:
-        'bg-red-100 text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200',
+        'bg-red-100 text-red-800 hover:bg-red-200 hover:text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200',
       icon: XCircle
     }
   };
@@ -83,8 +89,38 @@ export default function BugReportDetailPage() {
   const params = useParams();
   const reportId = params.id as string;
   const supabase = createClientSupabaseClient();
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const { data: bugReport, isLoading, error, refetch } = useBugReport(reportId);
+  const reopenMutation = useReopenBugReport();
+
+  // Get current user
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUserId(user.id);
+      }
+    };
+    getCurrentUser();
+  }, [supabase]);
+
+  // Handle reopen bug report
+  const handleReopen = async () => {
+    try {
+      await reopenMutation.mutateAsync(reportId);
+      toast.success('Bug Reopened');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to reopen bug report');
+    }
+  };
+
+  // Check if user can reopen this bug
+  const canReopen =
+    bugReport?.status === 'resolved' &&
+    currentUserId === bugReport?.reporter_user_id;
 
   // Set up real-time subscription for this specific bug report
   useEffect(() => {
@@ -134,7 +170,8 @@ export default function BugReportDetailPage() {
 
   if (error || !bugReport) {
     // Check if it's a specific error type
-    const isNotFound = error?.message?.includes('404') || error?.message?.includes('not found');
+    const isNotFound =
+      error?.message?.includes('404') || error?.message?.includes('not found');
     const isAccessDenied = error?.message?.includes('access denied');
 
     return (
@@ -142,16 +179,18 @@ export default function BugReportDetailPage() {
         <div className='text-center py-12'>
           <Bug className='w-16 h-16 text-muted-foreground mx-auto mb-4' />
           <h2 className='text-xl font-semibold mb-2'>
-            {isNotFound ? 'Bug Report Not Found' :
-             isAccessDenied ? 'Access Denied' :
-             'Error Loading Bug Report'}
+            {isNotFound
+              ? 'Bug Report Not Found'
+              : isAccessDenied
+              ? 'Access Denied'
+              : 'Error Loading Bug Report'}
           </h2>
           <p className='text-muted-foreground mb-4'>
-            {isNotFound ?
-              'This bug report may have been deleted by an administrator.' :
-             isAccessDenied ?
-              'You do not have permission to access this bug report.' :
-              'The bug report you\'re looking for doesn\'t exist or you don\'t have access to it.'}
+            {isNotFound
+              ? 'This bug report may have been deleted by an administrator.'
+              : isAccessDenied
+              ? 'You do not have permission to access this bug report.'
+              : "The bug report you're looking for doesn't exist or you don't have access to it."}
           </p>
           <Button asChild>
             <Link href='/my-bug-reports'>
@@ -183,14 +222,32 @@ export default function BugReportDetailPage() {
               </p>
             </div>
           </div>
-          <BugStatusBadge status={bugReport.status} />
+          <div className='flex items-center gap-2'>
+            <BugStatusBadge status={bugReport.status} />
+            {canReopen && (
+              <Button
+                size='sm'
+                variant='destructive'
+                onClick={handleReopen}
+                disabled={reopenMutation.isPending}
+                className='gap-2'
+              >
+                <RefreshCw
+                  className={`w-4 h-4 ${
+                    reopenMutation.isPending ? 'animate-spin' : ''
+                  }`}
+                />
+                Reopen Bug
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
           {/* Left Column - Bug Report Details */}
           <div className='space-y-6'>
             {/* Status and Basic Info */}
-            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+            <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
               <Card>
                 <CardHeader className='pb-2'>
                   <CardTitle className='text-sm'>Reported</CardTitle>
@@ -200,6 +257,15 @@ export default function BugReportDetailPage() {
                     <Calendar className='w-4 h-4 text-muted-foreground' />
                     {new Date(bugReport.created_at).toLocaleDateString()}
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className='pb-2'>
+                  <CardTitle className='text-sm'>Category</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <BugCategoryBadge category={bugReport.category} size='md' />
                 </CardContent>
               </Card>
 

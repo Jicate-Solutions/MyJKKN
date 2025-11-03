@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
 import {
   Tooltip,
   TooltipContent,
@@ -26,7 +25,12 @@ import {
   Trophy,
   Briefcase,
   Info,
-  ChevronDown
+  ChevronDown,
+  AlertCircle,
+  Lightbulb,
+  Palette,
+  Gauge,
+  Shield
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { useRouter } from 'next/navigation';
@@ -34,6 +38,7 @@ import {
   getLogManager,
   initializeLogCapture
 } from '@/lib/utils/enhanced-logger';
+import toast from 'react-hot-toast';
 
 // Initialize enhanced log capture with deduplication
 if (typeof window !== 'undefined') {
@@ -412,6 +417,7 @@ async function capturePageScreenshot(): Promise<string> {
 export function BugReporterWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<string>('bug');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
   const [capturedScreenshot, setCapturedScreenshot] = useState<string>('');
@@ -419,7 +425,6 @@ export function BugReporterWidget() {
   const [testResults, setTestResults] = useState<string>('');
   const [debugMode, setDebugMode] = useState(false);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
-  const { toast } = useToast();
   const router = useRouter();
 
   useEffect(() => {
@@ -435,25 +440,15 @@ export function BugReporterWidget() {
       console.log('Test result:', result);
       setTestResults(JSON.stringify(result, null, 2));
 
-      toast({
-        title: result.success ? 'Test Passed' : 'Test Failed',
-        description: result.success
-          ? 'Bug reporting system is working!'
-          : 'There are issues with the system',
-        variant: result.success ? 'default' : 'destructive'
-      });
-    } catch (error) {
+      toast.success(result.success ? 'Test Passed' : 'Test Failed');
+    } catch (error: any) {
       console.error('Test failed:', error);
       setTestResults(
         `Test failed: ${
           error instanceof Error ? error.message : 'Unknown error'
         }`
       );
-      toast({
-        title: 'Test Failed',
-        description: 'Could not run the test',
-        variant: 'destructive'
-      });
+      toast.error(error instanceof Error ? error.message : 'Unknown error');
     }
   };
 
@@ -486,24 +481,12 @@ export function BugReporterWidget() {
 
       setIsOpen(true);
 
-      toast({
-        title: 'Bug Report Ready',
-        description:
-          'Professional-quality screenshot captured with html2canvas!',
-        variant: 'default'
-      });
-    } catch (error) {
+      toast.success('Bug Report Ready');
+    } catch (error: any) {
       console.error('Failed to capture screenshot:', error);
       setCapturedScreenshot(''); // Ensure no stale screenshot
       setIsOpen(true);
-
-      toast({
-        title: 'Bug Report Ready',
-        description: isMobileDevice()
-          ? 'Screenshot failed. You can add one manually using device screenshot buttons.'
-          : 'Screenshot failed. You can add one manually using Windows + Shift + S.',
-        variant: 'default'
-      });
+      toast.error(error instanceof Error ? error.message : 'Unknown error');
     } finally {
       setIsCapturingScreenshot(false);
     }
@@ -544,36 +527,19 @@ export function BugReporterWidget() {
               });
 
               setCapturedScreenshot(dataURL);
-              toast({
-                title: 'Manual Screenshot Added!',
-                description:
-                  'High-quality manual screenshot loaded successfully.',
-                variant: 'default'
-              });
+              toast.success('Manual Screenshot Added!');
               return;
             }
           }
 
-          toast({
-            title: 'No Screenshot Found',
-            description: 'Please take a screenshot first, then try again.',
-            variant: 'destructive'
-          });
+          toast.error('No Screenshot Found');
         }
       } else {
-        toast({
-          title: 'Manual Screenshot Not Available',
-          description: 'Your browser does not support clipboard access.',
-          variant: 'destructive'
-        });
+        toast.error('Manual Screenshot Not Available');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Manual screenshot failed:', error);
-      toast({
-        title: 'Screenshot Failed',
-        description: 'Could not access clipboard for manual screenshot.',
-        variant: 'destructive'
-      });
+      toast.error(error instanceof Error ? error.message : 'Unknown error');
     } finally {
       setIsCapturingScreenshot(false);
     }
@@ -581,11 +547,7 @@ export function BugReporterWidget() {
 
   const handleSubmit = async () => {
     if (!description || description.trim().length < 10) {
-      toast({
-        title: 'Validation Error',
-        description: 'Please provide a description of at least 10 characters.',
-        variant: 'destructive'
-      });
+      toast.error('Please provide a description of at least 10 characters.');
       return;
     }
 
@@ -618,6 +580,7 @@ export function BugReporterWidget() {
       const payload = {
         page_url: window.location.href,
         description: description.trim(),
+        category: category,
         screenshot_data_url: capturedScreenshot,
         console_logs: safeLogs,
         log_summary: structuredLogs.summary, // Add structured summary
@@ -733,13 +696,10 @@ export function BugReporterWidget() {
         result.message || 'Thank you for reporting this issue!';
       const reportData = result.data || result;
 
-      toast({
-        title: 'Bug Report Submitted',
-        description: `${successMessage} Redirecting to your bug reports...`,
-        variant: 'default'
-      });
+      toast.success(`${successMessage} Redirecting to your bug reports...`);
 
       setDescription('');
+      setCategory('bug');
       setCapturedScreenshot('');
       setIsOpen(false);
 
@@ -758,16 +718,11 @@ export function BugReporterWidget() {
         console.log('Redirecting to:', redirectPath, 'from:', currentPath);
         router.push(redirectPath);
       }, 1500); // Small delay to let the user see the success message
-    } catch (error) {
+    } catch (error: any) {
       console.error('Bug report submission failed:', error);
-      toast({
-        title: 'Submission Failed',
-        description:
-          error instanceof Error
-            ? error.message
-            : 'An unexpected error occurred.',
-        variant: 'destructive'
-      });
+      toast.error(
+        error instanceof Error ? error.message : 'An unexpected error occurred.'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -851,6 +806,7 @@ export function BugReporterWidget() {
                   setIsOpen(false);
                   setCapturedScreenshot('');
                   setDescription('');
+                  setCategory('bug');
                 }}
               >
                 <X className='w-4 h-4' />
@@ -995,6 +951,140 @@ export function BugReporterWidget() {
                       </div>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* Category Selection */}
+              <div>
+                <label className='text-sm font-medium mb-2 block'>
+                  Category *
+                </label>
+                <div className='grid grid-cols-2 gap-2'>
+                  <button
+                    type='button'
+                    onClick={() => setCategory('bug')}
+                    className={`p-3 rounded-lg border-2 transition-all ${
+                      category === 'bug'
+                        ? 'border-red-500 bg-red-50 dark:bg-red-950/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-red-300'
+                    }`}
+                  >
+                    <div className='flex flex-col items-center gap-1'>
+                      <AlertCircle
+                        className={`w-5 h-5 ${
+                          category === 'bug'
+                            ? 'text-red-500'
+                            : 'text-muted-foreground'
+                        }`}
+                      />
+                      <span className='text-xs font-medium'>Bug/Issue</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type='button'
+                    onClick={() => setCategory('feature_request')}
+                    className={`p-3 rounded-lg border-2 transition-all ${
+                      category === 'feature_request'
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
+                    }`}
+                  >
+                    <div className='flex flex-col items-center gap-1'>
+                      <Lightbulb
+                        className={`w-5 h-5 ${
+                          category === 'feature_request'
+                            ? 'text-blue-500'
+                            : 'text-muted-foreground'
+                        }`}
+                      />
+                      <span className='text-xs font-medium'>New Feature</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type='button'
+                    onClick={() => setCategory('ui_design')}
+                    className={`p-3 rounded-lg border-2 transition-all ${
+                      category === 'ui_design'
+                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-purple-300'
+                    }`}
+                  >
+                    <div className='flex flex-col items-center gap-1'>
+                      <Palette
+                        className={`w-5 h-5 ${
+                          category === 'ui_design'
+                            ? 'text-purple-500'
+                            : 'text-muted-foreground'
+                        }`}
+                      />
+                      <span className='text-xs font-medium'>UI/Design</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type='button'
+                    onClick={() => setCategory('performance')}
+                    className={`p-3 rounded-lg border-2 transition-all ${
+                      category === 'performance'
+                        ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-orange-300'
+                    }`}
+                  >
+                    <div className='flex flex-col items-center gap-1'>
+                      <Gauge
+                        className={`w-5 h-5 ${
+                          category === 'performance'
+                            ? 'text-orange-500'
+                            : 'text-muted-foreground'
+                        }`}
+                      />
+                      <span className='text-xs font-medium'>Performance</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type='button'
+                    onClick={() => setCategory('security')}
+                    className={`p-3 rounded-lg border-2 transition-all ${
+                      category === 'security'
+                        ? 'border-yellow-600 bg-yellow-50 dark:bg-yellow-950/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-yellow-400'
+                    }`}
+                  >
+                    <div className='flex flex-col items-center gap-1'>
+                      <Shield
+                        className={`w-5 h-5 ${
+                          category === 'security'
+                            ? 'text-yellow-600'
+                            : 'text-muted-foreground'
+                        }`}
+                      />
+                      <span className='text-xs font-medium'>Security</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type='button'
+                    onClick={() => setCategory('other')}
+                    className={`p-3 rounded-lg border-2 transition-all ${
+                      category === 'other'
+                        ? 'border-gray-500 bg-gray-50 dark:bg-gray-950/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className='flex flex-col items-center gap-1'>
+                      <Bug
+                        className={`w-5 h-5 ${
+                          category === 'other'
+                            ? 'text-gray-500'
+                            : 'text-muted-foreground'
+                        }`}
+                      />
+                      <span className='text-xs font-medium'>Other</span>
+                    </div>
+                  </button>
                 </div>
               </div>
 

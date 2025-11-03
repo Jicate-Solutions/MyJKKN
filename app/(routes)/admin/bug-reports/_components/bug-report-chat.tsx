@@ -21,7 +21,7 @@ import {
 } from '@/hooks/bug-reports/use-bug-reports';
 import { useMessageReads, useMessageReadStatus } from '@/hooks/bug-reports/use-message-reads';
 import { BugReportMessage } from '@/types/bugs';
-import { useToast } from '@/hooks/use-toast';
+import toast from 'react-hot-toast';
 import {
   MessageCircle,
   Send,
@@ -193,7 +193,6 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
   const [message, setMessage] = useState('');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const { toast } = useToast();
   const supabase = createClientSupabaseClient();
 
   const { data: messages = [], isLoading: messagesLoading, refetch: refetchMessages } =
@@ -240,11 +239,7 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
 
           // Show notification for new messages from others (usually the user)
           if (payload.new.sender_user_id !== currentUserId) {
-            toast({
-              title: 'New message from user',
-              description: 'The user replied to this bug report',
-              duration: 3000,
-            });
+            toast.success('New message from user');
           }
         }
       )
@@ -253,7 +248,7 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [reportId, supabase, refetchMessages, refetchUnreadCount, currentUserId, toast]);
+  }, [reportId, supabase, refetchMessages, refetchUnreadCount, currentUserId]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -273,41 +268,26 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
       });
 
       setMessage('');
-      toast({
-        title: 'Message sent',
-        description: 'Your message has been sent to the user.'
-      });
-    } catch (error) {
-      toast({
-        title: 'Failed to send message',
-        description:
-          error instanceof Error ? error.message : 'An error occurred',
-        variant: 'destructive'
-      });
+      toast.success('Message sent');
+    } catch (error: any) {
+      toast.error(error instanceof Error ? error.message : 'An error occurred');
     }
   };
 
   const handleMarkAsRead = useCallback(async (messageId: string) => {
     try {
       await markMessageAsRead(messageId);
-    } catch (error) {
-      console.error('Failed to mark message as read:', error);
+    } catch (error: any) {
+      toast.error(error instanceof Error ? error.message : 'An error occurred');
     }
   }, [markMessageAsRead]);
 
   const handleMarkAllAsRead = async () => {
     try {
       await markAllAsRead();
-      toast({
-        title: 'All messages marked as read',
-        description: 'You have caught up with all messages.'
-      });
-    } catch (error) {
-      toast({
-        title: 'Failed to mark all as read',
-        description: error instanceof Error ? error.message : 'An error occurred',
-        variant: 'destructive'
-      });
+      toast.success('All messages marked as read');
+    } catch (error: any) {
+      toast.error(error instanceof Error ? error.message : 'An error occurred');
     }
   };
 

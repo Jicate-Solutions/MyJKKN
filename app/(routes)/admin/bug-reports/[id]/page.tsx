@@ -8,7 +8,6 @@ import {
   useUpdateBugReportStatus,
   useDeleteBugReport
 } from '@/hooks/bug-reports/use-bug-reports';
-import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AdminPermissionGuard } from '@/components/auth/admin-permission-guard';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -66,6 +65,8 @@ import {
 } from 'lucide-react';
 import { BugReportChat } from '../_components/bug-report-chat';
 import { ConsoleOutput } from '../_components/console-output';
+import toast from 'react-hot-toast';
+import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
 
 const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   const configs = {
@@ -137,7 +138,6 @@ export default function BugReportDetailsPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
-  const { toast } = useToast();
   const { isSuperAdmin } = usePermissions();
   const [isDownloading, setIsDownloading] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -166,11 +166,7 @@ export default function BugReportDetailsPage() {
 
           if (payload.eventType === 'DELETE') {
             // If the bug report was deleted, redirect back to list
-            toast({
-              title: 'Bug Report Deleted',
-              description: 'This bug report was deleted. Redirecting to list...',
-              variant: 'destructive',
-            });
+            toast.error('Bug Report Deleted');
             setTimeout(() => {
               router.push('/admin/bug-reports');
             }, 2000);
@@ -182,10 +178,9 @@ export default function BugReportDetailsPage() {
             const newStatus = payload.new?.status;
             const oldStatus = payload.old?.status;
             if (newStatus !== oldStatus) {
-              toast({
-                title: 'Status Updated',
-                description: `Bug report status changed to: ${newStatus.replace('_', ' ')}`,
-              });
+              toast.success(
+                `Bug report status changed to: ${newStatus.replace('_', ' ')}`
+              );
             }
           }
         }
@@ -195,41 +190,26 @@ export default function BugReportDetailsPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, supabase, refetch, router, toast]);
+  }, [id, supabase, refetch, router]);
 
   const handleStatusChange = async (status: BugReportStatus) => {
     try {
       await updateStatusMutation.mutateAsync({ reportId: id, status });
-      toast({
-        title: 'Status Updated',
-        description: `Report status changed to ${status.replace(/_/g, ' ')}.`
-      });
-    } catch (err) {
-      toast({
-        title: 'Update Failed',
-        description: 'Could not update the report status.',
-        variant: 'destructive'
-      });
+      toast.success(`Report status changed to ${status.replace(/_/g, ' ')}.`);
+    } catch (err: any) {
+      toast.error('Could not update the report status.');
     }
   };
 
   const handleDeleteReport = async () => {
     try {
       await deleteReportMutation.mutateAsync(id);
-      toast({
-        title: 'Bug Report Deleted',
-        description: 'The bug report and its associated data have been removed.'
-      });
+      toast.success('Bug Report Deleted');
       router.push('/admin/bug-reports');
-    } catch (err) {
-      toast({
-        title: 'Delete Failed',
-        description:
-          err instanceof Error
-            ? err.message
-            : 'Could not delete the bug report.',
-        variant: 'destructive'
-      });
+    } catch (err: any) {
+      toast.error(
+        err instanceof Error ? err.message : 'Could not delete the bug report.'
+      );
     }
   };
 
@@ -259,17 +239,13 @@ export default function BugReportDetailsPage() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      toast({
-        title: 'Download Started',
-        description: 'The screenshot download has started.'
-      });
-    } catch (downloadError) {
-      console.error('Download failed:', downloadError);
-      toast({
-        title: 'Download Failed',
-        description: 'Could not download the screenshot.',
-        variant: 'destructive'
-      });
+      toast.success('Download Started');
+    } catch (downloadError: any) {
+      toast.error(
+        downloadError instanceof Error
+          ? downloadError.message
+          : 'Could not download the screenshot.'
+      );
     } finally {
       setIsDownloading(false);
     }
@@ -593,6 +569,15 @@ export default function BugReportDetailsPage() {
                     <p className='text-sm mt-1'>
                       {report.department_name || 'Not specified'}
                     </p>
+                  </div>
+                  <div>
+                    <label className='text-sm font-medium text-muted-foreground flex items-center gap-2'>
+                      <Bug className='w-4 h-4' />
+                      Category
+                    </label>
+                    <div className='mt-1'>
+                      <BugCategoryBadge category={report.category} size='sm' />
+                    </div>
                   </div>
                   <Separator />
                   <div>

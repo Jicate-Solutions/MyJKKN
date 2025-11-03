@@ -28,6 +28,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   AlertDialog,
@@ -42,11 +43,11 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import Link from 'next/link';
 import { BugReport, BugReportStatus, BugReportFilters } from '@/types/bugs';
-import { useToast } from '@/hooks/use-toast';
 import { MoreHorizontalIcon } from '@/components/icons';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { DataTable } from '@/components/ui/data-table';
 import { ColumnDef } from '@tanstack/react-table';
+import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
 import {
   Users,
   Bug,
@@ -56,8 +57,10 @@ import {
   TrendingUp,
   TrendingDown,
   Trash2,
-  Trophy
+  Trophy,
+  Search
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   const variant = {
@@ -169,7 +172,7 @@ export default function AdminBugReportsPage() {
   const [bulkStatusUpdateOpen, setBulkStatusUpdateOpen] = useState(false);
   const [bulkStatusValue, setBulkStatusValue] =
     useState<BugReportStatus>('seen');
-  const { toast } = useToast();
+  const [reporterSearch, setReporterSearch] = useState<string>('');
   const { isSuperAdmin } = usePermissions();
 
   const { data, isLoading, refetch } = useBugReports(filters);
@@ -185,7 +188,7 @@ export default function AdminBugReportsPage() {
   // Optimize: Fetch statistics separately to avoid large dataset
   const { data: allReportsData, refetch: refetchAll } = useBugReports({
     page: 1,
-    limit: 100, // Reduced limit for better performance
+    limit: 100 // Reduced limit for better performance
     // Add statistics-specific endpoint if needed
   });
 
@@ -263,21 +266,14 @@ export default function AdminBugReportsPage() {
     async (reportId: string, status: BugReportStatus) => {
       try {
         await updateStatusMutation.mutateAsync({ reportId, status });
-        toast({
-          title: 'Status Updated',
-          description: `Report status changed to ${status}.`
-        });
+        toast.success(`Report status changed to ${status.replace(/_/g, ' ')}.`);
         refetch();
         refetchAll(); // Also refetch all reports for stats
-      } catch (err) {
-        toast({
-          title: 'Update Failed',
-          description: 'Could not update the report status.',
-          variant: 'destructive'
-        });
+      } catch (err: any) {
+        toast.error('Could not update the report status.');
       }
     },
-    [updateStatusMutation, toast, refetch, refetchAll]
+    [updateStatusMutation, refetch, refetchAll]
   );
 
   const handleDeleteReport = useCallback(async () => {
@@ -285,48 +281,30 @@ export default function AdminBugReportsPage() {
 
     try {
       await deleteReportMutation.mutateAsync(reportToDelete);
-      toast({
-        title: 'Bug Report Deleted',
-        description: 'The bug report and its associated data have been removed.'
-      });
+      toast.success('Bug Report Deleted');
       setDeleteConfirmOpen(false);
       setReportToDelete(null);
       refetch();
       refetchAll(); // Also refetch all reports for stats
     } catch (err) {
-      toast({
-        title: 'Delete Failed',
-        description:
-          err instanceof Error
-            ? err.message
-            : 'Could not delete the bug report.',
-        variant: 'destructive'
-      });
+      toast.error('Could not delete the bug report.');
     }
-  }, [reportToDelete, deleteReportMutation, toast, refetch, refetchAll]);
+  }, [reportToDelete, deleteReportMutation, refetch, refetchAll]);
 
   const handleBulkDelete = useCallback(async () => {
     try {
       await bulkDeleteMutation.mutateAsync(selectedReports);
-      toast({
-        title: 'Bug Reports Deleted',
-        description: `${selectedReports.length} bug report(s) have been removed.`
-      });
+      toast.success(
+        `${selectedReports.length} bug report(s) have been removed.`
+      );
       setBulkDeleteConfirmOpen(false);
       setSelectedReports([]);
       refetch();
       refetchAll();
-    } catch (err) {
-      toast({
-        title: 'Bulk Delete Failed',
-        description:
-          err instanceof Error
-            ? err.message
-            : 'Could not delete the selected bug reports.',
-        variant: 'destructive'
-      });
+    } catch (err: any) {
+      toast.error('Could not delete the selected bug reports.');
     }
-  }, [selectedReports, bulkDeleteMutation, toast, refetch, refetchAll]);
+  }, [selectedReports, bulkDeleteMutation, refetch, refetchAll]);
 
   const handleBulkStatusUpdate = useCallback(async () => {
     try {
@@ -334,36 +312,41 @@ export default function AdminBugReportsPage() {
         reportIds: selectedReports,
         status: bulkStatusValue
       });
-      toast({
-        title: 'Status Updated',
-        description: `${
+      toast.success(
+        `${
           selectedReports.length
         } bug report(s) status updated to ${bulkStatusValue.replace('_', ' ')}.`
-      });
+      );
       setBulkStatusUpdateOpen(false);
       setSelectedReports([]);
       refetch();
       refetchAll();
-    } catch (err) {
-      toast({
-        title: 'Bulk Status Update Failed',
-        description:
-          err instanceof Error
-            ? err.message
-            : 'Could not update the status of selected bug reports.',
-        variant: 'destructive'
-      });
+    } catch (err: any) {
+      toast.error('Could not update the status of selected bug reports.');
     }
   }, [
     selectedReports,
     bulkStatusValue,
     bulkUpdateStatusMutation,
-    toast,
     refetch,
     refetchAll
   ]);
 
-  const reports = useMemo(() => data?.data ?? [], [data?.data]);
+  const reports = useMemo(() => {
+    const allReports = data?.data ?? [];
+
+    // Filter by reporter name/email if search query exists
+    if (!reporterSearch.trim()) {
+      return allReports;
+    }
+
+    const searchLower = reporterSearch.toLowerCase().trim();
+    return allReports.filter((report) => {
+      const reporterName = report.reporter?.full_name?.toLowerCase() || '';
+      const reporterEmail = report.reporter?.email?.toLowerCase() || '';
+      return reporterName.includes(searchLower) || reporterEmail.includes(searchLower);
+    });
+  }, [data?.data, reporterSearch]);
   const metadata = data?.metadata;
 
   const handleSelectAll = useCallback(() => {
@@ -416,6 +399,13 @@ export default function AdminBugReportsPage() {
           <span className='font-mono font-medium text-xs sm:text-sm'>
             {row.original.display_id}
           </span>
+        )
+      },
+      {
+        accessorKey: 'category',
+        header: 'Category',
+        cell: ({ row }) => (
+          <BugCategoryBadge category={row.original.category} size='sm' />
         )
       },
       {
@@ -676,6 +666,19 @@ export default function AdminBugReportsPage() {
                 Bug Reports List
               </CardTitle>
               <div className='flex flex-wrap items-center gap-2'>
+                <div className='w-full sm:w-auto md:w-64'>
+                  <div className='relative'>
+                    <Search className='absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
+                    <Input
+                      type='text'
+                      placeholder='Search by reporter name or email...'
+                      value={reporterSearch}
+                      onChange={(e) => setReporterSearch(e.target.value)}
+                      className='pl-8'
+                    />
+                  </div>
+                </div>
+
                 <div className='w-full sm:w-auto md:w-48'>
                   <Select
                     value={filters.status || 'all'}
@@ -700,6 +703,35 @@ export default function AdminBugReportsPage() {
                       <SelectItem value='in_progress'>In Progress</SelectItem>
                       <SelectItem value='resolved'>Resolved</SelectItem>
                       <SelectItem value='wont_fix'>Won&apos;t Fix</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className='w-full sm:w-auto md:w-48'>
+                  <Select
+                    value={filters.category || 'all'}
+                    onValueChange={(value) =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        category:
+                          value === 'all'
+                            ? undefined
+                            : (value as any),
+                        page: 1
+                      }))
+                    }
+                  >
+                    <SelectTrigger className='w-full'>
+                      <SelectValue placeholder='Filter by category...' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All Categories</SelectItem>
+                      <SelectItem value='bug'>Bug/Issue</SelectItem>
+                      <SelectItem value='feature_request'>Feature Request</SelectItem>
+                      <SelectItem value='ui_design'>UI/Design</SelectItem>
+                      <SelectItem value='performance'>Performance</SelectItem>
+                      <SelectItem value='security'>Security</SelectItem>
+                      <SelectItem value='other'>Other</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -747,11 +779,12 @@ export default function AdminBugReportsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='all'>All Departments</SelectItem>
-                      {filters.institution_id && departments?.map((department) => (
-                        <SelectItem key={department.id} value={department.id}>
-                          {department.name}
-                        </SelectItem>
-                      ))}
+                      {filters.institution_id &&
+                        departments?.map((department) => (
+                          <SelectItem key={department.id} value={department.id}>
+                            {department.name}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -777,7 +810,8 @@ export default function AdminBugReportsPage() {
                       onPageSizeChange: handlePageSizeChange,
                       isLoading: isLoading,
                       hasPreviousPage: (filters.page ?? 1) > 1,
-                      hasNextPage: (filters.page ?? 1) < (metadata?.totalPages ?? 1)
+                      hasNextPage:
+                        (filters.page ?? 1) < (metadata?.totalPages ?? 1)
                     }}
                   />
                 </div>
