@@ -22,7 +22,7 @@ import {
   Copy,
   Check
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import toast from 'react-hot-toast';
 
 interface ConsoleLog {
   level: 'log' | 'warn' | 'error' | 'info' | 'debug';
@@ -94,7 +94,6 @@ const LogLevelBadge = ({ level, count }: { level: string; count: number }) => {
 const LogEntry = ({ log, index }: { log: ConsoleLog; index: number }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
-  const { toast } = useToast();
 
   const formatMessage = (message: any) => {
     if (typeof message === 'string') {
@@ -114,24 +113,26 @@ const LogEntry = ({ log, index }: { log: ConsoleLog; index: number }) => {
 
   const copyLogToClipboard = async () => {
     try {
-      const logText = `[${log.level.toUpperCase()}] ${formatTimestamp(log.timestamp) || 'No timestamp'}
-${formatMessage(log.message)}${log.args && log.args.length > 0 ? '\n\nArguments:\n' + JSON.stringify(log.args, null, 2) : ''}${log.stack ? '\n\nStack Trace:\n' + log.stack : ''}`;
+      const logText = `[${log.level.toUpperCase()}] ${
+        formatTimestamp(log.timestamp) || 'No timestamp'
+      }
+${formatMessage(log.message)}${
+        log.args && log.args.length > 0
+          ? '\n\nArguments:\n' + JSON.stringify(log.args, null, 2)
+          : ''
+      }${log.stack ? '\n\nStack Trace:\n' + log.stack : ''}`;
 
       await navigator.clipboard.writeText(logText);
       setCopied(true);
-      toast({
-        title: 'Copied!',
-        description: 'Log entry copied to clipboard',
-        variant: 'default'
-      });
+      toast.success('Log entry copied to clipboard');
 
       setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      toast({
-        title: 'Copy Failed',
-        description: 'Failed to copy log to clipboard',
-        variant: 'destructive'
-      });
+    } catch (error: any) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to copy log to clipboard'
+      );
     }
   };
 
@@ -151,7 +152,10 @@ ${formatMessage(log.message)}${log.args && log.args.length > 0 ? '\n\nArguments:
                   {formatTimestamp(log.timestamp)}
                 </span>
               )}
-              <Badge variant='outline' className='text-xs capitalize text-white'>
+              <Badge
+                variant='outline'
+                className='text-xs capitalize text-white'
+              >
                 {log.level}
               </Badge>
             </div>
@@ -278,7 +282,9 @@ export function ConsoleOutput({ consoleLogs }: ConsoleOutputProps) {
           <CardTitle className='flex items-center gap-2'>
             <Terminal className='w-5 h-5' />
             Console Logs
-            <Badge variant='outline'>0</Badge>
+            <Badge variant='outline' className='text-xs'>
+              0
+            </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -299,7 +305,9 @@ export function ConsoleOutput({ consoleLogs }: ConsoleOutputProps) {
         <CardTitle className='flex items-center gap-2'>
           <Terminal className='w-5 h-5' />
           Console Logs
-          <Badge variant='outline'>{totalLogs}</Badge>
+          <Badge variant='outline' className='text-xs'>
+            {totalLogs}
+          </Badge>
         </CardTitle>
         <div className='flex flex-wrap gap-2 mt-3'>
           {logLevels.map((level) => (

@@ -5,6 +5,14 @@ export type BugReportStatus =
   | 'resolved'
   | 'wont_fix';
 
+export type BugReportCategory =
+  | 'bug'
+  | 'feature_request'
+  | 'ui_design'
+  | 'performance'
+  | 'security'
+  | 'other';
+
 export interface BugReport {
   id: string;
   display_id: string;
@@ -12,6 +20,7 @@ export interface BugReport {
   reporter_user_id: string;
   page_url: string;
   description: string;
+  category?: BugReportCategory | null;
   screenshot_url?: string | null;
   console_logs?: any[] | null;
   status: BugReportStatus;
@@ -90,6 +99,7 @@ export interface BugReportParticipant {
 
 export interface BugReportFilters {
   status?: BugReportStatus;
+  category?: BugReportCategory;
   institution_id?: string;
   department_id?: string;
   page?: number;

@@ -3,16 +3,23 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useMyBugReports } from '@/hooks/bug-reports/use-bug-reports';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { BugReportStatus, BugReport } from '@/types/bugs';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { DataTable } from '@/components/ui/data-table';
 import { ColumnDef } from '@tanstack/react-table';
+import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
 import {
   Eye,
   Bug,
@@ -25,6 +32,7 @@ import {
   TrendingUp
 } from 'lucide-react';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
 
 const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   const statusConfig: Record<
@@ -38,31 +46,31 @@ const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
     new: {
       variant: 'default',
       colorClass:
-        'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200',
+        'bg-blue-100 text-blue-800 hover:bg-blue-200 hover:text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200',
       icon: AlertCircle
     },
     seen: {
       variant: 'secondary',
       colorClass:
-        'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-200',
+        'bg-gray-100 text-gray-800 hover:bg-gray-200 hover:text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-200',
       icon: Eye
     },
     in_progress: {
       variant: 'outline',
       colorClass:
-        'bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200',
+        'bg-yellow-50 text-yellow-800 hover:bg-yellow-200 hover:text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200',
       icon: Clock
     },
     resolved: {
       variant: 'default',
       colorClass:
-        'bg-green-100 text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200',
+        'bg-green-100 text-green-800 hover:bg-green-200 hover:text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200',
       icon: CheckCircle
     },
     wont_fix: {
       variant: 'destructive',
       colorClass:
-        'bg-red-100 text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200',
+        'bg-red-100 text-red-800 hover:bg-red-200 hover:text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200',
       icon: XCircle
     }
   };
@@ -78,7 +86,6 @@ const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   );
 };
 
-
 export default function MyBugReportsPage() {
   const {
     data: reports,
@@ -89,14 +96,23 @@ export default function MyBugReportsPage() {
   } = useMyBugReports();
 
   const supabase = createClientSupabaseClient();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
+  // Filter reports by category
+  const filteredReports = useMemo(() => {
+    if (!reports) return [];
+    if (categoryFilter === 'all') return reports;
+    return reports.filter((report) => report.category === categoryFilter);
+  }, [reports, categoryFilter]);
 
   // Set up real-time subscription for bug reports changes
   useEffect(() => {
     // Get current user to filter notifications
     const getCurrentUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
       if (!user) return;
 
       // Subscribe to changes in bug_reports table for current user's reports
@@ -115,11 +131,7 @@ export default function MyBugReportsPage() {
 
             // Show notification based on event type
             if (payload.eventType === 'DELETE') {
-              toast({
-                title: 'Bug Report Deleted',
-                description: 'One of your bug reports has been deleted by an administrator.',
-                variant: 'destructive',
-              });
+              toast.success('Bug Report Deleted');
 
               // Clear any cached data for the deleted bug report
               if (payload.old?.id) {
@@ -136,10 +148,9 @@ export default function MyBugReportsPage() {
               const oldStatus = payload.old?.status;
 
               if (newStatus !== oldStatus) {
-                toast({
-                  title: 'Status Updated',
-                  description: `Bug report status changed to: ${newStatus.replace('_', ' ')}`,
-                });
+                toast.success(
+                  `Bug report status changed to: ${newStatus.replace('_', ' ')}`
+                );
               }
             }
 
@@ -155,23 +166,23 @@ export default function MyBugReportsPage() {
     };
 
     getCurrentUser();
-    // queryClient and toast are stable references from hooks, safe to add
-  }, [supabase, refetch, queryClient, toast]);
+  }, [supabase, refetch, queryClient]);
 
-  // Calculate statistics
-  const stats = reports
+  // Calculate statistics (use filteredReports for counts)
+  const stats = filteredReports
     ? {
-        total: reports.length,
-        new: reports.filter((r) => r.status === 'new').length,
-        seen: reports.filter((r) => r.status === 'seen').length,
-        inProgress: reports.filter((r) => r.status === 'in_progress').length,
-        resolved: reports.filter((r) => r.status === 'resolved').length,
-        wontFix: reports.filter((r) => r.status === 'wont_fix').length,
+        total: filteredReports.length,
+        new: filteredReports.filter((r) => r.status === 'new').length,
+        seen: filteredReports.filter((r) => r.status === 'seen').length,
+        inProgress: filteredReports.filter((r) => r.status === 'in_progress')
+          .length,
+        resolved: filteredReports.filter((r) => r.status === 'resolved').length,
+        wontFix: filteredReports.filter((r) => r.status === 'wont_fix').length,
         successRate:
-          reports.length > 0
+          filteredReports.length > 0
             ? Math.round(
-                (reports.filter((r) => r.status === 'resolved').length /
-                  reports.length) *
+                (filteredReports.filter((r) => r.status === 'resolved').length /
+                  filteredReports.length) *
                   100
               )
             : 0
@@ -196,6 +207,13 @@ export default function MyBugReportsPage() {
           <span className='font-mono font-medium'>
             {row.original.display_id}
           </span>
+        )
+      },
+      {
+        accessorKey: 'category',
+        header: 'Category',
+        cell: ({ row }) => (
+          <BugCategoryBadge category={row.original.category} size='sm' />
         )
       },
       {
@@ -226,7 +244,7 @@ export default function MyBugReportsPage() {
         header: 'Actions',
         cell: ({ row }) => (
           <div className='text-center'>
-            <Button variant='ghost' size='sm' className='h-8 w-8 p-0' asChild>
+            <Button variant='ghost' size='sm' className='p-0' asChild>
               <Link href={`/my-bug-reports/${row.original.id}`}>
                 <Eye className='w-4 h-4' />
               </Link>
@@ -409,21 +427,42 @@ export default function MyBugReportsPage() {
         {/* Reports Table using DataTable */}
         {!isLoading && !error && (
           <Card>
-            <CardHeader>
+            <CardHeader className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
               <CardTitle>
-                Report History ({reports?.length || 0} reports)
+                Report History ({filteredReports?.length || 0} reports)
               </CardTitle>
+              <div className='w-full sm:w-auto sm:min-w-[200px]'>
+                <Select
+                  value={categoryFilter}
+                  onValueChange={setCategoryFilter}
+                >
+                  <SelectTrigger className='w-full'>
+                    <SelectValue placeholder='Filter by category...' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='all'>All Categories</SelectItem>
+                    <SelectItem value='bug'>Bug/Issue</SelectItem>
+                    <SelectItem value='feature_request'>
+                      Feature Request
+                    </SelectItem>
+                    <SelectItem value='ui_design'>UI/Design</SelectItem>
+                    <SelectItem value='performance'>Performance</SelectItem>
+                    <SelectItem value='security'>Security</SelectItem>
+                    <SelectItem value='other'>Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </CardHeader>
             <CardContent>
               <DataTable
                 columns={columns}
-                data={reports || []}
+                data={filteredReports || []}
                 onRefresh={refetch}
                 searchPlaceholder='Search bug reports...'
                 filterColumn='description'
               />
 
-              {(!reports || reports.length === 0) && (
+              {(!filteredReports || filteredReports.length === 0) && (
                 <div className='text-center py-12 space-y-4 mt-4'>
                   <Bug className='w-16 h-16 text-muted-foreground mx-auto' />
                   <div className='space-y-2'>

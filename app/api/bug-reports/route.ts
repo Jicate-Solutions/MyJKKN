@@ -10,6 +10,10 @@ const createReportSchema = z.object({
   description: z
     .string()
     .min(10, { message: 'Description must be at least 10 characters long.' }),
+  category: z
+    .enum(['bug', 'feature_request', 'ui_design', 'performance', 'security', 'other'])
+    .optional()
+    .default('bug'),
   screenshot_data_url: z.string().optional(),
   console_logs: z.array(z.any()).optional(),
   metadata: z.record(z.any()).optional()
@@ -170,6 +174,7 @@ export async function POST(request: Request) {
       reporter_user_id: user.id,
       page_url: validatedData.page_url,
       description: validatedData.description,
+      category: validatedData.category,
       console_logs: validatedData.console_logs,
       metadata: validatedData.metadata,
       institution_id: institutionId,

@@ -124,6 +124,18 @@ const bulkUpdateBugReportsStatus = async ({
   return response.json();
 };
 
+const reopenBugReport = async (reportId: string) => {
+  const response = await fetch(`/api/bug-reports/${reportId}/reopen`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to reopen bug report');
+  }
+  return response.json();
+};
+
 const fetchBugReportMessages = async (reportId: string) => {
   const response = await fetch(`/api/bug-reports/${reportId}/messages`);
   if (!response.ok) {
@@ -304,6 +316,35 @@ export const useBulkUpdateBugReportsStatus = () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.mine() });
 
       // Invalidate leaderboard (in case status changed to/from resolved)
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.bugReports.leaderboard()
+      });
+    }
+  });
+};
+
+export const useReopenBugReport = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: reopenBugReport,
+    onSuccess: (data, reportId) => {
+      // Invalidate and refetch all bug reports queries
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.lists() });
+
+      // Invalidate my bug reports
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.mine() });
+
+      // Invalidate the specific bug report details
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.bugReports.detail(reportId)
+      });
+
+      // Invalidate messages to show the reopen message
+      queryClient.invalidateQueries({
+        queryKey: [...queryKeys.bugReports.detail(reportId), 'messages']
+      });
+
+      // Invalidate leaderboard (status changed from resolved)
       queryClient.invalidateQueries({
         queryKey: queryKeys.bugReports.leaderboard()
       });

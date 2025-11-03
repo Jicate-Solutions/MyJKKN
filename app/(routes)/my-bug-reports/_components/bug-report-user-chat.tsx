@@ -12,16 +12,19 @@ import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
-  TooltipTrigger,
+  TooltipTrigger
 } from '@/components/ui/tooltip';
 import {
   useBugReportMessages,
   useSendBugReportMessage,
   useBugReportParticipants
 } from '@/hooks/bug-reports/use-bug-reports';
-import { useMessageReads, useMessageReadStatus } from '@/hooks/bug-reports/use-message-reads';
+import {
+  useMessageReads,
+  useMessageReadStatus
+} from '@/hooks/bug-reports/use-message-reads';
 import { BugReportMessage } from '@/types/bugs';
-import { useToast } from '@/hooks/use-toast';
+import toast from 'react-hot-toast';
 import {
   MessageCircle,
   Send,
@@ -103,7 +106,10 @@ const MessageBubble = ({
               <p className='font-medium'>Read by:</p>
               {readStatus.map((read: any, index: number) => (
                 <p key={index} className='text-xs'>
-                  {read.user?.full_name} - {formatDistanceToNow(new Date(read.read_at), { addSuffix: true })}
+                  {read.user?.full_name} -{' '}
+                  {formatDistanceToNow(new Date(read.read_at), {
+                    addSuffix: true
+                  })}
                 </p>
               ))}
             </div>
@@ -190,15 +196,20 @@ const MessageBubble = ({
   );
 };
 
-export function BugReportUserChat({ reportId, reportStatus }: BugReportUserChatProps) {
+export function BugReportUserChat({
+  reportId,
+  reportStatus
+}: BugReportUserChatProps) {
   const [message, setMessage] = useState('');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const { toast } = useToast();
   const supabase = createClientSupabaseClient();
 
-  const { data: messages = [], isLoading: messagesLoading, refetch: refetchMessages } =
-    useBugReportMessages(reportId);
+  const {
+    data: messages = [],
+    isLoading: messagesLoading,
+    refetch: refetchMessages
+  } = useBugReportMessages(reportId);
   const { data: participants = [] } = useBugReportParticipants(reportId);
   const sendMessageMutation = useSendBugReportMessage();
 
@@ -214,7 +225,9 @@ export function BugReportUserChat({ reportId, reportStatus }: BugReportUserChatP
   // Get current user
   useEffect(() => {
     const getCurrentUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
       setCurrentUserId(user?.id || null);
     };
     getCurrentUser();
@@ -241,11 +254,7 @@ export function BugReportUserChat({ reportId, reportStatus }: BugReportUserChatP
 
           // Show notification for new messages from others
           if (payload.new.sender_user_id !== currentUserId) {
-            toast({
-              title: 'New message',
-              description: 'You received a new message about your bug report',
-              duration: 3000,
-            });
+            toast.success('New message');
           }
         }
       )
@@ -254,7 +263,14 @@ export function BugReportUserChat({ reportId, reportStatus }: BugReportUserChatP
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [reportId, supabase, refetchMessages, refetchUnreadCount, currentUserId, toast]);
+  }, [
+    reportId,
+    supabase,
+    refetchMessages,
+    refetchUnreadCount,
+    currentUserId,
+    toast
+  ]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -274,63 +290,51 @@ export function BugReportUserChat({ reportId, reportStatus }: BugReportUserChatP
       });
 
       setMessage('');
-      toast({
-        title: 'Message sent',
-        description: 'Your message has been sent to the support team.'
-      });
+      toast.success('Message sent');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
+      const errorMessage =
+        error instanceof Error ? error.message : 'An error occurred';
 
       // Handle specific error cases
-      if (errorMessage.includes('not found') || errorMessage.includes('access')) {
-        toast({
-          title: 'Bug Report Not Available',
-          description: 'This bug report may have been deleted or you no longer have access to it.',
-          variant: 'destructive'
-        });
+      if (
+        errorMessage.includes('not found') ||
+        errorMessage.includes('access')
+      ) {
+        toast.error('Bug Report Not Available');
 
         // Redirect to bug reports list after a short delay
         setTimeout(() => {
           window.location.href = '/my-bug-reports';
         }, 3000);
-
       } else if (errorMessage.includes('resolved')) {
-        toast({
-          title: 'Cannot Send Message',
-          description: 'Messages cannot be sent to resolved bug reports.',
-          variant: 'destructive'
-        });
+        toast.error('Cannot Send Message');
       } else {
-        toast({
-          title: 'Failed to send message',
-          description: errorMessage,
-          variant: 'destructive'
-        });
+        toast.error('Failed to send message');
       }
     }
   };
 
-  const handleMarkAsRead = useCallback(async (messageId: string) => {
-    try {
-      await markMessageAsRead(messageId);
-    } catch (error) {
-      console.error('Failed to mark message as read:', error);
-    }
-  }, [markMessageAsRead]);
+  const handleMarkAsRead = useCallback(
+    async (messageId: string) => {
+      try {
+        await markMessageAsRead(messageId);
+      } catch (error) {
+        console.error('Failed to mark message as read:', error);
+      }
+    },
+    [markMessageAsRead]
+  );
 
   const handleMarkAllAsRead = async () => {
     try {
       await markAllAsRead();
-      toast({
-        title: 'All messages marked as read',
-        description: 'You have caught up with all messages.'
-      });
-    } catch (error) {
-      toast({
-        title: 'Failed to mark all as read',
-        description: error instanceof Error ? error.message : 'An error occurred',
-        variant: 'destructive'
-      });
+      toast.success('All messages marked as read');
+    } catch (error: any) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'An error occurred while marking all messages as read'
+      );
     }
   };
 
@@ -452,7 +456,8 @@ export function BugReportUserChat({ reportId, reportStatus }: BugReportUserChatP
                 <div className='flex items-center gap-2'>
                   <Info className='w-4 h-4 text-muted-foreground' />
                   <p className='text-sm text-muted-foreground'>
-                    This bug report has been resolved. Thank you for your contribution!
+                    This bug report has been resolved. Thank you for your
+                    contribution!
                   </p>
                 </div>
               </div>
