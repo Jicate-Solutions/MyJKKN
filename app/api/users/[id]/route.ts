@@ -251,7 +251,7 @@ export async function PATCH(
     // Get target user's original data for activity logging
     const { data: originalTargetUser } = await supabase
       .from('profiles')
-      .select('role, full_name, email, phone_number, institution_id')
+      .select('role, full_name, email, phone_number, institution_id, is_active')
       .eq('id', userId)
       .single();
 
@@ -283,6 +283,7 @@ export async function PATCH(
     if (body.designation !== undefined) updateData.designation = body.designation;
     if (body.bio !== undefined) updateData.bio = body.bio;
     if (body.gender !== undefined) updateData.gender = body.gender;
+    if (body.is_active !== undefined) updateData.is_active = body.is_active;
     if (body.profile_complete !== undefined) updateData.profile_completed = body.profile_complete;
 
     // Update the user profile - use admin client for cross-user updates
@@ -316,6 +317,8 @@ export async function PATCH(
       changes.push('phone');
     if (originalTargetUser?.institution_id !== body.institution_id)
       changes.push('institution');
+    if (originalTargetUser?.is_active !== body.is_active)
+      changes.push('account_status');
 
     if (changes.length > 0) {
       const template = ActivityTemplates.userUpdated(
@@ -341,7 +344,8 @@ export async function PATCH(
             email: body.email,
             role: body.role,
             phone_number: body.phone_number,
-            institution_id: body.institution_id
+            institution_id: body.institution_id,
+            is_active: body.is_active
           },
           is_self_edit: user.id === userId,
           editor_role: currentProfile?.role

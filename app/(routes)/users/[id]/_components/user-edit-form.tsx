@@ -78,7 +78,7 @@ export function UserEditForm({ user }: UserEditFormProps) {
       designation: user.designation || '',
       bio: user.bio || '',
       gender: user.gender || null,
-      is_active: true, // Default to true since user service doesn't have this field
+      is_active: user.is_active ?? true,
       profile_completed: user.profile_completed || false
     }
   });
@@ -167,6 +167,7 @@ export function UserEditForm({ user }: UserEditFormProps) {
         designation: data.designation || null,
         bio: data.bio || null,
         gender: data.gender || null,
+        is_active: data.is_active,
         profile_complete: data.profile_completed
       };
 
@@ -486,6 +487,31 @@ export function UserEditForm({ user }: UserEditFormProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className='space-y-4'>
+              <FormField
+                control={form.control}
+                name='is_active'
+                render={({ field }) => (
+                  <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
+                    <div className='space-y-0.5'>
+                      <FormLabel className='text-base'>
+                        Account Status
+                      </FormLabel>
+                      <FormDescription>
+                        {field.value
+                          ? 'User can access the application'
+                          : 'User cannot access the application'}
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name='profile_completed'

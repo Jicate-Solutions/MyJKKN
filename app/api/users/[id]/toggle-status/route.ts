@@ -113,8 +113,8 @@ export async function PATCH(
     // Toggle the status
     const newStatus = !targetUser.is_active;
 
-    // Update user status
-    const { data: updatedUser, error: updateError } = await supabase
+    // Update user status using admin client to bypass RLS
+    const { data: updatedUser, error: updateError } = await supabaseAdmin
       .from('profiles')
       .update({
         is_active: newStatus,
@@ -125,8 +125,9 @@ export async function PATCH(
       .single();
 
     if (updateError) {
+      console.error('[user-management/toggle-status] Update error:', updateError);
       return NextResponse.json(
-        { error: 'Failed to update user status' },
+        { error: 'Failed to update user status', details: updateError.message },
         { status: 500 }
       );
     }
@@ -168,8 +169,12 @@ export async function PATCH(
       message: `User ${action} successfully`
     });
   } catch (error) {
+    console.error('[user-management/toggle-status] Unexpected error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      {
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     );
   }
