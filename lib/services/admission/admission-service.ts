@@ -657,6 +657,12 @@ export class AdmissionService {
       if (effectiveFilters.status) {
         baseQuery = baseQuery.eq('status', effectiveFilters.status);
       }
+      if (effectiveFilters.state) {
+        baseQuery = baseQuery.eq('permanent_address_state', effectiveFilters.state);
+      }
+      if (effectiveFilters.district) {
+        baseQuery = baseQuery.eq('permanent_address_district', effectiveFilters.district);
+      }
       if (effectiveFilters.dateRange?.from) {
         baseQuery = baseQuery.gte(
           'created_at',

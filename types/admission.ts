@@ -151,6 +151,8 @@ export interface AdmissionAnalyticsFilters {
   department_id?: string;
   program_id?: string;
   status?: string;
+  state?: string;
+  district?: string;
 }
 
 /**

@@ -118,6 +118,12 @@ export function useAdmissionAIInsights(
       if (filters.status) {
         queryParams.append('status', filters.status);
       }
+      if (filters.state) {
+        queryParams.append('state', filters.state);
+      }
+      if (filters.district) {
+        queryParams.append('district', filters.district);
+      }
       if (filters.dateRange) {
         queryParams.append('from', filters.dateRange.from.toISOString());
         queryParams.append('to', filters.dateRange.to.toISOString());

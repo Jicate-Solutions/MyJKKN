@@ -38,11 +38,14 @@ export function AnalyticsFilters({
   const [allDegrees, setAllDegrees] = useState<Array<{ id: string; degree_name: string; institution_id: string }>>([]);
   const [allDepartments, setAllDepartments] = useState<Array<{ id: string; department_name: string; degree_id: string; institution_id: string }>>([]);
   const [allPrograms, setAllPrograms] = useState<Array<{ id: string; program_name: string; department_id: string; degree_id: string; institution_id: string }>>([]);
+  const [allStates, setAllStates] = useState<string[]>([]);
+  const [allDistricts, setAllDistricts] = useState<Array<{ district: string; state: string }>>([]);
 
   // Filtered data state
   const [filteredDegrees, setFilteredDegrees] = useState<Array<{ id: string; degree_name: string }>>([]);
   const [filteredDepartments, setFilteredDepartments] = useState<Array<{ id: string; department_name: string }>>([]);
   const [filteredPrograms, setFilteredPrograms] = useState<Array<{ id: string; program_name: string }>>([]);
+  const [filteredDistricts, setFilteredDistricts] = useState<string[]>([]);
 
   // Date range state
   const [dateFrom, setDateFrom] = useState<Date | undefined>(filters.dateRange?.from);
@@ -56,7 +59,7 @@ export function AnalyticsFilters({
   // Apply hierarchical filtering when parent selections change
   useEffect(() => {
     applyHierarchicalFiltering();
-  }, [filters.institution_id, filters.degree_id, filters.department_id, allDegrees, allDepartments, allPrograms]);
+  }, [filters.institution_id, filters.degree_id, filters.department_id, filters.state, allDegrees, allDepartments, allPrograms, allDistricts]);
 
   const loadAllFilterOptions = async () => {
     try {
@@ -99,6 +102,41 @@ export function AnalyticsFilters({
       if (programsData) {
         setAllPrograms(programsData);
       }
+
+      // Load all unique states from admissions
+      const { data: statesData } = await supabase
+        .from('admissions')
+        .select('permanent_address_state')
+        .not('permanent_address_state', 'is', null)
+        .order('permanent_address_state');
+
+      if (statesData) {
+        const uniqueStates = [...new Set(statesData.map(item => item.permanent_address_state).filter(Boolean))];
+        setAllStates(uniqueStates);
+      }
+
+      // Load all unique districts with their states from admissions
+      const { data: districtsData } = await supabase
+        .from('admissions')
+        .select('permanent_address_district, permanent_address_state')
+        .not('permanent_address_district', 'is', null)
+        .not('permanent_address_state', 'is', null);
+
+      if (districtsData) {
+        // Create unique district-state pairs
+        const districtMap = new Map<string, string>();
+        districtsData.forEach(item => {
+          if (item.permanent_address_district && item.permanent_address_state) {
+            districtMap.set(item.permanent_address_district, item.permanent_address_state);
+          }
+        });
+
+        const uniqueDistricts = Array.from(districtMap.entries())
+          .map(([district, state]) => ({ district, state }))
+          .sort((a, b) => a.district.localeCompare(b.district));
+
+        setAllDistricts(uniqueDistricts);
+      }
     } catch (error) {
       console.error('[analytics-filters] Error loading filter options:', error);
     }
@@ -137,6 +175,14 @@ export function AnalyticsFilters({
     } else {
       setFilteredPrograms(allPrograms);
     }
+
+    // Filter districts based on selected state
+    if (filters.state) {
+      const filtered = allDistricts.filter((d) => d.state === filters.state);
+      setFilteredDistricts(filtered.map(d => d.district));
+    } else {
+      setFilteredDistricts(allDistricts.map(d => d.district));
+    }
   };
 
   const handleFilterChange = (key: keyof AdmissionAnalyticsFilters, value: any) => {
@@ -167,6 +213,14 @@ export function AnalyticsFilters({
         program_id: undefined
       });
     }
+    // When state changes, reset district filter
+    else if (key === 'state') {
+      onFiltersChange({
+        ...filters,
+        state: value,
+        district: undefined
+      });
+    }
     // For other filters, just update normally
     else {
       onFiltersChange({
@@ -195,7 +249,7 @@ export function AnalyticsFilters({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {/* Institution Filter */}
         <div className="space-y-2">
           <Label>Institution</Label>
@@ -310,6 +364,62 @@ export function AnalyticsFilters({
               <SelectItem value="rejected">Rejected</SelectItem>
               <SelectItem value="waitlisted">Waitlisted</SelectItem>
               <SelectItem value="enrolled">Enrolled</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Advanced Geography Filters */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* State Filter */}
+        <div className="space-y-2">
+          <Label>State</Label>
+          <Select
+            value={filters.state || 'all'}
+            onValueChange={(value) =>
+              handleFilterChange('state', value === 'all' ? undefined : value)
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="All States" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All States</SelectItem>
+              {allStates.map((state) => (
+                <SelectItem key={state} value={state}>
+                  {state}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* District Filter */}
+        <div className="space-y-2">
+          <Label>District</Label>
+          <Select
+            value={filters.district || 'all'}
+            onValueChange={(value) =>
+              handleFilterChange('district', value === 'all' ? undefined : value)
+            }
+            disabled={filteredDistricts.length === 0}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={
+                filteredDistricts.length === 0
+                  ? 'No districts available'
+                  : filters.state
+                  ? `Districts in ${filters.state}`
+                  : 'All Districts'
+              } />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Districts</SelectItem>
+              {filteredDistricts.map((district) => (
+                <SelectItem key={district} value={district}>
+                  {district}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

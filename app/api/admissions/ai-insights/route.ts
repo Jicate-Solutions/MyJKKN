@@ -15,6 +15,8 @@ import { AdmissionAnalyticsFilters } from '@/types/admission';
  * - department_id?: string
  * - program_id?: string
  * - status?: string
+ * - state?: string
+ * - district?: string
  * - from?: ISO date string
  * - to?: ISO date string
  *
@@ -128,6 +130,18 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     if (status) {
       filters.status = status;
+    }
+
+    // State filter
+    const state = searchParams.get('state');
+    if (state) {
+      filters.state = state;
+    }
+
+    // District filter
+    const district = searchParams.get('district');
+    if (district) {
+      filters.district = district;
     }
 
     // Date range filter
