@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { X } from 'lucide-react';
+import { X, Edit2 } from 'lucide-react';
 import type { Period } from '@/types/academics';
 
 interface BatchTimetableGridProps {
@@ -12,6 +12,7 @@ interface BatchTimetableGridProps {
   onSlotClick: (date: string, period: Period, existingSlot?: any) => void;
   onSlotDelete?: (date: string, period: Period, existingSlot: any) => void;
   onRemoveDate?: (dateStr: string) => void;
+  onEditDate?: (dateStr: string) => void;
   lockedPeriods: string[];
 }
 
@@ -27,6 +28,7 @@ export const BatchTimetableGrid = React.forwardRef<
       onSlotClick,
       onSlotDelete,
       onRemoveDate,
+      onEditDate,
       lockedPeriods
     },
     ref
@@ -299,18 +301,32 @@ export const BatchTimetableGrid = React.forwardRef<
                           </>
                         )}
                       </div>
-                      {onRemoveDate && (
-                        <button
-                          onClick={() => {
-                            // Remove the range marker from selectedDates
-                            onRemoveDate(dateRange.rangeMarker);
-                          }}
-                          className='opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-green-500 rounded'
-                          title='Remove this date range'
-                        >
-                          <X className='h-3 w-3 text-white' />
-                        </button>
-                      )}
+                      <div className='flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity'>
+                        {onEditDate && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditDate(dateRange.rangeMarker);
+                            }}
+                            className='p-1 hover:bg-green-500 rounded'
+                            title='Edit this date range'
+                          >
+                            <Edit2 className='h-3 w-3 text-white' />
+                          </button>
+                        )}
+                        {onRemoveDate && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemoveDate(dateRange.rangeMarker);
+                            }}
+                            className='p-1 hover:bg-red-500 rounded'
+                            title='Remove this date range'
+                          >
+                            <X className='h-3 w-3 text-white' />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </td>
 
