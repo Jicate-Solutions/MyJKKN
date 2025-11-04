@@ -58,7 +58,9 @@
       "Bash(py scripts/init_skill.py brand-styling --path \"D:\\JKKN\\MYJKKN Portal\\MyJKKN\\.claude\\skills\")",
       "Bash(py:*)",
       "Bash(python3:*)",
-      "Skill(brainstorming)"
+      "Skill(brainstorming)",
+      "Skill(writing-plans)",
+      "Skill(nextjs-module-builder)"
     ],
     "deny": [],
     "ask": []

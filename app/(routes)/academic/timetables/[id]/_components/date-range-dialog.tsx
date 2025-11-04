@@ -14,6 +14,7 @@ interface DateRangeDialogProps {
   isOpen: boolean;
   startDate: Date | undefined;
   endDate: Date | undefined;
+  isEditing?: boolean;
   onClose: () => void;
   onStartDateChange: (date: Date | undefined) => void;
   onEndDateChange: (date: Date | undefined) => void;
@@ -21,13 +22,14 @@ interface DateRangeDialogProps {
 }
 
 /**
- * Add Date Range Dialog
- * Allows users to add date ranges for batch mode timetables
+ * Add/Edit Date Range Dialog
+ * Allows users to add or edit date ranges for batch mode timetables
  */
 export function DateRangeDialog({
   isOpen,
   startDate,
   endDate,
+  isEditing = false,
   onClose,
   onStartDateChange,
   onEndDateChange,
@@ -47,9 +49,13 @@ export function DateRangeDialog({
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add Date Range to Timetable</DialogTitle>
+          <DialogTitle>
+            {isEditing ? 'Edit Date Range' : 'Add Date Range to Timetable'}
+          </DialogTitle>
           <DialogDescription>
-            Select a date range to add to your batch timetable.
+            {isEditing
+              ? 'Update the date range for your batch timetable.'
+              : 'Select a date range to add to your batch timetable.'}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
@@ -73,7 +79,7 @@ export function DateRangeDialog({
             Cancel
           </Button>
           <Button onClick={handleAdd} disabled={!startDate || !endDate}>
-            Add Date Range
+            {isEditing ? 'Update Date Range' : 'Add Date Range'}
           </Button>
         </DialogFooter>
       </DialogContent>

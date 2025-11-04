@@ -19,7 +19,8 @@ import {
   Save,
   Download,
   Lock,
-  Loader2
+  Loader2,
+  CalendarPlus
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -30,6 +31,7 @@ interface TimetableActionsProps {
   onFormatChange: (format: 'regular' | 'batch') => void;
   selectedPeriods: any[];
   selectedDays: any[];
+  selectedDates?: string[];
 
   // Permissions
   canEdit: boolean;
@@ -43,6 +45,7 @@ interface TimetableActionsProps {
   // Actions
   onConfigurePeriods: () => void;
   onConfigureDays: () => void;
+  onAddDateRange?: () => void;
   onSaveConfiguration: () => void;
   onExportPDF: () => void;
 }
@@ -56,6 +59,7 @@ export function TimetableActions({
   onFormatChange,
   selectedPeriods,
   selectedDays,
+  selectedDates = [],
   canEdit,
   isSuperAdmin,
   hasAttendance,
@@ -63,6 +67,7 @@ export function TimetableActions({
   savingPeriods,
   onConfigurePeriods,
   onConfigureDays,
+  onAddDateRange,
   onSaveConfiguration,
   onExportPDF
 }: TimetableActionsProps) {
@@ -147,6 +152,17 @@ export function TimetableActions({
           Configure Days
           <Badge variant="secondary" className="ml-2">
             {selectedDays.length}
+          </Badge>
+        </Button>
+      )}
+
+      {/* Add Date Range (Batch Mode Only) */}
+      {timetableFormat === 'batch' && canEdit && onAddDateRange && (
+        <Button variant="outline" size="sm" onClick={onAddDateRange}>
+          <CalendarPlus className="h-4 w-4 mr-2" />
+          Add Date Range
+          <Badge variant="secondary" className="ml-2">
+            {selectedDates.length}
           </Badge>
         </Button>
       )}

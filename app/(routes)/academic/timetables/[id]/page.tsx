@@ -229,6 +229,8 @@ export default function TimetableDetailPage({
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(
     null
   );
+  // State to track which date range is being edited
+  const [pendingEditRangeMarker, setPendingEditRangeMarker] = useState<string | null>(null);
 
   // ===================================
   // Helper Functions for Period Management
@@ -729,38 +731,62 @@ export default function TimetableDetailPage({
       const startDateStr = startDate.toISOString().split('T')[0];
       const endDateStr = endDate.toISOString().split('T')[0];
 
+      // If we're editing, we need to exclude the current range from validation
+      const datesToValidate = pendingEditRangeMarker
+        ? selectedDates.filter(d => d !== pendingEditRangeMarker)
+        : selectedDates;
+
       // Validate date range
       const validation = validateDateRange(
         startDateStr,
         endDateStr,
-        selectedDates
+        datesToValidate
       );
       if (!validation.valid) {
         toast.error(validation.message || 'Invalid date range');
         return;
       }
 
-      // Check for dates with slots
+      // Check for dates with slots (only if not editing, or if dates changed)
       const slotCheck = checkDatesWithSlots(startDateStr, endDateStr, slots);
       if (slotCheck.hasSlots) {
         toast.error(slotCheck.message || 'Some dates already have slots');
         return;
       }
 
-      // Add range marker
+      // If editing, remove the old range first
+      let newSelectedDates = [...selectedDates];
+      let newDateRanges = [...dateRanges];
+
+      if (pendingEditRangeMarker) {
+        // Remove old range
+        newSelectedDates = newSelectedDates.filter(d => d !== pendingEditRangeMarker);
+        const oldParsed = parseRangeMarker(pendingEditRangeMarker);
+        if (oldParsed) {
+          newDateRanges = newDateRanges.filter(
+            r => !(r.start === oldParsed.start && r.end === oldParsed.end)
+          );
+        }
+      }
+
+      // Add new/updated range marker
       const rangeMarker = createRangeMarker(startDateStr, endDateStr);
-      setSelectedDates([...selectedDates, rangeMarker]);
-      setDateRanges((prev) => [
-        ...prev,
-        { start: startDateStr, end: endDateStr }
-      ]);
+      newSelectedDates.push(rangeMarker);
+      newDateRanges.push({ start: startDateStr, end: endDateStr });
+
+      setSelectedDates(newSelectedDates);
+      setDateRanges(newDateRanges);
       setHasUnsavedChanges(true);
 
       const days = calculateDaysInRange(startDateStr, endDateStr);
-      toast.success(
-        `Date range from ${startDateStr} to ${endDateStr} (${days} days) has been added. Click 'Save Configuration' to confirm.`
-      );
+      const message = pendingEditRangeMarker
+        ? `Date range updated to ${startDateStr} to ${endDateStr} (${days} days). Click 'Save Configuration' to confirm.`
+        : `Date range from ${startDateStr} to ${endDateStr} (${days} days) has been added. Click 'Save Configuration' to confirm.`;
 
+      toast.success(message);
+
+      // Reset edit state and close dialog
+      setPendingEditRangeMarker(null);
       addDateRangeDialog.close();
     },
     [
@@ -768,7 +794,9 @@ export default function TimetableDetailPage({
       slots,
       addDateRangeDialog,
       setSelectedDates,
-      setHasUnsavedChanges
+      setHasUnsavedChanges,
+      pendingEditRangeMarker,
+      dateRanges
     ]
   );
 
@@ -794,6 +822,28 @@ export default function TimetableDetailPage({
       );
     },
     [selectedDates, setSelectedDates, setHasUnsavedChanges]
+  );
+
+  const editDateRange = useCallback(
+    (rangeMarker: string) => {
+      // Parse the existing range marker to get start and end dates
+      const parsed = parseRangeMarker(rangeMarker);
+      if (parsed) {
+        // Set the dates in the dialog
+        addDateRangeDialog.setStartDate(new Date(parsed.start));
+        addDateRangeDialog.setEndDate(new Date(parsed.end));
+
+        // Store the range marker being edited so we can remove it when updating
+        // We'll use a state variable to track this
+        setPendingEditRangeMarker(rangeMarker);
+
+        // Open the dialog
+        addDateRangeDialog.open();
+      } else {
+        toast.error('Unable to edit this date range. Please try removing and adding it again.');
+      }
+    },
+    [addDateRangeDialog]
   );
 
   // ===================================
@@ -942,6 +992,7 @@ export default function TimetableDetailPage({
           onFormatChange={handleFormatChange}
           selectedPeriods={selectedPeriods}
           selectedDays={selectedDays}
+          selectedDates={selectedDates}
           canEdit={canEditTimetable}
           isSuperAdmin={isSuperAdmin}
           hasAttendance={hasAttendance}
@@ -949,6 +1000,7 @@ export default function TimetableDetailPage({
           savingPeriods={savingPeriods}
           onConfigurePeriods={periodSelectorDialog.open}
           onConfigureDays={dayConfigDialog.open}
+          onAddDateRange={addDateRangeDialog.open}
           onSaveConfiguration={savePeriodSelections}
           onExportPDF={handleExportPDF}
         />
@@ -1000,6 +1052,8 @@ export default function TimetableDetailPage({
               onSlotDelete={(date, period, existingSlot) => {
                 requestSlotDeletion(date, period, existingSlot);
               }}
+              onRemoveDate={removeDateRange}
+              onEditDate={editDateRange}
               lockedPeriods={markedPeriods}
             />
           )}
@@ -1173,7 +1227,11 @@ export default function TimetableDetailPage({
           isOpen={addDateRangeDialog.isOpen}
           startDate={addDateRangeDialog.data.startDate}
           endDate={addDateRangeDialog.data.endDate}
-          onClose={addDateRangeDialog.close}
+          isEditing={!!pendingEditRangeMarker}
+          onClose={() => {
+            addDateRangeDialog.close();
+            setPendingEditRangeMarker(null);
+          }}
           onStartDateChange={(date) => addDateRangeDialog.setStartDate(date)}
           onEndDateChange={(date) => addDateRangeDialog.setEndDate(date)}
           onAdd={handleAddDateRange}
