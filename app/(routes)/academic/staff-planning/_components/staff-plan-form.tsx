@@ -279,8 +279,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
               await OrganizationService.getInstitutionNames(true);
             setInstitutions(institutionsData);
 
-            // Pre-fill form if user is an HOD
-            if (userProfile?.role === 'hod' && userProfile.institution_id) {
+            // Pre-fill form if user has institution_id (HOD, regular users)
+            if (userProfile?.institution_id) {
               form.setValue('institution_id', userProfile.institution_id);
             }
 

@@ -110,10 +110,12 @@ export function StaffSearchSelector({
   useEffect(() => {
     async function fetchInstitutionStaff() {
       if (!institutionId) {
+        console.warn('[staff-planning/staff-search-selector] No institution ID provided');
         setFetchedStaff([]);
         return;
       }
 
+      console.log('[staff-planning/staff-search-selector] Fetching staff for institution:', institutionId);
       setIsLoading(true);
       try {
         const result = await StaffService.getStaffViaAPI({
@@ -121,9 +123,10 @@ export function StaffSearchSelector({
           limit: 1000,
           isActive: true
         });
+        console.log('[staff-planning/staff-search-selector] Fetched staff count:', result.data.length);
         setFetchedStaff(result.data as StaffMember[]);
       } catch (error) {
-        console.error('Failed to fetch institution staff:', error);
+        console.error('[staff-planning/staff-search-selector] Failed to fetch institution staff:', error);
         setFetchedStaff([]);
       } finally {
         setIsLoading(false);
