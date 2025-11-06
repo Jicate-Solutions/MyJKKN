@@ -71,25 +71,65 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user's institution access
-    const { data: userAccess, error: accessError } = await supabaseAdmin
-      .from('user_institution_access')
-      .select('institution_id, access_type')
-      .eq('user_id', session.user.id)
-      .eq('is_active', true);
+    // Get user profile to check permissions
+    const { data: userProfile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('is_super_admin, role, institution_id')
+      .eq('id', session.user.id)
+      .single();
 
-    if (accessError) {
+    if (profileError) {
       return NextResponse.json(
-        { error: 'Failed to check permissions' },
+        { error: 'Failed to check user permissions' },
         { status: 500 }
       );
     }
 
-    if (!userAccess || userAccess.length === 0) {
-      return NextResponse.json(
-        { error: 'No institution access' },
-        { status: 403 }
-      );
+    const isSuperAdmin = userProfile?.is_super_admin || userProfile?.role === 'super_admin';
+
+    console.log('[/api/staff] User access check:', {
+      userId: session.user.id,
+      email: session.user.email,
+      isSuperAdmin,
+      profileInstitutionId: userProfile?.institution_id
+    });
+
+    // Get accessible institution IDs (skip if super admin)
+    let accessibleInstitutionIds: string[] = [];
+
+    if (!isSuperAdmin) {
+      // Primary access: User's own institution (from profiles.institution_id)
+      if (userProfile?.institution_id) {
+        accessibleInstitutionIds.push(userProfile.institution_id);
+        console.log('[/api/staff] Added primary institution:', userProfile.institution_id);
+      }
+
+      // Additional access: Institutions granted via user_institution_access (for billing module)
+      const { data: additionalAccess } = await supabaseAdmin
+        .from('user_institution_access')
+        .select('institution_id')
+        .eq('user_id', session.user.id)
+        .eq('is_active', true);
+
+      if (additionalAccess && additionalAccess.length > 0) {
+        // Add additional institutions (avoiding duplicates)
+        const additionalIds = additionalAccess.map((a) => a.institution_id);
+        accessibleInstitutionIds = [...new Set([...accessibleInstitutionIds, ...additionalIds])];
+        console.log('[/api/staff] Added additional institutions from user_institution_access:', additionalIds.length);
+      }
+
+      console.log('[/api/staff] Total accessible institutions:', accessibleInstitutionIds.length);
+
+      // User must have at least their primary institution
+      if (accessibleInstitutionIds.length === 0) {
+        console.warn('[/api/staff] User has no institution access');
+        return NextResponse.json(
+          { error: 'No institution access' },
+          { status: 403 }
+        );
+      }
+    } else {
+      console.log('[/api/staff] Super admin - skipping institution filtering');
     }
 
     // Get query parameters
@@ -113,9 +153,10 @@ export async function GET(request: NextRequest) {
       { count: 'exact' }
     );
 
-    // Filter by user's institution access
-    const accessibleInstitutionIds = userAccess.map((a) => a.institution_id);
-    query = query.in('institution_id', accessibleInstitutionIds);
+    // Filter by user's institution access (skip if super admin)
+    if (!isSuperAdmin && accessibleInstitutionIds.length > 0) {
+      query = query.in('institution_id', accessibleInstitutionIds);
+    }
 
     // Apply filters
     if (institutionId) {
