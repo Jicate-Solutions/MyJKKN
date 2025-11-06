@@ -173,7 +173,7 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
                       When all required fields are filled, user accounts are
                       created automatically
                     </li>
-                    <li>You'll see a detailed report after upload</li>
+                    <li>You&apos;ll see a detailed report after upload</li>
                   </ul>
                 </AlertDescription>
               </Alert>

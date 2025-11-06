@@ -102,9 +102,13 @@ export function BulkEditLearners({ onSuccess }: BulkEditLearnersProps) {
       setProgress(100);
     } catch (err) {
       console.error('Preview generation error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to generate preview');
+      setError(
+        err instanceof Error ? err.message : 'Failed to generate preview'
+      );
       setDialogState('upload');
-      toast.error(err instanceof Error ? err.message : 'Failed to generate preview');
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to generate preview'
+      );
     }
   };
 
@@ -153,7 +157,9 @@ export function BulkEditLearners({ onSuccess }: BulkEditLearnersProps) {
       console.error('Apply changes error:', err);
       setError(err instanceof Error ? err.message : 'Failed to apply changes');
       setDialogState('preview');
-      toast.error(err instanceof Error ? err.message : 'Failed to apply changes');
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to apply changes'
+      );
     }
   };
 
@@ -309,8 +315,9 @@ export function BulkEditLearners({ onSuccess }: BulkEditLearnersProps) {
           <AlertCircle className='h-4 w-4' />
           <AlertTitle>Review Carefully</AlertTitle>
           <AlertDescription>
-            Please review all changes above. Once you click "Apply Changes", these
-            updates will be permanently saved to the database.
+            Please review all changes above. Once you click &quot;Apply
+            Changes&quot;, these updates will be permanently saved to the
+            database.
           </AlertDescription>
         </Alert>
       </div>
@@ -449,7 +456,8 @@ export function BulkEditLearners({ onSuccess }: BulkEditLearnersProps) {
               'Upload your edited Excel or CSV file to preview changes'}
             {dialogState === 'preview' &&
               'Review the changes below before applying them'}
-            {dialogState === 'processing' && 'Please wait while we process your request'}
+            {dialogState === 'processing' &&
+              'Please wait while we process your request'}
             {dialogState === 'results' && 'Bulk edit operation completed'}
           </DialogDescription>
         </DialogHeader>
@@ -472,10 +480,16 @@ export function BulkEditLearners({ onSuccess }: BulkEditLearnersProps) {
           )}
           {dialogState === 'preview' && (
             <>
-              <Button variant='outline' onClick={() => setDialogState('upload')}>
+              <Button
+                variant='outline'
+                onClick={() => setDialogState('upload')}
+              >
                 Back
               </Button>
-              <Button onClick={handleApplyChanges} className='bg-green-600 hover:bg-green-700'>
+              <Button
+                onClick={handleApplyChanges}
+                className='bg-green-600 hover:bg-green-700'
+              >
                 Apply Changes
               </Button>
             </>
