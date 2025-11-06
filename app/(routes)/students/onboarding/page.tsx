@@ -82,8 +82,9 @@ import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import { StudentService } from '@/lib/services/student/student-service';
 import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { DownloadNewStudentTemplateButton } from '../_components/download-new-student-template-button';
 import { BulkCreateStudents } from '../_components/bulk-create-students';
+import { BulkUpdateStudents } from '../_components/bulk-update-students';
+import { AdvancedFeaturesMenu } from '../_components/advanced-features-menu';
 import { useQuery } from '@tanstack/react-query';
 
 // Define the DateRange type
@@ -179,7 +180,7 @@ export default function StudentOnboardingPage() {
         const { data, error } = await supabase
           .from('students')
           .select(
-            'id, student_name, is_profile_complete, college_email, roll_number'
+            'id, first_name, last_name, is_profile_complete, college_email, roll_number'
           )
           .eq('is_profile_complete', false)
           .limit(5);
@@ -930,28 +931,33 @@ export default function StudentOnboardingPage() {
   }
 
   return (
-    <ContentLayout title='Student Onboarding'>
+    <ContentLayout title='Learners Onboarding'>
       <div className='space-y-6'>
         <PageBreadcrumb
           items={[
             { label: 'Home', href: '/' },
             { label: 'Students', href: '/students' },
-            { label: 'Student Onboarding' }
+            { label: 'Learners Onboarding' }
           ]}
         />
 
         <div className='flex flex-col sm:flex-row justify-between items-start gap-4'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>
-              Student Onboarding
+              Learners Onboarding
             </h1>
             <p className='text-muted-foreground'>
-              Complete student profiles to promote them to the main student list
+              Complete student profiles to promote them to the main learners
+              list
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
-            {(isSuperAdmin || canAccess('students', 'create')) && <DownloadNewStudentTemplateButton />}
-            {(isSuperAdmin || canAccess('students', 'create')) && <BulkCreateStudents />}
+            {/* Advanced Features Dropdown Menu */}
+            <AdvancedFeaturesMenu
+              filters={filters}
+              onRefetch={refetch}
+            />
+
             {canViewOnboarding && (
               <Button
                 variant='default'
@@ -959,7 +965,7 @@ export default function StudentOnboardingPage() {
                 className='w-full sm:w-auto'
                 disabled={!canViewOnboarding}
               >
-                View All Students
+                View All Learners
               </Button>
             )}
           </div>
@@ -967,18 +973,18 @@ export default function StudentOnboardingPage() {
 
         <Alert>
           <UserCheck className='h-4 w-4' />
-          <AlertTitle>Incomplete Student Profiles</AlertTitle>
+          <AlertTitle>Incomplete Learner Profiles</AlertTitle>
           <AlertDescription>
-            Students listed here have incomplete profiles. Complete their
+            Learners listed here have incomplete profiles. Complete their
             essential information to promote them to the main list.
           </AlertDescription>
         </Alert>
 
         <Card>
           <CardHeader>
-            <CardTitle>Students Pending Onboarding</CardTitle>
+            <CardTitle>Learners Pending Onboarding</CardTitle>
             <CardDescription>
-              Students with incomplete profile information
+              Learners with incomplete profile information
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1403,6 +1409,16 @@ export default function StudentOnboardingPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Hidden trigger buttons for dialogs */}
+      <div className='hidden'>
+        <span id='update-trigger'>
+          <BulkUpdateStudents onSuccess={refetch} />
+        </span>
+        <span id='create-trigger'>
+          <BulkCreateStudents />
+        </span>
+      </div>
     </ContentLayout>
   );
 }

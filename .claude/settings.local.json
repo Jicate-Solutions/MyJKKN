@@ -60,7 +60,9 @@
       "Bash(python3:*)",
       "Skill(brainstorming)",
       "Skill(writing-plans)",
-      "Skill(nextjs-module-builder)"
+      "Skill(nextjs-module-builder)",
+      "Bash(timeout 30 npx tsc:*)",
+      "Bash(tail:*)"
     ],
     "deny": [],
     "ask": []

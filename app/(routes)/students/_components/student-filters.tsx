@@ -14,9 +14,6 @@ import { RotateCcw, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { StudentsSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { ExportStudents } from './export-students';
-import { BulkCreateStudents } from './bulk-create-students';
-import { DownloadNewStudentTemplateButton } from './download-new-student-template-button';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
@@ -731,17 +728,6 @@ export function StudentFilters({
             </div>
           </CollapsibleContent>
         </Collapsible>
-      </div>
-
-      {/* Action Buttons */}
-      <div className='flex flex-col sm:flex-row gap-2'>
-        {isSuperAdmin && <ExportStudents />}
-        {isSuperAdmin && canAccess('students', 'create') && (
-          <BulkCreateStudents />
-        )}
-        {isSuperAdmin && canAccess('students', 'create') && (
-          <DownloadNewStudentTemplateButton />
-        )}
       </div>
     </div>
   );
