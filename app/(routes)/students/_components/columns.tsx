@@ -29,13 +29,19 @@ export const columns: ColumnDef<Student>[] = [
       />
     ),
     enableSorting: false,
-    enableHiding: false
+    enableHiding: false,
+    size: 50,
+    minSize: 50,
+    maxSize: 50
   },
   {
     accessorKey: 'roll_number',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Roll Number' />
-    )
+    ),
+    size: 60,
+    minSize: 60,
+    maxSize: 60
   },
   {
     accessorKey: 'first_name',

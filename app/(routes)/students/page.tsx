@@ -12,9 +12,7 @@ import { Button } from '@/components/ui/button';
 import { BarChart3, UserCheck, Users2 } from 'lucide-react';
 import { CanView, CanCreate } from '@/components/auth/permission-guard';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
-import { DownloadNewStudentTemplateButton } from './_components/download-new-student-template-button';
-import { BulkCreateStudents } from './_components/bulk-create-students';
-import { BulkUploadStudentImages } from './_components/bulk-upload-student-images';
+import { LearnersActionsMenu } from './_components/learners-actions-menu';
 
 export default function StudentsPage() {
   const router = useRouter();
@@ -58,20 +56,20 @@ export default function StudentsPage() {
   }, [router, searchParams]);
 
   return (
-    <ContentLayout title='Students'>
+    <ContentLayout title='Learners'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Students' },
-          { label: 'Student Management' }
+          { label: 'Learners' },
+          { label: 'Learner Management' }
         ]}
       />
       <div className='space-y-6 mt-4'>
         <div className='flex flex-col sm:flex-row justify-between items-start gap-4'>
           <div>
-            <h1 className='text-2xl font-bold py-1'>Students</h1>
+            <h1 className='text-2xl font-bold py-1'>Learners</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage and view all student records
+              Manage and view all learner records
             </p>
           </div>
           <div className='flex items-center gap-2'>
@@ -102,14 +100,18 @@ export default function StudentsPage() {
           </div>
         </div>
 
-        {/* Bulk Action Buttons */}
-        <CanCreate module='students'>
-          <div className='flex flex-wrap items-center gap-2'>
-            <DownloadNewStudentTemplateButton />
-            <BulkCreateStudents />
-            <BulkUploadStudentImages />
-          </div>
-        </CanCreate>
+        {/* Bulk Operations - Collapsible Menu */}
+        <LearnersActionsMenu
+          filters={{
+            institution: search.institution_id,
+            department: search.department_id,
+            program: search.program_id,
+            semester: search.semester_id,
+            section: search.section_id,
+            status: search.status,
+            is_profile_complete: search.is_profile_complete
+          }}
+        />
 
         <StudentFilters
           searchParams={search}

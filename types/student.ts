@@ -223,7 +223,7 @@ export interface StudentFilters {
   created_from?: Date;
   created_to?: Date;
   is_active?: boolean;
-  is_profile_complete?: boolean;
+  is_profile_complete?: boolean | string; // Can be boolean from schema or string from URL params
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -368,4 +368,210 @@ export interface DashboardFilters {
   departmentId?: string;
   programId?: string;
   status?: string[];
+}
+
+// Bulk Update Types
+export interface BulkUpdateStudentDto {
+  id: string; // Required for matching existing students
+  roll_number?: string;
+  college_email?: string;
+  academic_year_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  student_photo_url?: string;
+}
+
+export interface BulkUpdateResult {
+  success: string[]; // Student IDs successfully updated
+  skipped: Array<{
+    id: string;
+    studentName: string;
+    field: string;
+    currentValue: any;
+    attemptedValue: any;
+    reason: string;
+  }>;
+  failed: Array<{
+    id: string;
+    studentName: string;
+    error: string;
+  }>;
+  userCreation: {
+    successful: Array<{
+      studentId: string;
+      studentName: string;
+      email: string;
+    }>;
+    failed: Array<{
+      studentId: string;
+      studentName: string;
+      email: string;
+      error: string;
+    }>;
+    skipped: Array<{
+      studentId: string;
+      studentName: string;
+      reason: string;
+    }>;
+  };
+  summary: {
+    total: number;
+    updated: number;
+    skipped: number;
+    failed: number;
+    usersCreated: number;
+    fieldsUpdated: {
+      roll_number: number;
+      college_email: number;
+      academic_year_id: number;
+      semester_id: number;
+      section_id: number;
+      student_photo_url: number;
+    };
+  };
+}
+
+// ============================================
+// Bulk Edit Types (Learners Page)
+// ============================================
+
+/**
+ * Field-level change tracking for bulk edit preview
+ */
+export interface FieldChange {
+  fieldName: string;           // Technical field name (e.g., "roll_number")
+  fieldLabel: string;          // Human-readable label (e.g., "Roll Number")
+  oldValue: any;               // Current value in database
+  newValue: any;               // New value from uploaded file
+  changeType: 'update' | 'add' | 'remove';
+}
+
+/**
+ * Student-level changes for bulk edit preview
+ */
+export interface StudentChanges {
+  studentId: string;
+  studentName: string;
+  rollNumber?: string;
+  photoUrl?: string;
+  changes: FieldChange[];      // All field changes for this student
+}
+
+/**
+ * Preview response structure showing what will be changed
+ */
+export interface BulkEditPreview {
+  students: StudentChanges[];
+  summary: {
+    totalStudents: number;
+    totalChanges: number;
+    changesByField: Record<string, number>; // e.g., { "roll_number": 5, "college_email": 3 }
+  };
+}
+
+/**
+ * Result structure after applying bulk edit changes
+ */
+export interface BulkEditResult {
+  success: Array<{
+    studentId: string;
+    studentName: string;
+    fieldsUpdated: string[];
+  }>;
+  failed: Array<{
+    studentId: string;
+    studentName: string;
+    error: string;
+  }>;
+  summary: {
+    total: number;
+    updated: number;
+    failed: number;
+  };
+}
+
+/**
+ * DTO for bulk edit - contains student ID and fields to update
+ */
+export interface BulkEditStudentDto {
+  id: string; // Required for matching existing student
+
+  // Basic Information
+  first_name?: string;
+  last_name?: string;
+  date_of_birth?: string;
+  gender?: string;
+  student_mobile?: string;
+  student_email?: string;
+
+  // Academic Fields
+  roll_number?: string;
+  college_email?: string;
+  academic_year_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  status?: 'active' | 'inactive' | 'pending' | 'exited' | 'graduated';
+  student_photo_url?: string;
+
+  // Parent Information
+  father_name?: string;
+  father_occupation?: string;
+  father_mobile?: string;
+  mother_name?: string;
+  mother_occupation?: string;
+  mother_mobile?: string;
+
+  // Demographics
+  religion?: string;
+  community?: string;
+  caste?: string;
+  annual_income?: string;
+  aadhar_number?: string;
+
+  // Previous Education
+  last_school?: string;
+  board_of_study?: string;
+  tenth_marks?: {
+    max_marks: string;
+    obtained_marks: string;
+    percentage: string;
+  };
+  twelfth_marks?: {
+    group: string;
+    max_marks: string;
+    obtained_marks: string;
+    percentage: string;
+    subjects: Record<string, string>;
+  };
+  engineering_cutoff_marks?: string;
+  medical_cutoff_marks?: string;
+  neet_roll_number?: string;
+  neet_score?: string;
+
+  // Counseling
+  counseling_applied?: boolean;
+  counseling_number?: string;
+  first_graduate?: boolean;
+  quota?: string;
+  category?: string;
+
+  // Address
+  permanent_address_street?: string;
+  permanent_address_taluk?: string;
+  permanent_address_district?: string;
+  permanent_address_pin_code?: string;
+  permanent_address_state?: string;
+
+  // Campus Life
+  accommodation_type?: string;
+  hostel_type?: string;
+  food_type?: string;
+  bus_required?: boolean;
+  bus_route?: string;
+  bus_pickup_location?: string;
+
+  // Reference
+  reference_type?: string;
+  reference_name?: string;
+  reference_contact?: string;
 }

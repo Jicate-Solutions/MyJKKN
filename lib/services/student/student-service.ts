@@ -4,7 +4,14 @@ import {
   StudentFilters,
   StudentListResponse,
   CreateStudentDto,
-  UpdateStudentDto
+  UpdateStudentDto,
+  BulkUpdateStudentDto,
+  BulkUpdateResult,
+  BulkEditStudentDto,
+  BulkEditPreview,
+  BulkEditResult,
+  StudentChanges,
+  FieldChange
 } from '@/types/student';
 import { CreateUserRequest } from '@/types/users';
 import toast from 'react-hot-toast';
@@ -2245,6 +2252,532 @@ export class StudentService {
         });
       });
       return { success, failed };
+    }
+  }
+
+  static async bulkUpdateStudents(
+    updates: BulkUpdateStudentDto[],
+    supabaseClient?: any,
+    onProgress?: (progress: number) => void
+  ): Promise<BulkUpdateResult> {
+    // Use provided client or fallback to class client
+    const supabase = supabaseClient || this.supabase;
+    const result: BulkUpdateResult = {
+      success: [],
+      skipped: [],
+      failed: [],
+      userCreation: {
+        successful: [],
+        failed: [],
+        skipped: []
+      },
+      summary: {
+        total: updates.length,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        usersCreated: 0,
+        fieldsUpdated: {
+          roll_number: 0,
+          college_email: 0,
+          academic_year_id: 0,
+          semester_id: 0,
+          section_id: 0,
+          student_photo_url: 0
+        }
+      }
+    };
+
+    try {
+      // Validate email format if provided
+      const emailRegex = /^[^\s@]+@jkkn\.ac\.in$/i;
+
+      // Process in batches of 50
+      const chunkSize = 50;
+      let processedCount = 0;
+
+      for (let i = 0; i < updates.length; i += chunkSize) {
+        const chunk = updates.slice(i, i + chunkSize);
+
+        // Process each student in the chunk
+        for (const update of chunk) {
+          try {
+            // Fetch current student data
+            const { data: currentStudent, error: fetchError } =
+              await supabase
+                .from('students')
+                .select(
+                  'id, first_name, last_name, roll_number, college_email, academic_year_id, semester_id, section_id, student_photo_url, is_profile_complete'
+                )
+                .eq('id', update.id)
+                .single();
+
+            if (fetchError || !currentStudent) {
+              result.failed.push({
+                id: update.id,
+                studentName: `Student ID: ${update.id}`,
+                error: `Student not found in database. Please verify the Student ID is correct.`
+              });
+              result.summary.failed++;
+              continue;
+            }
+
+            const studentName = `${currentStudent.first_name} ${
+              currentStudent.last_name || ''
+            }`.trim();
+
+            // Build update payload - only update fields that are currently empty
+            const fieldsToUpdate: any = {};
+            let hasUpdates = false;
+
+            // Check each field
+            const fields: Array<keyof BulkUpdateStudentDto> = [
+              'roll_number',
+              'college_email',
+              'academic_year_id',
+              'semester_id',
+              'section_id',
+              'student_photo_url'
+            ];
+
+            for (const field of fields) {
+              if (field === 'id') continue;
+
+              const newValue = update[field];
+              const currentValue = currentStudent[field];
+
+              // If new value is provided and not empty
+              if (
+                newValue !== undefined &&
+                newValue !== null &&
+                newValue !== ''
+              ) {
+                // If current value is empty/null, allow update
+                if (
+                  currentValue === null ||
+                  currentValue === undefined ||
+                  currentValue === ''
+                ) {
+                  // Validate email format
+                  if (field === 'college_email') {
+                    if (!emailRegex.test(newValue as string)) {
+                      result.skipped.push({
+                        id: update.id,
+                        studentName,
+                        field,
+                        currentValue,
+                        attemptedValue: newValue,
+                        reason: 'Invalid email format (must end with @jkkn.ac.in)'
+                      });
+                      result.summary.skipped++;
+                      continue;
+                    }
+                  }
+
+                  fieldsToUpdate[field] = newValue;
+                  result.summary.fieldsUpdated[
+                    field as keyof typeof result.summary.fieldsUpdated
+                  ]++;
+                  hasUpdates = true;
+                } else {
+                  // Field already has a value, skip
+                  result.skipped.push({
+                    id: update.id,
+                    studentName,
+                    field,
+                    currentValue,
+                    attemptedValue: newValue,
+                    reason: 'Field already has a value'
+                  });
+                  result.summary.skipped++;
+                }
+              }
+            }
+
+            // If no fields to update, skip this student
+            if (!hasUpdates) {
+              continue;
+            }
+
+            // Calculate profile completeness with merged data
+            const mergedData = { ...currentStudent, ...fieldsToUpdate };
+            const isNowComplete = this.calculateProfileCompleteness(mergedData);
+
+            // Update the student record
+            const { error: updateError } = await supabase
+              .from('students')
+              .update({
+                ...fieldsToUpdate,
+                is_profile_complete: isNowComplete,
+                updated_at: new Date().toISOString(),
+                updated_by: (await supabase.auth.getUser()).data.user?.id
+              })
+              .eq('id', update.id);
+
+            if (updateError) {
+              result.failed.push({
+                id: update.id,
+                studentName,
+                error: `Update failed: ${updateError.message}`
+              });
+              result.summary.failed++;
+              continue;
+            }
+
+            // Mark as successfully updated
+            result.success.push(update.id);
+            result.summary.updated++;
+
+            // Check if profile just became complete and trigger user creation
+            console.log('[bulkUpdateStudents] Checking user creation:', {
+              studentId: update.id,
+              isNowComplete,
+              wasComplete: currentStudent.is_profile_complete,
+              hasEmail: !!(fieldsToUpdate.college_email || currentStudent.college_email)
+            });
+
+            if (
+              isNowComplete &&
+              !currentStudent.is_profile_complete &&
+              (fieldsToUpdate.college_email || currentStudent.college_email)
+            ) {
+              const email =
+                fieldsToUpdate.college_email || currentStudent.college_email;
+
+              console.log('[bulkUpdateStudents] Calling complete-onboarding for:', {
+                studentId: update.id,
+                email
+              });
+
+              try {
+                // Use full URL for server-side fetch
+                const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+                const response = await fetch(
+                  `${baseUrl}/api/students/complete-onboarding`,
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ student_id: update.id })
+                  }
+                );
+
+                console.log('[bulkUpdateStudents] API response:', {
+                  ok: response.ok,
+                  status: response.status
+                });
+
+                if (response.ok) {
+                  console.log('[bulkUpdateStudents] User created successfully for:', email);
+                  result.userCreation.successful.push({
+                    studentId: update.id,
+                    studentName,
+                    email
+                  });
+                  result.summary.usersCreated++;
+                } else {
+                  const errorData = await response.json();
+                  console.error('[bulkUpdateStudents] User creation failed:', errorData);
+                  result.userCreation.failed.push({
+                    studentId: update.id,
+                    studentName,
+                    email,
+                    error:
+                      errorData.error || 'Failed to create user account'
+                  });
+                }
+              } catch (apiError) {
+                console.error('[bulkUpdateStudents] API call error:', apiError);
+                result.userCreation.failed.push({
+                  studentId: update.id,
+                  studentName,
+                  email,
+                  error:
+                    apiError instanceof Error
+                      ? apiError.message
+                      : 'Unknown error during user creation'
+                });
+              }
+            } else if (isNowComplete && currentStudent.is_profile_complete) {
+              // Profile was already complete
+              result.userCreation.skipped.push({
+                studentId: update.id,
+                studentName,
+                reason: 'Profile already complete'
+              });
+            } else if (!isNowComplete) {
+              // Profile still incomplete
+              result.userCreation.skipped.push({
+                studentId: update.id,
+                studentName,
+                reason: 'Profile still incomplete after update'
+              });
+            }
+          } catch (error) {
+            result.failed.push({
+              id: update.id,
+              studentName: 'Unknown',
+              error:
+                error instanceof Error ? error.message : 'Unknown error'
+            });
+            result.summary.failed++;
+          }
+
+          processedCount++;
+          if (onProgress) {
+            const progress = (processedCount / updates.length) * 100;
+            onProgress(progress);
+          }
+        }
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error in bulk update:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate preview of bulk edit changes without applying to database
+   * This compares uploaded data with current database values
+   */
+  static async generateBulkEditPreview(
+    updates: BulkEditStudentDto[],
+    supabaseClient?: any,
+    onProgress?: (progress: number) => void
+  ): Promise<BulkEditPreview> {
+    try {
+      const supabase = supabaseClient || createClientSupabaseClient();
+      const studentChanges: StudentChanges[] = [];
+      const changesByField: Record<string, number> = {};
+
+      // Field labels for human-readable display
+      const FIELD_LABELS: Record<string, string> = {
+        first_name: 'First Name',
+        last_name: 'Last Name',
+        date_of_birth: 'Date of Birth',
+        gender: 'Gender',
+        student_mobile: 'Student Mobile',
+        student_email: 'Student Email',
+        roll_number: 'Roll Number',
+        college_email: 'College Email',
+        academic_year_id: 'Academic Year',
+        semester_id: 'Semester',
+        section_id: 'Section',
+        status: 'Status',
+        student_photo_url: 'Photo URL',
+        father_name: 'Father Name',
+        father_occupation: 'Father Occupation',
+        father_mobile: 'Father Mobile',
+        mother_name: 'Mother Name',
+        mother_occupation: 'Mother Occupation',
+        mother_mobile: 'Mother Mobile',
+        religion: 'Religion',
+        community: 'Community',
+        caste: 'Caste',
+        annual_income: 'Annual Income',
+        aadhar_number: 'Aadhar Number',
+        last_school: 'Last School',
+        board_of_study: 'Board of Study',
+        tenth_marks: 'Tenth Marks',
+        twelfth_marks: 'Twelfth Marks',
+        engineering_cutoff_marks: 'Engineering Cutoff',
+        medical_cutoff_marks: 'Medical Cutoff',
+        neet_roll_number: 'NEET Roll Number',
+        neet_score: 'NEET Score',
+        counseling_applied: 'Counseling Applied',
+        counseling_number: 'Counseling Number',
+        first_graduate: 'First Graduate',
+        quota: 'Quota',
+        category: 'Category',
+        permanent_address_street: 'Address Street',
+        permanent_address_taluk: 'Address Taluk',
+        permanent_address_district: 'Address District',
+        permanent_address_pin_code: 'Address PIN Code',
+        permanent_address_state: 'Address State',
+        accommodation_type: 'Accommodation Type',
+        hostel_type: 'Hostel Type',
+        food_type: 'Food Type',
+        bus_required: 'Bus Required',
+        bus_route: 'Bus Route',
+        bus_pickup_location: 'Bus Pickup Location',
+        reference_type: 'Reference Type',
+        reference_name: 'Reference Name',
+        reference_contact: 'Reference Contact'
+      };
+
+      // Process each student update
+      for (let i = 0; i < updates.length; i++) {
+        const update = updates[i];
+
+        // Fetch current student data
+        const { data: currentStudent, error } = await supabase
+          .from('students')
+          .select('*')
+          .eq('id', update.id)
+          .single();
+
+        if (error || !currentStudent) {
+          console.warn(`Student not found: ${update.id}`);
+          continue;
+        }
+
+        // Compare each field
+        const changes: FieldChange[] = [];
+
+        Object.keys(update).forEach((fieldName) => {
+          if (fieldName === 'id') return; // Skip ID field
+
+          const oldValue = currentStudent[fieldName];
+          const newValue = (update as any)[fieldName];
+
+          // Normalize values for comparison
+          const normalizeValue = (val: any) => {
+            if (val === null || val === undefined || val === '') return null;
+            if (typeof val === 'object') return JSON.stringify(val);
+            return String(val);
+          };
+
+          const normalizedOld = normalizeValue(oldValue);
+          const normalizedNew = normalizeValue(newValue);
+
+          // Skip if no change
+          if (normalizedOld === normalizedNew) return;
+
+          // Determine change type
+          let changeType: 'update' | 'add' | 'remove';
+          if (!normalizedOld && normalizedNew) changeType = 'add';
+          else if (normalizedOld && !normalizedNew) changeType = 'remove';
+          else changeType = 'update';
+
+          changes.push({
+            fieldName,
+            fieldLabel: FIELD_LABELS[fieldName] || fieldName,
+            oldValue,
+            newValue,
+            changeType
+          });
+
+          // Track by field
+          changesByField[fieldName] = (changesByField[fieldName] || 0) + 1;
+        });
+
+        // Only add student if there are changes
+        if (changes.length > 0) {
+          studentChanges.push({
+            studentId: currentStudent.id,
+            studentName: `${currentStudent.first_name} ${currentStudent.last_name || ''}`.trim(),
+            rollNumber: currentStudent.roll_number,
+            photoUrl: currentStudent.student_photo_url,
+            changes
+          });
+        }
+
+        // Report progress
+        if (onProgress) {
+          const progress = ((i + 1) / updates.length) * 100;
+          onProgress(progress);
+        }
+      }
+
+      return {
+        students: studentChanges,
+        summary: {
+          totalStudents: studentChanges.length,
+          totalChanges: studentChanges.reduce(
+            (sum, s) => sum + s.changes.length,
+            0
+          ),
+          changesByField
+        }
+      };
+    } catch (error) {
+      console.error('Error generating bulk edit preview:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Apply confirmed bulk edit changes to database
+   * This updates student records with the provided data
+   */
+  static async applyBulkEdit(
+    updates: BulkEditStudentDto[],
+    supabaseClient?: any,
+    onProgress?: (progress: number) => void
+  ): Promise<BulkEditResult> {
+    try {
+      const supabase = supabaseClient || createClientSupabaseClient();
+      const success: BulkEditResult['success'] = [];
+      const failed: BulkEditResult['failed'] = [];
+
+      const BATCH_SIZE = 50;
+      let processedCount = 0;
+
+      // Process in batches
+      for (let i = 0; i < updates.length; i += BATCH_SIZE) {
+        const batch = updates.slice(i, i + BATCH_SIZE);
+
+        for (const update of batch) {
+          try {
+            // Extract ID and fields to update
+            const { id, ...fieldsToUpdate } = update;
+
+            // Get list of fields being updated
+            const fieldsUpdated = Object.keys(fieldsToUpdate);
+
+            // Update student record
+            const { error } = await supabase
+              .from('students')
+              .update(fieldsToUpdate)
+              .eq('id', id);
+
+            if (error) throw error;
+
+            // Get student name for result
+            const { data: student } = await supabase
+              .from('students')
+              .select('first_name, last_name')
+              .eq('id', id)
+              .single();
+
+            success.push({
+              studentId: id,
+              studentName: student
+                ? `${student.first_name} ${student.last_name || ''}`.trim()
+                : 'Unknown',
+              fieldsUpdated
+            });
+          } catch (error) {
+            failed.push({
+              studentId: update.id,
+              studentName: update.first_name || 'Unknown',
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+
+          processedCount++;
+          if (onProgress) {
+            const progress = (processedCount / updates.length) * 100;
+            onProgress(progress);
+          }
+        }
+      }
+
+      return {
+        success,
+        failed,
+        summary: {
+          total: updates.length,
+          updated: success.length,
+          failed: failed.length
+        }
+      };
+    } catch (error) {
+      console.error('Error applying bulk edit:', error);
+      throw error;
     }
   }
 }
