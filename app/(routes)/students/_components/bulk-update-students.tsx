@@ -163,7 +163,9 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
           `Found ${data.summary.fieldsWithErrors} field(s) with validation errors. Please review below.`
         );
       } else {
-        toast.success(`Preview ready! ${data.summary.validUpdates} students will be updated.`);
+        toast.success(
+          `Preview ready! ${data.summary.validUpdates} students will be updated.`
+        );
       }
     } catch (error) {
       console.error('Error generating preview:', error);
@@ -219,7 +221,9 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
           }`
         );
       } else {
-        toast('No students were updated. Check the results for details.', { icon: 'ℹ️' });
+        toast('No students were updated. Check the results for details.', {
+          icon: 'ℹ️'
+        });
       }
 
       if (onSuccess) {
@@ -276,7 +280,10 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
                 <AlertDescription>
                   <ul className='list-disc list-inside mt-2 space-y-1 text-sm'>
                     <li>Upload your file to see a preview of all changes</li>
-                    <li>Only EMPTY fields will be updated (existing data won't be overwritten)</li>
+                    <li>
+                      Only EMPTY fields will be updated (existing data
+                      won&apos;t be overwritten)
+                    </li>
                     <li>Validation errors will be highlighted in red</li>
                     <li>Review and confirm before applying updates</li>
                   </ul>
@@ -445,8 +452,9 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
                   <AlertTriangle className='h-4 w-4' />
                   <AlertTitle>Validation Errors Found</AlertTitle>
                   <AlertDescription>
-                    {previewData.summary.fieldsWithErrors} field(s) have validation errors.
-                    Please fix these in your file before uploading, or the invalid fields will be skipped.
+                    {previewData.summary.fieldsWithErrors} field(s) have
+                    validation errors. Please fix these in your file before
+                    uploading, or the invalid fields will be skipped.
                   </AlertDescription>
                 </Alert>
               )}
@@ -472,12 +480,18 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
                                 <CheckCircle className='h-5 w-5 text-green-500 flex-shrink-0' />
                               )}
                               <div className='flex-1 text-left'>
-                                <div className='font-medium'>{student.studentName}</div>
+                                <div className='font-medium'>
+                                  {student.studentName}
+                                </div>
                                 <div className='text-xs text-muted-foreground'>
                                   {student.rollNumber || student.id}
                                 </div>
                               </div>
-                              <Badge variant={student.hasErrors ? 'destructive' : 'default'}>
+                              <Badge
+                                variant={
+                                  student.hasErrors ? 'destructive' : 'default'
+                                }
+                              >
                                 {student.updateCount} updates
                                 {student.validationErrors.length > 0 &&
                                   `, ${student.validationErrors.length} errors`}
@@ -499,7 +513,11 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
                                 {student.updates.map((update, updateIdx) => (
                                   <TableRow
                                     key={updateIdx}
-                                    className={update.status === 'invalid' ? 'bg-red-50' : ''}
+                                    className={
+                                      update.status === 'invalid'
+                                        ? 'bg-red-50'
+                                        : ''
+                                    }
                                   >
                                     <TableCell className='font-medium'>
                                       {update.fieldLabel}
@@ -515,7 +533,10 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
                                     </TableCell>
                                     <TableCell>
                                       {update.status === 'valid' ? (
-                                        <Badge variant='outline' className='bg-green-50 text-green-700 border-green-200'>
+                                        <Badge
+                                          variant='outline'
+                                          className='bg-green-50 text-green-700 border-green-200'
+                                        >
                                           ✓ Valid
                                         </Badge>
                                       ) : (
@@ -524,7 +545,9 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
                                             ✗ Invalid
                                           </Badge>
                                           {update.error && (
-                                            <p className='text-xs text-red-600'>{update.error}</p>
+                                            <p className='text-xs text-red-600'>
+                                              {update.error}
+                                            </p>
                                           )}
                                         </div>
                                       )}
@@ -553,7 +576,9 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
               </Button>
               <Button
                 onClick={handleApplyUpdates}
-                disabled={isProcessing || previewData.summary.validUpdates === 0}
+                disabled={
+                  isProcessing || previewData.summary.validUpdates === 0
+                }
               >
                 {isProcessing ? (
                   <>
@@ -644,7 +669,9 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
               {result.failed.length > 0 && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className='text-red-600'>Failed Updates</CardTitle>
+                    <CardTitle className='text-red-600'>
+                      Failed Updates
+                    </CardTitle>
                     <CardDescription>
                       {result.failed.length} student(s) could not be updated
                     </CardDescription>
@@ -662,7 +689,9 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
                           {result.failed.map((item, idx) => (
                             <TableRow key={idx}>
                               <TableCell>{item.studentName}</TableCell>
-                              <TableCell className='text-red-600'>{item.error}</TableCell>
+                              <TableCell className='text-red-600'>
+                                {item.error}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -674,9 +703,7 @@ export function BulkUpdateStudents({ onSuccess }: BulkUpdateStudentsProps) {
             </div>
 
             <DialogFooter>
-              <Button onClick={handleClose}>
-                Done
-              </Button>
+              <Button onClick={handleClose}>Done</Button>
             </DialogFooter>
           </>
         )}
