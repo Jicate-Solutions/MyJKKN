@@ -457,6 +457,7 @@ export type PeriodMode = 'standard' | 'practical';
 /**
  * Batch definition - defines an available batch for practical periods
  * Note: Batches are NOT pre-assigned to labs (they rotate)
+ * Updated: 2025-11-07 - Added batch-specific course and staff assignments
  */
 export interface BatchDefinition {
   batch_id: string;
@@ -464,6 +465,10 @@ export interface BatchDefinition {
   assignment_type: 'section' | 'manual';  // How students are assigned to batch
   section_ids?: string[];          // Sections that form this batch (if assignment_type = 'section')
   estimated_count: number;         // Estimated number of students
+
+  // NEW: Batch-specific course and staff configuration
+  assigned_courses?: string[];     // Course IDs specific to this batch
+  staff_mapping?: Record<string, string[]>;  // Staff IDs per course for this batch
 }
 
 /**

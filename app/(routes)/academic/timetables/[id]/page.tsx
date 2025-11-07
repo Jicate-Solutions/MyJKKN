@@ -70,7 +70,7 @@ import Loading from '@/components/Loading/Loading';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { useTimetables } from '@/hooks/academic/use-timetables';
 import { useCourses } from '@/hooks/organization/use-courses';
-import { useStaff } from '@/hooks/staff/use-staff';
+import { useStaffForSelection } from '@/hooks/staff/use-staff';
 import { useSections } from '@/hooks/organization/use-sections';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { Timetable, DayOfWeek, Period } from '@/types/academics';
@@ -201,8 +201,6 @@ export default function TimetableDetailPage({
 
   // Additional loading states (not from hook)
   const [loadingStaffPlanData] = useState(false);
-  const [filteredSections, setFilteredSections] = useState<any[]>([]);
-  const [loadingFilteredSections, setLoadingFilteredSections] = useState(false);
 
   // Dialog state management
   const {
@@ -322,14 +320,16 @@ export default function TimetableDetailPage({
   });
   const allCourses = coursesQuery.data?.data || [];
 
-  const staffQuery = useStaff({
+  // Fixed: 2025-11-07 - Use lightweight staff query to avoid timeout
+  const staffQuery = useStaffForSelection({
     institution_id: timetable?.institution_id,
     isActive: true
   });
-  const allStaff = staffQuery.data?.data || [];
+  const allStaff = staffQuery.data || [];
 
   const sectionsQuery = useSections({
-    institution_id: timetable?.institution_id
+    institution_id: timetable?.institution_id,
+    limit: 1000 // Fixed: 2025-11-07 - Fetch all sections for the institution
   });
   const sections = sectionsQuery.data?.data || [];
 
@@ -340,10 +340,64 @@ export default function TimetableDetailPage({
     [staffPlanningCourses, allCourses]
   );
 
-  const staff = useMemo(
-    () => (staffPlanningStaff.length > 0 ? staffPlanningStaff : allStaff),
-    [staffPlanningStaff, allStaff]
-  );
+  // Fixed: 2025-11-07 - Merge staff from existing slot when editing
+  const staff = useMemo(() => {
+    const baseStaff = staffPlanningStaff.length > 0 ? staffPlanningStaff : allStaff;
+
+    // If editing an existing slot, merge in any staff that are assigned but not in staff planning
+    if (slotDialog.isOpen && slotDialog.data.selectedSlot) {
+      const existingSlot = slotDialog.data.selectedSlot;
+
+      // Get staff members from existing slot (enriched data)
+      const existingStaffMembers = existingSlot.staff_members || [];
+
+      // Check which existing staff are missing from base staff list
+      const missingStaff = existingStaffMembers.filter(
+        (staffMember: any) => !baseStaff.some((s: any) => s.id === staffMember.id)
+      );
+
+      if (missingStaff.length > 0) {
+        console.log('[page] Merging missing staff from existing slot:', missingStaff.map((s: any) => `${s.first_name} ${s.last_name}`));
+        return [...baseStaff, ...missingStaff];
+      }
+    }
+
+    return baseStaff;
+  }, [staffPlanningStaff, allStaff, slotDialog.isOpen, slotDialog.data.selectedSlot]);
+
+  // ===================================
+  // Filter sections by semester for slot dialog
+  // Fixed: 2025-11-07 - Filter sections based on timetable semester using useMemo
+  // ===================================
+  const filteredSections = useMemo(() => {
+    if (timetable?.semester_id && sections.length > 0) {
+      const filtered = sections.filter(
+        (section) => section.semester_id === timetable.semester_id
+      );
+
+      // Debug logging to help diagnose issues
+      if (filtered.length === 0) {
+        console.warn('[academic/timetables] No sections found after filtering', {
+          timetableSemesterId: timetable.semester_id,
+          totalSections: sections.length,
+          sampleSections: sections.slice(0, 3).map(s => ({
+            id: s.id,
+            name: s.section_name,
+            semester_id: s.semester_id
+          }))
+        });
+      } else {
+        console.log('[academic/timetables] Filtered sections successfully', {
+          timetableSemesterId: timetable.semester_id,
+          filteredCount: filtered.length,
+          sections: filtered.map(s => s.section_name)
+        });
+      }
+
+      return filtered;
+    }
+    return [];
+  }, [timetable?.semester_id, sections]);
 
   // ===================================
   // Navigation Warning
@@ -1093,7 +1147,7 @@ export default function TimetableDetailPage({
             staff={staff}
             sections={sections}
             filteredSections={filteredSections}
-            loadingFilteredSections={loadingFilteredSections}
+            loadingFilteredSections={sectionsQuery.isLoading}
             isUsingStaffPlanningData={staffPlanningCourses.length > 0}
             loadingStaffPlanData={loadingStaffPlanData}
             readOnly={slotDialog.data.readOnly}

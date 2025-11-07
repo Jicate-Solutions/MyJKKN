@@ -1218,6 +1218,51 @@ Please select a different date period that doesn't overlap.`
                 slot.staff = staffMap.get(slot.primary_staff_id);
               }
 
+              // Updated: 2025-11-07 - Enrich practical_config with course details
+              if (slot.period_mode === 'practical' && slot.practical_config) {
+                const practicalConfig = slot.practical_config;
+
+                // Enrich available_courses with full course objects
+                if (practicalConfig.available_courses && Array.isArray(practicalConfig.available_courses)) {
+                  practicalConfig.available_courses = practicalConfig.available_courses.map((courseOption: any) => {
+                    const courseId = courseOption.course_id || courseOption;
+                    if (typeof courseId === 'string' && coursesMap.has(courseId)) {
+                      const courseDetails = coursesMap.get(courseId);
+                      return {
+                        course_id: courseId,
+                        course_name: courseDetails.course_name,
+                        course_code: courseDetails.course_code
+                      };
+                    }
+                    return courseOption;
+                  }).filter(Boolean);
+                }
+
+                // Enrich batches with course details for assigned_courses
+                if (practicalConfig.batches && Array.isArray(practicalConfig.batches)) {
+                  practicalConfig.batches = practicalConfig.batches.map((batch: any) => {
+                    // Keep all batch properties
+                    const enrichedBatch = { ...batch };
+
+                    // Enrich assigned_courses if present
+                    if (batch.assigned_courses && Array.isArray(batch.assigned_courses)) {
+                      // Store both IDs (for functionality) and enriched details (for display)
+                      enrichedBatch.assigned_courses = batch.assigned_courses;
+                      enrichedBatch.enriched_courses = batch.assigned_courses
+                        .map((courseId: string) => {
+                          if (coursesMap.has(courseId)) {
+                            return coursesMap.get(courseId);
+                          }
+                          return null;
+                        })
+                        .filter(Boolean);
+                    }
+
+                    return enrichedBatch;
+                  });
+                }
+              }
+
               // Updated: 2025-10-13 - CRITICAL: Also enrich sub_slots with course and staff objects
               if (slot.sub_slots && Array.isArray(slot.sub_slots) && slot.sub_slots.length > 0) {
                 // CRITICAL FIX: Auto-detect if this is a subdivided slot

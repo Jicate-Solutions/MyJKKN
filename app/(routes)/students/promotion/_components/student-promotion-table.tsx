@@ -583,8 +583,6 @@ export function StudentPromotionTable({
       <DataTable
         columns={columns}
         data={students}
-        searchPlaceholder='Search students...'
-        filterColumn='student_name'
         getRowId={(row) => row.id}
         serverSidePagination={serverSidePagination}
         onBulkAction={canEdit ? handleBulkAction : undefined}

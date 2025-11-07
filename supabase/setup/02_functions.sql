@@ -788,8 +788,9 @@ BEGIN
         END;
     END IF;
 
-    -- CRITICAL FIX: Build the complete slot data INCLUDING subdivision fields
+    -- CRITICAL FIX: Build the complete slot data INCLUDING subdivision AND practical mode fields
     -- Updated: 2025-10-14 - Added is_subdivided, subdivision_type, subdivision_mode
+    -- Updated: 2025-11-07 - Added period_mode, practical_config for dual-mode period system
     new_slot_data := jsonb_build_object(
         'slot_id', slot_id,
         'course_id', p_slot_data->>'course_id',
@@ -804,6 +805,8 @@ BEGIN
         'is_break_slot', COALESCE((p_slot_data->>'is_break_slot')::BOOLEAN, FALSE),
         'primary_staff_id', primary_staff_uuid,
         'break_description', p_slot_data->>'break_description',
+        'period_mode', COALESCE(p_slot_data->>'period_mode', 'standard'),
+        'practical_config', p_slot_data->'practical_config',
         'created_at', COALESCE(p_slot_data->>'created_at', NOW()::TEXT),
         'updated_at', NOW()::TEXT
     );
@@ -1547,19 +1550,27 @@ $$;
 -- SECTION 9: BUG REPORT MODULE FUNCTIONS
 -- ================================================================================
 
--- Generate bug display ID
+-- Sequence for bug report display IDs (thread-safe, no race condition)
+-- Note: This sequence is created in migration 20250207_fix_bug_report_display_id_race_condition
+-- For new deployments, create with: CREATE SEQUENCE IF NOT EXISTS bug_reports_display_id_seq START WITH 1 INCREMENT BY 1;
+
+-- Generate bug display ID using SEQUENCE (atomic, thread-safe)
+-- Updated: 2025-02-07 - Replaced SELECT MAX()+1 with SEQUENCE to eliminate race conditions
 CREATE OR REPLACE FUNCTION public.generate_bug_display_id()
 RETURNS text
 LANGUAGE plpgsql
 SECURITY INVOKER
 AS $$
 DECLARE
+    new_id_number INTEGER;
     new_id text;
 BEGIN
-    SELECT 'BUG-' || LPAD((COALESCE(MAX(SUBSTRING(display_id FROM '[0-9]+$')::integer), 0) + 1)::text, 6, '0')
-    INTO new_id
-    FROM bug_reports;
-    
+    -- Use sequence for atomic ID generation (eliminates race condition)
+    new_id_number := nextval('bug_reports_display_id_seq');
+
+    -- Format as BUG-NNNNNN
+    new_id := 'BUG-' || LPAD(new_id_number::text, 6, '0');
+
     RETURN new_id;
 END;
 $$;

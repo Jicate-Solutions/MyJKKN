@@ -491,7 +491,7 @@ export function DataTable<TData, TValue>({
   const selectedRows = table.getFilteredSelectedRowModel().rows;
 
   // Page size options
-  const pageSizeOptions = [10, 25, 50, 100];
+  const pageSizeOptions = [10, 25, 50, 100, 200, 500];
 
   // Current pagination state - use server-side if available, otherwise client-side
   const currentPageIndex = serverSidePagination

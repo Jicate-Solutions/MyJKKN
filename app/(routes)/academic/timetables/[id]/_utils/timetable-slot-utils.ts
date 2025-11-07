@@ -103,10 +103,27 @@ export function validateSlotData(slotData: any): {
       } else {
         if (!slotData.practical_config.batches || slotData.practical_config.batches.length === 0) {
           errors.push('At least one batch is required for practical periods');
-        }
+        } else {
+          // Updated: 2025-11-07 - Validate batch-specific courses instead of global available_courses
+          const batchesWithCourses = slotData.practical_config.batches.filter(
+            (batch: any) => batch.assigned_courses && batch.assigned_courses.length > 0
+          );
 
-        if (!slotData.practical_config.available_courses || slotData.practical_config.available_courses.length === 0) {
-          errors.push('At least one course is required for practical periods');
+          if (batchesWithCourses.length === 0) {
+            errors.push('At least one batch must have courses assigned');
+          }
+
+          // Validate that batches with courses also have staff assignments
+          slotData.practical_config.batches.forEach((batch: any, index: number) => {
+            if (batch.assigned_courses && batch.assigned_courses.length > 0) {
+              const hasStaffAssignments = batch.staff_mapping &&
+                Object.keys(batch.staff_mapping).length > 0;
+
+              if (!hasStaffAssignments) {
+                errors.push(`Batch ${index + 1} (${batch.batch_name}) has courses but no staff assigned`);
+              }
+            }
+          });
         }
       }
     } else if (slotData.is_subdivided) {

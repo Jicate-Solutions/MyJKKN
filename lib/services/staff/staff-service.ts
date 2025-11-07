@@ -528,6 +528,50 @@ export class StaffService {
   }
 
   /**
+   * Lightweight staff query for dropdowns/selection components
+   * - No count operation (faster)
+   * - Minimal fields only
+   * - Optimized for large lists
+   * Updated: 2025-11-07
+   */
+  static async getStaffForSelection(
+    filters: StaffFilters = {}
+  ): Promise<Array<{ id: string; first_name: string; last_name: string; staff_id: string; email: string }>> {
+    try {
+      let query = this.supabase
+        .from('staff')
+        .select('id, first_name, last_name, staff_id, email');
+
+      // Apply filters
+      if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
+      }
+
+      if (filters.department_id) {
+        query = query.eq('department_id', filters.department_id);
+      }
+
+      if (filters.isActive !== undefined) {
+        query = query.eq('is_active', filters.isActive);
+      }
+
+      // Limit to reasonable number for dropdowns
+      const limit = filters.limit || 1000;
+      query = query.limit(limit).order('first_name', { ascending: true });
+
+      // Execute WITHOUT timeout race (we removed heavy joins and count)
+      const { data: staff, error } = await query;
+
+      if (error) throw error;
+
+      return staff || [];
+    } catch (error) {
+      console.error('[staff-service] Error fetching staff for selection:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get staff using API route (bypasses RLS for performance)
    * Use this method for components that need to fetch large numbers of staff
    * like the staff search selector
