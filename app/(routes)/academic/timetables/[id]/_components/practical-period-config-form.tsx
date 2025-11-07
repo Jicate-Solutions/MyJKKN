@@ -133,6 +133,40 @@ export function PracticalPeriodConfigForm({
     });
   };
 
+  // NEW: Batch-specific course/staff management (Updated: 2025-11-07)
+  const toggleCourseForBatch = (batchId: string, courseId: string) => {
+    updateBatch(batchId, {
+      assigned_courses: batches
+        .find((b) => b.batch_id === batchId)
+        ?.assigned_courses?.includes(courseId)
+        ? batches
+            .find((b) => b.batch_id === batchId)
+            ?.assigned_courses?.filter((id) => id !== courseId)
+        : [
+            ...(batches.find((b) => b.batch_id === batchId)?.assigned_courses || []),
+            courseId
+          ]
+    });
+  };
+
+  const toggleStaffForBatchCourse = (batchId: string, courseId: string, staffId: string) => {
+    const batch = batches.find((b) => b.batch_id === batchId);
+    if (!batch) return;
+
+    const batchStaffMapping = batch.staff_mapping || {};
+    const currentStaff = batchStaffMapping[courseId] || [];
+    const newStaff = currentStaff.includes(staffId)
+      ? currentStaff.filter((id) => id !== staffId)
+      : [...currentStaff, staffId];
+
+    updateBatch(batchId, {
+      staff_mapping: {
+        ...batchStaffMapping,
+        [courseId]: newStaff
+      }
+    });
+  };
+
   const toggleSectionForBatch = (batchId: string, sectionId: string) => {
     updateBatch(batchId, {
       section_ids: batches
@@ -309,6 +343,103 @@ export function PracticalPeriodConfigForm({
                       }
                     />
                   </div>
+
+                  {/* NEW: Batch-Specific Course Assignment (Updated: 2025-11-07) */}
+                  <div className='space-y-2'>
+                    <Label className='text-xs'>
+                      Courses for this Batch ({batch.assigned_courses?.length || 0} selected)
+                    </Label>
+                    <div className='border rounded-md p-3 max-h-32 overflow-y-auto space-y-2 bg-blue-50 dark:bg-blue-900/10'>
+                      {courses.length === 0 ? (
+                        <p className='text-xs text-muted-foreground text-center py-2'>
+                          No courses available
+                        </p>
+                      ) : (
+                        courses.map((course) => (
+                          <div
+                            key={course.id}
+                            className='flex items-center space-x-2'
+                          >
+                            <Checkbox
+                              id={`batch-${batch.batch_id}-course-${course.id}`}
+                              checked={batch.assigned_courses?.includes(course.id) || false}
+                              onCheckedChange={() =>
+                                toggleCourseForBatch(batch.batch_id, course.id)
+                              }
+                            />
+                            <Label
+                              htmlFor={`batch-${batch.batch_id}-course-${course.id}`}
+                              className='text-xs font-normal cursor-pointer'
+                            >
+                              {course.course_name} ({course.course_code})
+                            </Label>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    {(!batch.assigned_courses || batch.assigned_courses.length === 0) && (
+                      <p className='text-xs text-amber-600'>
+                        ⚠️ No courses assigned to this batch
+                      </p>
+                    )}
+                  </div>
+
+                  {/* NEW: Batch-Specific Staff Assignment (Updated: 2025-11-07) */}
+                  {batch.assigned_courses && batch.assigned_courses.length > 0 && availableStaff && availableStaff.length > 0 && (
+                    <div className='space-y-2'>
+                      <Label className='text-xs font-medium'>Staff for this Batch</Label>
+                      <div className='space-y-3'>
+                        {batch.assigned_courses.map((courseId) => {
+                          const course = courses.find((c) => c.id === courseId);
+                          if (!course) return null;
+
+                          const batchStaffMapping = batch.staff_mapping || {};
+                          const assignedStaff = batchStaffMapping[courseId] || [];
+
+                          return (
+                            <div key={courseId} className='border rounded-md p-2 bg-green-50 dark:bg-green-900/10'>
+                              <div className='mb-2'>
+                                <p className='text-xs font-medium'>
+                                  {course.course_name} ({course.course_code})
+                                </p>
+                                <p className='text-[10px] text-muted-foreground'>
+                                  {assignedStaff.length} staff assigned
+                                </p>
+                              </div>
+                              <div className='space-y-1 max-h-24 overflow-y-auto'>
+                                {availableStaff.map((staff) => (
+                                  <div key={staff.id} className='flex items-center space-x-2'>
+                                    <Checkbox
+                                      id={`batch-${batch.batch_id}-course-${courseId}-staff-${staff.id}`}
+                                      checked={assignedStaff.includes(staff.id)}
+                                      onCheckedChange={() =>
+                                        toggleStaffForBatchCourse(
+                                          batch.batch_id,
+                                          courseId,
+                                          staff.id
+                                        )
+                                      }
+                                    />
+                                    <Label
+                                      htmlFor={`batch-${batch.batch_id}-course-${courseId}-staff-${staff.id}`}
+                                      className='text-[11px] font-normal cursor-pointer'
+                                    >
+                                      {staff.first_name} {staff.last_name} ({staff.staff_id})
+                                    </Label>
+                                  </div>
+                                ))}
+                              </div>
+                              {assignedStaff.length === 0 && (
+                                <p className='text-[10px] text-amber-600 mt-1'>
+                                  ⚠️ No staff assigned
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -329,103 +460,8 @@ export function PracticalPeriodConfigForm({
         )}
       </div>
 
-      {/* Available Courses Section */}
-      <div className='space-y-3'>
-        <div>
-          <Label className='text-sm font-medium'>Available Courses</Label>
-          <p className='text-xs text-muted-foreground mt-1'>
-            Select courses that can be taught in this period ({selectedCourseIds.length} selected)
-          </p>
-        </div>
-        <div className='border rounded-md p-3 max-h-40 overflow-y-auto space-y-2'>
-          {courses.length === 0 ? (
-            <p className='text-xs text-muted-foreground text-center py-4'>
-              No courses available
-            </p>
-          ) : (
-            courses.map((course) => (
-              <div key={course.id} className='flex items-center space-x-2'>
-                <Checkbox
-                  id={`course-${course.id}`}
-                  checked={selectedCourseIds.includes(course.id)}
-                  onCheckedChange={() => toggleCourse(course.id)}
-                />
-                <Label
-                  htmlFor={`course-${course.id}`}
-                  className='text-xs font-normal cursor-pointer'
-                >
-                  {course.course_name} ({course.course_code})
-                </Label>
-              </div>
-            ))
-          )}
-        </div>
-        {selectedCourseIds.length === 0 && (
-          <p className='text-xs text-amber-600'>
-            ⚠️ At least one course should be selected
-          </p>
-        )}
-      </div>
-
-      {/* Staff Assignment Section */}
-      {selectedCourseIds.length > 0 && availableStaff && availableStaff.length > 0 && (
-        <div className='space-y-3'>
-          <div>
-            <Label className='text-sm font-medium'>Assign Staff to Courses</Label>
-            <p className='text-xs text-muted-foreground mt-1'>
-              Select which staff can teach each course during practical periods
-            </p>
-          </div>
-
-          <div className='space-y-4'>
-            {selectedCourseIds.map((courseId) => {
-              const course = courses.find((c) => c.id === courseId);
-              if (!course) return null;
-
-              const assignedStaff = staffMapping[courseId] || [];
-
-              return (
-                <Card key={courseId} className='border'>
-                  <CardContent className='pt-4 pb-4 space-y-3'>
-                    <div className='flex items-center justify-between'>
-                      <div>
-                        <h4 className='text-sm font-medium'>{course.course_name}</h4>
-                        <p className='text-xs text-muted-foreground'>
-                          {course.course_code} • {assignedStaff.length} staff assigned
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className='border rounded-md p-3 max-h-32 overflow-y-auto space-y-2'>
-                      {availableStaff.map((staff) => (
-                        <div key={staff.id} className='flex items-center space-x-2'>
-                          <Checkbox
-                            id={`staff-${courseId}-${staff.id}`}
-                            checked={assignedStaff.includes(staff.id)}
-                            onCheckedChange={() => toggleStaffForCourse(courseId, staff.id)}
-                          />
-                          <Label
-                            htmlFor={`staff-${courseId}-${staff.id}`}
-                            className='text-xs font-normal cursor-pointer'
-                          >
-                            {staff.first_name} {staff.last_name} ({staff.staff_id})
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-
-                    {assignedStaff.length === 0 && (
-                      <p className='text-xs text-amber-600'>
-                        ⚠️ No staff assigned to this course
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* REMOVED: Deprecated global course and staff sections */}
+      {/* Now using batch-specific course and staff assignment (see above) */}
 
       {/* Rotation Type */}
       <div className='space-y-3'>
@@ -461,15 +497,28 @@ export function PracticalPeriodConfigForm({
         )}
       </div>
 
-      {/* Summary */}
+      {/* Summary - Updated: 2025-11-07 - Show batch-specific stats */}
       <Card className='bg-blue-50 dark:bg-blue-900/20 border-blue-200'>
-        <CardContent className='pt-4 pb-4'>
+        <CardContent className='pt-4 pb-4 space-y-2'>
           <p className='text-xs text-blue-700 dark:text-blue-300'>
             <strong>ℹ️ Summary:</strong> You have configured {batches.length} batch
-            {batches.length !== 1 ? 'es' : ''}, {selectedCourseIds.length} course
-            {selectedCourseIds.length !== 1 ? 's' : ''}, and{' '}
-            {Object.keys(staffMapping).reduce((total, courseId) => total + staffMapping[courseId].length, 0)}{' '}
-            staff assignment{Object.keys(staffMapping).reduce((total, courseId) => total + staffMapping[courseId].length, 0) !== 1 ? 's' : ''}.
+            {batches.length !== 1 ? 'es' : ''} with individual course and staff assignments.
+          </p>
+          <div className='space-y-1'>
+            {batches.map((batch, index) => {
+              const coursesCount = batch.assigned_courses?.length || 0;
+              const staffCount = Object.values(batch.staff_mapping || {}).reduce(
+                (total, staffIds) => total + staffIds.length,
+                0
+              );
+              return (
+                <div key={batch.batch_id} className='text-xs text-blue-600 dark:text-blue-400 pl-4'>
+                  <strong>{batch.batch_name}:</strong> {coursesCount} course{coursesCount !== 1 ? 's' : ''}, {staffCount} staff assignment{staffCount !== 1 ? 's' : ''}
+                </div>
+              );
+            })}
+          </div>
+          <p className='text-xs text-blue-700 dark:text-blue-300 pt-2'>
             Faculty will select which batch and course when marking attendance.
           </p>
         </CardContent>

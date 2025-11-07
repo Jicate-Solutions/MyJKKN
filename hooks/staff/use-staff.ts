@@ -107,6 +107,40 @@ export const useStaffMember = (id: string) => {
   });
 };
 
+// Lightweight staff query for dropdowns/selection - FAST, no count, minimal fields
+// Updated: 2025-11-07
+export function useStaffForSelection(
+  filters: StaffFilters = {}
+): UseQueryResult<Array<{ id: string; first_name: string; last_name: string; staff_id: string; email: string }>, Error> {
+  const { profile, isLoading: authLoading } = useAuth();
+
+  const queryKey = useMemo(() => {
+    return [
+      'staff-selection',
+      filters.institution_id || '',
+      filters.department_id || '',
+      filters.isActive
+    ];
+  }, [filters.institution_id, filters.department_id, filters.isActive]);
+
+  const queryFn = useCallback(async () => {
+    try {
+      return await StaffService.getStaffForSelection(filters);
+    } catch (error) {
+      console.error('[useStaffForSelection] Fetch Error:', error);
+      throw new Error('Failed to fetch staff for selection.');
+    }
+  }, [filters]);
+
+  return useQuery({
+    queryKey,
+    queryFn,
+    enabled: !authLoading && !!profile && !!filters.institution_id,
+    staleTime: 60000, // 1 minute - can be cached longer since it's just for dropdowns
+    gcTime: 600000 // 10 minutes
+  });
+}
+
 // Create a new staff member
 export const useCreateStaff = () => {
   const queryClient = useQueryClient();

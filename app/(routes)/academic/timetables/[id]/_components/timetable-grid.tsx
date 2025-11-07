@@ -202,6 +202,60 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
       );
     };
 
+    // Helper function to render practical period slot content
+    // Updated: 2025-11-07 - Added rendering for practical mode with batch information
+    const renderPracticalSlot = (slot: any) => {
+      const practicalConfig = slot.practical_config;
+      if (!practicalConfig || !practicalConfig.batches) {
+        return (
+          <div className='text-amber-600 text-xs min-h-[50px] flex items-center justify-center'>
+            Practical (No batches configured)
+          </div>
+        );
+      }
+
+      const batches = practicalConfig.batches;
+      const batchNames = batches.map((b: any) => b.batch_name).filter(Boolean);
+
+      // Collect all unique course codes from enriched batch data
+      const allCourseCodes = new Set<string>();
+      batches.forEach((batch: any) => {
+        // Use enriched_courses which contain full course objects
+        if (batch.enriched_courses && Array.isArray(batch.enriched_courses)) {
+          batch.enriched_courses.forEach((course: any) => {
+            if (course.course_code) {
+              allCourseCodes.add(course.course_code);
+            }
+          });
+        }
+      });
+
+      const coursesList = Array.from(allCourseCodes);
+
+      return (
+        <div className='text-purple-700 min-h-[50px] flex flex-col justify-center text-center'>
+          <div className='font-semibold text-xs mb-0.5 leading-tight flex items-center justify-center gap-1'>
+            <Users className='h-3 w-3' />
+            <span>Practical</span>
+          </div>
+          {/* Show batch names */}
+          {batchNames.length > 0 && (
+            <div className='text-xs text-gray-700 mb-0.5 leading-tight'>
+              {batchNames.slice(0, 2).join(', ')}
+              {batchNames.length > 2 && ` +${batchNames.length - 2}`}
+            </div>
+          )}
+          {/* Show course codes */}
+          {coursesList.length > 0 && (
+            <div className='text-xs text-gray-600 leading-tight'>
+              {coursesList.slice(0, 2).join(', ')}
+              {coursesList.length > 2 && ` +${coursesList.length - 2}`}
+            </div>
+          )}
+        </div>
+      );
+    };
+
     // Helper function to render break slot content
     const renderBreakSlot = (slot: any) => (
       <div className='text-orange-600 font-semibold text-xs min-h-[40px] flex items-center justify-center'>
@@ -374,6 +428,8 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                               } ${
                               slot.is_break_slot
                                 ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
+                                : slot.period_mode === 'practical'
+                                ? 'bg-purple-50 border-purple-400 hover:bg-purple-100'
                                 : slot.is_subdivided
                                 ? 'bg-purple-50 border-purple-300 hover:bg-purple-100'
                                 : slot.is_combined
@@ -410,6 +466,8 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                               )}
                             {slot.is_break_slot
                               ? renderBreakSlot(slot)
+                              : slot.period_mode === 'practical'
+                              ? renderPracticalSlot(slot)
                               : slot.is_subdivided
                               ? renderSubdividedSlot(slot)
                               : slot.is_combined
