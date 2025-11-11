@@ -17,6 +17,13 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -42,7 +49,8 @@ import {
   AdmissionData,
   useUpdateAdmissionStatus,
   useDeleteAdmission,
-  useBulkDeleteAdmissions
+  useBulkDeleteAdmissions,
+  useBulkUpdateAdmissionStatus
 } from '@/hooks/admission/use-admissions';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
@@ -98,6 +106,7 @@ export function AdmissionDataTable({
   const updateStatus = useUpdateAdmissionStatus();
   const deleteAdmission = useDeleteAdmission();
   const bulkDeleteAdmissions = useBulkDeleteAdmissions();
+  const bulkUpdateStatus = useBulkUpdateAdmissionStatus();
   const queryClient = useQueryClient();
 
   const [statusUpdateDialog, setStatusUpdateDialog] = useState<{
@@ -106,7 +115,14 @@ export function AdmissionDataTable({
     newStatus: string;
   }>({ open: false, admissionId: '', newStatus: '' });
 
+  const [bulkStatusUpdateDialog, setBulkStatusUpdateDialog] = useState<{
+    open: boolean;
+    admissionIds: string[];
+    newStatus: string;
+  }>({ open: false, admissionIds: [], newStatus: '' });
+
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
   const handleUpdateStatus = async (id: string, status: string) => {
     if (!canEdit) return;
@@ -152,14 +168,56 @@ export function AdmissionDataTable({
     try {
       // Extract IDs from the selected admissions
       const admissionIds = admissions.map(admission => admission.id);
-      
+
       // Use the bulk delete service that shows only one toast message
       await bulkDeleteAdmissions.mutateAsync(admissionIds);
-      
+
       onRefresh();
     } catch (error) {
       console.error('Error deleting admissions:', error);
       throw error;
+    }
+  };
+
+  const handleBulkStatusUpdate = (admissions: AdmissionData[]) => {
+    if (!canEdit) return;
+
+    const admissionIds = admissions.map(admission => admission.id);
+    setBulkStatusUpdateDialog({
+      open: true,
+      admissionIds,
+      newStatus: ''
+    });
+  };
+
+  const confirmBulkStatusUpdate = async () => {
+    const { admissionIds, newStatus } = bulkStatusUpdateDialog;
+
+    if (!newStatus) {
+      toast.error('Please select a status');
+      return;
+    }
+
+    try {
+      setIsBulkUpdating(true);
+      await bulkUpdateStatus.mutateAsync({
+        ids: admissionIds,
+        status: newStatus
+      });
+
+      // Refresh data
+      onRefresh();
+
+      // If approved, refresh to trigger real-time updates
+      if (newStatus === 'approved') {
+        router.refresh();
+      }
+    } catch (error) {
+      console.error('Error bulk updating status:', error);
+      // Error toast is already handled in the service
+    } finally {
+      setIsBulkUpdating(false);
+      setBulkStatusUpdateDialog({ open: false, admissionIds: [], newStatus: '' });
     }
   };
 
@@ -384,6 +442,16 @@ export function AdmissionDataTable({
               }
             : undefined
         }
+        secondaryBulkAction={
+          canEdit
+            ? {
+                label: 'Update Status',
+                icon: Clock,
+                variant: 'default',
+                onClick: handleBulkStatusUpdate
+              }
+            : undefined
+        }
         getRowId={(row) => row.id}
         onRefresh={onRefresh}
         serverSidePagination={{
@@ -422,6 +490,89 @@ export function AdmissionDataTable({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmStatusUpdate}>
               Update Status
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={bulkStatusUpdateDialog.open}
+        onOpenChange={(open) =>
+          !open &&
+          setBulkStatusUpdateDialog({
+            open: false,
+            admissionIds: [],
+            newStatus: ''
+          })
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Bulk Update Status</AlertDialogTitle>
+            <AlertDialogDescription>
+              Update the status of {bulkStatusUpdateDialog.admissionIds.length}{' '}
+              selected admission{bulkStatusUpdateDialog.admissionIds.length > 1 ? 's' : ''}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className='py-4'>
+            <label className='text-sm font-medium mb-2 block'>
+              Select New Status
+            </label>
+            <Select
+              value={bulkStatusUpdateDialog.newStatus}
+              onValueChange={(value) =>
+                setBulkStatusUpdateDialog({
+                  ...bulkStatusUpdateDialog,
+                  newStatus: value
+                })
+              }
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue placeholder='Select a status' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='pending'>
+                  <div className='flex items-center gap-2'>
+                    <Clock className='h-4 w-4 text-yellow-500' />
+                    Pending
+                  </div>
+                </SelectItem>
+                <SelectItem value='approved'>
+                  <div className='flex items-center gap-2'>
+                    <CheckCircle className='h-4 w-4 text-green-500' />
+                    Approved
+                  </div>
+                </SelectItem>
+                <SelectItem value='rejected'>
+                  <div className='flex items-center gap-2'>
+                    <XCircle className='h-4 w-4 text-red-500' />
+                    Rejected
+                  </div>
+                </SelectItem>
+                <SelectItem value='waitlisted'>
+                  <div className='flex items-center gap-2'>
+                    <AlertCircle className='h-4 w-4 text-blue-500' />
+                    Waitlisted
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            {bulkStatusUpdateDialog.newStatus === 'approved' && (
+              <p className='text-sm text-muted-foreground mt-2'>
+                Note: Student records will be automatically created for approved
+                admissions.
+              </p>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkUpdating}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmBulkStatusUpdate}
+              disabled={isBulkUpdating || !bulkStatusUpdateDialog.newStatus}
+            >
+              {isBulkUpdating ? 'Updating...' : 'Update Status'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

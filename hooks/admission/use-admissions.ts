@@ -139,6 +139,20 @@ export const useBulkDeleteAdmissions = () => {
   });
 };
 
+// Bulk update admission status
+export const useBulkUpdateAdmissionStatus = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ ids, status }: { ids: string[]; status: string }) =>
+      AdmissionService.bulkUpdateAdmissionStatus(ids, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: admissionKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: admissionKeys.stats() });
+    }
+  });
+};
+
 // Get admission statistics
 export const useAdmissionStats = () => {
   return useQuery({

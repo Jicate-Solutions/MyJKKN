@@ -184,6 +184,23 @@ interface DataTableProps<TData, TValue> {
   bulkActionConfig?: BulkActionConfig;
 
   /**
+   * Secondary bulk action configuration (for additional bulk operations)
+   * Renders as a separate button next to the primary bulk action
+   */
+  secondaryBulkAction?: {
+    label: string;
+    icon?: React.ComponentType<{ className?: string }>;
+    variant?:
+      | 'default'
+      | 'destructive'
+      | 'outline'
+      | 'secondary'
+      | 'ghost'
+      | 'link';
+    onClick: (rows: TData[]) => void;
+  };
+
+  /**
    * Function to get a unique ID for each row
    * Used for deletion confirmation and tracking
    */
@@ -234,6 +251,7 @@ export function DataTable<TData, TValue>({
   onDeleteSelected,
   onBulkAction,
   bulkActionConfig,
+  secondaryBulkAction,
   getRowId = () => Math.random().toString(36).substring(7), // Default fallback ID generator
   onRefresh,
   showRefresh = true,
@@ -732,6 +750,28 @@ export function DataTable<TData, TValue>({
                 )}
                 <span className='hidden sm:inline'>
                   {`${finalBulkActionConfig.label} (${selectedRows.length})`}
+                </span>
+                <span className='sm:hidden'>{selectedRows.length}</span>
+              </Button>
+            )}
+
+          {secondaryBulkAction &&
+            canPerformBulkAction &&
+            selectedRows.length > 0 && (
+              <Button
+                variant={secondaryBulkAction.variant || 'default'}
+                size='sm'
+                onClick={() => {
+                  const rowsToProcess = selectedRows.map((row) => row.original);
+                  secondaryBulkAction.onClick(rowsToProcess);
+                }}
+                className='flex items-center gap-1'
+              >
+                {secondaryBulkAction.icon && (
+                  <secondaryBulkAction.icon className='h-4 w-4' />
+                )}
+                <span className='hidden sm:inline'>
+                  {`${secondaryBulkAction.label} (${selectedRows.length})`}
                 </span>
                 <span className='sm:hidden'>{selectedRows.length}</span>
               </Button>
