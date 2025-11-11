@@ -406,19 +406,22 @@ export class AdmissionService {
       };
 
       // Get current user for audit trail
-      const { data: { user } } = await this.supabase.auth.getUser();
+      const {
+        data: { user }
+      } = await this.supabase.auth.getUser();
       const userId = user?.id;
 
       // Update all admissions in batch
-      const { data: updatedAdmissions, error: updateError } = await this.supabase
-        .from('admissions')
-        .update({
-          status: newStatus,
-          updated_by: userId,
-          updated_at: new Date().toISOString()
-        })
-        .in('id', ids)
-        .select('id');
+      const { data: updatedAdmissions, error: updateError } =
+        await this.supabase
+          .from('admissions')
+          .update({
+            status: newStatus,
+            updated_by: userId,
+            updated_at: new Date().toISOString()
+          })
+          .in('id', ids)
+          .select('id');
 
       if (updateError) {
         console.error('Error bulk updating admission status:', updateError);
@@ -429,55 +432,80 @@ export class AdmissionService {
       results.failed = ids.length - results.updated;
 
       // If status is 'approved', create student records for each
-      if (newStatus === 'approved' && updatedAdmissions && updatedAdmissions.length > 0) {
-        console.log(`Creating student records for ${updatedAdmissions.length} approved admissions...`);
+      if (
+        newStatus === 'approved' &&
+        updatedAdmissions &&
+        updatedAdmissions.length > 0
+      ) {
+        console.log(
+          `Creating student records for ${updatedAdmissions.length} approved admissions...`
+        );
 
         // Check which admissions already have student records
         const { data: existingStudents } = await this.supabase
           .from('students')
           .select('admission_id')
-          .in('admission_id', updatedAdmissions.map(a => a.id));
+          .in(
+            'admission_id',
+            updatedAdmissions.map((a) => a.id)
+          );
 
-        const existingAdmissionIds = existingStudents?.map(s => s.admission_id) || [];
+        const existingAdmissionIds =
+          existingStudents?.map((s) => s.admission_id) || [];
         const admissionsNeedingStudents = updatedAdmissions.filter(
-          a => !existingAdmissionIds.includes(a.id)
+          (a) => !existingAdmissionIds.includes(a.id)
         );
 
-        console.log(`${admissionsNeedingStudents.length} admissions need student records`);
+        console.log(
+          `${admissionsNeedingStudents.length} admissions need student records`
+        );
 
         // Create student records for admissions that don't have one
         for (const admission of admissionsNeedingStudents) {
           try {
-            const student = await StudentService.createStudentFromAdmission(admission.id);
+            const student = await StudentService.createStudentFromAdmission(
+              admission.id
+            );
             if (student) {
               results.studentsCreated++;
               console.log(`Student created for admission ${admission.id}`);
             }
           } catch (studentError) {
-            console.error(`Failed to create student for admission ${admission.id}:`, studentError);
+            console.error(
+              `Failed to create student for admission ${admission.id}:`,
+              studentError
+            );
             // Continue with other students even if one fails
           }
         }
       }
 
       // Show appropriate message based on results
-      const statusLabel = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+      const statusLabel =
+        newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
 
       if (results.updated > 0 && results.failed === 0) {
         if (results.studentsCreated > 0) {
           toast.success(
-            `Updated ${results.updated} admission${results.updated > 1 ? 's' : ''} to ${statusLabel}. ` +
-            `Created ${results.studentsCreated} student record${results.studentsCreated > 1 ? 's' : ''}.`
+            `Updated ${results.updated} admission${
+              results.updated > 1 ? 's' : ''
+            } to ${statusLabel}. ` +
+              `Created ${results.studentsCreated} student record${
+                results.studentsCreated > 1 ? 's' : ''
+              }.`
           );
         } else {
           toast.success(
-            `Successfully updated ${results.updated} admission${results.updated > 1 ? 's' : ''} to ${statusLabel}`
+            `Successfully updated ${results.updated} admission${
+              results.updated > 1 ? 's' : ''
+            } to ${statusLabel}`
           );
         }
       } else if (results.updated > 0 && results.failed > 0) {
-        toast.warning(
-          `Updated ${results.updated} admission${results.updated > 1 ? 's' : ''}. ` +
-          `Failed to update ${results.failed}.`
+        toast.error(
+          `Updated ${results.updated} admission${
+            results.updated > 1 ? 's' : ''
+          }. ` + `Failed to update ${results.failed}.`
         );
       } else {
         toast.error('Failed to update selected admissions');
@@ -489,7 +517,9 @@ export class AdmissionService {
       console.error('Error bulk updating admission status:', error);
 
       if (!error.message?.includes('No admissions were updated')) {
-        toast.error('Failed to update admission status for selected applications');
+        toast.error(
+          'Failed to update admission status for selected applications'
+        );
       }
 
       throw error;
@@ -769,10 +799,16 @@ export class AdmissionService {
         baseQuery = baseQuery.eq('status', effectiveFilters.status);
       }
       if (effectiveFilters.state) {
-        baseQuery = baseQuery.eq('permanent_address_state', effectiveFilters.state);
+        baseQuery = baseQuery.eq(
+          'permanent_address_state',
+          effectiveFilters.state
+        );
       }
       if (effectiveFilters.district) {
-        baseQuery = baseQuery.eq('permanent_address_district', effectiveFilters.district);
+        baseQuery = baseQuery.eq(
+          'permanent_address_district',
+          effectiveFilters.district
+        );
       }
       if (effectiveFilters.dateRange?.from) {
         baseQuery = baseQuery.gte(
