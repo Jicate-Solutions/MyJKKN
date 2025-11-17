@@ -134,18 +134,35 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
   const originalScrollY = window.scrollY;
 
   try {
-    // Keep current scroll position to capture what user is seeing
-    console.log('Capturing current viewport at scroll position:', {
-      x: originalScrollX,
-      y: originalScrollY,
+    // Calculate full page dimensions for complete capture
+    const fullPageWidth = Math.max(
+      document.body.scrollWidth,
+      document.documentElement.scrollWidth,
+      document.body.offsetWidth,
+      document.documentElement.offsetWidth,
+      document.documentElement.clientWidth
+    );
+    const fullPageHeight = Math.max(
+      document.body.scrollHeight,
+      document.documentElement.scrollHeight,
+      document.body.offsetHeight,
+      document.documentElement.offsetHeight,
+      document.documentElement.clientHeight
+    );
+
+    console.log('Capturing full page screenshot:', {
+      fullPageWidth,
+      fullPageHeight,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
       documentHeight: document.body.scrollHeight,
-      viewportHeight: window.innerHeight
+      originalScrollPosition: { x: originalScrollX, y: originalScrollY }
     });
 
     // Force reflow to ensure all dynamic content is rendered
     void document.body.offsetHeight;
 
-    // html2canvas options optimized for better screenshot quality
+    // html2canvas options optimized for FULL PAGE screenshot capture
     const options = {
       // Quality and scaling options
       scale: Math.max(window.devicePixelRatio || 1, 2), // Force minimum 2x scale for crisp images
@@ -160,17 +177,18 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
       // Image handling
       imageTimeout: isMobile ? 15000 : 30000, // Timeout for loading images
 
-      // Capture current viewport only
-      windowWidth: window.innerWidth,
-      windowHeight: window.innerHeight,
+      // FULL PAGE CAPTURE - Updated 2025-11-17
+      // Capture the entire document, not just viewport
+      windowWidth: fullPageWidth,
+      windowHeight: fullPageHeight,
 
-      // Set canvas size to viewport size
-      width: window.innerWidth,
-      height: window.innerHeight,
+      // Set canvas size to full page dimensions
+      width: fullPageWidth,
+      height: fullPageHeight,
 
-      // Use current scroll position
-      scrollX: originalScrollX,
-      scrollY: originalScrollY,
+      // Start from top of page (0,0) to capture everything
+      scrollX: 0,
+      scrollY: 0,
 
       // Additional quality options
       foreignObjectRendering: true, // Better text and complex element rendering
@@ -316,13 +334,15 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
       }
     };
 
-    console.log('Capturing with html2canvas options:', {
+    console.log('Capturing with html2canvas options (FULL PAGE):', {
       scale: options.scale,
       backgroundColor: options.backgroundColor,
-      windowSize: `${options.windowWidth}x${options.windowHeight}`,
+      fullPageSize: `${options.windowWidth}x${options.windowHeight}`,
       captureSize: `${options.width}x${options.height}`,
       viewportSize: `${window.innerWidth}x${window.innerHeight}`,
-      scrollPosition: `${originalScrollX},${originalScrollY}`,
+      captureMode: 'FULL PAGE (from top)',
+      scrollPosition: `${options.scrollX},${options.scrollY}`,
+      originalUserScroll: `${originalScrollX},${originalScrollY}`,
       mobile: isMobile,
       targetElement: 'document.body'
     });
@@ -350,9 +370,12 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
     // Add timestamp to data URL to prevent caching
     const timestampedDataUrl = dataUrl;
 
-    console.log('html2canvas screenshot captured successfully:', {
+    console.log('html2canvas FULL PAGE screenshot captured successfully:', {
       size: timestampedDataUrl.length,
       canvasSize: `${canvas.width}x${canvas.height}`,
+      fullPageWidth,
+      fullPageHeight,
+      captureMode: 'FULL PAGE',
       quality: '100%',
       timestamp: new Date().toISOString()
     });
@@ -365,9 +388,21 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
 
     // Fallback with simplified but reliable options
     try {
-      console.log('Trying html2canvas fallback capture...');
+      console.log('Trying html2canvas fallback capture (FULL PAGE)...');
 
-      // Simple but effective fallback options
+      // Calculate full page dimensions for fallback too
+      const fallbackFullWidth = Math.max(
+        document.body.scrollWidth,
+        document.documentElement.scrollWidth,
+        document.documentElement.clientWidth
+      );
+      const fallbackFullHeight = Math.max(
+        document.body.scrollHeight,
+        document.documentElement.scrollHeight,
+        document.documentElement.clientHeight
+      );
+
+      // Simple but effective fallback options - FULL PAGE
       const fallbackOptions = {
         scale: Math.max(window.devicePixelRatio || 1, 1.5),
         backgroundColor: '#ffffff',
@@ -376,12 +411,13 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
         logging: true, // Enable logging for debugging fallback
         removeContainer: true,
         imageTimeout: 10000,
-        windowWidth: window.innerWidth,
-        windowHeight: window.innerHeight,
-        width: window.innerWidth,
-        height: window.innerHeight,
-        scrollX: originalScrollX,
-        scrollY: originalScrollY,
+        // Fallback also captures full page
+        windowWidth: fallbackFullWidth,
+        windowHeight: fallbackFullHeight,
+        width: fallbackFullWidth,
+        height: fallbackFullHeight,
+        scrollX: 0,
+        scrollY: 0,
         ignoreElements: (element: Element) => {
           return (
             element.classList.contains('bug-reporter-widget') ||
@@ -391,13 +427,14 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
         }
       };
 
-      // Try with visible viewport first
+      // Capture full page with fallback options
       const fallbackCanvas = await html2canvas(document.body, fallbackOptions);
 
       const fallbackDataUrl = fallbackCanvas.toDataURL('image/png', 1.0);
-      console.log('Fallback html2canvas capture successful:', {
+      console.log('Fallback html2canvas FULL PAGE capture successful:', {
         size: fallbackDataUrl.length,
-        canvasSize: `${fallbackCanvas.width}x${fallbackCanvas.height}`
+        canvasSize: `${fallbackCanvas.width}x${fallbackCanvas.height}`,
+        captureMode: 'FULL PAGE (fallback)'
       });
       return fallbackDataUrl;
     } catch (fallbackError) {
