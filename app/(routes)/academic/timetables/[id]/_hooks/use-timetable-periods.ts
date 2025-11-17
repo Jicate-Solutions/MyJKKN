@@ -206,12 +206,34 @@ export function useTimetablePeriods(
     try {
       setSavingPeriods(true);
 
-      // Prepare period IDs
-      const periodIds = selectedPeriods.map((period) => period.id);
+      // CRITICAL FIX: 2025-11-17 - Database stores full period objects, not just IDs
+      // Format periods as full objects with all required fields
+      // Use 'id' (modern format) instead of 'period_id' (legacy format) to avoid conversion
+      const periodsData = selectedPeriods.map((period, index) => ({
+        id: period.id,
+        period_name: period.period_name,
+        start_time: period.start_time,
+        end_time: period.end_time,
+        is_break: period.is_break,
+        sort_order: index,
+        institution_id: period.institution_id,
+        created_at: period.created_at,
+        updated_at: period.updated_at
+      }));
+
+      // DEBUGGING: Log what we're about to save
+      console.log('[useTimetablePeriods] Saving period selections:', {
+        timetableId,
+        selectedPeriodsCount: selectedPeriods.length,
+        periodsData,
+        timetableFormat,
+        selectedDates,
+        selectedDays
+      });
 
       // Build update data
       const updateData: any = {
-        periods: periodIds,
+        periods: periodsData,
         timetable_format: timetableFormat
       };
 
@@ -222,8 +244,12 @@ export function useTimetablePeriods(
         updateData.selected_days = selectedDays;
       }
 
+      console.log('[useTimetablePeriods] Update data to be sent:', updateData);
+
       // Update timetable
       await TimetableService.updateTimetable(timetableId, updateData);
+
+      console.log('[useTimetablePeriods] Save successful');
 
       toast.success('Timetable configuration saved successfully');
     } catch (error) {
