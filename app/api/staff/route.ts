@@ -286,10 +286,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Allow super_admin, administrator, and faculty to create staff
+    // Allow super_admin, administrator, faculty, and HOD to create staff
     const canCreateStaff =
       currentUser.is_super_admin ||
-      ['super_admin', 'administrator', 'faculty'].includes(currentUser.role);
+      ['super_admin', 'administrator', 'faculty', 'hod'].includes(currentUser.role);
 
     if (!canCreateStaff) {
       return NextResponse.json(
