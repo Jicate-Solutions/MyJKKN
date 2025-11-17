@@ -373,11 +373,13 @@ Please select a different date period that doesn't overlap.`
   ): Promise<Timetable> {
     try {
       // Define fields that are safe to update even when attendance exists
+      // Updated: 2025-11-17 - Added periods to safe fields (changing period list doesn't affect existing attendance)
       const safeFields = [
         'selected_days',
         'selected_dates',
         'timetable_format',
         'timetable_name',
+        'periods',
         'is_active',
         'is_template',
         'template_name',
@@ -497,6 +499,7 @@ Please select a different date period that doesn't overlap.`
 
       // Only include fields that are explicitly provided and not part of the unique constraint
       // Updated: 2025-10-08 - Added timetable_type to allowed fields
+      // Updated: 2025-11-17 - Added periods to allowed fields to fix period configuration save issue
       const allowedFields = [
         'timetable_format',
         'timetable_type',
@@ -505,6 +508,7 @@ Please select a different date period that doesn't overlap.`
         'selected_dates',
         'timetable_name',
         'selected_days',
+        'periods',
         'institution_id',
         'academic_year_id',
         'degree_id',
@@ -526,12 +530,32 @@ Please select a different date period that doesn't overlap.`
         }
       }
 
+      // DEBUGGING: Log what we're sending to the database
+      console.log('[TimetableService.updateTimetable] Incoming data:', {
+        id,
+        dataKeys: Object.keys(data),
+        periodsInData: data.periods,
+        periodsType: Array.isArray(data.periods) ? 'array' : typeof data.periods,
+        periodsLength: Array.isArray(data.periods) ? data.periods.length : 'N/A'
+      });
+      console.log('[TimetableService.updateTimetable] Final updateData to be sent to DB:', {
+        updateDataKeys: Object.keys(updateData),
+        periodsInUpdateData: updateData.periods,
+        fullUpdateData: updateData
+      });
+
       const { data: timetable, error } = await this.supabase
         .from('timetables')
         .update(updateData)
         .eq('id', id)
         .select()
         .single();
+
+      console.log('[TimetableService.updateTimetable] Database response:', {
+        success: !error,
+        returnedPeriods: timetable?.periods,
+        error: error?.message
+      });
 
       if (error) {
         if (error.code === '23505') {
@@ -1319,16 +1343,25 @@ Please select a different date period that doesn't overlap.`
       });
 
       // Create slots array for compatibility with existing code
+      // Updated: 2025-11-17 - Fixed for batch mode timetables
       const slots: any[] = [];
-      Object.keys(enrichedTimetableData).forEach((day) => {
-        const daySlots = enrichedTimetableData[day];
+      Object.keys(enrichedTimetableData).forEach((dayOrRange) => {
+        const daySlots = enrichedTimetableData[dayOrRange];
         if (daySlots && typeof daySlots === 'object') {
           Object.keys(daySlots).forEach((periodId) => {
             const slot = daySlots[periodId];
             if (slot) {
+              // For batch mode: dayOrRange is a date range like "RANGE:2025-11-01:2025-11-05"
+              // For regular mode: dayOrRange is a day of week like "MONDAY"
+              const isBatchMode = dayOrRange.startsWith('RANGE:');
+
               slots.push({
                 ...slot,
-                day_of_week: day,
+                // For batch mode, set slot_date; for regular mode, set day_of_week
+                ...(isBatchMode
+                  ? { slot_date: dayOrRange }
+                  : { day_of_week: dayOrRange }
+                ),
                 period_id: periodId
               });
             }

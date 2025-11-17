@@ -333,9 +333,12 @@ export const BatchTimetableGrid = React.forwardRef<
                   {/* Period Cells */}
                   {selectedPeriods.map((period) => {
                     // Check if any date in the range has a slot for this period
+                    // Updated: 2025-11-17 - Fixed slot matching for batch mode
+                    // slot.slot_date is the range marker (e.g., "RANGE:2025-11-01:2025-11-05")
+                    // We need to compare it with dateRange.rangeMarker, not individual dates
                     const existingSlot = slots?.find(
                       (slot: any) =>
-                        dateRange.dates.includes(slot.slot_date || '') &&
+                        slot.slot_date === dateRange.rangeMarker &&
                         slot.period_id === period.id
                     );
 
@@ -573,7 +576,7 @@ export const BatchTimetableGrid = React.forwardRef<
                           </div>
                         ) : (
                           <button
-                            className='w-full h-14 border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition-all duration-200 rounded'
+                            className='w-full h-14 border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition-all duration-200 rounded group'
                             onClick={(e) => {
                               e.stopPropagation();
                               if (!isBreakPeriod && !isLocked) {
@@ -584,11 +587,12 @@ export const BatchTimetableGrid = React.forwardRef<
                                 );
                               }
                             }}
+                            title='Click to add course slot for this time period'
                           >
                             <div className='flex flex-col items-center gap-0.5'>
-                              <div className='text-gray-400 text-lg'>+</div>
-                              <span className='text-xs text-gray-500'>
-                                Add to Range
+                              <div className='text-gray-400 text-lg group-hover:text-blue-500'>+</div>
+                              <span className='text-xs text-gray-500 group-hover:text-blue-600 font-medium'>
+                                Add Slot
                               </span>
                             </div>
                           </button>
