@@ -40,14 +40,6 @@ export class ResourceService {
           ),
           institution:institutions(id, name),
           department:departments(id, department_name),
-          caretaker:staff!resources_caretaker_user_id_fkey(
-            id,
-            first_name,
-            last_name,
-            email,
-            phone,
-            designation
-          ),
           created_by_user:profiles!resources_created_by_fkey(
             id,
             full_name,
@@ -161,14 +153,6 @@ export class ResourceService {
             ),
             institution:institutions(id, name),
             department:departments(id, department_name),
-            caretaker:staff!resources_caretaker_user_id_fkey(
-              id,
-              first_name,
-              last_name,
-              email,
-              phone,
-              designation
-            ),
             created_by_user:profiles!resources_created_by_fkey(
               id,
               full_name,
@@ -246,19 +230,43 @@ export class ResourceService {
       }
 
       // Check if resource name already exists in the same location
-      const { data: existingResource, error: nameCheckError } = await this.supabase
+      // Build query conditionally to handle null values correctly
+      let duplicateCheckQuery = this.supabase
         .from('resources')
         .select('id')
         .eq('name', resourceData.name.trim())
-        .eq('institution_id', resourceData.institution_id)
-        .eq('department_id', resourceData.department_id || null)
-        .eq('building_number', resourceData.building_number || null)
-        .eq('block_number', resourceData.block_number || null)
-        .eq('room_number', resourceData.room_number || null)
-        .maybeSingle();
+        .eq('institution_id', resourceData.institution_id);
+
+      // Handle nullable fields with .is() for null or .eq() for values
+      if (resourceData.department_id) {
+        duplicateCheckQuery = duplicateCheckQuery.eq('department_id', resourceData.department_id);
+      } else {
+        duplicateCheckQuery = duplicateCheckQuery.is('department_id', null);
+      }
+
+      if (resourceData.building_number) {
+        duplicateCheckQuery = duplicateCheckQuery.eq('building_number', resourceData.building_number);
+      } else {
+        duplicateCheckQuery = duplicateCheckQuery.is('building_number', null);
+      }
+
+      if (resourceData.block_number) {
+        duplicateCheckQuery = duplicateCheckQuery.eq('block_number', resourceData.block_number);
+      } else {
+        duplicateCheckQuery = duplicateCheckQuery.is('block_number', null);
+      }
+
+      if (resourceData.room_number) {
+        duplicateCheckQuery = duplicateCheckQuery.eq('room_number', resourceData.room_number);
+      } else {
+        duplicateCheckQuery = duplicateCheckQuery.is('room_number', null);
+      }
+
+      const { data: existingResource, error: nameCheckError } = await duplicateCheckQuery.maybeSingle();
 
       if (nameCheckError) {
         console.error('Error checking resource name:', nameCheckError);
+        throw new Error('Failed to check for duplicate resource name');
       }
 
       if (existingResource) {

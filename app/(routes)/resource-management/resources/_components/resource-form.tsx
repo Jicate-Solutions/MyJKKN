@@ -50,7 +50,7 @@ import { useSubCategoriesSelect } from '@/hooks/resource-management/use-sub-cate
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDepartments } from '@/hooks/organization/use-departments';
-import { useStaff } from '@/hooks/staff/use-staff';
+import { useProfilesForSelection } from '@/hooks/organization/use-profiles';
 import { SubCategoryService } from '@/lib/services/resource-management/sub-category-service';
 import { ResourceService } from '@/lib/services/resource-management/resource-service';
 import { generateResourceCode, isValidResourceCode } from '@/lib/utils/resource-id-generator';
@@ -149,7 +149,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
     useDepartments({ institution_id: selectedInstitutionId || institutionId });
   const departments = departmentsData?.data || [];
 
-  // Fetch staff based on selected institution and department for responsible person selection
+  // Fetch profiles (all users) based on selected institution and department for responsible person selection
   const selectedDepartmentId = form.watch('department_id');
   const selectedAccessRoles = form.watch('access_roles') || [];
 
@@ -159,44 +159,22 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
     isActive: true
   });
 
+  // Fetch profiles (users) for caretaker selection - supports ALL roles (not just staff)
   const {
-    data: staffData,
-    isLoading: loadingStaff,
-    error: staffError
-  } = useStaff(
+    data: profiles = [],
+    isLoading: loadingProfiles,
+    error: profilesError
+  } = useProfilesForSelection(
     selectedInstitutionId
       ? {
           institution_id: selectedInstitutionId,
           department_id: selectedDepartmentId || undefined,
-          isActive: true,
-          limit: 1000 // Get all staff for the institution
+          is_active: true,
+          // Optional: Uncomment to limit to specific roles
+          // roles: ['faculty', 'hod', 'admin', 'librarian']
         }
-      : {
-          institution_id: '',
-          isActive: true,
-          limit: 0 // Don't fetch if no institution
-        }
+      : { institution_id: '' } // Won't fetch due to enabled check in hook
   );
-  const staff = useMemo(() => staffData?.data || [], [staffData]);
-
-  // Debug logging
-  useEffect(() => {
-    console.log('Staff Data Debug:', {
-      selectedInstitutionId,
-      selectedDepartmentId,
-      staffData,
-      staff,
-      loadingStaff,
-      staffError
-    });
-  }, [
-    selectedInstitutionId,
-    selectedDepartmentId,
-    staffData,
-    staff,
-    loadingStaff,
-    staffError
-  ]);
 
   useEffect(() => {
     const fetchAttributeDefinitions = async () => {
@@ -366,12 +344,37 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
         }
       }
 
-      // Clean up date fields - convert empty strings to undefined
+      // Clean up data - convert empty strings to undefined for optional fields
       const cleanedData = {
         ...data,
+        // Clean date fields
         purchase_date: data.purchase_date || undefined,
         warranty_expiry_date: data.warranty_expiry_date || undefined,
         disposal_date: (data as any).disposal_date || undefined,
+        // Clean UUID fields - convert empty strings to undefined
+        department_id: data.department_id || undefined,
+        caretaker_user_id: (data as any).caretaker_user_id || undefined,
+        // Clean numeric fields
+        depreciation_rate: data.depreciation_rate || undefined,
+        current_value: data.current_value || undefined,
+        current_stock_quantity: (data as any).current_stock_quantity || undefined,
+        // Clean optional text fields
+        maintenance_schedule: data.maintenance_schedule || undefined,
+        vendor_name: data.vendor_name || undefined,
+        vendor_email: data.vendor_email || undefined,
+        vendor_mobile: data.vendor_mobile || undefined,
+        vendor_address_line1: data.vendor_address_line1 || undefined,
+        vendor_address_line2: data.vendor_address_line2 || undefined,
+        vendor_city: data.vendor_city || undefined,
+        vendor_state: data.vendor_state || undefined,
+        vendor_zip: data.vendor_zip || undefined,
+        vendor_contract_details: data.vendor_contract_details || undefined,
+        vendor_support_contact: data.vendor_support_contact || undefined,
+        building_number: data.building_number || undefined,
+        block_number: data.block_number || undefined,
+        floor_number: data.floor_number || undefined,
+        room_number: data.room_number || undefined,
+        location_notes: data.location_notes || undefined
       };
 
       // Update data with uploaded image URLs and resource code
@@ -914,28 +917,28 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                         <p className='text-sm text-muted-foreground'>
                           Please select an institution first
                         </p>
-                      ) : loadingStaff ? (
+                      ) : loadingProfiles ? (
                         <p className='text-sm text-muted-foreground'>
-                          Loading staff...
+                          Loading users...
                         </p>
-                      ) : staff.length === 0 ? (
+                      ) : profiles.length === 0 ? (
                         <p className='text-sm text-muted-foreground'>
-                          No staff found for the selected institution
+                          No users found for the selected institution
                           {selectedDepartmentId && '/department'}
                         </p>
                       ) : (
-                        staff.map((s: any) => {
+                        profiles.map((profile) => {
                           // Skip if id is missing
-                          if (!s.id) return null;
+                          if (!profile.id) return null;
 
                           return (
                             <div
-                              key={s.id}
+                              key={profile.id}
                               className='flex items-center space-x-2'
                             >
                               <Checkbox
-                                id={`caretaker-${s.id}`}
-                                checked={field.value?.includes(s.id) || false}
+                                id={`caretaker-${profile.id}`}
+                                checked={field.value?.includes(profile.id) || false}
                                 disabled={!selectedInstitutionId}
                                 onCheckedChange={(checked) => {
                                   // Double-check institution is selected
@@ -946,31 +949,30 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                                     return;
                                   }
 
-                                  if (!s.id) {
-                                    toast.error('Invalid staff member');
+                                  if (!profile.id) {
+                                    toast.error('Invalid user');
                                     return;
                                   }
 
                                   const currentValue = field.value || [];
                                   if (checked) {
-                                    field.onChange([...currentValue, s.id]);
+                                    field.onChange([...currentValue, profile.id]);
                                   } else {
                                     field.onChange(
                                       currentValue.filter(
-                                        (id: string) => id !== s.id
+                                        (id: string) => id !== profile.id
                                       )
                                     );
                                   }
                                 }}
                               />
                               <Label
-                                htmlFor={`caretaker-${s.id}`}
+                                htmlFor={`caretaker-${profile.id}`}
                                 className='text-sm font-normal cursor-pointer'
                               >
-                                {s.first_name} {s.last_name}
-                                {s.designation && ` - ${s.designation}`}
-                                {s.department?.department_name &&
-                                  ` (${s.department.department_name})`}
+                                {profile.full_name}
+                                {profile.role && ` (${profile.role})`}
+                                {profile.designation && ` - ${profile.designation}`}
                               </Label>
                             </div>
                           );
@@ -980,10 +982,10 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   </div>
                   <FormDescription>
                     {!selectedInstitutionId
-                      ? 'Select an institution to view available staff'
+                      ? 'Select an institution to view available users'
                       : selectedDepartmentId
-                      ? 'Showing staff from selected department. Select one or more responsible persons.'
-                      : 'Showing all staff from selected institution. Select one or more responsible persons.'}
+                      ? 'Showing users from selected department. Select one or more responsible persons.'
+                      : 'Showing all users from selected institution. Select one or more responsible persons.'}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -1719,12 +1721,13 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                                 <SelectItem value='none'>
                                   None (Use Role)
                                 </SelectItem>
-                                {staff.map((s: any) => {
-                                  if (!s.id) return null;
+                                {profiles.map((profile) => {
+                                  if (!profile.id) return null;
                                   return (
-                                    <SelectItem key={s.id} value={s.id}>
-                                      {s.first_name} {s.last_name}
-                                      {s.designation && ` - ${s.designation}`}
+                                    <SelectItem key={profile.id} value={profile.id}>
+                                      {profile.full_name}
+                                      {profile.role && ` (${profile.role})`}
+                                      {profile.designation && ` - ${profile.designation}`}
                                     </SelectItem>
                                   );
                                 })}
