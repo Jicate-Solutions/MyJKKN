@@ -84,8 +84,14 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
       // Fetch timetable data
       const timetableData = await TimetableService.getTimetable(timetableId);
       console.log(
-        '[useTimetableDetail] Fetched timetable data, slots count:',
-        timetableData.slots?.length
+        '[useTimetableDetail] Fetched timetable data:',
+        {
+          slotsCount: timetableData.slots?.length,
+          timetableFormat: timetableData.timetable_format,
+          selectedDatesCount: timetableData.selected_dates?.length,
+          timetableDataKeys: Object.keys(timetableData.timetable_data || {}),
+          sampleSlot: timetableData.slots?.[0]
+        }
       );
 
       setTimetable(timetableData);
