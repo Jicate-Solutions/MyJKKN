@@ -1342,6 +1342,73 @@ Please select a different date period that doesn't overlap.`
         }
       });
 
+      // CRITICAL FIX: 2025-11-19 - Handle batch mode timetables with individual date keys
+      // Group individual dates under their range markers for grid compatibility
+      if (timetable.selected_dates && Array.isArray(timetable.selected_dates) && timetable.selected_dates.length > 0) {
+        // Check if timetable_data has individual date keys (legacy format)
+        const hasIndividualDates = Object.keys(enrichedTimetableData).some(
+          key => !key.startsWith('RANGE:') && /^\d{4}-\d{2}-\d{2}$/.test(key)
+        );
+
+        if (hasIndividualDates) {
+          console.log('[TimetableService] Converting individual date slots to range-based structure');
+          const regroupedData: any = {};
+
+          // For each range marker in selected_dates
+          timetable.selected_dates.forEach((rangeMarker: string) => {
+            if (rangeMarker.startsWith('RANGE:')) {
+              const parts = rangeMarker.split(':');
+              if (parts.length === 3) {
+                const startDate = parts[1];
+                const endDate = parts[2];
+
+                // Generate all dates in this range
+                const rangeDates: string[] = [];
+                const current = new Date(startDate);
+                const end = new Date(endDate);
+
+                while (current <= end) {
+                  rangeDates.push(current.toISOString().split('T')[0]);
+                  current.setDate(current.getDate() + 1);
+                }
+
+                // Merge slots from all dates in this range
+                const mergedSlots: any = {};
+                rangeDates.forEach(date => {
+                  if (enrichedTimetableData[date]) {
+                    Object.keys(enrichedTimetableData[date]).forEach(periodId => {
+                      // Use the first occurrence of each period slot
+                      // (all dates in range should have same slot configuration)
+                      if (!mergedSlots[periodId]) {
+                        mergedSlots[periodId] = enrichedTimetableData[date][periodId];
+                      }
+                    });
+                  }
+                });
+
+                // Store under range marker
+                if (Object.keys(mergedSlots).length > 0) {
+                  regroupedData[rangeMarker] = mergedSlots;
+                }
+              }
+            } else {
+              // Handle single dates (no range marker)
+              if (enrichedTimetableData[rangeMarker]) {
+                regroupedData[rangeMarker] = enrichedTimetableData[rangeMarker];
+              }
+            }
+          });
+
+          // Replace enrichedTimetableData with regrouped data
+          Object.keys(enrichedTimetableData).forEach(key => {
+            delete enrichedTimetableData[key];
+          });
+          Object.assign(enrichedTimetableData, regroupedData);
+
+          console.log('[TimetableService] Regrouped data keys:', Object.keys(enrichedTimetableData));
+        }
+      }
+
       // Create slots array for compatibility with existing code
       // Updated: 2025-11-17 - Fixed for batch mode timetables
       const slots: any[] = [];
