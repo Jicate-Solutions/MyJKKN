@@ -146,7 +146,7 @@ export function PaymentSelectionModal({
                         htmlFor={`bill-${bill.id}`}
                         className="font-medium cursor-pointer"
                       >
-                        {bill.bill_number}
+                        {(bill as any).bill_number}
                       </label>
                       <Badge variant={getStatusBadgeVariant(bill.status)}>
                         {bill.status.toUpperCase()}
@@ -160,7 +160,7 @@ export function PaymentSelectionModal({
                         Total: ₹{Number(bill.total_amount || 0).toLocaleString('en-IN')}
                       </span>
                       <span className="font-semibold text-primary">
-                        Balance: ₹{Number(bill.bill_balance ?? bill.total_amount ?? 0).toLocaleString('en-IN')}
+                        Balance: ₹{Number((bill as any).bill_balance ?? bill.total_amount ?? 0).toLocaleString('en-IN')}
                       </span>
                     </div>
                   </div>
