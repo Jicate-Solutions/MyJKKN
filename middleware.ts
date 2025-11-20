@@ -13,6 +13,8 @@ const PUBLIC_PATHS_SET = new Set([
   '/auth/complete-profile',
   '/unauthorized',
   '/students/onboarding', // Add onboarding path for pending students
+  '/billing/payment/success', // HDFC payment success callback
+  '/billing/payment/failed', // HDFC payment failure callback
   '/sw.js',
   '/manifest.json',
   '/browserconfig.xml',
