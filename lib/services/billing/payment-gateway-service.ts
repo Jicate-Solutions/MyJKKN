@@ -699,6 +699,24 @@ export class PaymentGatewayService {
 
     if (!response.ok) {
       const errorText = await response.text();
+
+      // If it's a Cloudflare 403 block, try to get our current IP
+      if (response.status === 403 && errorText.includes('Cloudflare')) {
+        try {
+          const ipResponse = await fetch('https://api.ipify.org?format=json');
+          const ipData = await ipResponse.json();
+          logger.error('billing/payment-gateway', 'HDFC API blocked by Cloudflare - IP not whitelisted', {
+            endpoint,
+            method,
+            status: response.status,
+            current_vercel_ip: ipData.ip,
+            message: `URGENT: Add this IP to HDFC whitelist: ${ipData.ip}`,
+          });
+        } catch (e) {
+          // Ignore IP detection errors
+        }
+      }
+
       logger.error('billing/payment-gateway', 'HDFC API error', {
         endpoint,
         method,
