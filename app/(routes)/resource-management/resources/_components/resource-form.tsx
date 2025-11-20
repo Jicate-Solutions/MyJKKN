@@ -41,7 +41,9 @@ import { useRoles } from '@/hooks/organization/use-roles';
 import type {
   Resource,
   CreateResourceDto,
-  UpdateResourceDto
+  UpdateResourceDto,
+  ResourceCustomAttribute,
+  ResourceCustomAttributesData
 } from '@/types/resource-management';
 import { resourceSchema } from '@/types/resource-management';
 import { useResourceOperations } from '@/hooks/resource-management/use-resources';
@@ -59,6 +61,7 @@ import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import { DateAvailabilityConfigComponent } from './date-availability-config';
 import { TimeSlotConfigComponent } from './time-slot-config';
+import { CustomAttributesBuilder } from './custom-attributes-builder';
 import type { DateAvailabilityConfig, TimeSlotConfig } from '@/types/resource-management';
 
 interface ResourceFormProps {
@@ -73,11 +76,20 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [attributeDefinitions, setAttributeDefinitions] = useState<any[]>([]);
-  const [loadingAttributes, setLoadingAttributes] = useState(false);
+  // Removed: attributeDefinitions, loadingAttributes - custom attributes now managed per-resource
   const [pendingImageFiles, setPendingImageFiles] = useState<File[]>([]); // Store files temporarily until form submission
   const [resourceCode, setResourceCode] = useState((resource as any)?.resource_code || '');
   const [generatingCode, setGeneratingCode] = useState(false);
+
+  // Custom Attributes state for resource-level attributes
+  const [customAttributeDefinitions, setCustomAttributeDefinitions] = useState<ResourceCustomAttribute[]>(() => {
+    // Initialize from existing resource data if in edit mode
+    if (resource?.custom_attributes) {
+      const attributesData = resource.custom_attributes as ResourceCustomAttributesData;
+      return attributesData.schema || [];
+    }
+    return [];
+  });
 
   const { createResource, updateResource } = useResourceOperations();
 
@@ -176,27 +188,8 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
       : { institution_id: '' } // Won't fetch due to enabled check in hook
   );
 
-  useEffect(() => {
-    const fetchAttributeDefinitions = async () => {
-      if (!subcategoryId) {
-        setAttributeDefinitions([]);
-        return;
-      }
-      try {
-        setLoadingAttributes(true);
-        const subcategory = await SubCategoryService.getSubCategory(
-          subcategoryId
-        );
-        setAttributeDefinitions(subcategory.attribute_definitions || []);
-      } catch (error) {
-        console.error('Error fetching attribute definitions:', error);
-        setAttributeDefinitions([]);
-      } finally {
-        setLoadingAttributes(false);
-      }
-    };
-    fetchAttributeDefinitions();
-  }, [subcategoryId]);
+  // Removed: useEffect for fetching subcategory attribute definitions
+  // Custom attributes are now managed per-resource, not inherited from subcategory
 
   // Auto-generate resource code when category and institution change (in create mode)
   useEffect(() => {
@@ -377,11 +370,23 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
         location_notes: data.location_notes || undefined
       };
 
-      // Update data with uploaded image URLs and resource code
+      // Structure custom attributes data with schema and values
+      const customAttributesData: ResourceCustomAttributesData = {
+        schema: customAttributeDefinitions,
+        values: customAttributeDefinitions.reduce((acc, attr) => {
+          if (attr.value !== undefined && attr.value !== null && attr.value !== '') {
+            acc[attr.attribute_key] = attr.value;
+          }
+          return acc;
+        }, {} as Record<string, any>)
+      };
+
+      // Update data with uploaded image URLs, resource code, and custom attributes
       const finalData = {
         ...cleanedData,
         image_urls: uploadedImageUrls,
-        resource_code: finalResourceCode
+        resource_code: finalResourceCode,
+        custom_attributes: customAttributesData
       };
 
       let result;
@@ -473,114 +478,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
     form.setValue('custom_attributes', { ...customAttributes, [key]: value });
   };
 
-  const renderAttributeInput = (attr: any) => {
-    const currentValue = customAttributes[attr.attribute_key];
-
-    switch (attr.attribute_type) {
-      case 'text':
-        return (
-          <Input
-            placeholder={attr.description || 'Enter value'}
-            value={currentValue || ''}
-            onChange={(e) =>
-              updateAttribute(attr.attribute_key, e.target.value)
-            }
-          />
-        );
-      case 'number':
-        return (
-          <Input
-            type='number'
-            placeholder={attr.description || 'Enter number'}
-            value={currentValue || ''}
-            onChange={(e) =>
-              updateAttribute(attr.attribute_key, parseFloat(e.target.value))
-            }
-          />
-        );
-      case 'date':
-        return (
-          <Input
-            type='date'
-            value={currentValue || ''}
-            onChange={(e) =>
-              updateAttribute(attr.attribute_key, e.target.value)
-            }
-          />
-        );
-      case 'boolean':
-        return (
-          <div className='flex items-center space-x-2 pt-2'>
-            <Checkbox
-              id={attr.attribute_key}
-              checked={currentValue || false}
-              onCheckedChange={(checked) =>
-                updateAttribute(attr.attribute_key, checked)
-              }
-            />
-            <Label htmlFor={attr.attribute_key} className='font-normal'>
-              {attr.description || 'Yes'}
-            </Label>
-          </div>
-        );
-      case 'select':
-        return (
-          <Select
-            value={currentValue || ''}
-            onValueChange={(value) =>
-              updateAttribute(attr.attribute_key, value)
-            }
-          >
-            <SelectTrigger>
-              <SelectValue placeholder='Select option' />
-            </SelectTrigger>
-            <SelectContent>
-              {attr.options?.map((option: string) => (
-                <SelectItem key={option} value={option}>
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        );
-      case 'multi_select':
-        const selectedValues = Array.isArray(currentValue) ? currentValue : [];
-        return (
-          <div className='space-y-2'>
-            {attr.options?.map((option: string) => (
-              <div key={option} className='flex items-center space-x-2'>
-                <Checkbox
-                  id={`${attr.attribute_key}-${option}`}
-                  checked={selectedValues.includes(option)}
-                  onCheckedChange={(checked) => {
-                    const updated = checked
-                      ? [...selectedValues, option]
-                      : selectedValues.filter((v: string) => v !== option);
-                    updateAttribute(attr.attribute_key, updated);
-                  }}
-                />
-                <Label
-                  htmlFor={`${attr.attribute_key}-${option}`}
-                  className='font-normal'
-                >
-                  {option}
-                </Label>
-              </div>
-            ))}
-          </div>
-        );
-      default:
-        return (
-          <Input
-            placeholder={attr.description || 'Enter value'}
-            value={currentValue || ''}
-            onChange={(e) =>
-              updateAttribute(attr.attribute_key, e.target.value)
-            }
-          />
-        );
-    }
-  };
+  // Removed: renderAttributeInput function - will be replaced by CustomAttributesBuilder component
 
   return (
     <Form {...form}>
@@ -835,7 +733,11 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>Building Number</FormLabel>
                     <FormControl>
-                      <Input placeholder='e.g., A Block' {...field} />
+                      <Input
+                        placeholder='e.g., A Block'
+                        {...field}
+                        value={field.value || ''}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -849,7 +751,11 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>Block Number</FormLabel>
                     <FormControl>
-                      <Input placeholder='e.g., 2nd Block' {...field} />
+                      <Input
+                        placeholder='e.g., 2nd Block'
+                        {...field}
+                        value={field.value || ''}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -863,7 +769,11 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>Floor Number</FormLabel>
                     <FormControl>
-                      <Input placeholder='e.g., 3rd Floor' {...field} />
+                      <Input
+                        placeholder='e.g., 3rd Floor'
+                        {...field}
+                        value={field.value || ''}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -877,7 +787,11 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>Room Number</FormLabel>
                     <FormControl>
-                      <Input placeholder='e.g., 301' {...field} />
+                      <Input
+                        placeholder='e.g., 301'
+                        {...field}
+                        value={field.value || ''}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1065,7 +979,11 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>Vendor Name</FormLabel>
                     <FormControl>
-                      <Input placeholder='e.g., ABC Supplies Inc.' {...field} />
+                      <Input
+                        placeholder='e.g., ABC Supplies Inc.'
+                        {...field}
+                        value={field.value || ''}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1083,6 +1001,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                         type='email'
                         placeholder='e.g., vendor@example.com'
                         {...field}
+                        value={field.value || ''}
                       />
                     </FormControl>
                     <FormMessage />
@@ -1097,7 +1016,11 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>Vendor Mobile</FormLabel>
                     <FormControl>
-                      <Input placeholder='e.g., +91 98765 43210' {...field} />
+                      <Input
+                        placeholder='e.g., +91 98765 43210'
+                        {...field}
+                        value={field.value || ''}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1114,6 +1037,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                       <Input
                         placeholder='Street address, P.O. box'
                         {...field}
+                        value={field.value || ''}
                       />
                     </FormControl>
                     <FormMessage />
@@ -1131,6 +1055,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                       <Input
                         placeholder='Apartment, suite, unit, building, floor'
                         {...field}
+                        value={field.value || ''}
                       />
                     </FormControl>
                     <FormMessage />
@@ -1145,7 +1070,11 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>City</FormLabel>
                     <FormControl>
-                      <Input placeholder='City name' {...field} />
+                      <Input
+                        placeholder='City name'
+                        {...field}
+                        value={field.value || ''}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1159,7 +1088,11 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>State / Province</FormLabel>
                     <FormControl>
-                      <Input placeholder='State or province' {...field} />
+                      <Input
+                        placeholder='State or province'
+                        {...field}
+                        value={field.value || ''}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1173,7 +1106,11 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>ZIP / Postal Code</FormLabel>
                     <FormControl>
-                      <Input placeholder='ZIP or postal code' {...field} />
+                      <Input
+                        placeholder='ZIP or postal code'
+                        {...field}
+                        value={field.value || ''}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1191,6 +1128,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <Input
                       placeholder='Support phone or email for maintenance issues'
                       {...field}
+                      value={field.value || ''}
                     />
                   </FormControl>
                   <FormDescription>
@@ -1241,7 +1179,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>Purchase Date</FormLabel>
                     <FormControl>
-                      <Input type='date' {...field} />
+                      <Input type='date' {...field} value={field.value || ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1255,7 +1193,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>Warranty Expiry Date</FormLabel>
                     <FormControl>
-                      <Input type='date' {...field} />
+                      <Input type='date' {...field} value={field.value || ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -2142,39 +2080,24 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
           </CardContent>
         </Card>
 
-        {subcategoryId && attributeDefinitions.length > 0 && (
-          <Card>
-            <CardContent className='p-6 space-y-6'>
+        {/* Custom Attributes Builder - Resource-level attributes */}
+        <Card>
+          <CardContent className='p-6 space-y-6'>
+            <div>
               <h3 className='text-lg font-semibold'>Custom Attributes</h3>
-              {loadingAttributes ? (
-                <div className='flex items-center justify-center py-8'>
-                  <Loader2 className='h-6 w-6 animate-spin' />
-                </div>
-              ) : (
-                <div className='space-y-4'>
-                  {attributeDefinitions.map((attr) => (
-                    <div key={attr.id} className='space-y-2'>
-                      <Label>
-                        {attr.attribute_key
-                          .replace(/_/g, ' ')
-                          .replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                        {attr.is_required && (
-                          <span className='text-red-500 ml-1'>*</span>
-                        )}
-                      </Label>
-                      {attr.description && (
-                        <p className='text-xs text-muted-foreground'>
-                          {attr.description}
-                        </p>
-                      )}
-                      {renderAttributeInput(attr)}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+              <p className='text-sm text-muted-foreground mt-1'>
+                Define custom attributes specific to this resource. Each
+                resource can have its own unique set of attributes.
+              </p>
+            </div>
+
+            <CustomAttributesBuilder
+              attributes={customAttributeDefinitions}
+              onChange={setCustomAttributeDefinitions}
+              disabled={isSubmitting}
+            />
+          </CardContent>
+        </Card>
 
         <Card>
           <CardContent className='p-6 space-y-6'>

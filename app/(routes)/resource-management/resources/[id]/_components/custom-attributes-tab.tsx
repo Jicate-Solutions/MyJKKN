@@ -5,16 +5,17 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Settings, CheckCircle2, XCircle } from 'lucide-react';
-import type { Resource } from '@/types/resource-management';
+import type { Resource, ResourceCustomAttributesData } from '@/types/resource-management';
 
 interface CustomAttributesTabProps {
   resource: Resource;
 }
 
 export function CustomAttributesTab({ resource }: CustomAttributesTabProps) {
-  const customAttributes = resource.custom_attributes || {};
-  const attributeDefinitions =
-    resource.subcategory?.attribute_definitions || [];
+  // Parse custom attributes from the new JSONB structure
+  const customAttributesData = resource.custom_attributes as ResourceCustomAttributesData | null;
+  const attributeDefinitions = customAttributesData?.schema || [];
+  const attributeValues = customAttributesData?.values || {};
 
   if (attributeDefinitions.length === 0) {
     return (
@@ -23,7 +24,7 @@ export function CustomAttributesTab({ resource }: CustomAttributesTabProps) {
           <Settings className='h-12 w-12 mx-auto mb-4 text-muted-foreground' />
           <h3 className='text-lg font-semibold mb-2'>No Custom Attributes</h3>
           <p className='text-muted-foreground'>
-            This sub-category has no custom attributes defined
+            This resource has no custom attributes defined
           </p>
         </CardContent>
       </Card>
@@ -31,7 +32,7 @@ export function CustomAttributesTab({ resource }: CustomAttributesTabProps) {
   }
 
   const renderAttributeValue = (attr: any) => {
-    const value = customAttributes[attr.attribute_key];
+    const value = attributeValues[attr.attribute_key];
 
     if (value === null || value === undefined || value === '') {
       return <span className='text-muted-foreground italic'>Not set</span>;
@@ -51,21 +52,11 @@ export function CustomAttributesTab({ resource }: CustomAttributesTabProps) {
           </div>
         );
 
-      case 'multi_select':
+      case 'dropdown':
         return (
-          <div className='flex flex-wrap gap-2'>
-            {Array.isArray(value) ? (
-              value.map((v: string, i: number) => (
-                <Badge key={i} variant='secondary'>
-                  {v}
-                </Badge>
-              ))
-            ) : (
-              <span className='text-muted-foreground italic'>
-                No items selected
-              </span>
-            )}
-          </div>
+          <Badge variant='secondary' className='font-normal'>
+            {value}
+          </Badge>
         );
 
       case 'date':
@@ -74,6 +65,31 @@ export function CustomAttributesTab({ resource }: CustomAttributesTabProps) {
       case 'number':
         return <span className='font-mono'>{value}</span>;
 
+      case 'email':
+        return (
+          <a
+            href={`mailto:${value}`}
+            className='text-blue-600 hover:underline'
+          >
+            {value}
+          </a>
+        );
+
+      case 'url':
+        return (
+          <a
+            href={value}
+            target='_blank'
+            rel='noopener noreferrer'
+            className='text-blue-600 hover:underline'
+          >
+            {value}
+          </a>
+        );
+
+      case 'textarea':
+        return <p className='whitespace-pre-wrap'>{value}</p>;
+
       default:
         return <span>{value}</span>;
     }
@@ -81,15 +97,13 @@ export function CustomAttributesTab({ resource }: CustomAttributesTabProps) {
 
   return (
     <div className='grid gap-6 md:grid-cols-2'>
-      {attributeDefinitions.map((attr: any) => (
-        <Card key={attr.id}>
+      {attributeDefinitions.map((attr: any, index: number) => (
+        <Card key={attr.id || index}>
           <CardHeader>
             <div className='flex items-start justify-between'>
               <div>
                 <CardTitle className='text-base'>
-                  {attr.attribute_key
-                    .replace(/_/g, ' ')
-                    .replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                  {attr.label}
                 </CardTitle>
                 {attr.description && (
                   <p className='text-sm text-muted-foreground mt-1'>
@@ -103,18 +117,13 @@ export function CustomAttributesTab({ resource }: CustomAttributesTabProps) {
                     Required
                   </Badge>
                 )}
-                {attr.is_multiple && (
-                  <Badge variant='secondary' className='text-xs'>
-                    Multiple
-                  </Badge>
-                )}
               </div>
             </div>
           </CardHeader>
           <CardContent>
             <div className='space-y-2'>
               <div className='text-sm text-muted-foreground'>
-                Type: <span className='font-medium'>{attr.attribute_type}</span>
+                Type: <span className='font-medium capitalize'>{attr.attribute_type}</span>
               </div>
 
               <div className='rounded-lg border bg-muted/50 p-3'>
@@ -131,12 +140,6 @@ export function CustomAttributesTab({ resource }: CustomAttributesTabProps) {
               {attr.options && attr.options.length > 0 && (
                 <div className='text-xs text-muted-foreground'>
                   Options: {attr.options.join(', ')}
-                </div>
-              )}
-
-              {attr.validation_rules && (
-                <div className='text-xs text-muted-foreground'>
-                  Validation: {JSON.stringify(attr.validation_rules)}
                 </div>
               )}
             </div>
