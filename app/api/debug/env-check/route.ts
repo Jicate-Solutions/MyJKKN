@@ -4,10 +4,8 @@
 import { NextResponse } from 'next/server';
 
 export async function GET() {
-  // Only allow in non-production or with a secret key
-  if (process.env.NODE_ENV === 'production' && process.env.DEBUG_SECRET !== 'allow-debug') {
-    return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
-  }
+  // Temporarily allow in production for debugging
+  // TODO: Remove this endpoint after verifying environment variables
 
   // Check which environment variables are set (don't show actual values for security)
   const envCheck = {
