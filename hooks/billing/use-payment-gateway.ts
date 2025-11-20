@@ -82,9 +82,9 @@ export function usePaymentStatus(transactionId: string | null, enabled: boolean 
     queryKey: ['payment-status', transactionId],
     queryFn: () => checkPaymentStatus(transactionId!),
     enabled: enabled && !!transactionId,
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // Stop refetching if payment is in a final state
-      if (data?.status && ['success', 'failed', 'cancelled', 'refunded'].includes(data.status)) {
+      if (query.state.data?.status && ['success', 'failed', 'cancelled', 'refunded'].includes(query.state.data.status)) {
         return false;
       }
       // Refetch every 3 seconds for pending payments

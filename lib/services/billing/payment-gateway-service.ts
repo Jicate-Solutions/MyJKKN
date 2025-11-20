@@ -460,7 +460,7 @@ export class PaymentGatewayService {
           bill_id: item.bill_id,
           amount_paid: item.amount,
         })),
-      };
+      } as any;
 
       const receipt = await BillingReceiptService.createBillingReceipt(receiptData);
 
