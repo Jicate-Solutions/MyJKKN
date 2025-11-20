@@ -46,6 +46,7 @@ import {
 import { StudentBillsTable } from './_components/student-bills-table';
 import { StudentTransactionHistory } from './_components/student-transaction-history';
 import { StudentReceiptsTable } from './_components/student-receipts-table';
+import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
 import { toast } from 'react-hot-toast';
 
 export default function StudentBillingDetailPage() {
@@ -54,6 +55,7 @@ export default function StudentBillingDetailPage() {
   const studentId = params.id as string;
 
   const [billStatusFilter, setBillStatusFilter] = useState<string>('all');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const previousBillCountRef = useRef<number | null>(null);
 
   const {
@@ -611,32 +613,44 @@ export default function StudentBillingDetailPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    onClick={() => {
-                      console.log('Manual refresh triggered');
-                      refetchSummary();
-                    }}
-                    disabled={isRefetchingSummary}
-                    title={
-                      isRefetchingSummary
-                        ? 'Refreshing...'
-                        : 'Refresh billing data'
-                    }
-                    className='w-full sm:w-auto'
-                  >
-                    <RefreshCw
-                      className={`h-4 w-4 ${
-                        isRefetchingSummary ? 'animate-spin' : ''
-                      }`}
-                    />
-                    {isRefetchingSummary ? (
-                      <span className='ml-2'>Refreshing...</span>
-                    ) : (
-                      <span className='ml-2 sm:hidden'>Refresh</span>
-                    )}
-                  </Button>
+                  <div className='flex gap-2'>
+                    <Button
+                      variant='default'
+                      size='sm'
+                      onClick={() => setShowPaymentModal(true)}
+                      disabled={billingSummary.summary.outstanding_amount <= 0}
+                      className='w-full sm:w-auto'
+                    >
+                      <CreditCard className='h-4 w-4' />
+                      <span className='ml-2'>Pay Online</span>
+                    </Button>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() => {
+                        console.log('Manual refresh triggered');
+                        refetchSummary();
+                      }}
+                      disabled={isRefetchingSummary}
+                      title={
+                        isRefetchingSummary
+                          ? 'Refreshing...'
+                          : 'Refresh billing data'
+                      }
+                      className='w-full sm:w-auto'
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 ${
+                          isRefetchingSummary ? 'animate-spin' : ''
+                        }`}
+                      />
+                      {isRefetchingSummary ? (
+                        <span className='ml-2'>Refreshing...</span>
+                      ) : (
+                        <span className='ml-2 sm:hidden'>Refresh</span>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -667,6 +681,14 @@ export default function StudentBillingDetailPage() {
             </Tabs>
           </CardContent>
         </Card>
+
+        {/* Payment Selection Modal */}
+        <PaymentSelectionModal
+          open={showPaymentModal}
+          onOpenChange={setShowPaymentModal}
+          bills={billingSummary.bills}
+          studentId={studentId}
+        />
       </div>
     </ContentLayout>
   );

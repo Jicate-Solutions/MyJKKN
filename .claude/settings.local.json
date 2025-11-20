@@ -62,7 +62,8 @@
       "Skill(writing-plans)",
       "Skill(nextjs-module-builder)",
       "Bash(timeout 30 npx tsc:*)",
-      "Bash(tail:*)"
+      "Bash(tail:*)",
+      "Bash(timeout 5 echo:*)"
     ],
     "deny": [],
     "ask": []
