@@ -35,20 +35,19 @@ import {
   Upload,
   X,
   Loader2,
-  ImageIcon,
-  Plus,
-  Trash2,
-  GripVertical
+  ImageIcon
+  // Removed: Plus, Trash2, GripVertical - no longer needed without attribute builder
 } from 'lucide-react';
 import { useSubCategoryOperations } from '@/hooks/resource-management/use-sub-categories';
 import { useParentCategoriesSelect } from '@/hooks/resource-management/use-parent-categories';
 import type {
   SubCategory,
   CreateSubCategoryDto,
-  UpdateSubCategoryDto,
-  CreateAttributeDefinitionDto
+  UpdateSubCategoryDto
+  // Removed: CreateAttributeDefinitionDto - no longer used
 } from '@/types/resource-management';
-import { CATEGORY_STATUS, ATTRIBUTE_TYPE } from '@/types/resource-management';
+import { CATEGORY_STATUS } from '@/types/resource-management';
+// Removed: ATTRIBUTE_TYPE - no longer needed
 import { cn } from '@/lib/utils';
 
 // Generate a UUID for new categories
@@ -69,7 +68,7 @@ const subCategorySchema = z.object({
     .max(100, 'Name must be less than 100 characters'),
   description: z.string().optional(),
   status: z.enum(['active', 'inactive']),
-  inherit_parent_attributes: z.boolean(),
+  // inherit_parent_attributes removed - obsolete field
   display_order: z.number().min(0).optional()
 });
 
@@ -97,21 +96,7 @@ export function SubCategoryForm({ category, mode }: SubCategoryFormProps) {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [isBlobUrl, setIsBlobUrl] = useState(false); // Track if imagePreview is a blob URL
-  const [attributeDefinitions, setAttributeDefinitions] = useState<
-    CreateAttributeDefinitionDto[]
-  >(
-    category?.attribute_definitions?.map((attr) => ({
-      attribute_key: attr.attribute_key,
-      attribute_type: attr.attribute_type,
-      is_required: attr.is_required,
-      is_multiple: attr.is_multiple,
-      default_value: attr.default_value,
-      options: attr.options,
-      validation_rules: attr.validation_rules,
-      display_order: attr.display_order,
-      description: attr.description
-    })) || []
-  );
+  // Removed: attributeDefinitions state - custom attributes now managed per-resource
 
   // Generate a consistent UUID for new categories
   const [categoryUUID] = useState(() => category?.id || generateUUID());
@@ -125,7 +110,7 @@ export function SubCategoryForm({ category, mode }: SubCategoryFormProps) {
       status:
         (category?.status === 'archived' ? 'inactive' : category?.status) ||
         'active',
-      inherit_parent_attributes: category?.inherit_parent_attributes || false,
+      // inherit_parent_attributes removed - obsolete field
       display_order: category?.display_order || 0
     }
   });
@@ -187,42 +172,8 @@ export function SubCategoryForm({ category, mode }: SubCategoryFormProps) {
       .slice(0, 2);
   };
 
-  // Add new attribute definition
-  const addAttributeDefinition = () => {
-    const newAttr: CreateAttributeDefinitionDto = {
-      attribute_key: '',
-      attribute_type: 'text',
-      is_required: false,
-      is_multiple: false,
-      display_order: attributeDefinitions.length + 1
-    };
-    setAttributeDefinitions([...attributeDefinitions, newAttr]);
-  };
-
-  // Remove attribute definition
-  const removeAttributeDefinition = (index: number) => {
-    setAttributeDefinitions(attributeDefinitions.filter((_, i) => i !== index));
-  };
-
-  // Update attribute definition
-  const updateAttributeDefinition = (
-    index: number,
-    field: keyof CreateAttributeDefinitionDto,
-    value: any
-  ) => {
-    const updated = [...attributeDefinitions];
-    updated[index] = { ...updated[index], [field]: value };
-
-    // Auto-generate attribute_key from description if provided
-    if (field === 'description' && value && !updated[index].attribute_key) {
-      updated[index].attribute_key = value
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, '')
-        .replace(/\s+/g, '_');
-    }
-
-    setAttributeDefinitions(updated);
-  };
+  // Removed: addAttributeDefinition, removeAttributeDefinition, updateAttributeDefinition
+  // Custom attributes now managed per-resource, not per-subcategory
 
   // Handle form submission
   const onSubmit = async (data: FormData) => {
@@ -257,23 +208,18 @@ export function SubCategoryForm({ category, mode }: SubCategoryFormProps) {
         finalImageUrl = undefined;
       }
 
-      // Validate attribute definitions
-      const validAttributeDefinitions = attributeDefinitions.filter(
-        (attr) => attr.attribute_key.trim() && attr.description?.trim()
-      );
+      // Removed: attribute_definitions validation
+      // Custom attributes now managed per-resource
 
       const dtoData = {
         parent_category_id: data.parent_category_id,
         name: data.name.trim(),
         description: data.description?.trim(),
         status: data.status,
-        inherit_parent_attributes: data.inherit_parent_attributes,
+        // inherit_parent_attributes removed - obsolete field
         display_order: data.display_order || undefined,
-        image_url: finalImageUrl,
-        attribute_definitions:
-          validAttributeDefinitions.length > 0
-            ? validAttributeDefinitions
-            : undefined
+        image_url: finalImageUrl
+        // Removed: attribute_definitions - no longer used
       };
 
       if (mode === 'create') {
@@ -392,30 +338,7 @@ export function SubCategoryForm({ category, mode }: SubCategoryFormProps) {
                     )}
                   />
 
-                  <FormField
-                    control={form.control}
-                    name='inherit_parent_attributes'
-                    render={({ field }) => (
-                      <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
-                        <div className='space-y-0.5'>
-                          <FormLabel className='text-base'>
-                            Inherit Parent Attributes
-                          </FormLabel>
-                          <FormDescription>
-                            Automatically inherit all custom attributes defined
-                            in the parent category
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            disabled={operationLoading}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
+                  {/* Removed: Inherit Parent Attributes field - obsolete, parent categories never had attributes */}
 
                   <FormField
                     control={form.control}
@@ -559,231 +482,8 @@ export function SubCategoryForm({ category, mode }: SubCategoryFormProps) {
                 )}
               />
 
-              {/* Custom Attribute Definitions */}
-              <Card>
-                <CardHeader>
-                  <div className='flex items-center justify-between'>
-                    <div>
-                      <CardTitle className='text-lg'>
-                        Custom Attributes
-                      </CardTitle>
-                      <p className='text-sm text-muted-foreground'>
-                        Define custom attributes that resources in this
-                        subcategory should have
-                      </p>
-                    </div>
-                    <Button
-                      type='button'
-                      variant='outline'
-                      size='sm'
-                      onClick={addAttributeDefinition}
-                      disabled={operationLoading}
-                    >
-                      <Plus className='mr-2 h-4 w-4' />
-                      Add Attribute
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {attributeDefinitions.length === 0 ? (
-                    <div className='text-center py-8 text-muted-foreground'>
-                      <p>No custom attributes defined yet.</p>
-                      <p className='text-sm'>
-                        Click &quot;Add Attribute&quot; to create your first
-                        custom attribute.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className='space-y-4'>
-                      {attributeDefinitions.map((attr, index) => (
-                        <Card key={index} className='p-4'>
-                          <div className='flex items-start justify-between mb-4'>
-                            <div className='flex items-center space-x-2'>
-                              <GripVertical className='h-4 w-4 text-muted-foreground' />
-                              <span className='text-sm font-medium'>
-                                Attribute {index + 1}
-                              </span>
-                            </div>
-                            <Button
-                              type='button'
-                              variant='ghost'
-                              size='sm'
-                              onClick={() => removeAttributeDefinition(index)}
-                              disabled={operationLoading}
-                            >
-                              <Trash2 className='h-4 w-4' />
-                            </Button>
-                          </div>
-
-                          <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                            <div>
-                              <Label htmlFor={`attr-desc-${index}`}>
-                                Attribute Name *
-                              </Label>
-                              <Input
-                                id={`attr-desc-${index}`}
-                                placeholder='e.g., Screen Size, RAM, Weight'
-                                value={attr.description || ''}
-                                onChange={(e) =>
-                                  updateAttributeDefinition(
-                                    index,
-                                    'description',
-                                    e.target.value
-                                  )
-                                }
-                                disabled={operationLoading}
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor={`attr-key-${index}`}>
-                                Attribute Key
-                              </Label>
-                              <Input
-                                id={`attr-key-${index}`}
-                                placeholder='Auto-generated from name'
-                                value={attr.attribute_key}
-                                onChange={(e) =>
-                                  updateAttributeDefinition(
-                                    index,
-                                    'attribute_key',
-                                    e.target.value
-                                  )
-                                }
-                                disabled={operationLoading}
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor={`attr-type-${index}`}>
-                                Data Type
-                              </Label>
-                              <Select
-                                value={attr.attribute_type}
-                                onValueChange={(value) =>
-                                  updateAttributeDefinition(
-                                    index,
-                                    'attribute_type',
-                                    value
-                                  )
-                                }
-                                disabled={operationLoading}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value={ATTRIBUTE_TYPE.TEXT}>
-                                    Text
-                                  </SelectItem>
-                                  <SelectItem value={ATTRIBUTE_TYPE.NUMBER}>
-                                    Number
-                                  </SelectItem>
-                                  <SelectItem value={ATTRIBUTE_TYPE.DATE}>
-                                    Date
-                                  </SelectItem>
-                                  <SelectItem value={ATTRIBUTE_TYPE.BOOLEAN}>
-                                    Yes/No
-                                  </SelectItem>
-                                  <SelectItem value={ATTRIBUTE_TYPE.DROPDOWN}>
-                                    Dropdown
-                                  </SelectItem>
-                                  <SelectItem value={ATTRIBUTE_TYPE.TEXTAREA}>
-                                    Long Text
-                                  </SelectItem>
-                                  <SelectItem value={ATTRIBUTE_TYPE.EMAIL}>
-                                    Email
-                                  </SelectItem>
-                                  <SelectItem value={ATTRIBUTE_TYPE.URL}>
-                                    URL
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div>
-                              <Label htmlFor={`attr-default-${index}`}>
-                                Default Value
-                              </Label>
-                              <Input
-                                id={`attr-default-${index}`}
-                                placeholder='Optional default value'
-                                value={attr.default_value || ''}
-                                onChange={(e) =>
-                                  updateAttributeDefinition(
-                                    index,
-                                    'default_value',
-                                    e.target.value
-                                  )
-                                }
-                                disabled={operationLoading}
-                              />
-                            </div>
-                          </div>
-
-                          {attr.attribute_type === 'dropdown' && (
-                            <div className='mt-4'>
-                              <Label htmlFor={`attr-options-${index}`}>
-                                Dropdown Options
-                              </Label>
-                              <Input
-                                id={`attr-options-${index}`}
-                                placeholder='Enter options separated by commas'
-                                value={attr.options?.join(', ') || ''}
-                                onChange={(e) =>
-                                  updateAttributeDefinition(
-                                    index,
-                                    'options',
-                                    e.target.value
-                                      .split(',')
-                                      .map((opt) => opt.trim())
-                                      .filter(Boolean)
-                                  )
-                                }
-                                disabled={operationLoading}
-                              />
-                            </div>
-                          )}
-
-                          <div className='flex items-center space-x-6 mt-4'>
-                            <div className='flex items-center space-x-2'>
-                              <Switch
-                                id={`attr-required-${index}`}
-                                checked={attr.is_required}
-                                onCheckedChange={(checked) =>
-                                  updateAttributeDefinition(
-                                    index,
-                                    'is_required',
-                                    checked
-                                  )
-                                }
-                                disabled={operationLoading}
-                              />
-                              <Label htmlFor={`attr-required-${index}`}>
-                                Required
-                              </Label>
-                            </div>
-                            <div className='flex items-center space-x-2'>
-                              <Switch
-                                id={`attr-multiple-${index}`}
-                                checked={attr.is_multiple}
-                                onCheckedChange={(checked) =>
-                                  updateAttributeDefinition(
-                                    index,
-                                    'is_multiple',
-                                    checked
-                                  )
-                                }
-                                disabled={operationLoading}
-                              />
-                              <Label htmlFor={`attr-multiple-${index}`}>
-                                Multiple Values
-                              </Label>
-                            </div>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              {/* Removed: Custom Attribute Definitions Card */}
+              {/* Custom attributes are now managed per-resource, not per-subcategory */}
 
               {/* Form Actions */}
               <div className='flex items-center justify-end space-x-4 pt-6 border-t'>

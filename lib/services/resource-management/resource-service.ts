@@ -32,12 +32,7 @@ export class ResourceService {
         `
           *,
           parent_category:resource_parent_categories(id, name, image_url),
-          subcategory:resource_sub_categories(
-            id,
-            name,
-            image_url,
-            attribute_definitions:resource_attribute_definitions(*)
-          ),
+          subcategory:resource_sub_categories(id, name, image_url),
           institution:institutions(id, name),
           department:departments(id, department_name),
           created_by_user:profiles!resources_created_by_fkey(
@@ -144,13 +139,7 @@ export class ResourceService {
           `
             *,
             parent_category:resource_parent_categories(id, name, image_url),
-            subcategory:resource_sub_categories(
-              id,
-              name,
-              image_url,
-              inherit_parent_attributes,
-              attribute_definitions:resource_attribute_definitions(*)
-            ),
+            subcategory:resource_sub_categories(id, name, image_url),
             institution:institutions(id, name),
             department:departments(id, department_name),
             created_by_user:profiles!resources_created_by_fkey(

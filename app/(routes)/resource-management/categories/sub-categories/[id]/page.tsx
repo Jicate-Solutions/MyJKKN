@@ -271,11 +271,6 @@ export default function SubCategoryDetailsPage({
                     Order: {category.display_order}
                   </Badge>
                 )}
-                {category.inherit_parent_attributes && (
-                  <Badge variant='secondary' className='text-xs'>
-                    Inherits Parent Attributes
-                  </Badge>
-                )}
               </div>
             </div>
           </div>
@@ -402,24 +397,6 @@ export default function SubCategoryDetailsPage({
                         {category.resources_count || 0}
                       </p>
                     </div>
-                  </div>
-                </div>
-
-                <div className='flex items-center space-x-2'>
-                  {category.inherit_parent_attributes ? (
-                    <ToggleRight className='h-4 w-4 text-green-600' />
-                  ) : (
-                    <ToggleLeft className='h-4 w-4 text-gray-400' />
-                  )}
-                  <div>
-                    <p className='text-sm font-medium'>
-                      Parent Attribute Inheritance
-                    </p>
-                    <p className='text-sm text-muted-foreground'>
-                      {category.inherit_parent_attributes
-                        ? 'Inherits all parent category attributes'
-                        : 'Does not inherit parent attributes'}
-                    </p>
                   </div>
                 </div>
               </CardContent>

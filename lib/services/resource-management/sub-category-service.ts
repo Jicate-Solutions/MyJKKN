@@ -31,7 +31,6 @@ export class SubCategoryService {
             name,
             status
           ),
-          attribute_definitions:resource_attribute_definitions(*),
           resources:resources(count)
         `,
         { count: 'exact' }
@@ -99,14 +98,13 @@ export class SubCategoryService {
    */
   static async getSubCategory(id: string): Promise<SubCategory> {
     try {
-      // Fetch basic category data with parent category and attribute definitions
+      // Fetch basic category data with parent category
       const { data: category, error } = await this.supabase
         .from('resource_sub_categories')
         .select(
           `
           *,
-          parent_category:resource_parent_categories(*),
-          attribute_definitions:resource_attribute_definitions(*)
+          parent_category:resource_parent_categories(*)
         `
         )
         .eq('id', id)
@@ -196,7 +194,7 @@ export class SubCategoryService {
           image_url: categoryData.image_url,
           parent_category_id: categoryData.parent_category_id,
           status: categoryData.status,
-          inherit_parent_attributes: categoryData.inherit_parent_attributes,
+          // inherit_parent_attributes removed - obsolete field
           display_order: displayOrder,
           created_by: userId,
           updated_by: userId
@@ -206,16 +204,8 @@ export class SubCategoryService {
 
       if (error) throw error;
 
-      // Create attribute definitions if provided
-      if (
-        categoryData.attribute_definitions &&
-        categoryData.attribute_definitions.length > 0
-      ) {
-        await this.createAttributeDefinitions(
-          category.id,
-          categoryData.attribute_definitions
-        );
-      }
+      // DEPRECATED: attribute_definitions removed - custom attributes now managed per-resource
+      // Legacy code removed - no longer creating attribute definitions at subcategory level
 
       return category;
     } catch (error) {
@@ -258,11 +248,8 @@ export class SubCategoryService {
         }
       }
 
-      // Extract only the valid database columns (exclude attribute_definitions)
-      const { attribute_definitions, ...validCategoryData } = categoryData;
-
       const updateData = {
-        ...validCategoryData,
+        ...categoryData,
         ...(categoryData.name && { name: categoryData.name.trim() }),
         updated_by: userId,
         updated_at: new Date().toISOString()
@@ -277,19 +264,8 @@ export class SubCategoryService {
 
       if (error) throw error;
 
-      // Handle attribute definitions update if provided
-      if (attribute_definitions) {
-        // Delete existing attribute definitions
-        await this.supabase
-          .from('resource_attribute_definitions')
-          .delete()
-          .eq('subcategory_id', id);
-
-        // Create new attribute definitions if any
-        if (attribute_definitions.length > 0) {
-          await this.createAttributeDefinitions(id, attribute_definitions);
-        }
-      }
+      // DEPRECATED: attribute_definitions handling removed
+      // Custom attributes are now managed at the resource level in resources.custom_attributes
 
       // Return the updated category with fresh data
       return await this.getSubCategory(id);
@@ -426,12 +402,7 @@ export class SubCategoryService {
     try {
       const { data: categories, error } = await this.supabase
         .from('resource_sub_categories')
-        .select(
-          `
-          *,
-          attribute_definitions:resource_attribute_definitions(*)
-        `
-        )
+        .select('*')
         .eq('parent_category_id', parentCategoryId)
         .eq('status', 'active')
         .order('display_order');
@@ -500,8 +471,12 @@ export class SubCategoryService {
   }
 
   // ===== ATTRIBUTE DEFINITION METHODS =====
+  // DEPRECATED (2025-01-20): These methods are obsolete and should not be used.
+  // Custom attributes are now managed per-resource in resources.custom_attributes JSONB column.
+  // These methods are kept for backward compatibility only.
 
   /**
+   * @deprecated Use resource-level custom attributes instead (resources.custom_attributes)
    * Create attribute definitions for a sub category
    */
   static async createAttributeDefinitions(
@@ -541,6 +516,7 @@ export class SubCategoryService {
   }
 
   /**
+   * @deprecated Use resource-level custom attributes instead (resources.custom_attributes)
    * Get attribute definitions for a sub category
    */
   static async getAttributeDefinitions(
@@ -567,6 +543,7 @@ export class SubCategoryService {
   }
 
   /**
+   * @deprecated Use resource-level custom attributes instead (resources.custom_attributes)
    * Update attribute definition
    */
   static async updateAttributeDefinition(
@@ -605,6 +582,7 @@ export class SubCategoryService {
   }
 
   /**
+   * @deprecated Use resource-level custom attributes instead (resources.custom_attributes)
    * Delete attribute definition
    */
   static async deleteAttributeDefinition(id: string): Promise<boolean> {
@@ -628,6 +606,7 @@ export class SubCategoryService {
   }
 
   /**
+   * @deprecated Use resource-level custom attributes instead (resources.custom_attributes)
    * Update display order of attribute definitions
    */
   static async updateAttributeDisplayOrder(
@@ -657,6 +636,7 @@ export class SubCategoryService {
   }
 
   /**
+   * @deprecated Use resource-level custom attributes instead (resources.custom_attributes)
    * Validate attribute value based on definition
    */
   static validateAttributeValue(
@@ -768,6 +748,7 @@ export class SubCategoryService {
   }
 
   /**
+   * @deprecated Use resource-level custom attributes instead (resources.custom_attributes)
    * Validate multiple attribute values
    */
   static validateAttributeValues(

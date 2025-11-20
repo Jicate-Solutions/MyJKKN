@@ -122,7 +122,7 @@ export interface SubCategory {
   image_url?: string;
   status: CategoryStatus;
   display_order: number;
-  inherit_parent_attributes: boolean;
+  // inherit_parent_attributes removed - obsolete field, parent categories never had attributes
   created_at: string;
   updated_at: string;
   created_by: string;
@@ -482,9 +482,9 @@ export interface CreateSubCategoryDto {
   description?: string;
   image_url?: string;
   status: CategoryStatus;
-  inherit_parent_attributes: boolean;
+  // inherit_parent_attributes removed - obsolete, parent categories never had attributes
   display_order?: number;
-  attribute_definitions?: CreateAttributeDefinitionDto[];
+  // attribute_definitions removed - custom attributes now managed per-resource
 }
 
 // Update Sub Category DTO
@@ -683,7 +683,7 @@ export const subCategorySchema = z.object({
     CATEGORY_STATUS.INACTIVE,
     CATEGORY_STATUS.ARCHIVED
   ]),
-  inherit_parent_attributes: z.boolean(),
+  // inherit_parent_attributes removed - obsolete field
   display_order: z.number().min(0).optional()
 });
 
@@ -824,4 +824,26 @@ export interface ResourceAvailability {
     is_available: boolean;
     reservation_id?: string;
   }[];
+}
+
+// ===== RESOURCE-LEVEL CUSTOM ATTRIBUTES =====
+
+// Custom Attribute Definition for individual resources
+export interface ResourceCustomAttribute {
+  id: string; // Unique ID for this attribute
+  attribute_key: string; // Machine-readable key (e.g., "ram_size")
+  label: string; // Human-readable label (e.g., "RAM Size")
+  attribute_type: AttributeType; // Type of the attribute
+  is_required: boolean; // Whether this field is required
+  default_value?: string; // Default value for the attribute
+  options?: string[]; // Options for dropdown type
+  description?: string; // Help text or description
+  display_order?: number; // Order in which to display
+  value?: any; // Current value of the attribute
+}
+
+// Custom Attributes Structure stored in resources.custom_attributes JSONB
+export interface ResourceCustomAttributesData {
+  schema: ResourceCustomAttribute[]; // Attribute definitions
+  values: Record<string, any>; // Actual attribute values (key-value pairs)
 }
