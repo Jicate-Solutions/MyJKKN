@@ -199,7 +199,7 @@ export function CustomAttributesBuilder({
         <div className='text-center py-8 text-muted-foreground'>
           <p>No custom attributes defined yet.</p>
           <p className='text-sm'>
-            Click "Add Attribute" to create your first custom attribute.
+            Click &quot;Add Attribute&quot; to create your first custom attribute.
           </p>
         </div>
       ) : (
