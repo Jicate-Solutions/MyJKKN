@@ -666,6 +666,13 @@ export class PaymentGatewayService {
       'x-merchantid': config.merchantId,
       'x-customerid': body?.customer_id || 'default_customer',
       'x-resellerid': 'hdfc_reseller',
+      // Add headers to bypass Cloudflare protection
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Origin': process.env.NEXT_PUBLIC_APP_URL || 'https://www.jkkn.ai',
+      'Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://www.jkkn.ai',
     };
 
     const options: RequestInit = {
