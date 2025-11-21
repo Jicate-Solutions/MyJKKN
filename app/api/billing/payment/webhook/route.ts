@@ -60,9 +60,9 @@ export async function POST(request: NextRequest) {
     const payload: HDFCWebhookPayload = await request.json();
 
     logger.info('billing/payment-webhook', 'Processing webhook event', {
-      event_name: payload.event_name,
-      event_id: payload.id,
-      order_id: payload.content?.order?.order_id,
+      event_type: payload.event_type,
+      event_id: payload.event_id,
+      order_id: payload.data?.order?.order_id,
     });
 
     // Step 4: Process webhook (pass empty signature since HDFC uses Basic Auth)
