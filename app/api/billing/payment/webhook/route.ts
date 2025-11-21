@@ -11,28 +11,62 @@ export async function POST(request: NextRequest) {
   try {
     logger.info('billing/payment-webhook', 'Received webhook notification');
 
-    // Step 1: Extract webhook signature from headers
-    const signature = request.headers.get('x-hdfc-signature') || request.headers.get('x-webhook-signature') || '';
+    // Step 1: Verify Basic Authentication (HDFC uses Basic Auth for webhooks)
+    // TEMPORARILY DISABLED FOR TESTING - RE-ENABLE IN PRODUCTION
+    const authHeader = request.headers.get('authorization');
 
-    if (!signature) {
-      logger.warn('billing/payment-webhook', 'Missing webhook signature');
-      return NextResponse.json(
-        { error: 'MISSING_SIGNATURE', message: 'Webhook signature is required' },
-        { status: 400 }
-      );
+    // Skip auth check for testing (comment out for production)
+    const SKIP_AUTH_FOR_TESTING = process.env.HDFC_WEBHOOK_SKIP_AUTH === 'true';
+
+    if (!SKIP_AUTH_FOR_TESTING) {
+      if (!authHeader || !authHeader.startsWith('Basic ')) {
+        logger.error('billing/payment-webhook', 'Missing or invalid Authorization header');
+        return NextResponse.json(
+          { error: 'UNAUTHORIZED', message: 'Missing authentication credentials' },
+          { status: 401 }
+        );
+      }
+
+      // Step 2: Verify credentials
+      const base64Credentials = authHeader.split(' ')[1];
+      const credentials = Buffer.from(base64Credentials, 'base64').toString('utf-8');
+      const [username, password] = credentials.split(':');
+
+      const WEBHOOK_USERNAME = process.env.HDFC_WEBHOOK_USERNAME || '';
+      const WEBHOOK_PASSWORD = process.env.HDFC_WEBHOOK_PASSWORD || '';
+
+      if (!WEBHOOK_USERNAME || !WEBHOOK_PASSWORD) {
+        logger.error('billing/payment-webhook', 'Webhook credentials not configured in environment');
+        return NextResponse.json(
+          { error: 'CONFIGURATION_ERROR', message: 'Webhook authentication not configured' },
+          { status: 500 }
+        );
+      }
+
+      if (username !== WEBHOOK_USERNAME || password !== WEBHOOK_PASSWORD) {
+        logger.error('billing/payment-webhook', 'Invalid webhook credentials', { username });
+        return NextResponse.json(
+          { error: 'UNAUTHORIZED', message: 'Invalid credentials' },
+          { status: 401 }
+        );
+      }
+
+      logger.info('billing/payment-webhook', 'Webhook authentication successful');
+    } else {
+      logger.warn('billing/payment-webhook', '⚠️ Auth check SKIPPED - FOR TESTING ONLY');
     }
 
-    // Step 2: Parse webhook payload
+    // Step 3: Parse webhook payload
     const payload: HDFCWebhookPayload = await request.json();
 
     logger.info('billing/payment-webhook', 'Processing webhook event', {
-      event_type: payload.event_type,
-      event_id: payload.event_id,
-      order_id: payload.data?.order?.order_id,
+      event_name: payload.event_name,
+      event_id: payload.id,
+      order_id: payload.content?.order?.order_id,
     });
 
-    // Step 3: Process webhook
-    const result = await PaymentGatewayService.handleWebhook(payload, signature);
+    // Step 4: Process webhook (pass empty signature since HDFC uses Basic Auth)
+    const result = await PaymentGatewayService.handleWebhook(payload, '');
 
     if (!result.success) {
       logger.error('billing/payment-webhook', 'Webhook processing failed', {

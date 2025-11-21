@@ -448,19 +448,32 @@ export class PaymentGatewayService {
       // - Receipt number generation
       // - Bill status updates
       // - Invoice generation when bill is fully paid
+
+      // Fetch student details for payer name
+      const { data: student } = await supabase
+        .from('students')
+        .select('first_name, last_name')
+        .eq('id', transaction.student_id)
+        .single();
+
+      const payerName = student
+        ? `${student.first_name} ${student.last_name}`.trim()
+        : 'Online Payment';
+
       const receiptData = {
         student_id: transaction.student_id,
         institution_id: transaction.institution_id,
         payment_mode: 'online' as const,
         payment_amount: transaction.total_amount,
-        payment_date: transaction.payment_date || new Date().toISOString(),
-        transaction_id: transaction.gateway_transaction_id || transaction.session_id,
-        remarks: `Online payment via HDFC SmartGateway - ${transaction.payment_method || 'card'}`,
-        items: items.map((item) => ({
+        payment_paid_date: transaction.payment_date || new Date().toISOString(),
+        payer_name: payerName,
+        payment_reference_number: transaction.gateway_transaction_id || transaction.session_id,
+        payment_remarks: `Online payment via HDFC SmartGateway - ${transaction.payment_method || 'card'}`,
+        receipt_items: items.map((item) => ({
           bill_id: item.bill_id,
           amount_paid: item.amount,
         })),
-      } as any;
+      };
 
       const receipt = await BillingReceiptService.createBillingReceipt(receiptData);
 
@@ -666,13 +679,6 @@ export class PaymentGatewayService {
       'x-merchantid': config.merchantId,
       'x-customerid': body?.customer_id || 'default_customer',
       'x-resellerid': 'hdfc_reseller',
-      // Add headers to bypass Cloudflare protection
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'application/json, text/plain, */*',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Origin': process.env.NEXT_PUBLIC_APP_URL || 'https://www.jkkn.ai',
-      'Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://www.jkkn.ai',
     };
 
     const options: RequestInit = {
@@ -699,24 +705,6 @@ export class PaymentGatewayService {
 
     if (!response.ok) {
       const errorText = await response.text();
-
-      // If it's a Cloudflare 403 block, try to get our current IP
-      if (response.status === 403 && errorText.includes('Cloudflare')) {
-        try {
-          const ipResponse = await fetch('https://api.ipify.org?format=json');
-          const ipData = await ipResponse.json();
-          logger.error('billing/payment-gateway', 'HDFC API blocked by Cloudflare - IP not whitelisted', {
-            endpoint,
-            method,
-            status: response.status,
-            current_vercel_ip: ipData.ip,
-            message: `URGENT: Add this IP to HDFC whitelist: ${ipData.ip}`,
-          });
-        } catch (e) {
-          // Ignore IP detection errors
-        }
-      }
-
       logger.error('billing/payment-gateway', 'HDFC API error', {
         endpoint,
         method,

@@ -63,7 +63,11 @@
       "Skill(nextjs-module-builder)",
       "Bash(timeout 30 npx tsc:*)",
       "Bash(tail:*)",
-      "Bash(timeout 5 echo:*)"
+      "Bash(timeout 5 echo:*)",
+      "WebFetch(domain:smartgateway.hdfcbank.com)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
