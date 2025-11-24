@@ -892,10 +892,29 @@ Please select a different date period that doesn't overlap.`
         query = query.eq('semester_id', filters.semester);
       }
 
+      // FIXED: 2025-11-24 - Section filter was not working because PostgREST cannot filter on joined table fields directly
+      // We need to look up the section IDs first, then filter by section_id
       if (filters.section) {
-        // Frontend sends section.section_name (string), so filter by joined field name
-        // Try PostgREST syntax for filtering on joined fields
-        query = query.eq('sections.section_name', filters.section);
+        try {
+          // Frontend sends section.section_name (string "A", "B", etc.)
+          // We need to convert this to section IDs first
+          const sectionsResponse = await this.supabase
+            .from('sections')
+            .select('id')
+            .eq('section_name', filters.section);
+
+          if (sectionsResponse.data && sectionsResponse.data.length > 0) {
+            const sectionIds = sectionsResponse.data.map((s) => s.id);
+            query = query.in('section_id', sectionIds);
+          } else {
+            // If no sections found with this name, return empty result
+            // by filtering with an impossible condition
+            query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+          }
+        } catch (sectionError) {
+          console.error('Error fetching section IDs for filter:', sectionError);
+          // On error, don't apply the filter to avoid breaking the query
+        }
       }
 
       if (filters.is_active !== undefined) {
@@ -930,114 +949,6 @@ Please select a different date period that doesn't overlap.`
           hint: error.hint,
           code: error.code
         });
-
-        // If it's a PostgREST syntax error, try alternative syntax
-        if (
-          error.code === '42601' ||
-          error.message.includes('syntax') ||
-          error.message.includes('relation')
-        ) {
-
-          // Reset query and try different syntax
-          let retryQuery = this.supabase.from('timetables').select(
-            `
-              *,
-              institution:institution_id(id, name),
-              academic_year:academic_year_id(id, academic_year_name),
-              degree:degree_id(id, degree_name),
-              program:program_id(id, program_name),
-              department:department_id(id, department_name),
-              semesters:semester_id(id, semester_name),
-              sections:section_id(id, section_name)
-            `,
-            { count: 'exact' }
-          );
-
-          // Reapply all filters except section with alternative syntax
-          if (filters.search) {
-            retryQuery = retryQuery.ilike(
-              'timetable_name',
-              `%${filters.search}%`
-            );
-          }
-          if (filters.institution_id) {
-            retryQuery = retryQuery.eq(
-              'institution_id',
-              filters.institution_id
-            );
-          }
-          if (filters.academic_year_id) {
-            retryQuery = retryQuery.eq(
-              'academic_year_id',
-              filters.academic_year_id
-            );
-          }
-          if (filters.degree_id) {
-            retryQuery = retryQuery.eq('degree_id', filters.degree_id);
-          }
-          if (filters.program_id) {
-            retryQuery = retryQuery.eq('program_id', filters.program_id);
-          }
-          if (filters.department_id) {
-            retryQuery = retryQuery.eq('department_id', filters.department_id);
-          }
-          if (filters.semester) {
-            retryQuery = retryQuery.eq('semester_id', filters.semester);
-          }
-          if (filters.section) {
-            // Try filtering on the foreign key by doing a subquery
-            try {
-              const sectionsResponse = await this.supabase
-                .from('sections')
-                .select('id')
-                .eq('section_name', filters.section);
-
-              if (sectionsResponse.data && sectionsResponse.data.length > 0) {
-                const sectionIds = sectionsResponse.data.map((s) => s.id);
-                retryQuery = retryQuery.in('section_id', sectionIds);
-              }
-            } catch (sectionError) {
-              console.error('Error fetching section IDs:', sectionError);
-            }
-          }
-          if (filters.is_active !== undefined) {
-            retryQuery = retryQuery.eq('is_active', filters.is_active);
-          }
-          if (filters.is_template !== undefined) {
-            retryQuery = retryQuery.eq('is_template', filters.is_template);
-          }
-          if (filters.timetable_type !== undefined) {
-            retryQuery = retryQuery.eq('timetable_type', filters.timetable_type);
-          }
-
-          retryQuery = retryQuery.range(start, start + limit - 1);
-          retryQuery = retryQuery.order('timetable_name', { ascending: true });
-
-          const {
-            data: retryData,
-            error: retryError,
-            count: retryCount
-          } = await retryQuery;
-
-          if (retryError) {
-            console.error('Retry query also failed:', retryError);
-            throw new Error(
-              `Database error: ${error.message}${
-                error.hint ? ` (Hint: ${error.hint})` : ''
-              }`
-            );
-          }
-
-          return {
-            data: retryData || [],
-            metadata: {
-              total: retryCount || 0,
-              page,
-              limit,
-              totalPages: Math.ceil((retryCount || 0) / limit)
-            }
-          };
-        }
 
         throw new Error(
           `Database error: ${error.message}${
