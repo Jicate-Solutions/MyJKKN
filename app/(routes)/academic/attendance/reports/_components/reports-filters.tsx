@@ -27,6 +27,8 @@ import {
 } from '@/components/ui/collapsible';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 
 interface ReportsFiltersProps {
   searchParams: AttendanceReportsSearchParams;
@@ -40,6 +42,8 @@ export function ReportsFilters({
   onClearFilters
 }: ReportsFiltersProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const { isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
 
   // Organization data hooks with refetch capabilities (matching attendance filter pattern)
   const { institutions: institutionsData, refetch: fetchInstitutions } =
@@ -91,6 +95,22 @@ export function ReportsFilters({
   useEffect(() => {
     fetchInstitutions();
   }, [fetchInstitutions]);
+
+  // FIXED: 2025-11-24 - Auto-set institution filter for non-super admin users to show Today's Overview stats
+  useEffect(() => {
+    if (
+      !isSuperAdmin &&
+      profile?.institution_id &&
+      !searchParams.institution_id
+    ) {
+      onFilterChange('institution_id', profile.institution_id);
+    }
+  }, [
+    profile?.institution_id,
+    isSuperAdmin,
+    searchParams.institution_id,
+    onFilterChange
+  ]);
 
   // Academic years are now auto-fetched by the hook when institution_id changes
 

@@ -131,8 +131,14 @@ export default function AttendanceReportsPage() {
       setLoadingStats(true);
 
       // Build filters from search params with role-based filtering
+      // FIXED: 2025-11-24 - Auto-set institution_id for non-super-admin users to fix Today's Overview stats showing 0
       const filters = {
-        institution_id: search.institution_id,
+        institution_id:
+          search.institution_id ||
+          // For non-super-admin users, automatically use their institution
+          (!isSuperAdmin && profile?.institution_id
+            ? profile.institution_id
+            : undefined),
         academic_year_id: search.academic_year_id,
         degree_id: search.degree_id,
         department_id:
