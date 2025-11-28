@@ -151,12 +151,26 @@ export interface RoleUpdateResponse {
   user: Profile;
 }
 
-export type CreateUserRequest = Pick<
+// Legacy single-role create request (for backward compatibility)
+export type CreateUserRequestLegacy = Pick<
   Profile,
   'email' | 'full_name' | 'role' | 'phone_number'
 > & {
   institution_id?: string | null;
   department_id?: string | null;
+};
+
+// Multi-role create request
+export type CreateUserRequest = Pick<
+  Profile,
+  'email' | 'full_name' | 'phone_number'
+> & {
+  institution_id?: string | null;
+  department_id?: string | null;
+  // Support both single role (legacy) and multi-role
+  role?: string;                    // Legacy single role
+  role_ids?: string[];              // Multi-role: array of role IDs (custom_roles.id)
+  primary_role_id?: string;         // Which role_id should be primary
 };
 
 export type UpdateUserRequest = Partial<CreateUserRequest> & {
@@ -166,4 +180,7 @@ export type UpdateUserRequest = Partial<CreateUserRequest> & {
   bio?: string | null;
   gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null;
   department_id?: string | null;
+  // Multi-role support
+  role_ids?: string[];              // Array of role IDs to assign
+  primary_role_id?: string;         // Which role_id should be primary
 };

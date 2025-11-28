@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { RolesList } from './_components/roles-list';
 import { UserService } from '@/lib/services/users/user-service';
+import { UserRolesService } from '@/lib/services/users/user-roles-service';
 import toast from 'react-hot-toast';
 import { UserFilters } from '@/types/users';
 import { UserFiltersComponent } from '../_components/user-filters';
@@ -165,6 +166,43 @@ export default function RolesPage() {
     }
   };
 
+  const handleMultiRoleUpdate = async (
+    userId: string,
+    roleIds: string[],
+    primaryRoleId: string
+  ) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      // Prevent updating super_admin role
+      const userToUpdate = users.find((user) => user.id === userId);
+      if (userToUpdate?.role === 'super_admin') {
+        throw new Error("Cannot modify a super admin's roles");
+      }
+
+      await UserRolesService.assignRoles(userId, roleIds, primaryRoleId);
+
+      // Refresh user list
+      const response = await UserService.getUsers(filters);
+      setUsers(response.data);
+      setMetadata(response.metadata);
+
+      toast.success('User roles updated successfully');
+    } catch (error) {
+      console.error('Error updating roles:', error);
+      setError(
+        error instanceof Error ? error.message : 'Failed to update roles'
+      );
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update roles'
+      );
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handlePageChange = (page: number) => {
     setFilters((prev) => ({
       ...prev,
@@ -242,6 +280,7 @@ export default function RolesPage() {
                 onPageChange={handlePageChange}
                 onPageSizeChange={handlePageSizeChange}
                 onRoleUpdate={handleRoleUpdate}
+                onMultiRoleUpdate={handleMultiRoleUpdate}
                 paginationLoading={paginationLoading}
               />
             )}

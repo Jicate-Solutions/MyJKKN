@@ -303,6 +303,43 @@ export async function PATCH(
       );
     }
 
+    // Handle multi-role updates if role_ids is provided
+    let updatedRoleIds: string[] | undefined;
+    if (body.role_ids !== undefined && Array.isArray(body.role_ids)) {
+      try {
+        // Delete existing role assignments
+        await supabaseAdmin
+          .from('user_roles')
+          .delete()
+          .eq('user_id', userId);
+
+        if (body.role_ids.length > 0) {
+          const effectivePrimaryRoleId = body.primary_role_id || body.role_ids[0];
+
+          const roleAssignments = body.role_ids.map((roleId: string) => ({
+            user_id: userId,
+            role_id: roleId,
+            is_primary: roleId === effectivePrimaryRoleId,
+            assigned_by: user.id
+          }));
+
+          const { error: roleAssignError } = await supabaseAdmin
+            .from('user_roles')
+            .insert(roleAssignments);
+
+          if (roleAssignError) {
+            console.error('Error updating user roles:', roleAssignError);
+          } else {
+            updatedRoleIds = body.role_ids;
+            console.log(`Updated roles for user ${userId}: ${body.role_ids.length} roles assigned`);
+          }
+        }
+      } catch (roleError) {
+        console.error('Error updating user roles:', roleError);
+        // Don't fail the whole request - log warning and continue
+      }
+    }
+
     // Log the user update activity
     const actorName = currentProfile?.full_name || 'Unknown';
     const targetName =
@@ -319,6 +356,7 @@ export async function PATCH(
       changes.push('institution');
     if (originalTargetUser?.is_active !== body.is_active)
       changes.push('account_status');
+    if (updatedRoleIds !== undefined) changes.push('roles');
 
     if (changes.length > 0) {
       const template = ActivityTemplates.userUpdated(
