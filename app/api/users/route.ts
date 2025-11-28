@@ -85,7 +85,9 @@ export async function POST(request: Request) {
       role,
       phone_number,
       institution_id,
-      department_id
+      department_id,
+      role_ids,           // Multi-role: array of custom_roles.id
+      primary_role_id     // Multi-role: which role is primary
     } = json as CreateUserRequest;
 
     // Validate required fields (no password needed for OAuth-only system)
@@ -367,6 +369,59 @@ export async function POST(request: Request) {
       );
     }
 
+    // Assign roles to user_roles junction table (multi-role support)
+    let assignedRoles: string[] = [];
+
+    if (role_ids && role_ids.length > 0) {
+      // Multi-role: use role_ids array
+      const effectivePrimaryRoleId = primary_role_id || role_ids[0];
+
+      const roleAssignments = role_ids.map((roleId: string) => ({
+        user_id: placeholderId,
+        role_id: roleId,
+        is_primary: roleId === effectivePrimaryRoleId,
+        assigned_by: session.user.id
+      }));
+
+      const { error: roleAssignError } = await supabaseAdmin
+        .from('user_roles')
+        .insert(roleAssignments);
+
+      if (roleAssignError) {
+        console.error('Error assigning roles to user:', roleAssignError);
+        // Don't fail the whole request - log warning and continue
+        console.warn('Failed to assign roles, user will have legacy single role only');
+      } else {
+        assignedRoles = role_ids;
+        console.log(`Assigned ${role_ids.length} roles to user ${placeholderId}`);
+      }
+    } else {
+      // Legacy single role: look up the role ID and create a single assignment
+      const { data: roleData, error: roleLookupError } = await supabaseAdmin
+        .from('custom_roles')
+        .select('id')
+        .eq('role_key', role)
+        .single();
+
+      if (!roleLookupError && roleData) {
+        const { error: roleAssignError } = await supabaseAdmin
+          .from('user_roles')
+          .insert({
+            user_id: placeholderId,
+            role_id: roleData.id,
+            is_primary: true,
+            assigned_by: session.user.id
+          });
+
+        if (roleAssignError) {
+          console.warn('Failed to assign legacy role to user_roles:', roleAssignError);
+        } else {
+          assignedRoles = [roleData.id];
+          console.log(`Assigned legacy role ${role} (${roleData.id}) to user ${placeholderId}`);
+        }
+      }
+    }
+
     // Log activity
     const template = ActivityTemplates.userCreated(
       currentUser?.full_name || 'Unknown',
@@ -386,9 +441,11 @@ export async function POST(request: Request) {
         target_user_id: placeholderId,
         target_email: email,
         target_role: role,
+        target_role_ids: assignedRoles,
         created_by_role: currentUser?.role,
         pre_registered: true,
-        auth_method: 'google_oauth_pending'
+        auth_method: 'google_oauth_pending',
+        multi_role_enabled: role_ids && role_ids.length > 0
       },
       institutionId: currentUser?.institution_id,
       statusCode: 201
@@ -402,6 +459,7 @@ export async function POST(request: Request) {
         email: email,
         full_name: full_name,
         role: role,
+        role_ids: assignedRoles,
         status: 'pending_google_login'
       }
     });

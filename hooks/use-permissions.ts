@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { RoleService } from '@/lib/services/roles/role-service';
-import { SYSTEM_ROLES } from '@/types/auth';
+import { UserRolesService } from '@/lib/services/users/user-roles-service';
+import { SYSTEM_ROLES, UserRoleAssignment } from '@/types/auth';
 import { Profile, StudentStatus } from '@/types/auth';
 import { useAuth } from './use-auth';
 
@@ -42,6 +43,8 @@ export function usePermissions(
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [userRoles, setUserRoles] = useState<UserRoleAssignment[]>([]);
+  const [primaryRole, setPrimaryRole] = useState<UserRoleAssignment | null>(null);
   const { waitForLoad = false } = options;
 
   // Student-specific properties
@@ -119,6 +122,8 @@ export function usePermissions(
         if (mounted) {
           setPermissions({});
           setIsSuperAdmin(false);
+          setUserRoles([]);
+          setPrimaryRole(null);
           setError(authError ? new Error(authError) : null);
           setIsLoading(false);
         }
@@ -141,12 +146,55 @@ export function usePermissions(
         if (isSuperAdminUser) {
           if (mounted) {
             setPermissions({}); // No specific permissions needed, isSuperAdmin flag is enough
+            setUserRoles([]);
+            setPrimaryRole(null);
             setIsLoading(false);
           }
           return;
         }
 
-        // Get role permissions
+        // Try multi-role approach first (fetches merged permissions from all roles)
+        try {
+          const roles = await UserRolesService.getUserRoles(userProfile.id);
+
+          if (roles && roles.length > 0) {
+            // User has roles in the junction table - use multi-role permissions
+            if (mounted) {
+              setUserRoles(roles);
+              setPrimaryRole(roles.find((r) => r.is_primary) || roles[0]);
+            }
+
+            // Get merged permissions (Union/OR logic)
+            const mergedPermissions = await UserRolesService.getMergedPermissions(
+              userProfile.id
+            );
+
+            if (mounted) {
+              setPermissions(mergedPermissions);
+            }
+
+            console.log(
+              '[permissions] Multi-role permissions loaded:',
+              roles.length,
+              'roles'
+            );
+            return;
+          }
+        } catch (multiRoleError) {
+          // Multi-role not available or failed, fall back to legacy
+          console.warn(
+            '[permissions] Multi-role fetch failed, falling back to legacy:',
+            multiRoleError
+          );
+        }
+
+        // Fall back to legacy single-role approach
+        if (mounted) {
+          setUserRoles([]);
+          setPrimaryRole(null);
+        }
+
+        // Get role permissions from legacy single-role
         const role = await RoleService.getRoleByKey(userProfile.role);
 
         if (!role || typeof role !== 'object' || !('permissions' in role)) {
@@ -170,6 +218,8 @@ export function usePermissions(
               : new Error('Unknown error fetching permissions')
           );
           setPermissions({});
+          setUserRoles([]);
+          setPrimaryRole(null);
         }
       } finally {
         if (mounted) {
@@ -302,6 +352,11 @@ export function usePermissions(
     hasAnyPermission,
     isSuperAdmin,
     userProfile,
+
+    // Multi-role properties
+    userRoles,          // All roles assigned to the user
+    primaryRole,        // The user's primary role
+    hasMultipleRoles: userRoles.length > 1,
 
     // Student-specific properties
     isStudent,

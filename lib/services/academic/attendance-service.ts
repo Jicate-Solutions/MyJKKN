@@ -2552,19 +2552,63 @@ export class AttendanceService {
                         return;
                       }
 
-                      if (slotData && slotData.slot_date) {
-                        const slotDate = new Date(slotData.slot_date);
-                        const rangeStart = new Date(matchingRangeStart);
-                        const rangeEnd = new Date(matchingRangeEnd);
+                      // FIX: Smart date parsing to handle both regular dates AND range strings
+                      // Updated: 2025-11-28 - Fix for section-level batch timetables not showing in attendance search
+                      if (slotData) {
+                        let shouldIncludeSlot = false;
 
-                        // Check if this slot's date is in the same range
-                        if (slotDate >= rangeStart && slotDate <= rangeEnd) {
-                          console.log('✅ Found slot in same range:', {
-                            slot_date: slotData.slot_date,
-                            period_id: periodId,
-                            course_id: slotData.course_id
-                          });
+                        if (slotData.slot_date) {
+                          if (
+                            typeof slotData.slot_date === 'string' &&
+                            slotData.slot_date.startsWith('RANGE:')
+                          ) {
+                            // slot_date is a range marker (e.g., "RANGE:2025-11-02:2025-11-27")
+                            // Check if query date falls within this range
+                            const parts = slotData.slot_date.split(':');
+                            if (parts.length === 3) {
+                              const slotRangeStart = new Date(parts[1]);
+                              const slotRangeEnd = new Date(parts[2]);
+                              const queryDate = new Date(date);
+                              shouldIncludeSlot =
+                                queryDate >= slotRangeStart &&
+                                queryDate <= slotRangeEnd;
 
+                              if (shouldIncludeSlot) {
+                                console.log(
+                                  '✅ Found slot with range-format slot_date:',
+                                  {
+                                    slot_date: slotData.slot_date,
+                                    period_id: periodId,
+                                    query_date: date,
+                                    course_id: slotData.course_id
+                                  }
+                                );
+                              }
+                            }
+                          } else {
+                            // slot_date is a specific date (e.g., "2025-11-27") - use existing comparison logic
+                            const slotDate = new Date(slotData.slot_date);
+                            if (!isNaN(slotDate.getTime())) {
+                              const rangeStart = new Date(matchingRangeStart);
+                              const rangeEnd = new Date(matchingRangeEnd);
+                              shouldIncludeSlot =
+                                slotDate >= rangeStart && slotDate <= rangeEnd;
+
+                              if (shouldIncludeSlot) {
+                                console.log(
+                                  '✅ Found slot with date-format slot_date:',
+                                  {
+                                    slot_date: slotData.slot_date,
+                                    period_id: periodId,
+                                    course_id: slotData.course_id
+                                  }
+                                );
+                              }
+                            }
+                          }
+                        }
+
+                        if (shouldIncludeSlot) {
                           // Mark this period as found
                           periodSlotMap.set(periodId, true);
 

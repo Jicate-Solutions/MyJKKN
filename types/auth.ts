@@ -71,6 +71,11 @@ export interface Profile {
   student_id?: string | null;
   student_status?: StudentStatus | null;
   student_profile_complete?: boolean | null;
+
+  // Multi-role support fields
+  user_roles?: UserRoleAssignment[];
+  primary_role?: UserRoleAssignment;
+  merged_permissions?: Record<string, boolean>;
 }
 
 // Profile update interface
@@ -98,6 +103,21 @@ export interface CustomRole {
   created_by: string | null;
 }
 
+// User role assignment interface (for multi-role support)
+export interface UserRoleAssignment {
+  id: string;
+  user_id: string;
+  role_id: string;
+  is_primary: boolean;
+  assigned_at: string;
+  assigned_by?: string | null;
+  // Joined role data (from get_user_roles_with_details function)
+  role_key?: string;
+  role_name?: string;
+  role_description?: string | null;
+  permissions?: Record<string, boolean>;
+}
+
 // Custom role creation interface
 export interface CustomRoleCreate {
   role_key: string;
@@ -114,6 +134,18 @@ export interface CustomRoleUpdate {
   permissions?: Record<string, boolean>;
 }
 
+// User role assignment for database operations
+export interface UserRoleAssignmentInsert {
+  user_id: string;
+  role_id: string;
+  is_primary?: boolean;
+  assigned_by?: string | null;
+}
+
+export interface UserRoleAssignmentUpdate {
+  is_primary?: boolean;
+}
+
 // Database definition for Supabase
 export interface Database {
   public: {
@@ -127,6 +159,11 @@ export interface Database {
         Row: CustomRole;
         Insert: Omit<CustomRole, 'id' | 'created_at' | 'updated_at'>;
         Update: CustomRoleUpdate;
+      };
+      user_roles: {
+        Row: UserRoleAssignment;
+        Insert: UserRoleAssignmentInsert;
+        Update: UserRoleAssignmentUpdate;
       };
     };
   };
