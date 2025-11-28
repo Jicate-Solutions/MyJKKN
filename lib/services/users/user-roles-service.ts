@@ -26,9 +26,12 @@ export class UserRolesService {
       const supabase = createClientSupabaseClient();
 
       // Use the database function for optimized query
-      const { data, error } = await supabase.rpc('get_user_roles_with_details', {
-        p_user_id: userId
-      });
+      const { data, error } = await supabase.rpc(
+        'get_user_roles_with_details',
+        {
+          p_user_id: userId
+        }
+      );
 
       if (error) {
         console.error('[users/roles] Error fetching user roles:', error);
@@ -45,7 +48,9 @@ export class UserRolesService {
   /**
    * Get the primary role for a user
    */
-  static async getPrimaryRole(userId: string): Promise<UserRoleAssignment | null> {
+  static async getPrimaryRole(
+    userId: string
+  ): Promise<UserRoleAssignment | null> {
     try {
       const roles = await this.getUserRoles(userId);
       return roles.find((r) => r.is_primary) || roles[0] || null;
@@ -171,7 +176,10 @@ export class UserRolesService {
         .eq('user_id', userId);
 
       if (deleteError) {
-        console.error('[users/roles] Error deleting existing roles:', deleteError);
+        console.error(
+          '[users/roles] Error deleting existing roles:',
+          deleteError
+        );
         throw deleteError;
       }
 
@@ -260,7 +268,9 @@ export class UserRolesService {
       if (countError) throw countError;
 
       if (count && count <= 1) {
-        throw new Error('Cannot remove the last role. Users must have at least one role.');
+        throw new Error(
+          'Cannot remove the last role. Users must have at least one role.'
+        );
       }
 
       // Check if this is the primary role
@@ -342,7 +352,9 @@ export class UserRolesService {
 
       if (updateError) throw updateError;
 
-      console.log(`[users/roles] Set primary role ${roleId} for user ${userId}`);
+      console.log(
+        `[users/roles] Set primary role ${roleId} for user ${userId}`
+      );
     } catch (error) {
       console.error('[users/roles] Failed to set primary role:', error);
       throw error;
@@ -364,9 +376,12 @@ export class UserRolesService {
 
       if (useDbFunction) {
         // Use the optimized database function
-        const { data, error } = await supabase.rpc('get_user_merged_permissions', {
-          p_user_id: userId
-        });
+        const { data, error } = await supabase.rpc(
+          'get_user_merged_permissions',
+          {
+            p_user_id: userId
+          }
+        );
 
         if (error) {
           console.warn(
@@ -411,7 +426,10 @@ export class UserRolesService {
 
       return merged;
     } catch (error) {
-      console.error('[users/roles] Failed to calculate client-side permissions:', error);
+      console.error(
+        '[users/roles] Failed to calculate client-side permissions:',
+        error
+      );
       throw error;
     }
   }
@@ -419,7 +437,10 @@ export class UserRolesService {
   /**
    * Check if a user has a specific permission
    */
-  static async hasPermission(userId: string, permission: string): Promise<boolean> {
+  static async hasPermission(
+    userId: string,
+    permission: string
+  ): Promise<boolean> {
     try {
       const permissions = await this.getMergedPermissions(userId);
       return permissions[permission] === true;
@@ -464,11 +485,13 @@ export class UserRolesService {
   /**
    * Get all available roles (for role selector)
    */
-  static async getAvailableRoles(institutionId?: string): Promise<CustomRole[]> {
+  static async getAvailableRoles(
+    institutionId?: string
+  ): Promise<CustomRole[]> {
     try {
       const supabase = createClientSupabaseClient();
 
-      let query = supabase
+      const query = supabase
         .from('custom_roles')
         .select('*')
         .order('role_name', { ascending: true });
@@ -497,7 +520,7 @@ export class UserRolesService {
     try {
       const supabase = createClientSupabaseClient();
 
-      let query = supabase
+      const query = supabase
         .from('user_roles')
         .select(
           `
@@ -511,14 +534,11 @@ export class UserRolesService {
         .eq('role_id', roleId);
 
       if (options?.limit) {
-        query = query.limit(options.limit);
+        query.limit(options.limit);
       }
 
       if (options?.offset) {
-        query = query.range(
-          options.offset,
-          options.offset + (options.limit || 10) - 1
-        );
+        query.range(options.offset, options.offset + (options.limit || 10) - 1);
       }
 
       const { data, error } = await query;
@@ -544,7 +564,10 @@ export class UserRolesService {
     roleIds: string[],
     primaryRoleId: string,
     assignedBy?: string
-  ): Promise<{ success: string[]; failed: { userId: string; error: string }[] }> {
+  ): Promise<{
+    success: string[];
+    failed: { userId: string; error: string }[];
+  }> {
     const success: string[] = [];
     const failed: { userId: string; error: string }[] = [];
 
