@@ -119,31 +119,24 @@ export class AdmissionAIService {
       timeTrends
     } = analytics;
 
+    const total = overview.totalAdmissions || 1; // Avoid division by zero
+
     return `
 ## ADMISSIONS ANALYTICS SUMMARY
 
-### Overview Metrics
-- Total Applications: ${overview.total}
-- Pending: ${overview.pending} (${(
-      (overview.pending / overview.total) *
-      100
-    ).toFixed(1)}%)
-- Approved: ${overview.approved} (${(
-      (overview.approved / overview.total) *
-      100
-    ).toFixed(1)}%)
-- Rejected: ${overview.rejected} (${(
-      (overview.rejected / overview.total) *
-      100
-    ).toFixed(1)}%)
-- Waitlisted: ${overview.waitlisted} (${(
-      (overview.waitlisted / overview.total) *
-      100
-    ).toFixed(1)}%)
-- Enrolled: ${overview.enrolled} (${(
-      (overview.enrolled / overview.total) *
-      100
-    ).toFixed(1)}%)
+### Combined Overview
+- Combined Total: ${overview.combinedTotal} (Admissions + Direct Students)
+- Total Applications: ${overview.totalAdmissions}
+- Total Students: ${overview.totalStudents}
+- Onboarded (Active): ${overview.onboarded} (${overview.onboardingRate.toFixed(1)}%)
+- Direct Students: ${overview.directStudents}
+
+### Admission Pipeline
+- Pending: ${overview.pending} (${((overview.pending / total) * 100).toFixed(1)}%)
+- Approved: ${overview.approved} (${((overview.approved / total) * 100).toFixed(1)}%)
+- Rejected: ${overview.rejected} (${((overview.rejected / total) * 100).toFixed(1)}%)
+- Waitlisted: ${overview.waitlisted} (${((overview.waitlisted / total) * 100).toFixed(1)}%)
+- Enrolled: ${overview.enrolled} (${((overview.enrolled / total) * 100).toFixed(1)}%)
 - Conversion Rate: ${overview.conversionRate.toFixed(1)}%
 - Average Processing Time: ${overview.avgProcessingDays.toFixed(1)} days
 

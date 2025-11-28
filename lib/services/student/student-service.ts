@@ -1047,7 +1047,7 @@ export class StudentService {
         status: 'active', // Use a valid student_status enum value
         semester_id: undefined, // Will be set later during onboarding
         section_id: undefined, // Will be set later during onboarding
-        academic_year_id: undefined // Will be set later during onboarding
+        academic_year_id: admission.academic_year_id || undefined // Copy from admission if available
       };
 
       // Create the student record

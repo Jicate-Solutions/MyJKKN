@@ -67,7 +67,8 @@
       "WebFetch(domain:smartgateway.hdfcbank.com)",
       "Bash(git checkout:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(cd:*)"
     ],
     "deny": [],
     "ask": []

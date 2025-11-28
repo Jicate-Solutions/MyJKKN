@@ -67,6 +67,14 @@ export function AccommodationPreferencesForm({
       form.setValue('busPickupLocation', undefined);
     } else if (accommodationType === 'DAY SCHOLAR') {
       form.setValue('hostelType', undefined);
+      form.setValue('foodType', undefined); // Reset food type when not hostel
+    } else {
+      // Reset all accommodation-specific fields when no type selected
+      form.setValue('hostelType', undefined);
+      form.setValue('foodType', undefined);
+      form.setValue('busRequired', undefined);
+      form.setValue('busRoute', undefined);
+      form.setValue('busPickupLocation', undefined);
     }
   }, [accommodationType, form]);
 
@@ -188,36 +196,66 @@ export function AccommodationPreferencesForm({
         />
 
         {accommodationType === 'HOSTEL' && (
-          <FormField
-            control={form.control}
-            name='hostelType'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Hostel Type</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  value={field.value || ''}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder='Select hostel type' />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent className='max-h-60 overflow-y-auto'>
-                    {hostelTypeOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormDescription>
-                  Select your preferred type of hostel accommodation
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          <>
+            <FormField
+              control={form.control}
+              name='hostelType'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Hostel Type</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value || ''}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select hostel type' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent className='max-h-60 overflow-y-auto'>
+                      {hostelTypeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    Select your preferred type of hostel accommodation
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='foodType'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Food Type</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value || ''}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select food type' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value='VEG'>Vegetarian</SelectItem>
+                      <SelectItem value='NON-VEG'>Non-Vegetarian</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    Select your dietary preference for hostel meals
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
         )}
 
         {accommodationType === 'DAY SCHOLAR' && (
@@ -329,34 +367,6 @@ export function AccommodationPreferencesForm({
             )}
           </>
         )}
-
-        <FormField
-          control={form.control}
-          name='foodType'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Food Type</FormLabel>
-              <Select
-                onValueChange={field.onChange}
-                value={field.value || ''}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder='Select food type' />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value='VEG'>Vegetarian</SelectItem>
-                  <SelectItem value='NON-VEG'>Non-Vegetarian</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormDescription>
-                Select your dietary preference
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
 
         <div className='pt-4 border-t border-border'>
           <FormField
