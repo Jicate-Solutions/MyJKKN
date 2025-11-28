@@ -35,6 +35,7 @@ export function AnalyticsFilters({
 
   // All data state
   const [allInstitutions, setAllInstitutions] = useState<Array<{ id: string; name: string }>>([]);
+  const [allAcademicYears, setAllAcademicYears] = useState<Array<{ id: string; academic_year_name: string; institution_id: string; is_active: boolean }>>([]);
   const [allDegrees, setAllDegrees] = useState<Array<{ id: string; degree_name: string; institution_id: string }>>([]);
   const [allDepartments, setAllDepartments] = useState<Array<{ id: string; department_name: string; degree_id: string; institution_id: string }>>([]);
   const [allPrograms, setAllPrograms] = useState<Array<{ id: string; program_name: string; department_id: string; degree_id: string; institution_id: string }>>([]);
@@ -42,6 +43,7 @@ export function AnalyticsFilters({
   const [allDistricts, setAllDistricts] = useState<Array<{ district: string; state: string }>>([]);
 
   // Filtered data state
+  const [filteredAcademicYears, setFilteredAcademicYears] = useState<Array<{ id: string; academic_year_name: string; is_active: boolean }>>([]);
   const [filteredDegrees, setFilteredDegrees] = useState<Array<{ id: string; degree_name: string }>>([]);
   const [filteredDepartments, setFilteredDepartments] = useState<Array<{ id: string; department_name: string }>>([]);
   const [filteredPrograms, setFilteredPrograms] = useState<Array<{ id: string; program_name: string }>>([]);
@@ -59,7 +61,7 @@ export function AnalyticsFilters({
   // Apply hierarchical filtering when parent selections change
   useEffect(() => {
     applyHierarchicalFiltering();
-  }, [filters.institution_id, filters.degree_id, filters.department_id, filters.state, allDegrees, allDepartments, allPrograms, allDistricts]);
+  }, [filters.institution_id, filters.degree_id, filters.department_id, filters.state, allAcademicYears, allDegrees, allDepartments, allPrograms, allDistricts]);
 
   const loadAllFilterOptions = async () => {
     try {
@@ -71,6 +73,16 @@ export function AnalyticsFilters({
 
       if (institutionsData) {
         setAllInstitutions(institutionsData);
+      }
+
+      // Load all academic years with institution_id
+      const { data: academicYearsData } = await supabase
+        .from('academic_years')
+        .select('id, academic_year_name, institution_id, is_active')
+        .order('academic_year_name', { ascending: false });
+
+      if (academicYearsData) {
+        setAllAcademicYears(academicYearsData);
       }
 
       // Load all degrees with institution_id
@@ -143,6 +155,14 @@ export function AnalyticsFilters({
   };
 
   const applyHierarchicalFiltering = () => {
+    // Filter academic years based on selected institution
+    if (filters.institution_id) {
+      const filtered = allAcademicYears.filter((ay) => ay.institution_id === filters.institution_id);
+      setFilteredAcademicYears(filtered);
+    } else {
+      setFilteredAcademicYears(allAcademicYears);
+    }
+
     // Filter degrees based on selected institution
     if (filters.institution_id) {
       const filtered = allDegrees.filter((d) => d.institution_id === filters.institution_id);
@@ -191,6 +211,7 @@ export function AnalyticsFilters({
       onFiltersChange({
         ...filters,
         institution_id: value,
+        academic_year_id: undefined,
         degree_id: undefined,
         department_id: undefined,
         program_id: undefined
@@ -267,6 +288,30 @@ export function AnalyticsFilters({
               {allInstitutions.map((institution) => (
                 <SelectItem key={institution.id} value={institution.id}>
                   {institution.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Academic Year Filter */}
+        <div className="space-y-2">
+          <Label>Academic Year</Label>
+          <Select
+            value={filters.academic_year_id || 'all'}
+            onValueChange={(value) =>
+              handleFilterChange('academic_year_id', value === 'all' ? undefined : value)
+            }
+            disabled={filteredAcademicYears.length === 0}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={filteredAcademicYears.length === 0 ? 'No academic years available' : 'All Academic Years'} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Academic Years</SelectItem>
+              {filteredAcademicYears.map((ay) => (
+                <SelectItem key={ay.id} value={ay.id}>
+                  {ay.academic_year_name} {ay.is_active ? '(Active)' : ''}
                 </SelectItem>
               ))}
             </SelectContent>

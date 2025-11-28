@@ -155,6 +155,7 @@ export interface AdmissionAnalyticsFilters {
     to: Date;
   };
   institution_id?: string;
+  academic_year_id?: string;
   degree_id?: string;
   department_id?: string;
   program_id?: string;
@@ -192,12 +193,24 @@ export interface AdmissionDashboardAnalytics {
     avgProcessingDays: number; // Average days from created to approved/rejected
   };
 
-  // Status breakdown with percentages
+  // Status breakdown with percentages - combined admissions + students
   statusBreakdown: {
-    status: string;
-    count: number;
-    percentage: number;
-  }[];
+    // Admission pipeline statuses
+    admissionStatuses: {
+      status: string;
+      count: number;
+      percentage: number;
+    }[];
+    // Student lifecycle statuses
+    studentStatuses: {
+      status: string;
+      count: number;
+      percentage: number;
+    }[];
+    // Combined totals
+    totalAdmissions: number;
+    totalStudents: number;
+  };
 
   // Demographic analytics
   demographics: {

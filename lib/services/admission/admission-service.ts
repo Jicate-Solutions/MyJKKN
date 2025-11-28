@@ -800,61 +800,78 @@ export class AdmissionService {
         combinedOverview
       );
 
-      // Build base query
-      let baseQuery = supabase
-        .from('admissions')
-        .select('*', { count: 'exact' });
+      // Fetch admissions using pagination to bypass Supabase 1000 row limit
+      let allAdmissionsData: Admission[] = [];
+      let hasMoreAdmissions = true;
+      const admissionPageSize = 1000;
+      let admissionPage = 0;
 
-      // Apply filters
-      if (effectiveFilters.institution_id) {
-        baseQuery = baseQuery.eq(
-          'institution_id',
-          effectiveFilters.institution_id
+      while (hasMoreAdmissions) {
+        let baseQuery = supabase
+          .from('admissions')
+          .select('*');
+
+        // Apply filters
+        if (effectiveFilters.institution_id) {
+          baseQuery = baseQuery.eq('institution_id', effectiveFilters.institution_id);
+        }
+        if (effectiveFilters.degree_id) {
+          baseQuery = baseQuery.eq('degree_id', effectiveFilters.degree_id);
+        }
+        if (effectiveFilters.department_id) {
+          baseQuery = baseQuery.eq('department_id', effectiveFilters.department_id);
+        }
+        if (effectiveFilters.program_id) {
+          baseQuery = baseQuery.eq('program_id', effectiveFilters.program_id);
+        }
+        if (effectiveFilters.academic_year_id) {
+          baseQuery = baseQuery.eq('academic_year_id', effectiveFilters.academic_year_id);
+        }
+        if (effectiveFilters.status) {
+          baseQuery = baseQuery.eq('status', effectiveFilters.status);
+        }
+        if (effectiveFilters.state) {
+          baseQuery = baseQuery.eq('permanent_address_state', effectiveFilters.state);
+        }
+        if (effectiveFilters.district) {
+          baseQuery = baseQuery.eq('permanent_address_district', effectiveFilters.district);
+        }
+        if (effectiveFilters.dateRange?.from) {
+          baseQuery = baseQuery.gte('created_at', effectiveFilters.dateRange.from.toISOString());
+        }
+        if (effectiveFilters.dateRange?.to) {
+          const nextDay = new Date(effectiveFilters.dateRange.to);
+          nextDay.setDate(nextDay.getDate() + 1);
+          baseQuery = baseQuery.lt('created_at', nextDay.toISOString());
+        }
+
+        // Apply pagination at the end
+        baseQuery = baseQuery.range(
+          admissionPage * admissionPageSize,
+          (admissionPage + 1) * admissionPageSize - 1
         );
-      }
-      if (effectiveFilters.degree_id) {
-        baseQuery = baseQuery.eq('degree_id', effectiveFilters.degree_id);
-      }
-      if (effectiveFilters.department_id) {
-        baseQuery = baseQuery.eq(
-          'department_id',
-          effectiveFilters.department_id
-        );
-      }
-      if (effectiveFilters.program_id) {
-        baseQuery = baseQuery.eq('program_id', effectiveFilters.program_id);
-      }
-      if (effectiveFilters.status) {
-        baseQuery = baseQuery.eq('status', effectiveFilters.status);
-      }
-      if (effectiveFilters.state) {
-        baseQuery = baseQuery.eq(
-          'permanent_address_state',
-          effectiveFilters.state
-        );
-      }
-      if (effectiveFilters.district) {
-        baseQuery = baseQuery.eq(
-          'permanent_address_district',
-          effectiveFilters.district
-        );
-      }
-      if (effectiveFilters.dateRange?.from) {
-        baseQuery = baseQuery.gte(
-          'created_at',
-          effectiveFilters.dateRange.from.toISOString()
-        );
-      }
-      if (effectiveFilters.dateRange?.to) {
-        const nextDay = new Date(effectiveFilters.dateRange.to);
-        nextDay.setDate(nextDay.getDate() + 1);
-        baseQuery = baseQuery.lt('created_at', nextDay.toISOString());
+
+        const { data: pageData, error: pageError } = await baseQuery;
+
+        if (pageError) {
+          console.error('[admissions/analytics] Error fetching admissions page:', pageError);
+          throw pageError;
+        }
+
+        if (pageData && pageData.length > 0) {
+          allAdmissionsData = allAdmissionsData.concat(pageData as Admission[]);
+          admissionPage++;
+
+          // If we got less than page size, we've reached the end
+          if (pageData.length < admissionPageSize) {
+            hasMoreAdmissions = false;
+          }
+        } else {
+          hasMoreAdmissions = false;
+        }
       }
 
-      // Execute main query
-      const { data: admissions, error } = await baseQuery;
-
-      if (error) throw error;
+      const admissions = allAdmissionsData;
 
       const total = admissions?.length || 0;
 
@@ -899,14 +916,112 @@ export class AdmissionService {
       const avgProcessingDays =
         processedCount > 0 ? totalProcessingDays / processedCount : 0;
 
-      // Calculate status breakdown
-      const statusBreakdown = Object.entries(statusCounts).map(
+      // Calculate admission status breakdown
+      const admissionStatusBreakdown = Object.entries(statusCounts).map(
         ([status, count]) => ({
           status,
           count,
           percentage: total > 0 ? (count / total) * 100 : 0
         })
       );
+
+      // Fetch student statuses for combined view using pagination to bypass Supabase 1000 row limit
+      let allStudentsData: { status: string }[] = [];
+      let hasMoreStudents = true;
+      const studentPageSize = 1000;
+      let studentPage = 0;
+
+      while (hasMoreStudents) {
+        let studentStatusQuery = supabase
+          .from('students')
+          .select('status');
+
+        // Apply filters
+        if (effectiveFilters.institution_id) {
+          studentStatusQuery = studentStatusQuery.eq('institution_id', effectiveFilters.institution_id);
+        }
+        if (effectiveFilters.academic_year_id) {
+          studentStatusQuery = studentStatusQuery.eq('academic_year_id', effectiveFilters.academic_year_id);
+        }
+        if (effectiveFilters.degree_id) {
+          studentStatusQuery = studentStatusQuery.eq('degree_id', effectiveFilters.degree_id);
+        }
+        if (effectiveFilters.department_id) {
+          studentStatusQuery = studentStatusQuery.eq('department_id', effectiveFilters.department_id);
+        }
+        if (effectiveFilters.program_id) {
+          studentStatusQuery = studentStatusQuery.eq('program_id', effectiveFilters.program_id);
+        }
+
+        // Apply pagination at the end
+        studentStatusQuery = studentStatusQuery.range(
+          studentPage * studentPageSize,
+          (studentPage + 1) * studentPageSize - 1
+        );
+
+        const { data: pageData, error: pageError } = await studentStatusQuery;
+
+        if (pageError) {
+          console.error('[admissions/analytics] Error fetching students page:', pageError);
+          break;
+        }
+
+        if (pageData && pageData.length > 0) {
+          allStudentsData = allStudentsData.concat(pageData);
+          studentPage++;
+
+          // If we got less than page size, we've reached the end
+          if (pageData.length < studentPageSize) {
+            hasMoreStudents = false;
+          }
+        } else {
+          hasMoreStudents = false;
+        }
+      }
+
+      const studentsData = allStudentsData;
+      const studentsError = null;
+
+      console.log('[admissions/analytics] Total students fetched with pagination:', studentsData.length, 'pages:', studentPage);
+
+      // Calculate student status counts
+      const studentStatusCounts: Record<string, number> = {
+        active: 0,
+        inactive: 0,
+        graduated: 0,
+        dropped: 0,
+        suspended: 0
+      };
+
+      if (!studentsError && studentsData) {
+        studentsData.forEach((student: { status: string }) => {
+          const status = student.status?.toLowerCase() || 'active';
+          if (status in studentStatusCounts) {
+            studentStatusCounts[status]++;
+          } else {
+            // Handle any other status
+            studentStatusCounts[status] = (studentStatusCounts[status] || 0) + 1;
+          }
+        });
+      }
+
+      const totalStudentsCount = studentsData?.length || 0;
+
+      const studentStatusBreakdown = Object.entries(studentStatusCounts).map(
+        ([status, count]) => ({
+          status,
+          count,
+          percentage: totalStudentsCount > 0 ? (count / totalStudentsCount) * 100 : 0
+        })
+      );
+
+      // Combined status breakdown
+      const statusBreakdown = {
+        admissionStatuses: admissionStatusBreakdown,
+        studentStatuses: studentStatusBreakdown,
+        totalAdmissions: total,
+        totalStudents: totalStudentsCount
+      };
 
       // Calculate demographics
       const genderCounts: Record<string, number> = {};
