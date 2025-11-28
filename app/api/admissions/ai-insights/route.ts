@@ -11,6 +11,7 @@ import { AdmissionAnalyticsFilters } from '@/types/admission';
  *
  * Query Parameters:
  * - institution_id?: string
+ * - academic_year_id?: string
  * - degree_id?: string
  * - department_id?: string
  * - program_id?: string
@@ -106,6 +107,12 @@ export async function GET(request: NextRequest) {
     const institutionId = searchParams.get('institution_id');
     if (institutionId) {
       filters.institution_id = institutionId;
+    }
+
+    // Academic Year filter
+    const academicYearId = searchParams.get('academic_year_id');
+    if (academicYearId) {
+      filters.academic_year_id = academicYearId;
     }
 
     // Degree filter

@@ -106,6 +106,9 @@ export function useAdmissionAIInsights(
       if (filters.institution_id) {
         queryParams.append('institution_id', filters.institution_id);
       }
+      if (filters.academic_year_id) {
+        queryParams.append('academic_year_id', filters.academic_year_id);
+      }
       if (filters.degree_id) {
         queryParams.append('degree_id', filters.degree_id);
       }
