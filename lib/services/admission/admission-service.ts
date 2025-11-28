@@ -771,6 +771,35 @@ export class AdmissionService {
         }
       }
 
+      // Call database function for combined analytics (admissions + students)
+      const { data: combinedData, error: combinedError } = await supabase.rpc(
+        'get_combined_enrollment_analytics',
+        {
+          p_institution_id: effectiveFilters.institution_id || null,
+          p_date_from: effectiveFilters.dateRange?.from?.toISOString() || null,
+          p_date_to: effectiveFilters.dateRange?.to?.toISOString() || null,
+          p_degree_id: effectiveFilters.degree_id || null,
+          p_department_id: effectiveFilters.department_id || null,
+          p_program_id: effectiveFilters.program_id || null
+        }
+      );
+
+      if (combinedError) {
+        console.error(
+          '[admissions/analytics] Combined analytics error:',
+          combinedError
+        );
+        // Don't throw - fallback to old method if RPC fails
+      }
+
+      // Extract overview from database function result
+      const combinedOverview = combinedData?.overview || null;
+
+      console.log(
+        '[admissions/analytics] Combined overview from database:',
+        combinedOverview
+      );
+
       // Build base query
       let baseQuery = supabase
         .from('admissions')
@@ -1191,13 +1220,51 @@ export class AdmissionService {
           .slice(0, 5)
       };
 
+      // Use combined overview from database function, with fallback to calculated values
+      const overview = combinedOverview
+        ? {
+            // Combined totals from database
+            combinedTotal: combinedOverview.combinedTotal || 0,
+            totalAdmissions: combinedOverview.totalAdmissions || 0,
+            totalStudents: combinedOverview.totalStudents || 0,
+
+            // Pipeline statuses
+            pending: combinedOverview.pending || 0,
+            approved: combinedOverview.approved || 0,
+            rejected: combinedOverview.rejected || 0,
+            waitlisted: combinedOverview.waitlisted || 0,
+            enrolled: combinedOverview.enrolled || 0,
+
+            // Student data
+            onboarded: combinedOverview.onboarded || 0,
+            directStudents: combinedOverview.directStudents || 0,
+            pendingProfile: combinedOverview.pendingProfile || 0,
+
+            // Rates
+            conversionRate: combinedOverview.conversionRate || 0,
+            onboardingRate: combinedOverview.onboardingRate || 0,
+            avgProcessingDays: combinedOverview.avgProcessingDays || 0
+          }
+        : {
+            // Fallback to old calculation if RPC fails
+            combinedTotal: total,
+            totalAdmissions: total,
+            totalStudents: 0,
+            pending: statusCounts.pending,
+            approved: statusCounts.approved,
+            rejected: statusCounts.rejected,
+            waitlisted: statusCounts.waitlisted,
+            enrolled: statusCounts.enrolled,
+            onboarded: 0,
+            directStudents: 0,
+            pendingProfile: 0,
+            conversionRate: Math.round(conversionRate * 100) / 100,
+            onboardingRate: 0,
+            avgProcessingDays: Math.round(avgProcessingDays * 100) / 100
+          };
+
       return {
-        overview: {
-          total,
-          ...statusCounts,
-          conversionRate: Math.round(conversionRate * 100) / 100,
-          avgProcessingDays: Math.round(avgProcessingDays * 100) / 100
-        },
+        overview,
         statusBreakdown,
         demographics,
         academicPerformance,
@@ -1206,7 +1273,7 @@ export class AdmissionService {
         referenceSources,
         timeTrends,
         metadata: {
-          totalRecords: total,
+          totalRecords: overview.combinedTotal,
           dateRange: {
             from: effectiveFilters.dateRange?.from?.toISOString() || '',
             to: effectiveFilters.dateRange?.to?.toISOString() || ''

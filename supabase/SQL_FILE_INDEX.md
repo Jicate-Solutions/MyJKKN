@@ -82,7 +82,7 @@ When updating any SQL file:
 | Timetable             | setup/02_functions.sql | 10    | Timetable management            |
 | Academic              | setup/02_functions.sql | 15    | Academic hierarchy, validations |
 | Staff                 | setup/02_functions.sql | 5     | Staff management                |
-| Admission             | setup/02_functions.sql | 4     | Application ID generation       |
+| Admission             | setup/02_functions.sql | 5     | Application ID generation, combined analytics |
 | Bug Reports           | setup/02_functions.sql | 4     | Bug tracking                    |
 | Resources             | setup/02_functions.sql | 6     | Resource management             |
 | Notifications         | setup/02_functions.sql | 1     | User notifications              |
@@ -179,6 +179,27 @@ When updating any SQL file:
 
 ## 📝 Change Log
 
+### 2025-11-28: Combined Enrollment Analytics Function
+
+- **File**: `migrations/combined_enrollment_analytics.sql` ✅ **APPLIED**
+
+  **Purpose**: Created database function for combined admissions + students analytics dashboard
+
+  **Changes**:
+  - Added `get_combined_enrollment_analytics()` function
+    - Returns combined statistics from both `admissions` and `students` tables
+    - Supports filtering by institution, date range, degree, department, program
+    - Calculates: combinedTotal, totalAdmissions, totalStudents, pending, approved, rejected, waitlisted, enrolled, onboarded, directStudents, pendingProfile, conversionRate, onboardingRate, avgProcessingDays
+  - Added 3 performance indexes:
+    - `idx_admissions_analytics_combined` - Composite index on (institution_id, status, created_at)
+    - `idx_students_onboarded_status` - Partial index for active students
+    - `idx_students_direct_enrolled` - Partial index for direct students (no admission_id)
+
+  **Impact**:
+  - Dashboard shows combined view of admissions pipeline + student onboarding
+  - Onboarded count now tracks students with `status = 'active'`
+  - Direct students (added without admission) are now visible in analytics
+
 ### 2025-01-20
 
 - **Child App Authentication Cleanup**
@@ -245,6 +266,27 @@ When updating any SQL file:
 - Functions: auth.\* functions in `setup/00_master_setup.sql`
 
 ## 📝 Recent Migrations
+
+### 2025-11-28: Add Academic Year to Admissions Table
+
+- **File**: `migrations/add_academic_year_to_admissions.sql` ✅ **APPLIED**
+
+  **Purpose**: Move Academic Year field from Learner Onboarding to Admission page
+
+  **Changes**:
+  - Added `academic_year_id` column (UUID) to `admissions` table
+  - Added foreign key reference to `academic_years` table
+  - Created index `idx_admissions_academic_year_id` for performance
+
+  **Workflow Change**:
+  - **Before**: Academic Year was entered during Learner Onboarding (after admission approval)
+  - **After**: Academic Year is captured during Admission process and automatically copied to Student record
+
+  **Impact**:
+  - ✅ Academic Year field now available on Admission form (Course Selection tab)
+  - ✅ Students created from approved admissions inherit `academic_year_id`
+  - ✅ Reduces onboarding steps if academic year was set during admission
+  - ✅ Backward compatible - existing admissions have NULL academic_year_id
 
 ### 2025-02-07: Bug Report Display ID Race Condition Fix 🚨 CRITICAL
 

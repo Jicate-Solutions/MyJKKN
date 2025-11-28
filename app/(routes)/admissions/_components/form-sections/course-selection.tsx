@@ -22,7 +22,9 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import type { Degree, Department, Program } from '@/types/organizations';
+import type { AcademicYear } from '@/types/academics';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface CourseSelectionFormProps {
@@ -41,12 +43,14 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
   const [degrees, setDegrees] = useState<Degree[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
 
   // Loading states
   const [loadingInstitutions, setLoadingInstitutions] = useState(true);
   const [loadingDegrees, setLoadingDegrees] = useState(false);
   const [loadingDepartments, setLoadingDepartments] = useState(false);
   const [loadingPrograms, setLoadingPrograms] = useState(false);
+  const [loadingAcademicYears, setLoadingAcademicYears] = useState(false);
 
   // Get current values for dynamic options
   const institution_id = useWatch({
@@ -74,12 +78,18 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
     name: 'entryType'
   });
 
+  const academicYearId = useWatch({
+    control: form.control,
+    name: 'academicYearId'
+  });
+
   // Log form values for debugging
   console.log('Course selection form values:', {
     institution_id: form.getValues('institution_id'),
     degreeId: form.getValues('degreeId'),
     departmentId: form.getValues('departmentId'),
     programId: form.getValues('programId'),
+    academicYearId: form.getValues('academicYearId'),
     entryType: form.getValues('entryType')
   });
 
@@ -129,6 +139,11 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
   const findProgramByNameOrId = useCallback(
     (nameOrId: string) => findByNameOrId(programs, nameOrId, 'program_name'),
     [programs]
+  );
+
+  const findAcademicYearByNameOrId = useCallback(
+    (nameOrId: string) => findByNameOrId(academicYears, nameOrId, 'academic_year_name'),
+    [academicYears]
   );
 
   // Helper function to check if a string is a valid UUID
@@ -205,6 +220,20 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
       }
     }
   }, [programs, programId, form, loadingPrograms, findProgramByNameOrId]);
+
+  // Effect to map academic year string name to ID
+  useEffect(() => {
+    if (academicYears.length > 0 && academicYearId && !loadingAcademicYears) {
+      const matchingAcademicYear = findAcademicYearByNameOrId(academicYearId);
+
+      if (matchingAcademicYear && matchingAcademicYear.id !== academicYearId) {
+        console.log(
+          `Found matching academic year: "${matchingAcademicYear.academic_year_name}" (${matchingAcademicYear.id}) for "${academicYearId}"`
+        );
+        form.setValue('academicYearId', matchingAcademicYear.id);
+      }
+    }
+  }, [academicYears, academicYearId, form, loadingAcademicYears, findAcademicYearByNameOrId]);
 
   // Fetch institutions on component mount
   useEffect(() => {
@@ -315,9 +344,45 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
       setDegrees([]);
       setDepartments([]);
       setPrograms([]);
+      setAcademicYears([]);
       form.setValue('degreeId', '');
       form.setValue('departmentId', '');
       form.setValue('programId', '');
+      form.setValue('academicYearId', '');
+    }
+  }, [institution_id, form]);
+
+  // Fetch academic years when institution changes
+  useEffect(() => {
+    if (institution_id) {
+      async function fetchAcademicYears() {
+        try {
+          setLoadingAcademicYears(true);
+          console.log('Fetching academic years for institution:', institution_id);
+          const data = await AcademicYearService.getAcademicYearsByInstitution(institution_id);
+          // Filter to only show active academic years
+          const activeYears = data.filter((year) => year.is_active);
+          setAcademicYears(activeYears);
+          console.log(`Loaded ${activeYears.length} active academic years`);
+
+          // Check if current academic year is valid for the selected institution
+          const currentAcademicYearId = form.getValues('academicYearId');
+          if (currentAcademicYearId) {
+            const isAcademicYearValid = activeYears.some((y) => y.id === currentAcademicYearId);
+            if (!isAcademicYearValid) {
+              form.setValue('academicYearId', '');
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching academic years:', error);
+        } finally {
+          setLoadingAcademicYears(false);
+        }
+      }
+      fetchAcademicYears();
+    } else {
+      setAcademicYears([]);
+      form.setValue('academicYearId', '');
     }
   }, [institution_id, form]);
 
@@ -903,6 +968,64 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
               </Select>
               <FormDescription>
                 The specific program the student is applying for
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Academic Year */}
+        <FormField
+          control={form.control}
+          name='academicYearId'
+          render={({ field }) => (
+            <FormItem key={`academic-year-${academicYears.length}`}>
+              <FormLabel>Academic Year</FormLabel>
+              <Select
+                value={field.value}
+                onValueChange={field.onChange}
+                disabled={field.disabled || !institution_id || loadingAcademicYears}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select academic year'>
+                      {field.value
+                        ? academicYears.length > 0 && isValidUUID(field.value)
+                          ? academicYears.find((y) => y.id === field.value)
+                              ?.academic_year_name || field.value
+                          : field.value
+                        : 'Select academic year'}
+                    </SelectValue>
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {loadingAcademicYears ? (
+                    <div className='p-2'>
+                      <Skeleton className='h-5 w-full' />
+                      <Skeleton className='h-5 w-full mt-2' />
+                    </div>
+                  ) : (
+                    [
+                      ...academicYears,
+                      ...(field.value &&
+                      !isValidUUID(field.value) &&
+                      !academicYears.find(
+                        (y) =>
+                          y.academic_year_name.toLowerCase() ===
+                          field.value.toLowerCase()
+                      )
+                        ? [{ id: field.value, academic_year_name: field.value }]
+                        : [])
+                    ].map((academicYear) => (
+                      <SelectItem key={academicYear.id} value={academicYear.id}>
+                        {academicYear.academic_year_name}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                The academic year for the student&apos;s admission
               </FormDescription>
               <FormMessage />
             </FormItem>

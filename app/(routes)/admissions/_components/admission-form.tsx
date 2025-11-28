@@ -99,6 +99,7 @@ const courseSelectionSchema = z.object({
   degreeId: z.string().optional(),
   departmentId: z.string().optional(),
   programId: z.string().optional(),
+  academicYearId: z.string().optional(),
   entryType: z.string().optional()
 });
 
@@ -336,6 +337,7 @@ export function AdmissionForm({
           degreeId: '',
           departmentId: '',
           programId: '',
+          academicYearId: '',
           entryType: '',
 
           // Contact Details
@@ -638,6 +640,7 @@ export function AdmissionForm({
       degree_id: isValidUUID(data.degreeId) ? data.degreeId : undefined,
       department_id: isValidUUID(data.departmentId) ? data.departmentId : undefined,
       program_id: isValidUUID(data.programId) ? data.programId : undefined,
+      academic_year_id: isValidUUID(data.academicYearId) ? data.academicYearId : undefined,
       entry_type: formatStringValue(data.entryType || ''),
 
       // Contact Details
@@ -829,6 +832,7 @@ export function AdmissionForm({
           'degreeId',
           'departmentId',
           'programId',
+          'academicYearId',
           'entryType'
         ];
       case 'contact-details':
@@ -872,6 +876,7 @@ export function AdmissionForm({
       degreeId: 'Degree',
       departmentId: 'Department',
       programId: 'Program',
+      academicYearId: 'Academic Year',
       entryType: 'Entry Type',
       permanentAddressStreet: 'Street Address',
       permanentAddressDistrict: 'District',

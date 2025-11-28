@@ -43,6 +43,7 @@ export interface Admission {
   degree_id?: string; // reference to degree
   department_id?: string; // reference to department
   program_id?: string; // reference to program
+  academic_year_id?: string; // reference to academic year - captured during admission
   entry_type: string; // FIRST YEAR, LATERAL ENTRY, etc.
   permanent_address_street: string;
   permanent_address_taluk?: string;
@@ -82,6 +83,13 @@ export interface Admission {
   program?: {
     id: string;
     program_name: string;
+  };
+  academic_year?: {
+    id: string;
+    academic_year_name: string;
+    start_date?: string;
+    end_date?: string;
+    is_active?: boolean;
   };
   course?: {
     id: string;
@@ -159,15 +167,28 @@ export interface AdmissionAnalyticsFilters {
  * Complete analytics data structure for dashboard
  */
 export interface AdmissionDashboardAnalytics {
-  // Overview KPI metrics
+  // Overview KPI metrics - UPDATED for combined analytics (admissions + students)
   overview: {
-    total: number;
+    // Combined totals
+    combinedTotal: number; // admissions + direct students (students without admission_id)
+    totalAdmissions: number; // from admissions table only
+    totalStudents: number; // from students table only
+
+    // From admissions table (pipeline statuses)
     pending: number;
     approved: number;
     rejected: number;
     waitlisted: number;
     enrolled: number;
-    conversionRate: number; // Percentage (approved + enrolled) / total
+
+    // From students table
+    onboarded: number; // students with status = 'active'
+    directStudents: number; // students without admission_id
+    pendingProfile: number; // active but is_profile_complete = false
+
+    // Rates
+    conversionRate: number; // (approved + enrolled) / totalAdmissions
+    onboardingRate: number; // onboarded / totalStudents
     avgProcessingDays: number; // Average days from created to approved/rejected
   };
 
