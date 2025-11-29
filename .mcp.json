@@ -24,33 +24,14 @@
     },
     "memory": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-memory@latest"
-      ],
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-memory@latest"],
       "env": {
         "MEMORY_STORE_PATH": "D:\\MyJKKN\\.claude\\memory"
       }
     },
     "actor-critic-thinking": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "mcp-server-actor-critic-thinking"
-      ]
-    },
-    "chrome-devtools": {
-      "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "chrome-devtools-mcp@latest"
-      ]
+      "args": ["/c", "npx", "-y", "mcp-server-actor-critic-thinking"]
     }
   }
 }

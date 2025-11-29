@@ -4,6 +4,54 @@ import type { NextRequest } from 'next/server';
 import * as XLSX from 'xlsx';
 import type { Database } from '@/types/supabase';
 
+// Helper function to fetch all students with pagination to overcome Supabase 1000-row limit
+async function fetchAllStudentsForExport(
+  supabase: any,
+  selectQuery: string,
+  applyFilters: (query: any) => any
+): Promise<{ data: any[] | null; error: any }> {
+  const PAGE_SIZE = 1000;
+  let allStudents: any[] = [];
+  let currentPage = 0;
+  let hasMore = true;
+
+  try {
+    while (hasMore) {
+      let query = supabase
+        .from('students')
+        .select(selectQuery)
+        .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
+        .order('created_at', { ascending: false });
+
+      // Apply filters
+      query = applyFilters(query);
+
+      const { data: pageData, error } = await query;
+
+      if (error) {
+        return { data: null, error };
+      }
+
+      if (pageData && pageData.length > 0) {
+        allStudents = allStudents.concat(pageData);
+        console.log(`[export-for-update] Fetched page ${currentPage + 1}: ${pageData.length} records (total: ${allStudents.length})`);
+        currentPage++;
+
+        if (pageData.length < PAGE_SIZE) {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
+    console.log(`[export-for-update] Total students fetched: ${allStudents.length}`);
+    return { data: allStudents, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
 // Define columns for onboarding export
 const EXPORT_COLUMNS = [
   // Required for matching
@@ -43,57 +91,56 @@ export async function GET(request: NextRequest) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
-    // Build query - only incomplete profiles
-    let query = supabaseAdmin
-      .from('students')
-      .select(
-        `
-        *,
-        institution:institutions!institution_id(id, name),
-        degree:degrees!degree_id(id, degree_name),
-        department:departments!department_id(id, department_name),
-        program:programs!program_id(id, program_name),
-        semester:semesters!semester_id(id, semester_name),
-        section:sections!section_id(id, section_name),
-        academic_year:academic_years!academic_year_id(id, academic_year_name)
-      `
-      )
-      .eq('is_profile_complete', false)
-      .order('created_at', { ascending: false });
-
-    // Apply filters from query params
+    // Extract filter values
     const institution = searchParams.get('institution');
-    if (institution) {
-      query = query.eq('institution_id', institution);
-    }
-
     const department = searchParams.get('department');
-    if (department) {
-      query = query.eq('department_id', department);
-    }
-
     const program = searchParams.get('program');
-    if (program) {
-      query = query.eq('program_id', program);
-    }
-
     const semester = searchParams.get('semester');
-    if (semester) {
-      query = query.eq('semester_id', semester);
-    }
-
     const section = searchParams.get('section');
-    if (section) {
-      query = query.eq('section_id', section);
-    }
-
     const status = searchParams.get('status');
-    if (status) {
-      query = query.eq('status', status);
-    }
 
-    // Fetch incomplete students
-    const { data: students, error } = await query;
+    // Select query with all related data
+    const selectQuery = `
+      *,
+      institution:institutions!institution_id(id, name),
+      degree:degrees!degree_id(id, degree_name),
+      department:departments!department_id(id, department_name),
+      program:programs!program_id(id, program_name),
+      semester:semesters!semester_id(id, semester_name),
+      section:sections!section_id(id, section_name),
+      academic_year:academic_years!academic_year_id(id, academic_year_name)
+    `;
+
+    // Use paginated fetch to overcome Supabase 1000-row limit
+    const { data: students, error } = await fetchAllStudentsForExport(
+      supabaseAdmin,
+      selectQuery,
+      (query) => {
+        // Only fetch incomplete profiles
+        query = query.eq('is_profile_complete', false);
+
+        // Apply filters from query params
+        if (institution) {
+          query = query.eq('institution_id', institution);
+        }
+        if (department) {
+          query = query.eq('department_id', department);
+        }
+        if (program) {
+          query = query.eq('program_id', program);
+        }
+        if (semester) {
+          query = query.eq('semester_id', semester);
+        }
+        if (section) {
+          query = query.eq('section_id', section);
+        }
+        if (status) {
+          query = query.eq('status', status);
+        }
+        return query;
+      }
+    );
 
     if (error) {
       console.error('Error fetching students for export:', error);

@@ -6,6 +6,54 @@ import * as XLSX from 'xlsx';
 import type { Database } from '@/types/supabase';
 import type { Student } from '@/types/student'; // Assuming Student type includes related data
 
+// Helper function to fetch all students with pagination to overcome Supabase 1000-row limit
+async function fetchAllStudentsForExport(
+  supabase: any,
+  selectQuery: string,
+  applyFilters: (query: any) => any
+): Promise<{ data: any[] | null; error: any }> {
+  const PAGE_SIZE = 1000;
+  let allStudents: any[] = [];
+  let currentPage = 0;
+  let hasMore = true;
+
+  try {
+    while (hasMore) {
+      let query = supabase
+        .from('students')
+        .select(selectQuery)
+        .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
+        .order('created_at', { ascending: false });
+
+      // Apply filters
+      query = applyFilters(query);
+
+      const { data: pageData, error } = await query;
+
+      if (error) {
+        return { data: null, error };
+      }
+
+      if (pageData && pageData.length > 0) {
+        allStudents = allStudents.concat(pageData);
+        console.log(`[export] Fetched page ${currentPage + 1}: ${pageData.length} records (total: ${allStudents.length})`);
+        currentPage++;
+
+        if (pageData.length < PAGE_SIZE) {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
+    console.log(`[export] Total students fetched: ${allStudents.length}`);
+    return { data: allStudents, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
 // Define which columns to include in the export and their order/header names
 const EXPORT_COLUMNS = [
   // Personal Details
@@ -122,71 +170,71 @@ export async function GET(request: NextRequest) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
-    // Build the query to fetch student data
-    let query = supabaseAdmin
-      .from('students')
-      .select(
-        `
-        *, 
-        institution:institutions!institution_id(id, name),
-        degree:degrees!degree_id(id, degree_name),
-        department:departments!department_id(id, department_name),
-        program:programs!program_id(id, program_name),
-        semester:semesters!semester_id(id, semester_name),
-        section:sections!section_id(id, section_name),
-        academic_year:academic_years!academic_year_id(id, academic_year_name)
-      `
-      )
-      .order('created_at', { ascending: false });
-
-    // Apply filters based on query params
-    if (!includeInactive) {
-      // Only include students with 'active' status if includeInactive is false
-      query = query.eq('status', 'active');
-    }
-
-    // Add other filters from the search params
+    // Extract filter values
     const institution = searchParams.get('institution');
-    if (institution) {
-      query = query.eq('institution_id', institution);
-    }
     const degree = searchParams.get('degree');
-    if (degree) {
-      query = query.eq('degree_id', degree);
-    }
     const department = searchParams.get('department');
-    if (department) {
-      query = query.eq('department_id', department);
-    }
     const program = searchParams.get('program');
-    if (program) {
-      query = query.eq('program_id', program);
-    }
     const semester = searchParams.get('semester');
-    if (semester) {
-      query = query.eq('semester_id', semester);
-    }
     const section = searchParams.get('section');
-    if (section) {
-      query = query.eq('section_id', section);
-    }
     const status = searchParams.get('status');
-    if (status) {
-      query = query.eq('status', status);
-    }
     const isProfileComplete = searchParams.get('is_profile_complete');
-    if (isProfileComplete) {
-      query = query.eq('is_profile_complete', isProfileComplete);
-    }
-    if (searchParams.get('search')) {
-      const searchTerm = searchParams.get('search');
-      query = query.or(
-        `first_name.ilike.%${searchTerm}%,last_name.ilike.%${searchTerm}%,roll_number.ilike.%${searchTerm}%,student_email.ilike.%${searchTerm}%`
-      );
-    }
+    const searchTerm = searchParams.get('search');
 
-    // Fetch all data (handle potential pagination if dataset is huge, though less common for exports)
-    const { data: students, error } = await query;
+    // Select query with all related data
+    const selectQuery = `
+      *,
+      institution:institutions!institution_id(id, name),
+      degree:degrees!degree_id(id, degree_name),
+      department:departments!department_id(id, department_name),
+      program:programs!program_id(id, program_name),
+      semester:semesters!semester_id(id, semester_name),
+      section:sections!section_id(id, section_name),
+      academic_year:academic_years!academic_year_id(id, academic_year_name)
+    `;
+
+    // Use paginated fetch to overcome Supabase 1000-row limit
+    const { data: students, error } = await fetchAllStudentsForExport(
+      supabaseAdmin,
+      selectQuery,
+      (query) => {
+        // Apply filters based on query params
+        if (!includeInactive) {
+          // Only include students with 'active' status if includeInactive is false
+          query = query.eq('status', 'active');
+        }
+        if (institution) {
+          query = query.eq('institution_id', institution);
+        }
+        if (degree) {
+          query = query.eq('degree_id', degree);
+        }
+        if (department) {
+          query = query.eq('department_id', department);
+        }
+        if (program) {
+          query = query.eq('program_id', program);
+        }
+        if (semester) {
+          query = query.eq('semester_id', semester);
+        }
+        if (section) {
+          query = query.eq('section_id', section);
+        }
+        if (status) {
+          query = query.eq('status', status);
+        }
+        if (isProfileComplete) {
+          query = query.eq('is_profile_complete', isProfileComplete);
+        }
+        if (searchTerm) {
+          query = query.or(
+            `first_name.ilike.%${searchTerm}%,last_name.ilike.%${searchTerm}%,roll_number.ilike.%${searchTerm}%,student_email.ilike.%${searchTerm}%`
+          );
+        }
+        return query;
+      }
+    );
 
     if (error) {
       console.error('Error fetching students for export:', error);

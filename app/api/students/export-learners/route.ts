@@ -2,6 +2,54 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import * as XLSX from 'xlsx';
 
+// Helper function to fetch all students with pagination to overcome Supabase 1000-row limit
+async function fetchAllStudentsForExport(
+  supabase: any,
+  selectQuery: string,
+  applyFilters: (query: any) => any
+): Promise<{ data: any[] | null; error: any }> {
+  const PAGE_SIZE = 1000;
+  let allStudents: any[] = [];
+  let currentPage = 0;
+  let hasMore = true;
+
+  try {
+    while (hasMore) {
+      let query = supabase
+        .from('students')
+        .select(selectQuery)
+        .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
+        .order('created_at', { ascending: false });
+
+      // Apply filters
+      query = applyFilters(query);
+
+      const { data: pageData, error } = await query;
+
+      if (error) {
+        return { data: null, error };
+      }
+
+      if (pageData && pageData.length > 0) {
+        allStudents = allStudents.concat(pageData);
+        console.log(`[export-learners] Fetched page ${currentPage + 1}: ${pageData.length} records (total: ${allStudents.length})`);
+        currentPage++;
+
+        if (pageData.length < PAGE_SIZE) {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
+    console.log(`[export-learners] Total students fetched: ${allStudents.length}`);
+    return { data: allStudents, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
@@ -9,31 +57,8 @@ export async function GET(request: NextRequest) {
 
     console.log('[export-learners] Query params:', Object.fromEntries(searchParams));
 
-    // Build query - respect the is_profile_complete filter from the page
-    let query = supabase
-      .from('students')
-      .select(
-        `
-        *,
-        institution:institutions(id, name),
-        degree:degrees(id, degree_name),
-        department:departments(id, department_name),
-        program:programs(id, program_name),
-        semester:semesters(id, semester_name),
-        section:sections(id, section_name),
-        academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active)
-      `
-      )
-      .order('created_at', { ascending: false });
-
-    // Apply is_profile_complete filter if provided (defaults to true from page)
+    // Extract filter values
     const isProfileComplete = searchParams.get('is_profile_complete');
-    console.log('[export-learners] is_profile_complete param:', isProfileComplete);
-    if (isProfileComplete !== null) {
-      query = query.eq('is_profile_complete', isProfileComplete === 'true');
-    }
-
-    // Apply filters only if they have values
     const institution = searchParams.get('institution');
     const department = searchParams.get('department');
     const program = searchParams.get('program');
@@ -42,6 +67,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
 
     console.log('[export-learners] Filters:', {
+      isProfileComplete,
       institution,
       department,
       program,
@@ -50,26 +76,49 @@ export async function GET(request: NextRequest) {
       status
     });
 
-    if (institution) {
-      query = query.eq('institution_id', institution);
-    }
-    if (department) {
-      query = query.eq('department_id', department);
-    }
-    if (program) {
-      query = query.eq('program_id', program);
-    }
-    if (semester) {
-      query = query.eq('semester_id', semester);
-    }
-    if (section) {
-      query = query.eq('section_id', section);
-    }
-    if (status) {
-      query = query.eq('status', status);
-    }
+    // Select query with all related data
+    const selectQuery = `
+      *,
+      institution:institutions(id, name),
+      degree:degrees(id, degree_name),
+      department:departments(id, department_name),
+      program:programs(id, program_name),
+      semester:semesters(id, semester_name),
+      section:sections(id, section_name),
+      academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active)
+    `;
 
-    const { data: students, error } = await query;
+    // Use paginated fetch to overcome Supabase 1000-row limit
+    const { data: students, error } = await fetchAllStudentsForExport(
+      supabase,
+      selectQuery,
+      (query) => {
+        // Apply is_profile_complete filter if provided (defaults to true from page)
+        if (isProfileComplete !== null) {
+          query = query.eq('is_profile_complete', isProfileComplete === 'true');
+        }
+        // Apply other filters
+        if (institution) {
+          query = query.eq('institution_id', institution);
+        }
+        if (department) {
+          query = query.eq('department_id', department);
+        }
+        if (program) {
+          query = query.eq('program_id', program);
+        }
+        if (semester) {
+          query = query.eq('semester_id', semester);
+        }
+        if (section) {
+          query = query.eq('section_id', section);
+        }
+        if (status) {
+          query = query.eq('status', status);
+        }
+        return query;
+      }
+    );
 
     if (error) {
       console.error('[export-learners] Database error:', error);
