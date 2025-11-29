@@ -69,7 +69,10 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(cd:*)",
-      "Bash(npm run lint:*)"
+      "Bash(npm run lint:*)",
+      "mcp__next-devtools__nextjs_index",
+      "mcp__memory__search_nodes",
+      "mcp__vercel-awesome-ai__list_projects"
     ],
     "deny": [],
     "ask": []

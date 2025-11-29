@@ -57,8 +57,9 @@ export function AttendanceViewSelector({
   attendancePermissions = new Map(),
   isSuperAdmin = false
 }: AttendanceViewSelectorProps) {
-  const { isSuperAdmin: isUserSuperAdmin, userProfile } = usePermissions();
-  const { profile } = useAuth();
+  // Updated: 2025-11-29 - Include isLoading to prevent showing "no permission" during permission load
+  const { isSuperAdmin: isUserSuperAdmin, userProfile, isLoading: permissionsLoading } = usePermissions();
+  const { profile, isLoading: authLoading } = useAuth();
   const [staffId, setStaffId] = useState<string | null>(null);
   // Updated: 2025-10-09 - Track if section is required for validation
   const [isSectionRequired, setIsSectionRequired] = useState(false);
@@ -76,6 +77,9 @@ export function AttendanceViewSelector({
   const shouldCheckStaff = isFaculty && !isUserSuperAdmin;
 
   const [loadingStaffId, setLoadingStaffId] = useState(shouldCheckStaff);
+
+  // Combined loading state - wait for both auth and permissions to load
+  const isInitialLoading = authLoading || permissionsLoading;
   const [activeTab, setActiveTab] = useState<string>('quick');
 
   // Updated: 2025-10-14 - Set client flag for date operations
@@ -203,9 +207,9 @@ export function AttendanceViewSelector({
     }
   };
 
-  // Loading state
-  if (loadingStaffId) {
-    console.log('⏳ Showing loading state');
+  // Loading state - Updated: 2025-11-29 - Include initial loading to prevent premature "no permission" message
+  if (isInitialLoading || loadingStaffId) {
+    console.log('⏳ Showing loading state:', { isInitialLoading, loadingStaffId, permissionsLoading, authLoading });
     return (
       <div className='flex items-center justify-center py-8'>
         <Loader2 className='h-6 w-6 animate-spin mr-2' />
