@@ -3281,6 +3281,7 @@ export class AttendanceService {
   }
 
   // Get current user's staff ID if they are a staff member
+  // Updated: 2025-11-29 - Enhanced email lookup with case-insensitive matching and fallbacks
   static async getCurrentUserStaffId(): Promise<string | null> {
     try {
       const { data: userData, error: userError } =
@@ -3306,21 +3307,69 @@ export class AttendanceService {
         return null;
       }
 
-      // Find staff record with matching institution_email
-      const { data: staff, error: staffError } = await this.supabase
-        .from('staff')
-        .select('id')
-        .eq('institution_email', profile.email)
-        .eq('is_active', true)
-        .single();
+      // Normalize email for matching
+      const profileEmail = profile.email?.trim().toLowerCase();
+      const authEmail = userData.user.email?.trim().toLowerCase();
 
-      if (staffError || !staff) {
+      if (!profileEmail && !authEmail) {
+        console.warn('[attendance] No email found for user:', userData.user.id);
         return null;
       }
 
-      return staff.id;
+      // 1. Try case-insensitive match on institution_email with profile email
+      if (profileEmail) {
+        const { data: staff } = await this.supabase
+          .from('staff')
+          .select('id')
+          .ilike('institution_email', profileEmail)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (staff) {
+          console.log('[attendance] Staff found via institution_email:', staff.id);
+          return staff.id;
+        }
+
+        // 2. Fallback: Try matching on personal email field
+        const { data: staffByPersonalEmail } = await this.supabase
+          .from('staff')
+          .select('id')
+          .ilike('email', profileEmail)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (staffByPersonalEmail) {
+          console.log('[attendance] Staff found via personal email:', staffByPersonalEmail.id);
+          return staffByPersonalEmail.id;
+        }
+      }
+
+      // 3. Fallback: Try auth user's email if different from profile email
+      if (authEmail && authEmail !== profileEmail) {
+        const { data: staffByAuthEmail } = await this.supabase
+          .from('staff')
+          .select('id')
+          .or(`institution_email.ilike.${authEmail},email.ilike.${authEmail}`)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (staffByAuthEmail) {
+          console.log('[attendance] Staff found via auth email:', staffByAuthEmail.id);
+          return staffByAuthEmail.id;
+        }
+      }
+
+      // No staff record found - log for debugging
+      console.warn('[attendance] No staff record found for user:', {
+        userId: userData.user.id,
+        profileEmail,
+        authEmail,
+        role: profile.role
+      });
+
+      return null;
     } catch (error) {
-      console.error('Error getting current user staff ID:', error);
+      console.error('[attendance] Error getting current user staff ID:', error);
       return null;
     }
   }
