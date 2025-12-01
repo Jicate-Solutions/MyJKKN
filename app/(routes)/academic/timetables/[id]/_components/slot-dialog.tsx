@@ -1200,15 +1200,23 @@ export function SlotDialog({
                           />
                           <Label
                             htmlFor={`staff-${staffMember.id}`}
-                            className='text-sm flex items-center gap-2'
+                            className='text-sm flex flex-col gap-0.5'
                           >
-                            {staffMember.first_name} {staffMember.last_name}
-                            <Badge
-                              variant='outline'
-                              className='text-xs bg-green-50 text-green-700 border-green-200'
-                            >
-                              {staffMember.staff_id}
-                            </Badge>
+                            <span className='flex items-center gap-2'>
+                              {staffMember.first_name} {staffMember.last_name}
+                              <Badge
+                                variant='outline'
+                                className='text-xs bg-green-50 text-green-700 border-green-200'
+                              >
+                                {staffMember.staff_id}
+                              </Badge>
+                            </span>
+                            {/* Email identifier to help distinguish duplicate names - Added: 2025-12-01 */}
+                            {staffMember.institution_email && (
+                              <span className='text-xs text-muted-foreground'>
+                                {staffMember.institution_email}
+                              </span>
+                            )}
                           </Label>
                         </div>
                       ))}
@@ -1533,16 +1541,24 @@ export function SlotDialog({
                                     />
                                     <Label
                                       htmlFor={`subSlotStaff-${index}-${staffMember.id}`}
-                                      className='text-xs flex items-center gap-1'
+                                      className='text-xs flex flex-col gap-0.5'
                                     >
-                                      {staffMember.first_name}{' '}
-                                      {staffMember.last_name}
-                                      <Badge
-                                        variant='outline'
-                                        className='text-xs bg-green-50 text-green-700 border-green-200'
-                                      >
-                                        {staffMember.staff_id}
-                                      </Badge>
+                                      <span className='flex items-center gap-1'>
+                                        {staffMember.first_name}{' '}
+                                        {staffMember.last_name}
+                                        <Badge
+                                          variant='outline'
+                                          className='text-xs bg-green-50 text-green-700 border-green-200'
+                                        >
+                                          {staffMember.staff_id}
+                                        </Badge>
+                                      </span>
+                                      {/* Email identifier to help distinguish duplicate names - Added: 2025-12-01 */}
+                                      {staffMember.institution_email && (
+                                        <span className='text-[10px] text-muted-foreground'>
+                                          {staffMember.institution_email}
+                                        </span>
+                                      )}
                                     </Label>
                                   </div>
                                 )

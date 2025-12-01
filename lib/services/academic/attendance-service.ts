@@ -2915,6 +2915,21 @@ export class AttendanceService {
               original: slots.length,
               filtered: filteredSlots.length
             });
+
+            // Warning: If all slots were filtered out, this may indicate a duplicate staff record issue
+            // Added: 2025-12-01 - Enhanced logging for staff ID mismatch debugging
+            if (slots.length > 0 && filteredSlots.length === 0) {
+              console.warn(
+                `[attendance] WARNING: All ${slots.length} slots filtered out for staff ${staffIdForFiltering}.`,
+                `This may indicate the user's staff record is different from the staff assigned to timetable.`,
+                `Check for duplicate staff records with different IDs but same name.`,
+                {
+                  userStaffId: staffIdForFiltering,
+                  sampleSlotStaffIds: slots[0]?.staff_ids || [],
+                  timetableId: timetable.id
+                }
+              );
+            }
           }
 
           // Add the timetable_id and staff filtering context to each slot for reference
@@ -3318,15 +3333,21 @@ export class AttendanceService {
 
       // 1. Try case-insensitive match on institution_email with profile email
       if (profileEmail) {
+        // Updated: 2025-12-01 - Include staff name and number for better debugging
         const { data: staff } = await this.supabase
           .from('staff')
-          .select('id')
+          .select('id, first_name, last_name, staff_id, institution_email')
           .ilike('institution_email', profileEmail)
           .eq('is_active', true)
           .maybeSingle();
 
         if (staff) {
-          console.log('[attendance] Staff found via institution_email:', staff.id);
+          console.log('[attendance] Staff found via institution_email:', {
+            staffId: staff.id,
+            staffName: `${staff.first_name} ${staff.last_name}`,
+            staffNumber: staff.staff_id,
+            email: staff.institution_email
+          });
           return staff.id;
         }
 

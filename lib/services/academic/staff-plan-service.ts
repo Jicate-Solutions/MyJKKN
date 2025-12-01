@@ -950,6 +950,7 @@ export class StaffPlanService {
       last_name: string;
       staff_id: string;
       designation?: string;
+      institution_email?: string; // Added: 2025-12-01 - For duplicate staff identification
       staff_type: string;
       staff_plan_id: string;
     }>
@@ -966,7 +967,8 @@ export class StaffPlanService {
             first_name,
             last_name,
             staff_id,
-            designation
+            designation,
+            institution_email
           ),
           staff_plan:staff_plans (
             id,
@@ -996,6 +998,7 @@ export class StaffPlanService {
         last_name: string;
         staff_id: string;
         designation?: string;
+        institution_email?: string;
         staff_type: string;
         staff_plan_id: string;
       }> = [];
@@ -1041,6 +1044,7 @@ export class StaffPlanService {
             last_name: assignment.staff.last_name,
             staff_id: assignment.staff.staff_id,
             designation: assignment.staff.designation,
+            institution_email: assignment.staff.institution_email, // Added: 2025-12-01
             staff_type: assignment.staff_type,
             staff_plan_id: assignment.staff_plan_id
           });
