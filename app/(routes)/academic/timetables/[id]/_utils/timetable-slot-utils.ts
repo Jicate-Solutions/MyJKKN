@@ -126,6 +126,23 @@ export function validateSlotData(slotData: any): {
           });
         }
       }
+    } else if (slotData.is_combined) {
+      // Combined class: Validate sub_slots instead of parent course/staff
+      // Updated: 2025-12-01 - Added combined class validation path
+      if (!slotData.sub_slots || slotData.sub_slots.length === 0) {
+        errors.push('Combined class slot must have at least one sub-slot');
+      } else {
+        slotData.sub_slots.forEach((subSlot: any, index: number) => {
+          if (!subSlot.is_break_slot) {
+            if (!subSlot.course_id) {
+              errors.push(`Sub-slot ${index + 1} requires a course`);
+            }
+            if (!subSlot.staff_ids || subSlot.staff_ids.length === 0) {
+              errors.push(`Sub-slot ${index + 1} requires at least one staff member`);
+            }
+          }
+        });
+      }
     } else if (slotData.is_subdivided) {
       // Validate subdivided slot
       if (!slotData.sub_slots || slotData.sub_slots.length === 0) {

@@ -102,6 +102,10 @@ export function SlotDialog({
   const [courseStaffError, setCourseStaffError] = useState<string | null>(null);
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
+  // Updated: 2025-12-01 - Track existing slot staff for display fallback when no staff planning exists
+  const [existingSlotStaff, setExistingSlotStaff] = useState<any[]>([]);
+  // Updated: 2025-12-01 - Track existing slot course for display fallback
+  const [existingSlotCourse, setExistingSlotCourse] = useState<any | null>(null);
 
   // NEW: Staff state for each sub-slot in combined classes (Updated: 2025-10-13)
   const [subSlotStaff, setSubSlotStaff] = useState<{ [key: number]: any[] }>(
@@ -150,6 +154,26 @@ export function SlotDialog({
 
   // Populate form when existing slot is provided
   useEffect(() => {
+    // Updated: 2025-12-01 - Add debug logging for slot loading diagnosis
+    if (existingSlot) {
+      const courseInList = courses?.find((c: any) => c.id === existingSlot?.course_id);
+      console.log('[slot-dialog] Loading existingSlot data:', {
+        hasExistingSlot: !!existingSlot,
+        course_id: existingSlot?.course_id,
+        course: existingSlot?.course,
+        courseInAvailableList: !!courseInList,
+        availableCoursesCount: courses?.length || 0,
+        staff_ids: existingSlot?.staff_ids,
+        staff_members_count: existingSlot?.staff_members?.length,
+        section_ids: existingSlot?.section_ids,
+        sections_count: existingSlot?.sections?.length,
+        is_combined: existingSlot?.is_combined,
+        is_subdivided: existingSlot?.is_subdivided,
+        branch: existingSlot?.is_subdivided ? 'subdivided' :
+                existingSlot?.is_combined ? 'combined' : 'regular'
+      });
+    }
+
     if (existingSlot) {
       // Updated: 2025-10-13 - Handle subdivided slots with sub_slots
       if (existingSlot.is_subdivided && existingSlot.sub_slots) {
@@ -217,46 +241,38 @@ export function SlotDialog({
         setIsSubdivided(false); // Ensure subdivision is off
 
         // Populate sub-slots for combined class (only 2 sub-slots)
+        // Updated: 2025-12-01 - Added fallbacks for raw ID arrays (staff_ids, section_ids)
+        const subSlot1 = existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 1);
+        const subSlot2 = existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 2);
+
         const updatedSubSlots = [
           {
             sub_slot_order: 1,
-            course_id:
-              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 1)
-                ?.course_id || '',
-            staff_ids:
-              existingSlot.sub_slots
-                .find((ss: any) => ss.sub_slot_order === 1)
-                ?.staff_members?.map((s: any) => s.id) || [],
-            section_ids:
-              existingSlot.sub_slots
-                .find((ss: any) => ss.sub_slot_order === 1)
-                ?.sections?.map((s: any) => s.id) || [],
-            is_break_slot:
-              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 1)
-                ?.is_break_slot || false,
-            break_description:
-              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 1)
-                ?.break_description || ''
+            course_id: subSlot1?.course_id || '',
+            // Try enriched staff_members first, fallback to raw staff_ids
+            staff_ids: subSlot1?.staff_members?.map((s: any) => s.id)
+              || subSlot1?.staff_ids
+              || [],
+            // Try enriched sections first, fallback to raw section_ids
+            section_ids: subSlot1?.sections?.map((s: any) => s.id)
+              || subSlot1?.section_ids
+              || [],
+            is_break_slot: subSlot1?.is_break_slot || false,
+            break_description: subSlot1?.break_description || ''
           },
           {
             sub_slot_order: 2,
-            course_id:
-              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 2)
-                ?.course_id || '',
-            staff_ids:
-              existingSlot.sub_slots
-                .find((ss: any) => ss.sub_slot_order === 2)
-                ?.staff_members?.map((s: any) => s.id) || [],
-            section_ids:
-              existingSlot.sub_slots
-                .find((ss: any) => ss.sub_slot_order === 2)
-                ?.sections?.map((s: any) => s.id) || [],
-            is_break_slot:
-              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 2)
-                ?.is_break_slot || false,
-            break_description:
-              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 2)
-                ?.break_description || ''
+            course_id: subSlot2?.course_id || '',
+            // Try enriched staff_members first, fallback to raw staff_ids
+            staff_ids: subSlot2?.staff_members?.map((s: any) => s.id)
+              || subSlot2?.staff_ids
+              || [],
+            // Try enriched sections first, fallback to raw section_ids
+            section_ids: subSlot2?.sections?.map((s: any) => s.id)
+              || subSlot2?.section_ids
+              || [],
+            is_break_slot: subSlot2?.is_break_slot || false,
+            break_description: subSlot2?.break_description || ''
           }
         ];
         setSubSlots(updatedSubSlots);
@@ -266,6 +282,8 @@ export function SlotDialog({
         setIsBreakSlot(existingSlot.is_break_slot || false);
         setBreakDescription(existingSlot.break_description || '');
         setSelectedCourse(existingSlot.course_id || '');
+        // Updated: 2025-12-01 - Store enriched course for display fallback
+        setExistingSlotCourse(existingSlot.course || null);
         setIsCombinedClass(false);
 
         // NEW: Populate subdivision state (Updated: 2025-10-11)
@@ -290,13 +308,18 @@ export function SlotDialog({
           existingSlot.staff_members.length > 0
         ) {
           setSelectedStaff(existingSlot.staff_members.map((s: any) => s.id));
+          // Updated: 2025-12-01 - Store enriched staff_members for display fallback
+          setExistingSlotStaff(existingSlot.staff_members);
         } else if (
           existingSlot.staff_ids &&
           existingSlot.staff_ids.length > 0
         ) {
           setSelectedStaff(existingSlot.staff_ids);
+          // Clear existing slot staff when only IDs available (no enriched data)
+          setExistingSlotStaff([]);
         } else {
           setSelectedStaff([]);
+          setExistingSlotStaff([]);
         }
 
         // Handle sections - check both sections (populated) and section_ids (raw IDs)
@@ -347,6 +370,9 @@ export function SlotDialog({
       // NEW: Reset period mode state (Updated: 2025-10-25)
       setPeriodMode('standard');
       setPracticalConfig(null);
+      // Updated: 2025-12-01 - Reset existing slot staff and course
+      setExistingSlotStaff([]);
+      setExistingSlotCourse(null);
       setSubSlots([
         {
           sub_slot_order: 1,
@@ -537,7 +563,8 @@ export function SlotDialog({
     }
   }, [isCombinedClass, isOpen, subSlots, fetchSubSlotStaff]);
 
-  // Get the staff list to display (only course-assigned staff from staff planning)
+  // Get the staff list to display (course-assigned staff from staff planning + existing slot staff)
+  // Updated: 2025-12-01 - Merge existing slot staff with staff planning for editing existing slots
   const getDisplayStaff = () => {
     if (isBreakSlot) {
       return staff || []; // For break slots, show all staff
@@ -545,11 +572,46 @@ export function SlotDialog({
     if (!selectedCourse) {
       return []; // No course selected, show no staff
     }
-    // ALWAYS show only staff from staff planning - no option to show all staff
-    return courseAssignedStaff; // Only show staff from staff planning
+
+    // Start with staff from staff planning
+    const staffFromPlanning = courseAssignedStaff || [];
+
+    // If we have existing staff from the slot, include them in options
+    // This ensures that when editing a slot, previously assigned staff are still shown
+    // even if staff planning doesn't exist for this semester
+    if (existingSlotStaff.length > 0) {
+      const mergedStaff = [...staffFromPlanning];
+      existingSlotStaff.forEach((existingStaff) => {
+        if (!mergedStaff.find((s) => s.id === existingStaff.id)) {
+          mergedStaff.push(existingStaff);
+        }
+      });
+      return mergedStaff;
+    }
+
+    return staffFromPlanning;
+  };
+
+  // Get the courses list to display (available courses + existing slot course)
+  // Updated: 2025-12-01 - Merge existing slot course with available courses for editing existing slots
+  const getDisplayCourses = () => {
+    const availableCourses = courses || [];
+
+    // If we have an existing course from the slot, ensure it's in the options
+    // This handles the case where the course might not be in the filtered/staff-planning courses
+    if (existingSlotCourse && existingSlotCourse.id) {
+      const courseExists = availableCourses.find((c: any) => c.id === existingSlotCourse.id);
+      if (!courseExists) {
+        // Add the existing course to the beginning of the list
+        return [existingSlotCourse, ...availableCourses];
+      }
+    }
+
+    return availableCourses;
   };
 
   const displayStaff = getDisplayStaff();
+  const displayCourses = getDisplayCourses();
 
   // For batch mode, check if we should force mount the dialog
   useEffect(() => {
@@ -1073,7 +1135,7 @@ export function SlotDialog({
                           Course <span className='text-red-500'>*</span>
                         </Label>
                         <Badge variant='secondary' className='text-xs'>
-                          {courses?.length || 0} available
+                          {displayCourses?.length || 0} available
                         </Badge>
                       </div>
                       <div className='flex items-center gap-2'>
@@ -1110,14 +1172,15 @@ export function SlotDialog({
                         <SelectValue placeholder='Select a course (required)' />
                       </SelectTrigger>
                       <SelectContent>
-                        {courses?.length === 0 ? (
+                        {/* Updated: 2025-12-01 - Use displayCourses to include existing slot course */}
+                        {displayCourses?.length === 0 ? (
                           <div className='p-2 text-center text-sm text-muted-foreground'>
                             {loadingStaffPlanData
                               ? 'Loading courses...'
                               : 'No courses available'}
                           </div>
                         ) : (
-                          courses?.map((course: any) => (
+                          displayCourses?.map((course: any) => (
                             <SelectItem key={course.id} value={course.id}>
                               {course.course_name} ({course.course_code})
                             </SelectItem>
@@ -1125,7 +1188,8 @@ export function SlotDialog({
                         )}
                       </SelectContent>
                     </Select>
-                    {!isUsingStaffPlanningData && courses?.length > 0 && (
+                    {/* Updated: 2025-12-01 - Only show warning if no staff available for selected course */}
+                    {!isUsingStaffPlanningData && courses?.length > 0 && courseAssignedStaff?.length === 0 && !existingSlotStaff?.length && (
                       <p className='text-xs text-amber-600'>
                         ⚠️ No staff planning found for semester &quot;
                         {timetable?.semesters?.semester_name ||
@@ -1133,9 +1197,9 @@ export function SlotDialog({
                         &quot;. Showing all available courses.
                       </p>
                     )}
-                    {isUsingStaffPlanningData && (
+                    {(isUsingStaffPlanningData || courseAssignedStaff?.length > 0 || existingSlotStaff?.length > 0) && (
                       <p className='text-xs text-green-600'>
-                        ✓ Showing courses from staff planning for semester
+                        ✓ Showing courses for semester
                         &quot;
                         {timetable?.semesters?.semester_name ||
                           timetable?.semester_id}
