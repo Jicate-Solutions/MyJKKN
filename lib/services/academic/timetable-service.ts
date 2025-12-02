@@ -1284,14 +1284,33 @@ Please select a different date period that doesn't overlap.`
                 }
 
                 // Merge slots from all dates in this range
+                // Updated: 2025-12-01 - Fixed to prefer slots with most complete data (most staff)
                 const mergedSlots: any = {};
                 rangeDates.forEach(date => {
                   if (enrichedTimetableData[date]) {
                     Object.keys(enrichedTimetableData[date]).forEach(periodId => {
-                      // Use the first occurrence of each period slot
-                      // (all dates in range should have same slot configuration)
-                      if (!mergedSlots[periodId]) {
-                        mergedSlots[periodId] = enrichedTimetableData[date][periodId];
+                      const currentSlot = enrichedTimetableData[date][periodId];
+                      const existingSlot = mergedSlots[periodId];
+
+                      if (!existingSlot) {
+                        // No existing slot, use this one
+                        mergedSlots[periodId] = currentSlot;
+                      } else {
+                        // Compare and use the more complete slot (with more staff)
+                        const existingStaffCount = existingSlot.staff_ids?.length || 0;
+                        const currentStaffCount = currentSlot.staff_ids?.length || 0;
+
+                        if (currentStaffCount > existingStaffCount) {
+                          // Current slot has more staff - prefer it
+                          console.log(`[TimetableService] Merge: Using slot from ${date} with ${currentStaffCount} staff instead of slot with ${existingStaffCount} staff`);
+                          mergedSlots[periodId] = currentSlot;
+                        }
+                        // Also check updated_at if staff counts are equal - prefer newer
+                        else if (currentStaffCount === existingStaffCount &&
+                                 currentSlot.updated_at && existingSlot.updated_at &&
+                                 new Date(currentSlot.updated_at) > new Date(existingSlot.updated_at)) {
+                          mergedSlots[periodId] = currentSlot;
+                        }
                       }
                     });
                   }
@@ -1573,10 +1592,32 @@ Please select a different date period that doesn't overlap.`
         p_is_batch: isBatch
       };
 
+      // Updated: 2025-12-01 - Add debug logging for slot update troubleshooting
+      console.log('[TimetableService.updateTimetableSlot] BEFORE RPC call:', {
+        timetableId,
+        day,
+        periodId,
+        isBatch,
+        staff_ids_being_saved: processedSlotData.staff_ids,
+        staff_ids_count: processedSlotData.staff_ids?.length || 0,
+        course_id: processedSlotData.course_id,
+        slot_date: processedSlotData.slot_date,
+        full_payload: JSON.stringify(payload, null, 2)
+      });
+
       const { data, error } = await this.supabase.rpc(
         'update_timetable_slot',
         payload
       );
+
+      // Updated: 2025-12-01 - Log RPC response
+      console.log('[TimetableService.updateTimetableSlot] AFTER RPC call:', {
+        success: !error,
+        error: error ? JSON.stringify(error) : null,
+        response_data: data,
+        response_success: data?.success,
+        response_message: data?.message
+      });
 
       if (error) {
         console.error('Error updating timetable slot:', error);
@@ -1584,6 +1625,15 @@ Please select a different date period that doesn't overlap.`
           toast.error('Failed to update timetable slot.');
         }
         throw error;
+      }
+
+      // Check if RPC returned success: false
+      if (data && data.success === false) {
+        console.error('[TimetableService.updateTimetableSlot] RPC returned failure:', data);
+        if (!suppressToast) {
+          toast.error(data.message || 'Failed to update timetable slot.');
+        }
+        throw new Error(data.message || 'RPC returned failure');
       }
 
       if (!suppressToast) {

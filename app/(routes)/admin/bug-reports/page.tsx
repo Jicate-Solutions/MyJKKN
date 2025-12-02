@@ -344,7 +344,10 @@ export default function AdminBugReportsPage() {
     return allReports.filter((report) => {
       const reporterName = report.reporter?.full_name?.toLowerCase() || '';
       const reporterEmail = report.reporter?.email?.toLowerCase() || '';
-      return reporterName.includes(searchLower) || reporterEmail.includes(searchLower);
+      return (
+        reporterName.includes(searchLower) ||
+        reporterEmail.includes(searchLower)
+      );
     });
   }, [data?.data, reporterSearch]);
   const metadata = data?.metadata;
@@ -660,8 +663,8 @@ export default function AdminBugReportsPage() {
 
           {/* Data Table Section */}
           <Card>
-            <CardHeader className='w-full flex flex-col lg:flex-row justify-between'>
-              <CardTitle className='flex items-center gap-2'>
+            <CardHeader className='w-full flex flex-col justify-between'>
+              <CardTitle className='flex items-center gap-2 py-4'>
                 <Users className='w-5 h-5' />
                 Bug Reports List
               </CardTitle>
@@ -713,10 +716,7 @@ export default function AdminBugReportsPage() {
                     onValueChange={(value) =>
                       setFilters((prev) => ({
                         ...prev,
-                        category:
-                          value === 'all'
-                            ? undefined
-                            : (value as any),
+                        category: value === 'all' ? undefined : (value as any),
                         page: 1
                       }))
                     }
@@ -727,7 +727,9 @@ export default function AdminBugReportsPage() {
                     <SelectContent>
                       <SelectItem value='all'>All Categories</SelectItem>
                       <SelectItem value='bug'>Bug/Issue</SelectItem>
-                      <SelectItem value='feature_request'>Feature Request</SelectItem>
+                      <SelectItem value='feature_request'>
+                        Feature Request
+                      </SelectItem>
                       <SelectItem value='ui_design'>UI/Design</SelectItem>
                       <SelectItem value='performance'>Performance</SelectItem>
                       <SelectItem value='security'>Security</SelectItem>
