@@ -159,12 +159,18 @@ export function SlotDialog({
       const courseInList = courses?.find((c: any) => c.id === existingSlot?.course_id);
       console.log('[slot-dialog] Loading existingSlot data:', {
         hasExistingSlot: !!existingSlot,
+        // CRITICAL: slot_date shows if this is from RANGE or individual date
+        slot_date: existingSlot?.slot_date,
+        day_of_week: existingSlot?.day_of_week,
+        slot_id: existingSlot?.slot_id,
         course_id: existingSlot?.course_id,
         course: existingSlot?.course,
         courseInAvailableList: !!courseInList,
         availableCoursesCount: courses?.length || 0,
+        // IMPORTANT: Check both staff_ids (raw) and staff_members (enriched)
         staff_ids: existingSlot?.staff_ids,
-        staff_members_count: existingSlot?.staff_members?.length,
+        staff_ids_count: existingSlot?.staff_ids?.length || 0,
+        staff_members_count: existingSlot?.staff_members?.length || 0,
         section_ids: existingSlot?.section_ids,
         sections_count: existingSlot?.sections?.length,
         is_combined: existingSlot?.is_combined,
@@ -432,6 +438,19 @@ export function SlotDialog({
       period_mode: periodMode,
       practical_config: periodMode === 'practical' ? practicalConfig : undefined
     };
+
+    // Updated: 2025-12-01 - Add debug logging for ALL slot saves to trace staff persistence issue
+    console.log('[slot-dialog] handleSave - Preparing slotData:', {
+      selectedStaff_state: selectedStaff,
+      selectedStaff_count: selectedStaff?.length || 0,
+      staff_ids_in_slotData: slotData.staff_ids,
+      staff_ids_count: slotData.staff_ids?.length || 0,
+      course_id: slotData.course_id,
+      section_ids: slotData.section_ids,
+      is_combined: slotData.is_combined,
+      is_subdivided: slotData.is_subdivided,
+      period_mode: slotData.period_mode
+    });
 
     // DEBUGGING: Log practical mode data (Updated: 2025-10-27)
     if (periodMode === 'practical') {

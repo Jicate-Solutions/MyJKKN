@@ -51,16 +51,6 @@ export default function DownloadTemplateButton() {
         'INSTRUCTIONS': 'Valid email address'
       },
       {
-        'REQUIRED FIELDS': 'Academic Information',
-        'FIELD NAME': 'Last School',
-        'INSTRUCTIONS': 'Name of last attended school'
-      },
-      {
-        'REQUIRED FIELDS': '',
-        'FIELD NAME': 'Board of Study',
-        'INSTRUCTIONS': 'Board name (e.g., CBSE, State Board)'
-      },
-      {
         'REQUIRED FIELDS': 'Address Information',
         'FIELD NAME': 'Permanent Address Street',
         'INSTRUCTIONS': 'Street address'
@@ -131,6 +121,26 @@ export default function DownloadTemplateButton() {
         'INSTRUCTIONS': ''
       },
       {
+        'REQUIRED FIELDS': 'OPTIONAL FIELDS (Academic Information):',
+        'FIELD NAME': '',
+        'INSTRUCTIONS': ''
+      },
+      {
+        'REQUIRED FIELDS': '',
+        'FIELD NAME': 'Last School',
+        'INSTRUCTIONS': 'Name of last attended school (optional)'
+      },
+      {
+        'REQUIRED FIELDS': '',
+        'FIELD NAME': 'Board of Study',
+        'INSTRUCTIONS': 'Board name (e.g., CBSE, State Board) - optional'
+      },
+      {
+        'REQUIRED FIELDS': '',
+        'FIELD NAME': '',
+        'INSTRUCTIONS': ''
+      },
+      {
         'REQUIRED FIELDS': 'IMPORTANT NOTES:',
         'FIELD NAME': '',
         'INSTRUCTIONS': ''
@@ -157,8 +167,8 @@ export default function DownloadTemplateButton() {
       'Community': 'General',
       'Caste': 'General',
       'Annual Income': '500000',
-      '* Last School': 'ABC Higher Secondary School',
-      '* Board of Study': 'State Board',
+      'Last School': 'ABC Higher Secondary School',
+      'Board of Study': 'State Board',
       '10th Max Marks': '500',
       '10th Obtained Marks': '450',
       '10th Percentage': '90',

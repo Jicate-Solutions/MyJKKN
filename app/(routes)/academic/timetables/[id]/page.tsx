@@ -602,6 +602,18 @@ export default function TimetableDetailPage({
             slot_date: day as string
           };
 
+          // Updated: 2025-12-01 - Add debug logging for ALL slot saves
+          console.log('[academic/timetables/page] handleSlotSave - Received slotData:', {
+            day,
+            period_id: period.id,
+            timetableFormat,
+            isBatch: timetableFormat === 'batch',
+            staff_ids_received: slotData.staff_ids,
+            staff_ids_count: slotData.staff_ids?.length || 0,
+            course_id: slotData.course_id,
+            slot_date_being_saved: day
+          });
+
           // DEBUGGING: Log validation data for practical mode (Updated: 2025-10-27)
           if (slotData.period_mode === 'practical') {
             console.log('[academic/timetables/page] Validating practical mode slot:', {
@@ -621,15 +633,60 @@ export default function TimetableDetailPage({
             return;
           }
 
-          console.log('[academic/timetables/page] Validation passed, saving slot...');
+          console.log('[academic/timetables/page] Validation passed, saving slot with staff_ids:', slotData.staff_ids);
 
-          await TimetableService.updateTimetableSlot(
-            timetableId,
-            day as string,
-            period.id,
-            slotData,
-            timetableFormat === 'batch'
-          );
+          // Updated: 2025-12-01 - Handle RANGE markers in batch mode
+          // When day is a RANGE marker (e.g., "RANGE:2025-11-02:2025-12-17"),
+          // we need to update ALL individual dates in that range
+          const dayStr = day as string;
+          if (timetableFormat === 'batch' && dayStr.startsWith('RANGE:')) {
+            // Parse the range marker to get start and end dates
+            const parts = dayStr.split(':');
+            if (parts.length === 3) {
+              const startDate = parts[1];
+              const endDate = parts[2];
+
+              // Generate all dates in the range
+              const dates: string[] = [];
+              const current = new Date(startDate);
+              const end = new Date(endDate);
+
+              while (current <= end) {
+                dates.push(current.toISOString().split('T')[0]);
+                current.setDate(current.getDate() + 1);
+              }
+
+              console.log(`[academic/timetables/page] Batch save: Updating ${dates.length} dates from ${startDate} to ${endDate}`);
+
+              // Use batch update to update all dates atomically
+              await TimetableService.updateTimetableSlotsBatch(
+                timetableId,
+                dates,
+                period.id,
+                slotData,
+                true // suppressToast - we'll show our own
+              );
+            } else {
+              // Fallback for malformed range - save as single entry
+              console.warn('[academic/timetables/page] Malformed range marker:', dayStr);
+              await TimetableService.updateTimetableSlot(
+                timetableId,
+                dayStr,
+                period.id,
+                slotData,
+                timetableFormat === 'batch'
+              );
+            }
+          } else {
+            // Regular save (non-batch or single date)
+            await TimetableService.updateTimetableSlot(
+              timetableId,
+              dayStr,
+              period.id,
+              slotData,
+              timetableFormat === 'batch'
+            );
+          }
           await fetchTimetableData(true);
           slotDialog.close();
           toast.success('Slot saved successfully');

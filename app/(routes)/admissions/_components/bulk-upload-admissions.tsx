@@ -225,14 +225,7 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
       errors.push('Invalid email format');
     }
 
-    // Academic Information - Required
-    if (!row.last_school?.trim()) {
-      errors.push('Last School is required');
-    }
-
-    if (!row.board_of_study?.trim()) {
-      errors.push('Board of Study is required');
-    }
+    // Academic Information - Optional (last_school and board_of_study are optional to match form behavior)
 
     // Address Information - Required
     if (!row.permanent_address_street?.trim()) {
