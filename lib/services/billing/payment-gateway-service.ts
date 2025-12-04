@@ -618,13 +618,24 @@ export class PaymentGatewayService {
   // ==========================================================================
 
   /**
-   * Generates unique transaction reference
-   * Format: TXN-YYYYMMDDHHMMSS-RANDOM
+   * Generates unique transaction reference for HDFC SmartGateway
+   *
+   * HDFC Bank Requirements:
+   * 1. Should be less than 21 characters length
+   * 2. Should not contain any Special Characters
+   * 3. Can be Alphanumeric
+   * 4. Should be Non-Sequential
+   *
+   * Format: PYYYYMMDDHHMMSSXXXXX (20 chars max)
+   * - P = prefix (1 char)
+   * - YYYYMMDDHHMMSS = timestamp (14 chars)
+   * - XXXXX = random alphanumeric (5 chars)
+   * Total: 20 characters, alphanumeric only
    */
   private static generateTransactionReference(): string {
     const timestamp = new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14);
-    const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-    return `TXN-${timestamp}-${random}`;
+    const random = Math.random().toString(36).substring(2, 7).toUpperCase();
+    return `P${timestamp}${random}`;
   }
 
   /**

@@ -97,9 +97,15 @@ export default function PaymentSuccessPage() {
   const receiptId = searchParams.get('receipt_id');
   const hdfcStatus = searchParams.get('hdfc_status');
   const hdfcOrderId = searchParams.get('hdfc_order_id');
+  const amount = searchParams.get('amount'); // HDFC Requirement: Display amount on success page
   const [isLoading, setIsLoading] = useState(true);
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'pending' | 'failed'>('pending');
   const [showContent, setShowContent] = useState(false);
+
+  // Format amount for display (Indian Rupee format)
+  const formattedAmount = amount
+    ? `₹${parseFloat(amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : null;
 
   useEffect(() => {
     // Check payment status based on HDFC response
@@ -250,8 +256,18 @@ export default function PaymentSuccessPage() {
               transition={{ delay: 0.6, duration: 0.5 }}
             >
               <Card className="shadow-xl border-2 border-green-100 dark:border-green-900 overflow-hidden">
+                {/* HDFC Requirement: Display Amount prominently matching HDFC payment page */}
+                {formattedAmount && (
+                  <div className="bg-gradient-to-r from-emerald-600 to-green-600 p-8 text-white text-center border-b border-white/10">
+                    <p className="text-sm opacity-90 mb-2 uppercase tracking-wide">Amount Paid</p>
+                    <p className="text-4xl md:text-5xl font-bold tracking-tight">
+                      {formattedAmount}
+                    </p>
+                  </div>
+                )}
+
                 <div className="bg-gradient-to-r from-green-500 to-emerald-600 p-6 text-white">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-4">
                     <div>
                       <p className="text-sm opacity-90 mb-1">Transaction ID</p>
                       <p className="font-mono text-lg font-semibold">
