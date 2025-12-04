@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   useBugReports,
   useUpdateBugReportStatus,
@@ -8,7 +8,8 @@ import {
   useBulkDeleteBugReports,
   useBulkUpdateBugReportsStatus,
   useInstitutions,
-  useDepartments
+  useDepartments,
+  useBugReportStats
 } from '@/hooks/bug-reports/use-bug-reports';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AdminPermissionGuard } from '@/components/auth/admin-permission-guard';
@@ -164,7 +165,6 @@ export default function AdminBugReportsPage() {
     page: 1,
     limit: 10
   });
-  const [allReports, setAllReports] = useState<BugReport[]>([]);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [reportToDelete, setReportToDelete] = useState<string | null>(null);
   const [selectedReports, setSelectedReports] = useState<string[]>([]);
@@ -185,23 +185,12 @@ export default function AdminBugReportsPage() {
   const { data: institutions } = useInstitutions();
   const { data: departments } = useDepartments(filters.institution_id);
 
-  // Optimize: Fetch statistics separately to avoid large dataset
-  const { data: allReportsData, refetch: refetchAll } = useBugReports({
-    page: 1,
-    limit: 100 // Reduced limit for better performance
-    // Add statistics-specific endpoint if needed
-  });
+  // Use dedicated stats endpoint for real-time accurate statistics
+  const { data: statsData, refetch: refetchStats } = useBugReportStats();
 
-  useEffect(() => {
-    if (allReportsData?.data) {
-      setAllReports(allReportsData.data);
-    }
-  }, [allReportsData]);
-
-  // Calculate statistics safely
+  // Statistics from dedicated endpoint - no limit, real-time counts
   const statistics = useMemo(() => {
-    const total = allReports.length;
-    if (total === 0) {
+    if (!statsData) {
       return {
         total: 0,
         resolved: 0,
@@ -213,54 +202,16 @@ export default function AdminBugReportsPage() {
       };
     }
 
-    const resolved = allReports.filter((r) => r.status === 'resolved').length;
-    const inProgress = allReports.filter(
-      (r) => r.status === 'in_progress'
-    ).length;
-    const newReports = allReports.filter((r) => r.status === 'new').length;
-
-    const resolutionRate = ((resolved / total) * 100).toFixed(1);
-
-    // Trend calculation
-    const now = new Date();
-    const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const previous7Days = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-    const recentReports = allReports.filter(
-      (r) => new Date(r.created_at) >= last7Days
-    ).length;
-    const previousReports = allReports.filter(
-      (r) =>
-        new Date(r.created_at) >= previous7Days &&
-        new Date(r.created_at) < last7Days
-    ).length;
-
-    const trendValue =
-      previousReports > 0
-        ? ((recentReports - previousReports) / previousReports) * 100
-        : recentReports > 0
-        ? 100
-        : 0;
-
-    const reportsTrend = trendValue.toFixed(1);
-
     return {
-      total,
-      resolved,
-      inProgress,
-      newReports,
-      resolutionRate,
-      recentReports,
-      reportsTrend: {
-        value: reportsTrend,
-        direction:
-          trendValue > 0
-            ? ('up' as const)
-            : trendValue < 0
-            ? ('down' as const)
-            : ('neutral' as const)
-      }
+      total: statsData.total,
+      resolved: statsData.resolved,
+      inProgress: statsData.inProgress,
+      newReports: statsData.newReports,
+      resolutionRate: statsData.resolutionRate,
+      recentReports: statsData.recentReports,
+      reportsTrend: statsData.reportsTrend
     };
-  }, [allReports]);
+  }, [statsData]);
 
   const handleStatusChange = useCallback(
     async (reportId: string, status: BugReportStatus) => {
@@ -268,12 +219,12 @@ export default function AdminBugReportsPage() {
         await updateStatusMutation.mutateAsync({ reportId, status });
         toast.success(`Report status changed to ${status.replace(/_/g, ' ')}.`);
         refetch();
-        refetchAll(); // Also refetch all reports for stats
+        refetchStats(); // Refetch real-time statistics
       } catch (err: any) {
         toast.error('Could not update the report status.');
       }
     },
-    [updateStatusMutation, refetch, refetchAll]
+    [updateStatusMutation, refetch, refetchStats]
   );
 
   const handleDeleteReport = useCallback(async () => {
@@ -285,11 +236,11 @@ export default function AdminBugReportsPage() {
       setDeleteConfirmOpen(false);
       setReportToDelete(null);
       refetch();
-      refetchAll(); // Also refetch all reports for stats
+      refetchStats(); // Refetch real-time statistics
     } catch (err) {
       toast.error('Could not delete the bug report.');
     }
-  }, [reportToDelete, deleteReportMutation, refetch, refetchAll]);
+  }, [reportToDelete, deleteReportMutation, refetch, refetchStats]);
 
   const handleBulkDelete = useCallback(async () => {
     try {
@@ -300,11 +251,11 @@ export default function AdminBugReportsPage() {
       setBulkDeleteConfirmOpen(false);
       setSelectedReports([]);
       refetch();
-      refetchAll();
+      refetchStats();
     } catch (err: any) {
       toast.error('Could not delete the selected bug reports.');
     }
-  }, [selectedReports, bulkDeleteMutation, refetch, refetchAll]);
+  }, [selectedReports, bulkDeleteMutation, refetch, refetchStats]);
 
   const handleBulkStatusUpdate = useCallback(async () => {
     try {
@@ -320,7 +271,7 @@ export default function AdminBugReportsPage() {
       setBulkStatusUpdateOpen(false);
       setSelectedReports([]);
       refetch();
-      refetchAll();
+      refetchStats();
     } catch (err: any) {
       toast.error('Could not update the status of selected bug reports.');
     }
@@ -329,7 +280,7 @@ export default function AdminBugReportsPage() {
     bulkStatusValue,
     bulkUpdateStatusMutation,
     refetch,
-    refetchAll
+    refetchStats
   ]);
 
   const reports = useMemo(() => {

@@ -82,7 +82,6 @@
     "supabase",
     "sequential-thinking",
     "memory",
-    "actor-critic-thinking",
-    "chrome-devtools"
+    "actor-critic-thinking"
   ]
 }

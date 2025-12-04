@@ -81,6 +81,14 @@ const fetchLeaderboard = async (
   return response.json();
 };
 
+const fetchBugReportStats = async () => {
+  const response = await fetch('/api/bug-reports/stats');
+  if (!response.ok) {
+    throw new Error('Failed to fetch bug report statistics');
+  }
+  return response.json();
+};
+
 const deleteBugReport = async (reportId: string) => {
   const response = await fetch(`/api/bug-reports/${reportId}`, {
     method: 'DELETE'
@@ -361,6 +369,33 @@ export const useBugLeaderboard = (
     refetchInterval: 60000, // Refetch every minute
     refetchOnWindowFocus: true,
     staleTime: 5 * 60 * 1000 // 5 minutes
+  });
+};
+
+// Statistics hook - fetches real-time counts from database
+export interface BugReportStats {
+  total: number;
+  resolved: number;
+  inProgress: number;
+  newReports: number;
+  seen: number;
+  wontFix: number;
+  resolutionRate: string;
+  recentReports: number;
+  previousReports: number;
+  reportsTrend: {
+    value: string;
+    direction: 'up' | 'down' | 'neutral';
+  };
+}
+
+export const useBugReportStats = () => {
+  return useQuery<BugReportStats>({
+    queryKey: queryKeys.bugReports.stats(),
+    queryFn: fetchBugReportStats,
+    refetchInterval: 30000, // Refetch every 30 seconds for real-time stats
+    refetchOnWindowFocus: true,
+    staleTime: 15 * 1000 // 15 seconds
   });
 };
 
