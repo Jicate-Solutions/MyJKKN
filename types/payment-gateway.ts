@@ -166,6 +166,7 @@ export interface HDFCOrderStatusResponse {
 
 export interface PaymentStatusCheckResponse {
   transaction_id: string;
+  student_id: string;
   status: PaymentStatus;
   amount: number;
   payment_date?: string;

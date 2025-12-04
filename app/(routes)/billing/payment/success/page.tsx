@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
+import { usePaymentStatus } from '@/hooks/billing/use-payment-gateway';
 
 // Success Animation Component
 function SuccessAnimation() {
@@ -102,17 +103,45 @@ export default function PaymentSuccessPage() {
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'pending' | 'failed'>('pending');
   const [showContent, setShowContent] = useState(false);
 
+  // Verify actual payment status from database (security: don't trust URL params alone)
+  const { data: verifiedStatus, isLoading: isVerifying } = usePaymentStatus(
+    transactionId,
+    !!transactionId
+  );
+
   // Format amount for display (Indian Rupee format)
   const formattedAmount = amount
     ? `₹${parseFloat(amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : null;
 
+  // Redirect to failed page if database status shows non-success payment
   useEffect(() => {
-    // Check payment status based on HDFC response
+    if (verifiedStatus && !isVerifying) {
+      // If database status is not success/processing/initiated, redirect to failed page
+      if (!['success', 'processing', 'initiated'].includes(verifiedStatus.status)) {
+        console.log('[billing/payment-success] Redirecting to failed page - DB status:', verifiedStatus.status);
+        router.push(`/billing/payment/failed?transaction_id=${transactionId}`);
+        return;
+      }
+      // If database confirms success, update local state
+      if (verifiedStatus.status === 'success') {
+        setPaymentStatus('success');
+      }
+    }
+  }, [verifiedStatus, isVerifying, transactionId, router]);
+
+  useEffect(() => {
+    // Check payment status based on HDFC response (initial check from URL params)
     if (hdfcStatus === 'CHARGED' || hdfcStatus === 'SUCCESS' || hdfcStatus === 'COMPLETED') {
       setPaymentStatus('success');
     } else if (hdfcStatus === 'FAILED' || hdfcStatus === 'DECLINED') {
-      setPaymentStatus('failed');
+      // Redirect non-success payments to failed page
+      router.push(`/billing/payment/failed?transaction_id=${transactionId}`);
+      return;
+    } else if (hdfcStatus && !['CHARGED', 'SUCCESS', 'COMPLETED', 'processing'].includes(hdfcStatus)) {
+      // For cancelled, expired, new, etc. - redirect to failed page
+      router.push(`/billing/payment/failed?transaction_id=${transactionId}`);
+      return;
     }
 
     // Simulate loading and show animation
@@ -169,7 +198,7 @@ export default function PaymentSuccessPage() {
     );
   }
 
-  if (isLoading) {
+  if (isLoading || isVerifying) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 dark:from-gray-900 dark:via-green-950 dark:to-gray-800">
         <motion.div
@@ -187,7 +216,7 @@ export default function PaymentSuccessPage() {
             transition={{ delay: 0.8, duration: 0.5 }}
           >
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-              Processing Your Payment
+              {isVerifying ? 'Verifying Payment Status' : 'Processing Your Payment'}
             </h2>
             <p className="text-gray-600 dark:text-gray-400">
               Please wait while we confirm your transaction...
@@ -407,10 +436,18 @@ export default function PaymentSuccessPage() {
                       size="lg"
                       variant={receiptId && paymentStatus === 'success' ? 'outline' : 'default'}
                       className="flex-1"
-                      onClick={() => router.push('/billing/schedule/students')}
+                      onClick={() => {
+                        // Navigate to student's individual bill page if student_id is available
+                        const studentId = verifiedStatus?.student_id;
+                        if (studentId) {
+                          router.push(`/billing/schedule/students/${studentId}`);
+                        } else {
+                          router.push('/billing/schedule/students');
+                        }
+                      }}
                     >
                       <Receipt className="mr-2 h-5 w-5" />
-                      View All Bills
+                      View My Bills
                     </Button>
                     <Button
                       size="lg"

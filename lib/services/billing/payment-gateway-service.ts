@@ -534,6 +534,7 @@ export class PaymentGatewayService {
       if (['success', 'failed', 'cancelled', 'refunded'].includes(transaction.status)) {
         const response: PaymentStatusCheckResponse = {
           transaction_id: transaction.id,
+          student_id: transaction.student_id,
           status: transaction.status,
           amount: transaction.total_amount,
           payment_date: transaction.payment_date,
@@ -589,6 +590,7 @@ export class PaymentGatewayService {
 
       const response: PaymentStatusCheckResponse = {
         transaction_id: transaction.id,
+        student_id: transaction.student_id,
         status: newStatus,
         amount: transaction.total_amount,
         payment_date: hdfcStatus.payment?.payment_time,
