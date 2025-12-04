@@ -72,7 +72,8 @@
       "Bash(npm run lint:*)",
       "mcp__next-devtools__nextjs_index",
       "mcp__memory__search_nodes",
-      "mcp__vercel-awesome-ai__list_projects"
+      "mcp__vercel-awesome-ai__list_projects",
+      "WebFetch(domain:vercel.com)"
     ],
     "deny": [],
     "ask": []
