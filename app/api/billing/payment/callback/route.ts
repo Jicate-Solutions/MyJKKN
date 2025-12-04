@@ -285,6 +285,19 @@ export async function POST(request: NextRequest) {
       if (hdfcStatus) redirectUrl.searchParams.set('hdfc_status', hdfcStatus);
       if (hdfcTransactionId) redirectUrl.searchParams.set('hdfc_transaction_id', hdfcTransactionId);
 
+      // HDFC Requirement: Display amount on success page matching HDFC payment page
+      // Fetch transaction amount and add to redirect URL
+      const supabaseForAmount = createServiceRoleClient() as any;
+      const { data: txnForAmount } = (await supabaseForAmount
+        .from('payment_transactions')
+        .select('total_amount')
+        .eq('id', ourTransactionId)
+        .single()) as any;
+
+      if (txnForAmount?.total_amount) {
+        redirectUrl.searchParams.set('amount', txnForAmount.total_amount.toString());
+      }
+
       console.log('[billing/payment-callback] Redirecting to success page', {
         redirectUrl: redirectUrl.toString(),
         hasReceiptId: !!receiptId,
