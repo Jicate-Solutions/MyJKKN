@@ -88,6 +88,8 @@ export async function POST(request: NextRequest) {
 
     // Track receipt ID for redirect (must be outside the if block)
     let receiptId: string | null = null;
+    // Track payment status for redirect decision
+    let paymentStatus: 'processing' | 'success' | 'failed' | 'cancelled' = 'processing';
 
     // IMPORTANT: Update payment status if we have status from HDFC
     // This is a TEMPORARY solution until webhooks are configured
@@ -106,9 +108,13 @@ export async function POST(request: NextRequest) {
         newStatus = 'success';
       } else if (hdfcStatus === 'FAILED' || hdfcStatus === 'DECLINED') {
         newStatus = 'failed';
-      } else if (hdfcStatus === 'CANCELLED' || hdfcStatus === 'EXPIRED') {
+      } else if (hdfcStatus === 'CANCELLED' || hdfcStatus === 'EXPIRED' || hdfcStatus === 'NEW' || hdfcStatus === 'INITIATED') {
+        // 'NEW' or 'INITIATED' means user closed/cancelled without completing payment
         newStatus = 'cancelled';
       }
+
+      // Store for redirect decision
+      paymentStatus = newStatus;
 
       // Update transaction
       const { error: updateError } = (await supabase
@@ -267,10 +273,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Build redirect URL to success page
+    // Build redirect URL based on payment status
     if (ourTransactionId) {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-      const redirectUrl = new URL(`/billing/payment/success`, baseUrl);
+      // Redirect to success page only for successful payments, otherwise failed page
+      const redirectPage = paymentStatus === 'success'
+        ? '/billing/payment/success'
+        : '/billing/payment/failed';
+      const redirectUrl = new URL(redirectPage, baseUrl);
 
       // Add transaction_id as query param
       redirectUrl.searchParams.set('transaction_id', ourTransactionId);
@@ -298,8 +308,9 @@ export async function POST(request: NextRequest) {
         redirectUrl.searchParams.set('amount', txnForAmount.total_amount.toString());
       }
 
-      console.log('[billing/payment-callback] Redirecting to success page', {
+      console.log('[billing/payment-callback] Redirecting to payment result page', {
         redirectUrl: redirectUrl.toString(),
+        paymentStatus,
         hasReceiptId: !!receiptId,
       });
 
@@ -332,15 +343,24 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const transactionId = searchParams.get('transaction_id');
+  const hdfcStatus = searchParams.get('order_status') || searchParams.get('hdfc_status') || '';
 
   console.log('[billing/payment-callback] GET request received', {
     transactionId,
+    hdfcStatus,
     allParams: Object.fromEntries(searchParams.entries()),
   });
 
   if (transactionId) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const redirectUrl = new URL(`/billing/payment/success`, baseUrl);
+
+    // Determine redirect page based on HDFC status
+    const isSuccess = ['CHARGED', 'SUCCESS', 'COMPLETED'].includes(hdfcStatus.toUpperCase());
+    const redirectPage = isSuccess
+      ? '/billing/payment/success'
+      : '/billing/payment/failed';
+
+    const redirectUrl = new URL(redirectPage, baseUrl);
     redirectUrl.searchParams.set('transaction_id', transactionId);
 
     // Copy all other query params
