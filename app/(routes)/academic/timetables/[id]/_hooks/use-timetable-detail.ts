@@ -4,6 +4,50 @@ import { PeriodService } from '@/lib/services/academic/period-service';
 import { Timetable, Period, DayOfWeek } from '@/types/academics';
 import toast from 'react-hot-toast';
 
+/**
+ * Recovers date ranges from timetable_data keys when selected_dates is empty
+ * Groups consecutive dates into RANGE markers
+ *
+ * Fixed: 2025-12-04 - Auto-recover dates from timetable_data when selected_dates is empty
+ * This prevents batch mode timetables from showing "No dates selected" when data exists
+ */
+function recoverDatesFromTimetableData(timetableData: Record<string, any> | null): string[] {
+  if (!timetableData) return [];
+
+  // Extract date keys (format: YYYY-MM-DD)
+  const dateKeys = Object.keys(timetableData)
+    .filter(key => /^\d{4}-\d{2}-\d{2}$/.test(key))
+    .sort();
+
+  if (dateKeys.length === 0) return [];
+
+  // Group consecutive dates into ranges
+  const ranges: string[] = [];
+  let rangeStart = dateKeys[0];
+  let rangeEnd = dateKeys[0];
+
+  for (let i = 1; i < dateKeys.length; i++) {
+    const current = new Date(dateKeys[i]);
+    const previous = new Date(rangeEnd);
+    const diffDays = (current.getTime() - previous.getTime()) / (1000 * 60 * 60 * 24);
+
+    if (diffDays === 1) {
+      // Consecutive date, extend range
+      rangeEnd = dateKeys[i];
+    } else {
+      // Gap found, save current range and start new one
+      ranges.push(`RANGE:${rangeStart}:${rangeEnd}`);
+      rangeStart = dateKeys[i];
+      rangeEnd = dateKeys[i];
+    }
+  }
+
+  // Don't forget the last range
+  ranges.push(`RANGE:${rangeStart}:${rangeEnd}`);
+
+  return ranges;
+}
+
 interface UseTimetableDetailResult {
   // Data
   timetable: Timetable | null;
@@ -111,11 +155,20 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
           setSelectedDates(currentSelectedDates);
         } else if (
           timetableData.selected_dates &&
-          Array.isArray(timetableData.selected_dates)
+          Array.isArray(timetableData.selected_dates) &&
+          timetableData.selected_dates.length > 0 // Fixed: 2025-12-04 - Check length to trigger auto-recovery
         ) {
           setSelectedDates(timetableData.selected_dates);
         } else {
-          setSelectedDates([]);
+          // AUTO-RECOVERY: Extract dates from timetable_data keys when selected_dates is empty
+          // Fixed: 2025-12-04 - This fixes batch mode showing "No dates selected" when data exists
+          const recoveredDates = recoverDatesFromTimetableData(timetableData.timetable_data);
+          if (recoveredDates.length > 0) {
+            console.log('[useTimetableDetail] Auto-recovered dates from timetable_data:', recoveredDates);
+            setSelectedDates(recoveredDates);
+          } else {
+            setSelectedDates([]);
+          }
         }
       } else {
         // Regular mode: Load selected days
