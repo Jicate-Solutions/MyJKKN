@@ -117,15 +117,25 @@ export async function POST(request: NextRequest) {
       paymentStatus = newStatus;
 
       // Update transaction
+      // Note: gateway_transaction_id (HDFC payment ID) comes via webhook, not callback
+      // Only set it here if HDFC actually sent it in the redirect (rare)
+      const updateData: Record<string, unknown> = {
+        status: newStatus,
+        payment_method: 'CARD', // HDFC sends card payments
+        payment_date: new Date().toISOString(),
+        completed_at: newStatus !== 'processing' ? new Date().toISOString() : null,
+      };
+
+      // Only update gateway_transaction_id if we have a real HDFC payment ID
+      // hdfcTransactionId comes from form data 'transaction_id' or 'cf_payment_id'
+      // Do NOT fall back to hdfcOrderId as that's the order ID, not payment ID
+      if (hdfcTransactionId && hdfcTransactionId !== hdfcOrderId) {
+        updateData.gateway_transaction_id = hdfcTransactionId;
+      }
+
       const { error: updateError } = (await supabase
         .from('payment_transactions')
-        .update({
-          status: newStatus,
-          gateway_transaction_id: hdfcTransactionId || hdfcOrderId,
-          payment_method: 'CARD', // HDFC sends card payments
-          payment_date: new Date().toISOString(),
-          completed_at: newStatus !== 'processing' ? new Date().toISOString() : null,
-        })
+        .update(updateData)
         .eq('id', ourTransactionId)) as any;
 
       if (updateError) {
