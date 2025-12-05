@@ -55,6 +55,14 @@ interface SlotDialogProps {
   readOnly?: boolean;
   // NEW: Added 2025-10-27 - Pass period to check if it's a break period
   selectedPeriod?: Period | null;
+  // NEW: Added 2025-12-05 - Default slot data for pre-filling staff from existing slots
+  defaultSlotData?: {
+    staff_ids?: string[];
+    staff_members?: any[];
+    course_id?: string;
+    course?: any;
+    section_ids?: string[];
+  };
 }
 
 export function SlotDialog({
@@ -72,7 +80,8 @@ export function SlotDialog({
   isUsingStaffPlanningData = false,
   loadingStaffPlanData = false,
   readOnly = false,
-  selectedPeriod = null
+  selectedPeriod = null,
+  defaultSlotData
 }: SlotDialogProps) {
   const [slotType, setSlotType] = useState<'regular' | 'break'>('regular');
   const [isBreakSlot, setIsBreakSlot] = useState(false);
@@ -106,6 +115,8 @@ export function SlotDialog({
   const [existingSlotStaff, setExistingSlotStaff] = useState<any[]>([]);
   // Updated: 2025-12-01 - Track existing slot course for display fallback
   const [existingSlotCourse, setExistingSlotCourse] = useState<any | null>(null);
+  // NEW: 2025-12-05 - Track if staff was pre-filled from default slot data
+  const [isPrefilledFromDefault, setIsPrefilledFromDefault] = useState(false);
 
   // NEW: Staff state for each sub-slot in combined classes (Updated: 2025-10-13)
   const [subSlotStaff, setSubSlotStaff] = useState<{ [key: number]: any[] }>(
@@ -365,9 +376,6 @@ export function SlotDialog({
       setSlotType('regular');
       setIsBreakSlot(false);
       setBreakDescription('');
-      setSelectedCourse('');
-      setSelectedStaff([]);
-      setSelectedSections([]);
       setIsCombinedClass(false);
       // NEW: Reset subdivision state (Updated: 2025-10-11)
       setIsSubdivided(false);
@@ -379,6 +387,53 @@ export function SlotDialog({
       // Updated: 2025-12-01 - Reset existing slot staff and course
       setExistingSlotStaff([]);
       setExistingSlotCourse(null);
+
+      // NEW: 2025-12-05 - Pre-fill from defaultSlotData if available
+      if (defaultSlotData) {
+        // Pre-fill staff from default slot data
+        if (defaultSlotData.staff_members && defaultSlotData.staff_members.length > 0) {
+          setSelectedStaff(defaultSlotData.staff_members.map((s: any) => s.id));
+          setExistingSlotStaff(defaultSlotData.staff_members);
+          setIsPrefilledFromDefault(true);
+          console.log('[slot-dialog] Pre-filled staff from defaultSlotData:', {
+            staff_count: defaultSlotData.staff_members.length,
+            staff_ids: defaultSlotData.staff_members.map((s: any) => s.id)
+          });
+        } else if (defaultSlotData.staff_ids && defaultSlotData.staff_ids.length > 0) {
+          setSelectedStaff(defaultSlotData.staff_ids);
+          setIsPrefilledFromDefault(true);
+          console.log('[slot-dialog] Pre-filled staff_ids from defaultSlotData:', {
+            staff_ids: defaultSlotData.staff_ids
+          });
+        } else {
+          setSelectedStaff([]);
+          setIsPrefilledFromDefault(false);
+        }
+
+        // Pre-fill course from default slot data
+        if (defaultSlotData.course_id) {
+          setSelectedCourse(defaultSlotData.course_id);
+          if (defaultSlotData.course) {
+            setExistingSlotCourse(defaultSlotData.course);
+          }
+        } else {
+          setSelectedCourse('');
+        }
+
+        // Pre-fill sections from default slot data
+        if (defaultSlotData.section_ids && defaultSlotData.section_ids.length > 0) {
+          setSelectedSections(defaultSlotData.section_ids);
+        } else {
+          setSelectedSections([]);
+        }
+      } else {
+        // No default data - reset to empty
+        setSelectedCourse('');
+        setSelectedStaff([]);
+        setSelectedSections([]);
+        setIsPrefilledFromDefault(false);
+      }
+
       setSubSlots([
         {
           sub_slot_order: 1,
@@ -398,7 +453,7 @@ export function SlotDialog({
         }
       ]);
     }
-  }, [existingSlot]);
+  }, [existingSlot, defaultSlotData]);
 
   const handleSave = () => {
     // Updated: 2025-10-09 - Auto-populate section_ids for section-level timetables
@@ -762,6 +817,16 @@ export function SlotDialog({
               )}
             </DialogDescription>
           </DialogHeader>
+
+          {/* NEW: 2025-12-05 - Show info when staff is pre-filled from existing slot */}
+          {isPrefilledFromDefault && !existingSlot && (
+            <Alert className='bg-blue-50 border-blue-200'>
+              <AlertDescription className='text-sm text-blue-800'>
+                Staff and course have been pre-filled from an existing slot configuration.
+                You can modify these before saving.
+              </AlertDescription>
+            </Alert>
+          )}
 
           <div className='space-y-6'>
             {/* Removed individual date picker for batch mode - slots apply to entire date range */}
