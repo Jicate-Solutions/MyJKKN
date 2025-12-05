@@ -472,6 +472,44 @@ export default function TimetableDetailPage({
   // Slot Management
   // ===================================
 
+  // NEW: 2025-12-05 - Get default slot data for pre-filling new slots
+  // This function finds existing slot configuration for a period and returns
+  // the staff/course/section data for pre-filling the slot dialog
+  const getDefaultSlotDataForPeriod = useCallback(
+    (periodId: string): {
+      staff_ids?: string[];
+      staff_members?: any[];
+      course_id?: string;
+      course?: any;
+      section_ids?: string[];
+    } | undefined => {
+      // Search through existing slots to find one with the same period_id
+      const existingSlotForPeriod = slots.find(
+        (slot: any) => slot.period_id === periodId && !slot.is_break_slot
+      );
+
+      if (existingSlotForPeriod) {
+        console.log('[page] Found existing slot for period pre-fill:', {
+          period_id: periodId,
+          staff_ids: existingSlotForPeriod.staff_ids,
+          staff_members_count: existingSlotForPeriod.staff_members?.length,
+          course_id: existingSlotForPeriod.course_id
+        });
+
+        return {
+          staff_ids: existingSlotForPeriod.staff_ids,
+          staff_members: existingSlotForPeriod.staff_members,
+          course_id: existingSlotForPeriod.course_id,
+          course: existingSlotForPeriod.course,
+          section_ids: existingSlotForPeriod.section_ids
+        };
+      }
+
+      return undefined;
+    },
+    [slots]
+  );
+
   const openSlotDialog = useCallback(
     async (day: DayOfWeek | string, period: Period, existingSlot?: any) => {
       // Check if this period has attendance marked (but allow super admins to override)
@@ -1209,6 +1247,12 @@ export default function TimetableDetailPage({
             loadingStaffPlanData={loadingStaffPlanData}
             readOnly={slotDialog.data.readOnly}
             selectedPeriod={slotDialog.data.selectedPeriod}
+            // NEW: 2025-12-05 - Pass default slot data for pre-filling new slots
+            defaultSlotData={
+              !slotDialog.data.selectedSlot && slotDialog.data.selectedPeriod
+                ? getDefaultSlotDataForPeriod(slotDialog.data.selectedPeriod.id)
+                : undefined
+            }
           />
         </Suspense>
 
