@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { Check, ChevronsUpDown, X, Search, Plus } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Check, ChevronsUpDown, X, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,7 +17,6 @@ import {
   PopoverContent,
   PopoverTrigger
 } from '@/components/ui/popover';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -25,7 +24,6 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -51,6 +49,46 @@ interface StaffSearchSelectorProps {
   courseName?: string;
 }
 
+// Global cache for staff data per institution (shared across all instances)
+const staffCache = new Map<string, { data: StaffMember[]; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// In-flight requests to prevent duplicate concurrent fetches
+const inFlightRequests = new Map<string, Promise<StaffMember[]>>();
+
+async function fetchStaffForInstitution(institutionId: string): Promise<StaffMember[]> {
+  // Check cache first
+  const cached = staffCache.get(institutionId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+
+  // Check if there's already an in-flight request
+  const inFlight = inFlightRequests.get(institutionId);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  // Create a new request
+  const requestPromise = (async () => {
+    try {
+      const result = await StaffService.getStaffViaAPI({
+        institution_id: institutionId,
+        limit: 1000,
+        isActive: true
+      });
+      const staffData = result.data as StaffMember[];
+      staffCache.set(institutionId, { data: staffData, timestamp: Date.now() });
+      return staffData;
+    } finally {
+      inFlightRequests.delete(institutionId);
+    }
+  })();
+
+  inFlightRequests.set(institutionId, requestPromise);
+  return requestPromise;
+}
+
 function generateAssignmentId(): string {
   return `assignment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
@@ -67,107 +105,22 @@ export function StaffSearchSelector({
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [fetchedStaff, setFetchedStaff] = useState<StaffMember[]>([]);
-  const [assignedStaffDetails, setAssignedStaffDetails] = useState<
-    StaffMember[]
-  >([]);
-  const [loadingAssigned, setLoadingAssigned] = useState(false);
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const debouncedSearchTerm = useDebounceValue(searchTerm, 300);
 
-  // Fetch details for already-assigned staff on mount
-  useEffect(() => {
-    async function fetchAssignedStaff() {
-      if (!institutionId || value.length === 0) {
-        setAssignedStaffDetails([]);
-        return;
-      }
+  // Track initialization to prevent multiple onChange calls
+  const hasInitializedRef = useRef(false);
+  const mountedRef = useRef(true);
 
-      try {
-        setLoadingAssigned(true);
-        const staffIds = value.map((assignment) => assignment.staff_id);
-        // Fetch all staff from institution via API (bypasses RLS for performance)
-        const result = await StaffService.getStaffViaAPI({
-          institution_id: institutionId,
-          limit: 1000,
-          isActive: true
-        });
-        // Filter to only include assigned staff
-        const assignedStaff = result.data.filter((staff: any) =>
-          staffIds.includes(staff.id)
-        );
-        setAssignedStaffDetails(assignedStaff as StaffMember[]);
-      } catch (error) {
-        console.error('Failed to fetch assigned staff details:', error);
-      } finally {
-        setLoadingAssigned(false);
-      }
-    }
+  // Create a stable signature of the value for dependency tracking
+  const valueSignature = useMemo(() => {
+    return value
+      .map((v) => `${v.staff_id}:${v.assignment_id || ''}:${v.staff_type || ''}`)
+      .sort()
+      .join('|');
+  }, [value]);
 
-    fetchAssignedStaff();
-  }, [institutionId, value.length]); // Re-fetch when institution or assignments change
-
-  // Fetch all institution staff automatically when institution is selected
-  useEffect(() => {
-    async function fetchInstitutionStaff() {
-      if (!institutionId) {
-        console.warn('[staff-planning/staff-search-selector] No institution ID provided');
-        setFetchedStaff([]);
-        return;
-      }
-
-      console.log('[staff-planning/staff-search-selector] Fetching staff for institution:', institutionId);
-      setIsLoading(true);
-      try {
-        const result = await StaffService.getStaffViaAPI({
-          institution_id: institutionId,
-          limit: 1000,
-          isActive: true
-        });
-        console.log('[staff-planning/staff-search-selector] Fetched staff count:', result.data.length);
-        setFetchedStaff(result.data as StaffMember[]);
-      } catch (error) {
-        console.error('[staff-planning/staff-search-selector] Failed to fetch institution staff:', error);
-        setFetchedStaff([]);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    // If no search term, load all institution staff automatically
-    if (!debouncedSearchTerm && institutionId) {
-      fetchInstitutionStaff();
-    }
-  }, [institutionId, debouncedSearchTerm]);
-
-  // Search staff when user types
-  useEffect(() => {
-    async function searchStaff() {
-      if (debouncedSearchTerm.length < 2) {
-        return; // Don't clear if we have institution staff loaded
-      }
-
-      setIsLoading(true);
-      try {
-        const result = await StaffService.getStaffViaAPI({
-          institution_id: institutionId,
-          search: debouncedSearchTerm,
-          limit: 100,
-          isActive: true
-        });
-        setFetchedStaff(result.data as StaffMember[]);
-      } catch (error) {
-        console.error('Failed to search staff:', error);
-        setFetchedStaff([]);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    if (debouncedSearchTerm.length >= 2) {
-      searchStaff();
-    }
-  }, [debouncedSearchTerm, institutionId]);
-
+  // Memoize assignments with IDs
   const assignmentsWithIds = useMemo(() => {
     return value.map((assignment) => ({
       ...assignment,
@@ -175,95 +128,173 @@ export function StaffSearchSelector({
     }));
   }, [value]);
 
+  // Memoize unique assignments (deduplicated)
   const uniqueAssignments = useMemo(() => {
     const seenStaffIds = new Set<string>();
-    const uniqueList = assignmentsWithIds.filter((assignment) => {
+    return assignmentsWithIds.filter((assignment) => {
       if (seenStaffIds.has(assignment.staff_id)) {
-        console.warn(
-          `Duplicate staff assignment detected for staff_id: ${assignment.staff_id} in course: ${courseName}`
-        );
         return false;
       }
       seenStaffIds.add(assignment.staff_id);
       return true;
     });
+  }, [assignmentsWithIds]);
 
-    return uniqueList;
-  }, [assignmentsWithIds, courseName]);
+  // Selected staff IDs for filtering available staff
+  const selectedStaffIds = useMemo(() => {
+    return uniqueAssignments.map((a) => a.staff_id);
+  }, [uniqueAssignments]);
 
-  // Consolidate staff members from assignments and search results
-  const allStaffMembers = useMemo(() => {
-    const staffMap = new Map<string, StaffMember>();
-
-    // Add staff from assigned staff details (fetched on mount)
-    assignedStaffDetails.forEach((staff) => {
-      staffMap.set(staff.id, staff);
-    });
-
-    // Add staff from search results
-    fetchedStaff.forEach((staff) => {
-      if (!staffMap.has(staff.id)) {
-        staffMap.set(staff.id, staff);
-      }
-    });
-
-    return Array.from(staffMap.values());
-  }, [assignedStaffDetails, fetchedStaff]);
-
+  // Cleanup on unmount
   useEffect(() => {
-    if (
-      uniqueAssignments.length !== value.length ||
-      uniqueAssignments.some((ua, index) => !value[index]?.assignment_id)
-    ) {
-      onChange(uniqueAssignments);
-    }
-  }, [uniqueAssignments, value, onChange]);
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
-  const selectedStaffIds = uniqueAssignments.map(
-    (assignment) => assignment.staff_id
+  // Fetch staff list for institution (using global cache)
+  useEffect(() => {
+    if (!institutionId) {
+      setStaffList([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadStaff() {
+      setIsLoading(true);
+      try {
+        const data = await fetchStaffForInstitution(institutionId);
+        if (!cancelled && mountedRef.current) {
+          setStaffList(data);
+        }
+      } catch (error) {
+        console.error('[StaffSearchSelector] Failed to fetch staff:', error);
+        if (!cancelled && mountedRef.current) {
+          setStaffList([]);
+        }
+      } finally {
+        if (!cancelled && mountedRef.current) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadStaff();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [institutionId]);
+
+  // Handle search filtering (client-side)
+  const filteredStaff = useMemo(() => {
+    if (!debouncedSearchTerm || debouncedSearchTerm.length < 2) {
+      return staffList;
+    }
+    const searchLower = debouncedSearchTerm.toLowerCase();
+    return staffList.filter(
+      (staff) =>
+        staff.first_name.toLowerCase().includes(searchLower) ||
+        staff.last_name.toLowerCase().includes(searchLower) ||
+        (staff.designation && staff.designation.toLowerCase().includes(searchLower))
+    );
+  }, [staffList, debouncedSearchTerm]);
+
+  // Available staff (not already assigned)
+  const availableStaff = useMemo(() => {
+    return filteredStaff.filter((staff) => !selectedStaffIds.includes(staff.id));
+  }, [filteredStaff, selectedStaffIds]);
+
+  // Sync assignment IDs only once on initial load
+  // This ensures all assignments have unique IDs for React key management
+  useEffect(() => {
+    // Only initialize once per mount
+    if (hasInitializedRef.current) {
+      return;
+    }
+
+    // Check if we need to add assignment IDs or remove duplicates
+    const needsUpdate =
+      value.some((v) => !v.assignment_id) ||
+      uniqueAssignments.length !== value.length;
+
+    if (needsUpdate && value.length > 0) {
+      hasInitializedRef.current = true;
+      onChange(uniqueAssignments);
+    } else if (value.length > 0) {
+      // Mark as initialized even if no update needed
+      hasInitializedRef.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps - only run once on mount
+
+  // Reset initialization when value becomes empty (form reset)
+  useEffect(() => {
+    if (value.length === 0) {
+      hasInitializedRef.current = false;
+    }
+  }, [value.length]);
+
+  // Stable callback for adding staff
+  const addStaffAssignment = useCallback(
+    (staffId: string) => {
+      if (!selectedStaffIds.includes(staffId)) {
+        const newAssignment: StaffAssignment = {
+          staff_id: staffId,
+          staff_type: '',
+          assignment_id: generateAssignmentId()
+        };
+        onChange([...uniqueAssignments, newAssignment]);
+      }
+      setOpen(false);
+    },
+    [selectedStaffIds, uniqueAssignments, onChange]
   );
 
-  const addStaffAssignment = (staffId: string) => {
-    if (!selectedStaffIds.includes(staffId)) {
-      const newAssignment: StaffAssignment = {
-        staff_id: staffId,
-        staff_type: '',
-        assignment_id: generateAssignmentId()
-      };
-      onChange([...uniqueAssignments, newAssignment]);
-    }
-    setOpen(false);
-  };
+  // Stable callback for removing staff
+  const removeStaffAssignment = useCallback(
+    (assignmentId: string) => {
+      const updatedAssignments = uniqueAssignments.filter(
+        (assignment) => assignment.assignment_id !== assignmentId
+      );
+      onChange(updatedAssignments);
+    },
+    [uniqueAssignments, onChange]
+  );
 
-  const removeStaffAssignment = (assignmentId: string) => {
-    const updatedAssignments = uniqueAssignments.filter(
-      (assignment) => assignment.assignment_id !== assignmentId
-    );
-    onChange(updatedAssignments);
-  };
+  // Stable callback for updating staff assignment
+  const updateStaffAssignment = useCallback(
+    (assignmentId: string, updates: Partial<StaffAssignment>) => {
+      const updatedAssignments = uniqueAssignments.map((assignment) =>
+        assignment.assignment_id === assignmentId
+          ? { ...assignment, ...updates }
+          : assignment
+      );
+      onChange(updatedAssignments);
+    },
+    [uniqueAssignments, onChange]
+  );
 
-  const updateStaffAssignment = (
-    assignmentId: string,
-    updates: Partial<StaffAssignment>
-  ) => {
-    const updatedAssignments = uniqueAssignments.map((assignment) =>
-      assignment.assignment_id === assignmentId
-        ? { ...assignment, ...updates }
-        : assignment
-    );
-    onChange(updatedAssignments);
-  };
+  // Get staff name from staff list
+  const getStaffName = useCallback(
+    (staffId: string) => {
+      const staff = staffList.find((s) => s.id === staffId);
+      if (isLoading && !staff) return 'Loading...';
+      return staff ? `${staff.first_name} ${staff.last_name}` : 'Unknown Staff';
+    },
+    [staffList, isLoading]
+  );
 
-  const getStaffName = (staffId: string) => {
-    const staff = allStaffMembers.find((s) => s.id === staffId);
-    if (loadingAssigned && !staff) return 'Loading...';
-    return staff ? `${staff.first_name} ${staff.last_name}` : 'Unknown Staff';
-  };
-
-  const getStaffDesignation = (staffId: string) => {
-    const staff = allStaffMembers.find((s) => s.id === staffId);
-    return staff?.designation || '';
-  };
+  // Get staff designation
+  const getStaffDesignation = useCallback(
+    (staffId: string) => {
+      const staff = staffList.find((s) => s.id === staffId);
+      return staff?.designation || '';
+    },
+    [staffList]
+  );
 
   return (
     <div className={cn('space-y-4', className)}>
@@ -349,48 +380,36 @@ export function StaffSearchSelector({
                     ? 'Loading staff...'
                     : !institutionId
                     ? 'Please select an institution first'
-                    : debouncedSearchTerm.length > 0 &&
-                      debouncedSearchTerm.length < 2
-                    ? 'Type at least 2 characters to search'
                     : 'No staff members found.'}
                 </CommandEmpty>
                 <CommandGroup>
-                  {fetchedStaff.filter(
-                    (staff) => !selectedStaffIds.includes(staff.id)
-                  ).length > 0 && (
+                  {availableStaff.length > 0 && (
                     <div className='px-2 py-1.5 text-xs text-muted-foreground border-b'>
-                      {
-                        fetchedStaff.filter(
-                          (staff) => !selectedStaffIds.includes(staff.id)
-                        ).length
-                      }{' '}
-                      available staff members
+                      {availableStaff.length} available staff members
                     </div>
                   )}
-                  {fetchedStaff
-                    .filter((staff) => !selectedStaffIds.includes(staff.id))
-                    .map((staff) => (
-                      <CommandItem
-                        key={staff.id}
-                        value={`${staff.first_name} ${staff.last_name} ${
-                          staff.designation || ''
-                        }`}
-                        onSelect={() => addStaffAssignment(staff.id)}
-                        className='cursor-pointer'
-                      >
-                        <div className='flex flex-col'>
-                          <span className='font-medium text-sm'>
-                            {staff.first_name} {staff.last_name}
+                  {availableStaff.map((staff) => (
+                    <CommandItem
+                      key={staff.id}
+                      value={`${staff.first_name} ${staff.last_name} ${
+                        staff.designation || ''
+                      }`}
+                      onSelect={() => addStaffAssignment(staff.id)}
+                      className='cursor-pointer'
+                    >
+                      <div className='flex flex-col'>
+                        <span className='font-medium text-sm'>
+                          {staff.first_name} {staff.last_name}
+                        </span>
+                        {staff.designation && (
+                          <span className='text-xs text-muted-foreground'>
+                            {staff.designation}
                           </span>
-                          {staff.designation && (
-                            <span className='text-xs text-muted-foreground'>
-                              {staff.designation}
-                            </span>
-                          )}
-                        </div>
-                        <Check className='ml-auto h-4 w-4 opacity-0' />
-                      </CommandItem>
-                    ))}
+                        )}
+                      </div>
+                      <Check className='ml-auto h-4 w-4 opacity-0' />
+                    </CommandItem>
+                  ))}
                 </CommandGroup>
               </CommandList>
             </Command>
