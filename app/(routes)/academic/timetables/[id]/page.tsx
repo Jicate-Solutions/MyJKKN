@@ -837,7 +837,8 @@ export default function TimetableDetailPage({
         timetableId,
         day,
         periodId,
-        timetableFormat === 'batch'
+        timetableFormat === 'batch',
+        true // suppressToast - let page handle toast
       );
       await fetchTimetableData(true);
       deleteDialog.close();

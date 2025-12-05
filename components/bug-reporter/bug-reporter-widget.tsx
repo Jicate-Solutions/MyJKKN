@@ -119,6 +119,82 @@ function isMobileDevice(): boolean {
   );
 }
 
+// Maximum screenshot size limits to prevent API request size issues
+const MAX_SCREENSHOT_WIDTH = 1920;
+const MAX_SCREENSHOT_HEIGHT = 2500;
+const MAX_SCREENSHOT_SIZE_BYTES = 2 * 1024 * 1024; // 2MB max (Vercel limit is 4.5MB, leave room for other data)
+const JPEG_QUALITY = 0.75; // 75% quality for good balance of size/quality
+
+// Compress and resize screenshot to fit within size limits
+async function compressScreenshot(dataUrl: string, maxSizeBytes: number = MAX_SCREENSHOT_SIZE_BYTES): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        // Calculate new dimensions maintaining aspect ratio
+        let width = img.width;
+        let height = img.height;
+
+        // Scale down if exceeds max dimensions
+        if (width > MAX_SCREENSHOT_WIDTH) {
+          const ratio = MAX_SCREENSHOT_WIDTH / width;
+          width = MAX_SCREENSHOT_WIDTH;
+          height = Math.round(height * ratio);
+        }
+
+        if (height > MAX_SCREENSHOT_HEIGHT) {
+          const ratio = MAX_SCREENSHOT_HEIGHT / height;
+          height = MAX_SCREENSHOT_HEIGHT;
+          width = Math.round(width * ratio);
+        }
+
+        // Create canvas for compression
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+
+        // Draw image to canvas (this resizes it)
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Try different quality levels until we hit target size
+        let quality = JPEG_QUALITY;
+        let result = canvas.toDataURL('image/jpeg', quality);
+
+        // Progressively reduce quality if still too large
+        while (result.length > maxSizeBytes && quality > 0.3) {
+          quality -= 0.1;
+          result = canvas.toDataURL('image/jpeg', quality);
+          console.log(`[BugReporter] Compressing screenshot: quality=${quality.toFixed(1)}, size=${(result.length / 1024).toFixed(0)}KB`);
+        }
+
+        // If still too large, reduce dimensions further
+        if (result.length > maxSizeBytes) {
+          const scaleFactor = Math.sqrt(maxSizeBytes / result.length);
+          canvas.width = Math.round(width * scaleFactor);
+          canvas.height = Math.round(height * scaleFactor);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          result = canvas.toDataURL('image/jpeg', 0.5);
+          console.log(`[BugReporter] Further compressed: ${canvas.width}x${canvas.height}, size=${(result.length / 1024).toFixed(0)}KB`);
+        }
+
+        console.log(`[BugReporter] Final screenshot: ${canvas.width}x${canvas.height}, size=${(result.length / 1024).toFixed(0)}KB, quality=${quality.toFixed(1)}`);
+        resolve(result);
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    img.onerror = () => reject(new Error('Failed to load image for compression'));
+    img.src = dataUrl;
+  });
+}
+
 // High-quality screenshot capture using html2canvas with best practices
 async function captureScreenshotWithHtml2Canvas(): Promise<string> {
   console.log('Starting html2canvas high-quality screenshot capture...', {
@@ -163,9 +239,10 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
     void document.body.offsetHeight;
 
     // html2canvas options optimized for FULL PAGE screenshot capture
+    // FIX 2025-12-05: Reduced scale to prevent oversized screenshots that exceed API limits
     const options = {
-      // Quality and scaling options
-      scale: Math.max(window.devicePixelRatio || 1, 2), // Force minimum 2x scale for crisp images
+      // Quality and scaling options - cap at 1.5x to prevent huge images
+      scale: Math.min(window.devicePixelRatio || 1, 1.5), // Cap scale to prevent huge screenshots
       backgroundColor: '#ffffff', // White background to avoid transparency issues
 
       // Performance options
@@ -364,25 +441,29 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
       throw new Error('Canvas creation failed or resulted in empty canvas');
     }
 
-    // Convert to high-quality data URL
-    const dataUrl = canvas.toDataURL('image/png', 1.0);
+    // Convert to JPEG with compression (much smaller than PNG)
+    // FIX 2025-12-05: Use JPEG format to reduce file size
+    const rawDataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
 
-    // Add timestamp to data URL to prevent caching
-    const timestampedDataUrl = dataUrl;
-
-    console.log('html2canvas FULL PAGE screenshot captured successfully:', {
-      size: timestampedDataUrl.length,
+    console.log('html2canvas raw screenshot captured:', {
+      rawSize: `${(rawDataUrl.length / 1024).toFixed(0)}KB`,
       canvasSize: `${canvas.width}x${canvas.height}`,
       fullPageWidth,
       fullPageHeight,
-      captureMode: 'FULL PAGE',
-      quality: '100%',
+      captureMode: 'FULL PAGE'
+    });
+
+    // Compress the screenshot to ensure it's within size limits
+    const compressedDataUrl = await compressScreenshot(rawDataUrl);
+
+    console.log('html2canvas FULL PAGE screenshot compressed successfully:', {
+      originalSize: `${(rawDataUrl.length / 1024).toFixed(0)}KB`,
+      compressedSize: `${(compressedDataUrl.length / 1024).toFixed(0)}KB`,
+      reduction: `${(100 - (compressedDataUrl.length / rawDataUrl.length) * 100).toFixed(0)}%`,
       timestamp: new Date().toISOString()
     });
 
-    // No need to restore scroll position since we didn't change it
-
-    return timestampedDataUrl;
+    return compressedDataUrl;
   } catch (error) {
     console.error('html2canvas capture failed:', error);
 
@@ -403,19 +484,20 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
       );
 
       // Simple but effective fallback options - FULL PAGE
+      // FIX 2025-12-05: Reduced scale in fallback too
       const fallbackOptions = {
-        scale: Math.max(window.devicePixelRatio || 1, 1.5),
+        scale: Math.min(window.devicePixelRatio || 1, 1.5), // Cap scale
         backgroundColor: '#ffffff',
         useCORS: true,
         allowTaint: false,
         logging: true, // Enable logging for debugging fallback
         removeContainer: true,
         imageTimeout: 10000,
-        // Fallback also captures full page
-        windowWidth: fallbackFullWidth,
-        windowHeight: fallbackFullHeight,
-        width: fallbackFullWidth,
-        height: fallbackFullHeight,
+        // Fallback also captures full page but with size limits
+        windowWidth: Math.min(fallbackFullWidth, MAX_SCREENSHOT_WIDTH),
+        windowHeight: Math.min(fallbackFullHeight, MAX_SCREENSHOT_HEIGHT),
+        width: Math.min(fallbackFullWidth, MAX_SCREENSHOT_WIDTH),
+        height: Math.min(fallbackFullHeight, MAX_SCREENSHOT_HEIGHT),
         scrollX: 0,
         scrollY: 0,
         ignoreElements: (element: Element) => {
@@ -430,13 +512,17 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
       // Capture full page with fallback options
       const fallbackCanvas = await html2canvas(document.body, fallbackOptions);
 
-      const fallbackDataUrl = fallbackCanvas.toDataURL('image/png', 1.0);
+      // Use JPEG and compress
+      const rawFallbackDataUrl = fallbackCanvas.toDataURL('image/jpeg', JPEG_QUALITY);
+      const compressedFallbackDataUrl = await compressScreenshot(rawFallbackDataUrl);
+
       console.log('Fallback html2canvas FULL PAGE capture successful:', {
-        size: fallbackDataUrl.length,
+        originalSize: `${(rawFallbackDataUrl.length / 1024).toFixed(0)}KB`,
+        compressedSize: `${(compressedFallbackDataUrl.length / 1024).toFixed(0)}KB`,
         canvasSize: `${fallbackCanvas.width}x${fallbackCanvas.height}`,
         captureMode: 'FULL PAGE (fallback)'
       });
-      return fallbackDataUrl;
+      return compressedFallbackDataUrl;
     } catch (fallbackError) {
       console.error('Fallback html2canvas also failed:', fallbackError);
       throw new Error('Screenshot capture failed');
@@ -637,12 +723,30 @@ export function BugReporterWidget() {
         }
       };
 
+      // Check payload size before sending (Vercel limit is 4.5MB)
+      const payloadString = JSON.stringify(payload);
+      const payloadSizeKB = payloadString.length / 1024;
+      const payloadSizeMB = payloadSizeKB / 1024;
+
       console.log('Payload prepared:', {
         page_url: payload.page_url,
         description_length: payload.description.length,
-        screenshot_size: payload.screenshot_data_url.length,
-        console_logs_count: payload.console_logs.length
+        screenshot_size: `${(payload.screenshot_data_url.length / 1024).toFixed(0)}KB`,
+        console_logs_count: payload.console_logs.length,
+        total_payload_size: `${payloadSizeKB.toFixed(0)}KB (${payloadSizeMB.toFixed(2)}MB)`
       });
+
+      // Warn if payload is approaching limit (4MB warning threshold)
+      if (payloadSizeMB > 4) {
+        console.warn('[BugReporter] Payload is very large, may fail:', `${payloadSizeMB.toFixed(2)}MB`);
+        // Try to compress screenshot further if it's too large
+        if (payload.screenshot_data_url.length > 1.5 * 1024 * 1024) {
+          console.log('[BugReporter] Re-compressing screenshot to reduce payload size...');
+          const recompressed = await compressScreenshot(payload.screenshot_data_url, 1 * 1024 * 1024);
+          payload.screenshot_data_url = recompressed;
+          console.log('[BugReporter] Screenshot re-compressed to:', `${(recompressed.length / 1024).toFixed(0)}KB`);
+        }
+      }
 
       const response = await fetch('/api/bug-reports', {
         method: 'POST',
@@ -653,7 +757,43 @@ export function BugReporterWidget() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        // FIX 2025-12-05: Handle non-JSON responses (e.g., "Request Entity Too Large" from Vercel)
+        let errorData: any = null;
+        const contentType = response.headers.get('content-type');
+
+        try {
+          if (contentType && contentType.includes('application/json')) {
+            errorData = await response.json();
+          } else {
+            // Response is not JSON (e.g., plain text error from infrastructure)
+            const textResponse = await response.text();
+            console.error('Non-JSON error response:', textResponse);
+
+            // Handle common HTTP errors
+            if (response.status === 413 || textResponse.includes('Request Entity Too Large')) {
+              throw new Error('Screenshot is too large. Please try with a smaller screenshot or remove it and try again.');
+            }
+            if (response.status === 408 || textResponse.includes('Request Timeout')) {
+              throw new Error('Request timed out. Please try again.');
+            }
+            if (response.status === 502 || response.status === 503 || response.status === 504) {
+              throw new Error('Server is temporarily unavailable. Please try again in a moment.');
+            }
+
+            errorData = { error: textResponse || response.statusText };
+          }
+        } catch (parseError) {
+          // If parsing fails, check if it's an infrastructure error
+          console.error('Error parsing response:', parseError);
+
+          if (parseError instanceof Error && parseError.message.includes('Screenshot is too large')) {
+            throw parseError;
+          }
+
+          // Generic error for unparseable responses
+          throw new Error('Server error. Please try again or remove the screenshot if the issue persists.');
+        }
+
         console.error('Server error:', errorData);
 
         // Store full error details for debugging
@@ -676,7 +816,7 @@ export function BugReporterWidget() {
         let errorMessage = 'Failed to create bug report.';
         let errorDetails = '';
 
-        if (errorData.error) {
+        if (errorData?.error) {
           if (Array.isArray(errorData.error)) {
             errorMessage = errorData.error
               .map((err: any) => err.message)
@@ -686,12 +826,12 @@ export function BugReporterWidget() {
           }
         }
 
-        if (errorData.details) {
+        if (errorData?.details) {
           errorDetails = errorData.details;
         }
 
         // Show specific error messages based on error codes
-        if (errorData.errorCode) {
+        if (errorData?.errorCode) {
           switch (errorData.errorCode) {
             case 'AUTH_ERROR':
             case 'NO_USER':

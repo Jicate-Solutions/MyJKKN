@@ -1729,6 +1729,113 @@ Please select a different date period that doesn't overlap.`
     suppressToast: boolean = false
   ): Promise<void> {
     try {
+      // FIX: 2025-12-05 - Handle RANGE format dates for batch timetables
+      // RANGE format: "RANGE:YYYY-MM-DD:YYYY-MM-DD" (e.g., "RANGE:2025-12-01:2025-12-11")
+      // The timetable_data stores slots under individual date keys, NOT RANGE keys
+      // So we need to delete from all individual dates within the range
+      if (isBatch && day && day.startsWith('RANGE:')) {
+        const parts = day.split(':');
+        if (parts.length === 3) {
+          const startDate = parts[1];
+          const endDate = parts[2];
+
+          console.log('[TimetableService] Deleting slots for date range:', { startDate, endDate, periodId });
+
+          // Generate all dates in the range
+          const dates: string[] = [];
+          const current = new Date(startDate);
+          const end = new Date(endDate);
+
+          while (current <= end) {
+            dates.push(current.toISOString().split('T')[0]);
+            current.setDate(current.getDate() + 1);
+          }
+
+          // Check attendance for all dates in the range
+          const { data: attendanceCheck, error: checkError } = await this.supabase
+            .from('student_attendance')
+            .select('id, attendance_data, attendance_date')
+            .eq('timetable_id', timetableId)
+            .in('attendance_date', dates);
+
+          if (checkError) {
+            console.error('Error checking attendance for range deletion:', checkError);
+          }
+
+          // Check if any date in the range has attendance marked
+          if (attendanceCheck && attendanceCheck.length > 0) {
+            for (const record of attendanceCheck) {
+              const attendanceData = record.attendance_data || {};
+              const possibleKeys = [
+                periodId,
+                `${record.attendance_date}_${periodId}`,
+                `slot_${periodId}`
+              ];
+
+              for (const key of possibleKeys) {
+                if (attendanceData[key] && attendanceData[key].students?.length > 0) {
+                  const errorMessage = `Cannot delete this period slot. Attendance has been marked for ${attendanceData[key].students.length} students on ${record.attendance_date}. Deleting would lose attendance records.`;
+
+                  if (!suppressToast) {
+                    toast.error(errorMessage, {
+                      duration: 6000,
+                      position: 'top-center',
+                      style: {
+                        background: '#FEF2F2',
+                        color: '#991B1B',
+                        border: '1px solid #FCA5A5',
+                        maxWidth: '500px'
+                      }
+                    });
+                  }
+
+                  throw new Error(errorMessage);
+                }
+              }
+            }
+          }
+
+          // Delete slots for all dates in the range
+          // IMPORTANT: Must run sequentially to avoid race condition
+          // Each RPC reads current data, deletes one slot, writes back
+          // Parallel execution would cause last write to overwrite all previous deletions
+          let deletedCount = 0;
+          let failedCount = 0;
+
+          for (const date of dates) {
+            try {
+              const { error } = await this.supabase.rpc('delete_timetable_slot', {
+                p_timetable_id: timetableId,
+                p_day_of_week: date,
+                p_period_id: periodId,
+                p_is_batch: true
+              });
+
+              if (error) {
+                console.error(`Failed to delete slot for ${date}:`, error);
+                failedCount++;
+              } else {
+                deletedCount++;
+              }
+            } catch (err) {
+              console.error(`Error deleting slot for ${date}:`, err);
+              failedCount++;
+            }
+          }
+
+          if (failedCount > 0) {
+            console.error(`[TimetableService] ${failedCount} slot deletions failed out of ${dates.length}`);
+          }
+
+          console.log('[TimetableService] Deleted slots for', deletedCount, 'of', dates.length, 'dates');
+
+          if (!suppressToast) {
+            toast.success('Timetable slot deleted successfully!');
+          }
+          return;
+        }
+      }
+
       // For batch mode, we need to check attendance for the specific date
       // For regular mode, we check for the day/period combination
       let attendanceQuery = this.supabase

@@ -297,11 +297,14 @@ export async function POST(request: Request) {
       tasks.push(
         (async () => {
           try {
+            // Determine file extension from data URL (supports both PNG and JPEG)
+            const isJpeg = validatedData.screenshot_data_url!.startsWith('data:image/jpeg');
+            const fileExtension = isJpeg ? 'jpg' : 'png';
             const screenshotFile = dataURLtoFile(
               validatedData.screenshot_data_url!,
-              'screenshot.png'
+              `screenshot.${fileExtension}`
             );
-            const filePath = `${newReport.id}/screenshot.png`;
+            const filePath = `${newReport.id}/screenshot.${fileExtension}`;
 
             console.log('[BUG_REPORTS_API] Uploading screenshot to:', filePath);
 
