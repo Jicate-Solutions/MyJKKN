@@ -71,6 +71,25 @@ interface ResourceFormProps {
 
 type FormData = CreateResourceDto | UpdateResourceDto;
 
+// Utility function to sanitize null values from database to empty strings/undefined
+function sanitizeResourceData(resource: Resource | undefined): Partial<Resource> | undefined {
+  if (!resource) return undefined;
+
+  const sanitized: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(resource)) {
+    // Convert null to undefined for optional fields
+    // This ensures the form works correctly with controlled inputs
+    if (value === null) {
+      sanitized[key] = undefined;
+    } else {
+      sanitized[key] = value;
+    }
+  }
+
+  return sanitized as Partial<Resource>;
+}
+
 export function ResourceForm({ resource, mode }: ResourceFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -93,9 +112,12 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
 
   const { createResource, updateResource } = useResourceOperations();
 
+  // Sanitize resource data to convert null values to undefined
+  const sanitizedResource = sanitizeResourceData(resource);
+
   const form = useForm<FormData>({
     resolver: zodResolver(resourceSchema),
-    defaultValues: resource || {
+    defaultValues: sanitizedResource || {
       name: '',
       description: '',
       parent_category_id: '',
@@ -571,9 +593,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                 name='subcategory_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      Sub-Category <span className='text-red-500'>*</span>
-                    </FormLabel>
+                    <FormLabel>Sub-Category (Optional)</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
@@ -609,12 +629,13 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
               name='description'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description</FormLabel>
+                  <FormLabel>Description (Optional)</FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder='Provide detailed description of the resource...'
                       rows={4}
                       {...field}
+                      value={field.value || ''}
                     />
                   </FormControl>
                   <FormDescription>
@@ -809,6 +830,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <Input
                       placeholder='Any additional location details...'
                       {...field}
+                      value={field.value || ''}
                     />
                   </FormControl>
                   <FormDescription>
@@ -949,23 +971,21 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                 name='initial_stock_quantity'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      Initial Stock Quantity{' '}
-                      <span className='text-red-500'>*</span>
-                    </FormLabel>
+                    <FormLabel>Initial Stock Quantity</FormLabel>
                     <FormControl>
                       <Input
                         type='number'
                         min='0'
                         placeholder='1'
                         {...field}
+                        value={field.value ?? 1}
                         onChange={(e) =>
-                          field.onChange(parseInt(e.target.value) || 0)
+                          field.onChange(parseInt(e.target.value) || 1)
                         }
                       />
                     </FormControl>
                     <FormDescription>
-                      Total quantity when first acquired
+                      Total quantity when first acquired (defaults to 1)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -1150,6 +1170,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                       placeholder='Contract terms, warranty information, service agreements...'
                       className='min-h-[80px]'
                       {...field}
+                      value={field.value || ''}
                     />
                   </FormControl>
                   <FormDescription>
@@ -1303,7 +1324,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                   <FormItem>
                     <FormLabel>Planned Disposal Date (Optional)</FormLabel>
                     <FormControl>
-                      <Input type='date' {...field} />
+                      <Input type='date' {...field} value={field.value || ''} />
                     </FormControl>
                     <FormDescription>
                       Future date when resource will be retired/disposed

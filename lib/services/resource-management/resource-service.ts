@@ -187,9 +187,7 @@ export class ResourceService {
         throw new Error('Parent category is required');
       }
 
-      if (!resourceData.subcategory_id) {
-        throw new Error('Subcategory is required');
-      }
+      // subcategory_id is now optional - no validation required
 
       if (!resourceData.institution_id) {
         throw new Error('Institution is required');
@@ -277,13 +275,17 @@ export class ResourceService {
 
       console.log('Filtered validCaretakerIds:', validCaretakerIds);
 
+      // Use initial_stock_quantity or default to 1
+      const initialStock = resourceData.initial_stock_quantity ?? 1;
+
       const dbData = {
         ...otherData,
         name: resourceData.name.trim(),
         resource_code: resourceCode, // Use the resolved resource code
         caretaker_user_id: validCaretakerIds[0] || null, // Single caretaker
         caretaker_user_ids: validCaretakerIds.length > 0 ? validCaretakerIds : [], // Array of caretakers
-        current_stock_quantity: resourceData.initial_stock_quantity,
+        initial_stock_quantity: initialStock,
+        current_stock_quantity: initialStock,
         created_by: userId,
         updated_by: userId
       };

@@ -149,9 +149,9 @@ export interface Resource {
   id: string;
   name: string;
   resource_code?: string;
-  description: string;
+  description?: string; // Made optional
   parent_category_id: string;
-  subcategory_id: string;
+  subcategory_id?: string; // Made optional
   institution_id: string;
   department_id?: string;
   building_number?: string;
@@ -512,10 +512,10 @@ export interface UpdateAttributeDefinitionDto
 // Create Resource DTO
 export interface CreateResourceDto {
   name: string;
-  description: string;
+  description?: string; // Made optional
   resource_code?: string; // Auto-generated or custom resource code
   parent_category_id: string;
-  subcategory_id: string;
+  subcategory_id?: string; // Made optional
   institution_id: string;
   department_id?: string;
   building_number?: string;
@@ -534,7 +534,7 @@ export interface CreateResourceDto {
   vendor_zip?: string;
   vendor_contract_details?: string;
   vendor_support_contact?: string;
-  initial_stock_quantity: number;
+  initial_stock_quantity?: number; // Made optional - defaults to 1
   caretaker_user_ids?: string[]; // Support multiple caretakers
   purchase_date?: string;
   warranty_expiry_date?: string;
@@ -713,42 +713,40 @@ export const attributeDefinitionSchema = z.object({
 });
 
 // Resource Schema
+// Note: Using .nullish() for fields that can be null from database (nullish = null | undefined)
 export const resourceSchema = z.object({
   name: z
     .string()
     .min(1, 'Resource name is required')
     .max(200, 'Name too long'),
-  description: z
-    .string()
-    .min(1, 'Description is required')
-    .min(10, 'Description must be at least 10 characters'),
+  description: z.string().nullish(), // Made optional, accepts null from DB
   parent_category_id: z.string().min(1, 'Parent category is required'),
-  subcategory_id: z.string().min(1, 'Subcategory is required'),
+  subcategory_id: z.string().nullish(), // Made optional - not all resources need sub-categorization
   institution_id: z.string().min(1, 'Institution is required'),
-  department_id: z.string().optional(),
-  building_number: z.string().optional(),
-  block_number: z.string().optional(),
-  floor_number: z.string().optional(),
-  room_number: z.string().optional(),
-  location_notes: z.string().optional(),
-  vendor_name: z.string().optional(),
-  vendor_email: z.string().email().optional().or(z.literal('')),
-  vendor_mobile: z.string().optional(),
-  vendor_address_line1: z.string().optional(),
-  vendor_address_line2: z.string().optional(),
-  vendor_city: z.string().optional(),
-  vendor_state: z.string().optional(),
-  vendor_zip: z.string().optional(),
-  vendor_contract_details: z.string().optional(),
-  vendor_support_contact: z.string().optional(),
-  initial_stock_quantity: z.number().min(1, 'Initial stock must be at least 1'),
-  caretaker_user_ids: z.array(z.string()).optional(),
-  purchase_date: z.string().optional(),
-  warranty_expiry_date: z.string().optional(),
-  maintenance_schedule: z.string().optional(),
-  depreciation_rate: z.number().min(0).max(100).optional(),
-  current_value: z.number().min(0).optional(),
-  disposal_date: z.string().optional(),
+  department_id: z.string().nullish(),
+  building_number: z.string().nullish(),
+  block_number: z.string().nullish(),
+  floor_number: z.string().nullish(),
+  room_number: z.string().nullish(),
+  location_notes: z.string().nullish(),
+  vendor_name: z.string().nullish(),
+  vendor_email: z.string().email().nullish().or(z.literal('')),
+  vendor_mobile: z.string().nullish(),
+  vendor_address_line1: z.string().nullish(),
+  vendor_address_line2: z.string().nullish(),
+  vendor_city: z.string().nullish(),
+  vendor_state: z.string().nullish(),
+  vendor_zip: z.string().nullish(),
+  vendor_contract_details: z.string().nullish(),
+  vendor_support_contact: z.string().nullish(),
+  initial_stock_quantity: z.number().min(0).nullish().default(1), // Made optional with default 1
+  caretaker_user_ids: z.array(z.string()).nullish(),
+  purchase_date: z.string().nullish(),
+  warranty_expiry_date: z.string().nullish(),
+  maintenance_schedule: z.string().nullish(),
+  depreciation_rate: z.number().min(0).max(100).nullish(),
+  current_value: z.number().min(0).nullish(),
+  disposal_date: z.string().nullish(),
   status: z.enum([
     RESOURCE_STATUS.AVAILABLE,
     RESOURCE_STATUS.OCCUPIED,
@@ -761,13 +759,13 @@ export const resourceSchema = z.object({
     BOOKING_TYPE.WALK_IN,
     BOOKING_TYPE.BOTH
   ]),
-  booking_config: z.record(z.any()).optional(),
-  approval_config: z.record(z.any()).optional(),
-  reminder_config: z.record(z.any()).optional(),
-  access_roles: z.array(z.string()),
-  custom_attributes: z.record(z.any()),
-  image_urls: z.array(z.string()).optional(),
-  tags: z.array(z.string()).optional()
+  booking_config: z.record(z.any()).nullish(),
+  approval_config: z.record(z.any()).nullish(),
+  reminder_config: z.record(z.any()).nullish(),
+  access_roles: z.array(z.string()).default([]),
+  custom_attributes: z.record(z.any()).default({}),
+  image_urls: z.array(z.string()).nullish(),
+  tags: z.array(z.string()).nullish()
 });
 
 // Reservation Schema
