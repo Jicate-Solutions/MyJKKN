@@ -254,7 +254,7 @@ export function ToolCard({ tool }: ToolCardProps) {
                             {index + 1}
                           </div>
                           <p className="text-sm italic text-muted-foreground">
-                            "{example}"
+                            {example}
                           </p>
                         </div>
                       ))}
