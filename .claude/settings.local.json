@@ -99,7 +99,10 @@
       "mcp__chrome-devtools__performance_stop_trace",
       "mcp__chrome-devtools__press_key",
       "mcp__chrome-devtools__upload_file",
-      "mcp__chrome-devtools__wait_for"
+      "mcp__chrome-devtools__wait_for",
+      "mcp__supabase__list_migrations",
+      "Bash(timeout 90 npx tsc:*)",
+      "mcp__next-devtools__browser_eval"
     ],
     "deny": [],
     "ask": []

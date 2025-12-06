@@ -52,7 +52,8 @@ import {
   TrendingUp,
   Wrench,
   FileBarChart2,
-  History
+  History,
+  Sparkles
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 
@@ -81,6 +82,9 @@ interface MenuPermissions {
 export const MENU_PERMISSIONS: MenuPermissions = {
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
+
+  // AI Assistant
+  '/ai-query': 'ai_query.view', // AI Query System access
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
@@ -242,6 +246,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Dashboard',
           active: pathname === '/',
           icon: Home,
+          submenus: []
+        },
+        {
+          href: '/ai-query',
+          label: 'AI Assistant',
+          active: pathname === '/ai-query',
+          icon: Sparkles,
           submenus: []
         }
       ]
