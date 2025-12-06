@@ -2534,7 +2534,9 @@ export class AttendanceService {
 
                 // Step 2: Find ONE representative slot per period from this date range
                 // Use a Map to track which periods we've already found slots for
-                const periodSlotMap = new Map();
+                // FIX: 2025-12-06 - Store the actual slot data (not just boolean) to compare staff counts
+                // This ensures we prefer slots with MORE staff members for complete visibility
+                const periodSlotMap = new Map<string, { slotData: any; day: string; staffCount: number }>();
 
                 Object.keys(timetableData).forEach((day) => {
                   const daySlots = timetableData[day];
@@ -2544,11 +2546,6 @@ export class AttendanceService {
 
                       // Skip break slots
                       if (slotData && slotData.is_break_slot) {
-                        return;
-                      }
-
-                      // Skip if we already have a slot for this period
-                      if (periodSlotMap.has(periodId)) {
                         return;
                       }
 
@@ -2609,25 +2606,60 @@ export class AttendanceService {
                         }
 
                         if (shouldIncludeSlot) {
-                          // Mark this period as found
-                          periodSlotMap.set(periodId, true);
+                          // FIX: 2025-12-06 - Compare staff counts and keep slot with MORE staff
+                          // This ensures faculty assigned on some dates but not others still see their periods
+                          const currentStaffCount = slotData.staff_ids?.length || 0;
+                          const existingSlot = periodSlotMap.get(periodId);
 
-                          // Apply this slot configuration to the query date
-                          slots.push({
-                            ...slotData,
-                            period_id: periodId,
-                            day_of_week: day,
-                            id: slotData.slot_id,
-                            // Override slot_date with query date for attendance tracking
-                            slot_date: date,
-                            _original_slot_date: slotData.slot_date // Keep original for reference
-                          });
-
-                          console.log('✅ Slot applied to query date:', date);
+                          if (!existingSlot) {
+                            // First slot for this period - store it
+                            periodSlotMap.set(periodId, {
+                              slotData,
+                              day,
+                              staffCount: currentStaffCount
+                            });
+                            console.log('✅ First slot for period:', {
+                              period_id: periodId,
+                              staff_count: currentStaffCount,
+                              slot_date: slotData.slot_date
+                            });
+                          } else if (currentStaffCount > existingSlot.staffCount) {
+                            // Current slot has MORE staff - prefer it
+                            console.log('🔄 Replacing slot with one having more staff:', {
+                              period_id: periodId,
+                              old_staff_count: existingSlot.staffCount,
+                              new_staff_count: currentStaffCount,
+                              old_date: existingSlot.slotData.slot_date,
+                              new_date: slotData.slot_date
+                            });
+                            periodSlotMap.set(periodId, {
+                              slotData,
+                              day,
+                              staffCount: currentStaffCount
+                            });
+                          }
+                          // If current has fewer or equal staff, keep the existing one
                         }
                       }
                     });
                   }
+                });
+
+                // Build final slots array from the map (with slots having most staff)
+                periodSlotMap.forEach(({ slotData, day }, periodId) => {
+                  slots.push({
+                    ...slotData,
+                    period_id: periodId,
+                    day_of_week: day,
+                    id: slotData.slot_id,
+                    // Override slot_date with query date for attendance tracking
+                    slot_date: date,
+                    _original_slot_date: slotData.slot_date // Keep original for reference
+                  });
+                  console.log('✅ Slot applied to query date:', {
+                    query_date: date,
+                    staff_count: slotData.staff_ids?.length || 0
+                  });
                 });
               }
 
