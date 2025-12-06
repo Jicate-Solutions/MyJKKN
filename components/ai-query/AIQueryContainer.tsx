@@ -6,27 +6,33 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
 import { useAIQuery } from '@/hooks/use-ai-query';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   Bot,
-  User,
   Send,
   Loader2,
   Sparkles,
   RefreshCw,
   Clock,
   AlertCircle,
+  Settings2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MessageBubble } from './MessageBubble';
 import { SuggestedQueries } from './SuggestedQueries';
-import { QueryResultTable } from './QueryResultTable';
-import type { AIQueryMessage, ActionDefinition } from '@/types/ai-query';
+import type { ActionDefinition } from '@/types/ai-query';
 
 interface AIQueryContainerProps {
   className?: string;
@@ -36,6 +42,8 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
   const [inputValue, setInputValue] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const { isSuperAdmin } = usePermissions([]);
 
   const {
     messages,
@@ -97,7 +105,7 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
           <div>
             <h1 className="text-lg font-semibold">AI Assistant</h1>
             <p className="text-xs text-muted-foreground">
-              Ask questions about students, attendance, billing, and more
+              Ask questions about learners, learning participation, billing, and more
             </p>
           </div>
         </div>
@@ -117,6 +125,29 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
             <RefreshCw className="h-4 w-4 mr-1" />
             Clear
           </Button>
+          {/* Super Admin Only - AI Query Tools Link */}
+          {isSuperAdmin && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    asChild
+                    className="gap-1.5"
+                  >
+                    <Link href="/admin/ai-query-tools">
+                      <Settings2 className="h-4 w-4" />
+                      <span className="hidden sm:inline">Tools Registry</span>
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>View all AI Query Tools (Super Admin)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       </div>
 
@@ -129,7 +160,7 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
             </div>
             <h2 className="text-xl font-semibold mb-2">How can I help you today?</h2>
             <p className="text-muted-foreground mb-6 max-w-md">
-              Ask me about students, attendance, billing, staff, or any other data in the system.
+              Ask me about learners, learning participation, billing, team members, or any other data in the system.
               I can help you find information, generate reports, and take actions.
             </p>
 

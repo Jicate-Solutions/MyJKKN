@@ -361,6 +361,170 @@ export class AIQueryService {
     });
   }
 
+  /**
+   * Advanced student search with configurable search fields
+   */
+  static async searchStudents(userId: string, params: {
+    searchQuery: string;
+    searchFields?: string[];
+    status?: string;
+    departmentId?: string;
+    exactMatch?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<ToolResponse> {
+    return this.executeTool('student_search', userId, {
+      p_search_query: params.searchQuery,
+      p_search_fields: params.searchFields || ['name', 'roll_number', 'email', 'mobile'],
+      p_status: params.status,
+      p_department_id: params.departmentId,
+      p_exact_match: params.exactMatch || false,
+      p_limit: params.limit || 50,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  /**
+   * Get student counts grouped by department
+   */
+  static async getStudentsByDepartment(userId: string, params: {
+    institutionId?: string;
+    status?: string;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('students_by_department', userId, {
+      p_institution_id: params.institutionId,
+      p_status: params.status,
+    });
+  }
+
+  /**
+   * Get summary statistics for students
+   */
+  static async getStudentsSummary(userId: string, params: {
+    institutionId?: string;
+    departmentId?: string;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('students_summary', userId, {
+      p_institution_id: params.institutionId,
+      p_department_id: params.departmentId,
+    });
+  }
+
+  /**
+   * Search learners by location (district, state, taluk, city)
+   * Returns learners with location statistics
+   */
+  static async getLearnersByLocation(userId: string, params: {
+    district?: string;
+    state?: string;
+    taluk?: string;
+    city?: string;
+    status?: string;
+    departmentId?: string;
+    includeStats?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('learners_by_location', userId, {
+      p_district: params.district,
+      p_state: params.state,
+      p_taluk: params.taluk,
+      p_city: params.city,
+      p_status: params.status,
+      p_department_id: params.departmentId,
+      p_include_stats: params.includeStats !== false,
+      p_limit: params.limit || 100,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  /**
+   * Comprehensive learner search with ALL parameters
+   * Searches across all institutions for super admin
+   * Supports filtering by: demographics, accommodation, academic, admission, location, education background
+   */
+  static async getLearnersComprehensive(userId: string, params: {
+    // Text search
+    search?: string;
+    // Identity filters
+    status?: string;
+    gender?: string;
+    // Demographic filters
+    religion?: string;
+    community?: string;
+    caste?: string;
+    // Accommodation filters
+    accommodationType?: string;
+    hostelType?: string;
+    busRequired?: boolean;
+    busRoute?: string;
+    busPickupLocation?: string;
+    foodType?: string;
+    // Academic filters
+    institutionId?: string;
+    departmentId?: string;
+    programId?: string;
+    degreeId?: string;
+    semesterId?: string;
+    sectionId?: string;
+    academicYearId?: string;
+    // Admission filters
+    entryType?: string;
+    quota?: string;
+    category?: string;
+    firstGraduate?: boolean;
+    counselingApplied?: boolean;
+    // Location filters
+    district?: string;
+    state?: string;
+    taluk?: string;
+    // Education background
+    boardOfStudy?: string;
+    lastSchool?: string;
+    // Include options
+    includeStats?: boolean;
+    includeFullDetails?: boolean;
+    // Pagination
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('learners_comprehensive', userId, {
+      p_search: params.search,
+      p_status: params.status,
+      p_gender: params.gender,
+      p_religion: params.religion,
+      p_community: params.community,
+      p_caste: params.caste,
+      p_accommodation_type: params.accommodationType,
+      p_hostel_type: params.hostelType,
+      p_bus_required: params.busRequired,
+      p_bus_route: params.busRoute,
+      p_bus_pickup_location: params.busPickupLocation,
+      p_food_type: params.foodType,
+      p_institution_id: params.institutionId,
+      p_department_id: params.departmentId,
+      p_program_id: params.programId,
+      p_degree_id: params.degreeId,
+      p_semester_id: params.semesterId,
+      p_section_id: params.sectionId,
+      p_academic_year_id: params.academicYearId,
+      p_entry_type: params.entryType,
+      p_quota: params.quota,
+      p_category: params.category,
+      p_first_graduate: params.firstGraduate,
+      p_counseling_applied: params.counselingApplied,
+      p_district: params.district,
+      p_state: params.state,
+      p_taluk: params.taluk,
+      p_board_of_study: params.boardOfStudy,
+      p_last_school: params.lastSchool,
+      p_include_stats: params.includeStats !== false,
+      p_include_full_details: params.includeFullDetails || false,
+      p_limit: params.limit || 100,
+      p_offset: params.offset || 0,
+    });
+  }
+
   // ============================================
   // Staff Module Tools
   // ============================================

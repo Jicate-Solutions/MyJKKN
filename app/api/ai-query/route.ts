@@ -20,44 +20,44 @@ const anthropic = new Anthropic({
   apiKey: process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY!,
 });
 
-// Tool definitions for Claude
+// Tool definitions for Claude (JKKN Terminology: students→learners, staff→facilitators, attendance→learning participation)
 const AI_TOOLS: Anthropic.Tool[] = [
   // Academic Tools
   {
     name: 'get_attendance',
-    description: 'Get student attendance records with optional filters by student, section, department, or date range',
+    description: 'Get learner learning participation records with optional filters by learner, section, department, or date range',
     input_schema: {
       type: 'object' as const,
       properties: {
-        student_id: { type: 'string', description: 'Filter by specific student UUID' },
+        student_id: { type: 'string', description: 'Filter by specific learner UUID' },
         section_id: { type: 'string', description: 'Filter by section UUID' },
         department_id: { type: 'string', description: 'Filter by department UUID' },
         date_from: { type: 'string', description: 'Start date (YYYY-MM-DD)' },
         date_to: { type: 'string', description: 'End date (YYYY-MM-DD)' },
-        threshold: { type: 'number', description: 'Attendance percentage threshold' },
+        threshold: { type: 'number', description: 'Learning participation percentage threshold' },
       },
     },
   },
   {
     name: 'get_attendance_defaulters',
-    description: 'Get list of students with attendance below a threshold (default 75%)',
+    description: 'Get list of learners with learning participation below a threshold (default 75%)',
     input_schema: {
       type: 'object' as const,
       properties: {
         department_id: { type: 'string', description: 'Filter by department UUID' },
-        threshold: { type: 'number', description: 'Attendance percentage threshold (default 75)' },
-        semester: { type: 'string', enum: ['current', 'previous', 'all'], description: 'Semester filter' },
+        threshold: { type: 'number', description: 'Learning participation percentage threshold (default 75)' },
+        semester: { type: 'string', enum: ['current', 'previous', 'all'], description: 'Learning period filter' },
       },
     },
   },
   // Billing Tools
   {
     name: 'get_student_bills',
-    description: 'Get student billing records with optional filters',
+    description: 'Get learner billing records with optional filters',
     input_schema: {
       type: 'object' as const,
       properties: {
-        student_id: { type: 'string', description: 'Filter by specific student UUID' },
+        student_id: { type: 'string', description: 'Filter by specific learner UUID' },
         section_id: { type: 'string', description: 'Filter by section UUID' },
         department_id: { type: 'string', description: 'Filter by department UUID' },
         status: { type: 'string', enum: ['paid', 'unpaid', 'overdue', 'partially_paid'] },
@@ -66,7 +66,7 @@ const AI_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'get_fee_defaulters',
-    description: 'Get list of students with unpaid or overdue fees',
+    description: 'Get list of learners with unpaid or overdue fees',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -77,16 +77,16 @@ const AI_TOOLS: Anthropic.Tool[] = [
       },
     },
   },
-  // Student Tools
+  // Learner Tools (JKKN: students → learners)
   {
     name: 'get_students',
-    description: 'Get list of students with optional filters by department, program, section, status, or search term',
+    description: 'Get list of learners with optional filters by department, program, section, status, or search term',
     input_schema: {
       type: 'object' as const,
       properties: {
         department_id: { type: 'string', description: 'Filter by department UUID' },
         program_id: { type: 'string', description: 'Filter by program UUID' },
-        semester_id: { type: 'string', description: 'Filter by semester UUID' },
+        semester_id: { type: 'string', description: 'Filter by learning period UUID' },
         section_id: { type: 'string', description: 'Filter by section UUID' },
         status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'] },
         search: { type: 'string', description: 'Search by name, roll number, or email' },
@@ -95,19 +95,123 @@ const AI_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'get_student_details',
-    description: 'Get detailed information about a specific student',
+    description: 'Get detailed information about a specific learner including personal, academic, and contact details',
     input_schema: {
       type: 'object' as const,
       properties: {
-        student_id: { type: 'string', description: 'Student UUID' },
+        student_id: { type: 'string', description: 'Learner UUID' },
       },
       required: ['student_id'],
     },
   },
-  // Staff Tools
+  {
+    name: 'search_students',
+    description: 'Advanced learner search - find learners by name, roll number, email, mobile, learning partner name, or other fields. Use this when looking for specific learners.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        search_query: { type: 'string', description: 'The search term to look for (e.g., learner name, roll number, email)' },
+        search_fields: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Fields to search in: name, roll_number, email, mobile, application_id, aadhar, father_name, mother_name. Defaults to [name, roll_number, email, mobile]'
+        },
+        status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'], description: 'Filter by learner status' },
+        department_id: { type: 'string', description: 'Filter by department UUID' },
+        exact_match: { type: 'boolean', description: 'If true, performs exact match instead of partial match. Defaults to false' },
+      },
+      required: ['search_query'],
+    },
+  },
+  {
+    name: 'get_students_by_department',
+    description: 'Get learner counts grouped by department with status breakdown (active, inactive, graduated, exited)',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        institution_id: { type: 'string', description: 'Filter by institution UUID' },
+        status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'], description: 'Filter by learner status' },
+      },
+    },
+  },
+  {
+    name: 'get_students_summary',
+    description: 'Get summary statistics for learners including total counts, status breakdown, gender distribution, accommodation types, and profile completion status',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        institution_id: { type: 'string', description: 'Filter by institution UUID' },
+        department_id: { type: 'string', description: 'Filter by department UUID' },
+      },
+    },
+  },
+  {
+    name: 'get_learners_by_location',
+    description: 'Comprehensive location-based learner search - searches across permanent address district, bus pickup location, street address, and taluk fields. Returns learners from specific geographic areas with location statistics and indicates which field matched. Use this when asked about learners from a specific district, city, state, bus pickup point, or region.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        district: { type: 'string', description: 'Filter by district name (e.g., Erode, Salem, Coimbatore) - searches in district, bus pickup location, street, and taluk fields' },
+        state: { type: 'string', description: 'Filter by state name (e.g., Tamil Nadu, Kerala)' },
+        taluk: { type: 'string', description: 'Filter by taluk/sub-district name - also searches bus pickup location' },
+        city: { type: 'string', description: 'Filter by city name - searches in district, bus pickup location, and street fields' },
+        status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'], description: 'Filter by learner status' },
+        department_id: { type: 'string', description: 'Filter by department UUID' },
+        include_stats: { type: 'boolean', description: 'Include location statistics with bus pickup locations (district/state distribution). Default: true' },
+      },
+    },
+  },
+  {
+    name: 'get_learners_comprehensive',
+    description: 'MOST POWERFUL learner search tool - searches ALL learner data across ALL institutions. Use this for: demographics (gender, religion, community, caste), accommodation (hostel, day scholar, bus), academic filters, admission details (quota, category, first graduate), location, and education background. Returns statistics breakdown. Always use this tool when user asks about specific learner characteristics or wants comprehensive data.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        // Text search
+        search: { type: 'string', description: 'Free text search across name, roll number, email, mobile, father/mother name, bus pickup location, district, school' },
+        // Identity filters
+        status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'], description: 'Learner status' },
+        gender: { type: 'string', enum: ['male', 'female'], description: 'Filter by gender (case-insensitive)' },
+        // Demographic filters
+        religion: { type: 'string', description: 'Filter by religion (e.g., Hindu, Muslim, Christian)' },
+        community: { type: 'string', description: 'Filter by community (e.g., BC, MBC, SC, ST, OC, OBC, BCM, SCA, DNC)' },
+        caste: { type: 'string', description: 'Filter by caste' },
+        // Accommodation filters
+        accommodation_type: { type: 'string', description: 'Filter by accommodation type (hostel, dayscholar, day scholar)' },
+        hostel_type: { type: 'string', description: 'Filter by hostel type (e.g., AC HOSTEL)' },
+        bus_required: { type: 'boolean', description: 'Filter learners who require bus transport' },
+        bus_route: { type: 'string', description: 'Filter by bus route' },
+        bus_pickup_location: { type: 'string', description: 'Filter by bus pickup location' },
+        food_type: { type: 'string', description: 'Filter by food preference (veg/non-veg)' },
+        // Academic filters
+        institution_id: { type: 'string', description: 'Filter by institution UUID' },
+        department_id: { type: 'string', description: 'Filter by department UUID' },
+        program_id: { type: 'string', description: 'Filter by program UUID' },
+        degree_id: { type: 'string', description: 'Filter by degree UUID' },
+        semester_id: { type: 'string', description: 'Filter by semester UUID' },
+        section_id: { type: 'string', description: 'Filter by section UUID' },
+        // Admission filters
+        entry_type: { type: 'string', description: 'Filter by entry type (e.g., FIRST YEAR, LATERAL)' },
+        quota: { type: 'string', description: 'Filter by admission quota (e.g., GOVERNMENT, MANAGEMENT)' },
+        category: { type: 'string', description: 'Filter by admission category' },
+        first_graduate: { type: 'boolean', description: 'Filter first-generation graduates (first in family to attend college)' },
+        counseling_applied: { type: 'boolean', description: 'Filter learners who applied through counseling' },
+        // Location filters
+        district: { type: 'string', description: 'Filter by district (searches district, bus pickup, street, taluk)' },
+        state: { type: 'string', description: 'Filter by state' },
+        taluk: { type: 'string', description: 'Filter by taluk/sub-district' },
+        // Education background
+        board_of_study: { type: 'string', description: 'Filter by board of study (e.g., STATE BOARD, CBSE, ICSE)' },
+        last_school: { type: 'string', description: 'Filter by previous school name' },
+        // Options
+        include_stats: { type: 'boolean', description: 'Include statistics breakdown (gender, community, accommodation, institution). Default: true' },
+      },
+    },
+  },
+  // Learning Facilitator Tools (JKKN: staff → learning facilitators/team members)
   {
     name: 'get_staff',
-    description: 'Get list of staff members with optional filters',
+    description: 'Get list of learning facilitators and team members with optional filters',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -142,7 +246,7 @@ const AI_TOOLS: Anthropic.Tool[] = [
   // Dashboard Tools
   {
     name: 'get_kpi_summary',
-    description: 'Get key performance indicators summary (total students, staff, pending fees, attendance today, etc.)',
+    description: 'Get key performance indicators summary (total learners, team members, pending fees, learning participation today, etc.)',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -152,7 +256,7 @@ const AI_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'get_analytics_overview',
-    description: 'Get analytics overview including attendance trends, fee collection, and student status breakdown',
+    description: 'Get analytics overview including learning participation trends, fee collection, and learner status breakdown',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -176,14 +280,14 @@ const AI_TOOLS: Anthropic.Tool[] = [
   // Action Tools
   {
     name: 'export_csv',
-    description: 'Export data to CSV format. Available sources: students, staff, attendance_defaulters, fee_defaulters',
+    description: 'Export data to CSV format. Available sources: learners, team_members, participation_defaulters, fee_defaulters',
     input_schema: {
       type: 'object' as const,
       properties: {
         data_source: {
           type: 'string',
           enum: ['students', 'staff', 'attendance_defaulters', 'fee_defaulters'],
-          description: 'The data source to export'
+          description: 'The data source to export (learners, team_members, participation_defaulters, fee_defaulters)'
         },
         filters: { type: 'object', description: 'Optional filters for the export' },
       },
@@ -211,9 +315,26 @@ const AI_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
-// Build system prompt with user context
+// Build system prompt with user context (JKKN Terminology enforced)
 function buildSystemPrompt(context: AIUserContext): string {
-  return `You are an AI assistant for MyJKKN, an educational institution management system. You help users query and analyze data about students, staff, attendance, billing, and more.
+  return `You are an AI assistant for MyJKKN, an educational institution management system following JKKN terminology standards. You help users query and analyze data about learners, learning facilitators, learning participation, billing, and more.
+
+## JKKN Terminology Standards (MANDATORY)
+You MUST use these terms in ALL responses:
+- **Learners** (NOT students, pupils, kids, children)
+- **Learning Facilitators** (NOT teachers, faculty, professors) - for academic/teaching roles
+- **Team Members** (NOT staff, employees, workers) - for non-academic roles
+- **Learning Partners** (NOT parents, guardians) - for family members
+- **Learning Studios** (NOT classrooms, rooms)
+- **Learning Participation** (NOT attendance)
+- **Learning Assessments** (NOT grades, marks, scores, tests, exams)
+- **Learning Period** (NOT semester, term, quarter)
+- **Learning Pathway** (NOT syllabus, course outline)
+- **Learning Framework** (NOT curriculum)
+- **Achieved Learning Outcomes** (NOT passed)
+- **Did Not Meet Learning Outcomes** (NOT failed)
+- **Independent Learning Activities** (NOT homework)
+- **Learning Tasks** (NOT assignments)
 
 ## Current User Context
 - Name: ${context.full_name}
@@ -221,7 +342,7 @@ function buildSystemPrompt(context: AIUserContext): string {
 - Email: ${context.email}
 ${context.is_super_admin ? '- Access Level: Super Admin (full access)' : ''}
 ${context.academic_context?.institution_name ? `- Institution: ${context.academic_context.institution_name}` : ''}
-${context.academic_context?.current_academic_year_name ? `- Academic Year: ${context.academic_context.current_academic_year_name}` : ''}
+${context.academic_context?.current_academic_year_name ? `- Learning Year: ${context.academic_context.current_academic_year_name}` : ''}
 
 ## Guidelines
 1. Always use the available tools to fetch real data - never make up information
@@ -232,6 +353,7 @@ ${context.academic_context?.current_academic_year_name ? `- Academic Year: ${con
 6. If a query returns no results, explain possible reasons and suggest alternatives
 7. Format numbers appropriately (currency with ₹ symbol, percentages with %)
 8. For dates, use readable formats like "January 15, 2025"
+9. **ALWAYS use JKKN terminology** even if the user uses traditional terms - translate in your response
 
 ## Available Actions
 - **Tier 1 (Auto-execute)**: Export to CSV, mark notifications read
@@ -243,7 +365,8 @@ ${context.academic_context?.current_academic_year_name ? `- Academic Year: ${con
 - Be concise but informative
 - Use markdown formatting for better readability
 - Include relevant statistics and summaries
-- Suggest related queries or actions when appropriate`;
+- Suggest related queries or actions when appropriate
+- Always use JKKN terminology in headings, labels, and explanations`;
 }
 
 // Execute a tool call
@@ -298,6 +421,71 @@ async function executeTool(
 
     case 'get_student_details':
       return AIQueryService.getStudentDetails(userId, toolInput.student_id as string);
+
+    case 'search_students':
+      return AIQueryService.searchStudents(userId, {
+        searchQuery: toolInput.search_query as string,
+        searchFields: toolInput.search_fields as string[],
+        status: toolInput.status as string,
+        departmentId: toolInput.department_id as string,
+        exactMatch: toolInput.exact_match as boolean,
+      });
+
+    case 'get_students_by_department':
+      return AIQueryService.getStudentsByDepartment(userId, {
+        institutionId: toolInput.institution_id as string,
+        status: toolInput.status as string,
+      });
+
+    case 'get_students_summary':
+      return AIQueryService.getStudentsSummary(userId, {
+        institutionId: toolInput.institution_id as string,
+        departmentId: toolInput.department_id as string,
+      });
+
+    case 'get_learners_by_location':
+      return AIQueryService.getLearnersByLocation(userId, {
+        district: toolInput.district as string,
+        state: toolInput.state as string,
+        taluk: toolInput.taluk as string,
+        city: toolInput.city as string,
+        status: toolInput.status as string,
+        departmentId: toolInput.department_id as string,
+        includeStats: toolInput.include_stats as boolean,
+      });
+
+    case 'get_learners_comprehensive':
+      return AIQueryService.getLearnersComprehensive(userId, {
+        search: toolInput.search as string,
+        status: toolInput.status as string,
+        gender: toolInput.gender as string,
+        religion: toolInput.religion as string,
+        community: toolInput.community as string,
+        caste: toolInput.caste as string,
+        accommodationType: toolInput.accommodation_type as string,
+        hostelType: toolInput.hostel_type as string,
+        busRequired: toolInput.bus_required as boolean,
+        busRoute: toolInput.bus_route as string,
+        busPickupLocation: toolInput.bus_pickup_location as string,
+        foodType: toolInput.food_type as string,
+        institutionId: toolInput.institution_id as string,
+        departmentId: toolInput.department_id as string,
+        programId: toolInput.program_id as string,
+        degreeId: toolInput.degree_id as string,
+        semesterId: toolInput.semester_id as string,
+        sectionId: toolInput.section_id as string,
+        entryType: toolInput.entry_type as string,
+        quota: toolInput.quota as string,
+        category: toolInput.category as string,
+        firstGraduate: toolInput.first_graduate as boolean,
+        counselingApplied: toolInput.counseling_applied as boolean,
+        district: toolInput.district as string,
+        state: toolInput.state as string,
+        taluk: toolInput.taluk as string,
+        boardOfStudy: toolInput.board_of_study as string,
+        lastSchool: toolInput.last_school as string,
+        includeStats: toolInput.include_stats as boolean,
+      });
 
     case 'get_staff':
       return AIQueryService.getStaff(userId, {
@@ -495,10 +683,10 @@ export async function POST(request: NextRequest) {
         toolCalls: toolsCalled.map(name => ({ name, status: 'completed' })),
       },
       suggestions: [
-        'Show me attendance defaulters',
+        'Show me learning participation defaulters',
         'List fee defaulters',
         'Get KPI summary',
-        'Show department-wise student count',
+        'Show department-wise learner count',
       ],
       rate_limit: rateLimit,
     });
