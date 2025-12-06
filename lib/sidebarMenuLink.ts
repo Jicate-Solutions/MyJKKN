@@ -53,7 +53,8 @@ import {
   Wrench,
   FileBarChart2,
   History,
-  Sparkles
+  Sparkles,
+  Bot
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 
@@ -166,6 +167,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // System Management
   '/system/api-management': 'system.api.view',
   '/admin/bug-reports': 'system.bugs.view',
+  '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
 
   // Billing Management
   '/billing/categories/parent-categories': 'billing.parent_categories.view',
@@ -798,6 +800,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Bug Reports',
           active: pathname.startsWith('/admin/bug-reports'),
           icon: Bug,
+          submenus: []
+        },
+        {
+          href: '/admin/ai-query-tools',
+          label: 'AI Query Tools',
+          active: pathname.startsWith('/admin/ai-query-tools'),
+          icon: Bot,
           submenus: []
         }
       ]
