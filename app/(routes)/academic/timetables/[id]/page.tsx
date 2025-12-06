@@ -771,13 +771,56 @@ export default function TimetableDetailPage({
           }))
         };
 
-        await TimetableService.updateTimetableSlot(
-          timetableId,
-          day as string,
-          period.id,
-          completeSlotData,
-          timetableFormat === 'batch'
-        );
+        // FIX: 2025-12-06 - Handle RANGE markers in batch mode for subdivision saves
+        // This ensures subdivided slots are propagated to ALL dates in the range
+        const dayStr = day as string;
+        if (timetableFormat === 'batch' && dayStr.startsWith('RANGE:')) {
+          const parts = dayStr.split(':');
+          if (parts.length === 3) {
+            const startDate = parts[1];
+            const endDate = parts[2];
+
+            // Generate all dates in the range
+            const dates: string[] = [];
+            const current = new Date(startDate);
+            const end = new Date(endDate);
+
+            while (current <= end) {
+              dates.push(current.toISOString().split('T')[0]);
+              current.setDate(current.getDate() + 1);
+            }
+
+            console.log(`[academic/timetables/page] Subdivision batch save: Updating ${dates.length} dates from ${startDate} to ${endDate}`);
+
+            // Use batch update to update all dates atomically
+            await TimetableService.updateTimetableSlotsBatch(
+              timetableId,
+              dates,
+              period.id,
+              completeSlotData,
+              true // suppressToast
+            );
+          } else {
+            // Fallback for malformed range
+            console.warn('[academic/timetables/page] Malformed range marker in subdivision:', dayStr);
+            await TimetableService.updateTimetableSlot(
+              timetableId,
+              dayStr,
+              period.id,
+              completeSlotData,
+              timetableFormat === 'batch'
+            );
+          }
+        } else {
+          // Regular save (non-batch or single date)
+          await TimetableService.updateTimetableSlot(
+            timetableId,
+            dayStr,
+            period.id,
+            completeSlotData,
+            timetableFormat === 'batch'
+          );
+        }
         await fetchTimetableData(true);
         subdivisionDialog.close();
         toast.success('Subdivided slot saved successfully');
