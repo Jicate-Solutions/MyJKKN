@@ -20,7 +20,10 @@ import type {
   WebhookProcessingResult,
   PaymentStatusResult,
   PaymentErrorResponse,
+  PaymentVerificationResult,
+  ProcessVerifiedPaymentResult,
 } from '@/types/payment-gateway';
+import { PaymentAuditService } from './security/payment-audit-service';
 import crypto from 'crypto';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -616,6 +619,467 @@ export class PaymentGatewayService {
   }
 
   // ==========================================================================
+  // 5. SERVER-SIDE PAYMENT VERIFICATION (SECURITY ENHANCEMENT)
+  // ==========================================================================
+
+  /**
+   * Verifies payment directly with HDFC Gateway API
+   * This is the CRITICAL security method that prevents parameter manipulation attacks
+   *
+   * @param transactionId - Internal transaction ID
+   * @returns PaymentVerificationResult with verified status from HDFC
+   */
+  static async verifyPaymentWithGateway(
+    transactionId: string
+  ): Promise<PaymentVerificationResult> {
+    try {
+      logger.info('billing/payment-gateway', 'Starting server-side payment verification', {
+        transactionId,
+      });
+
+      const supabase = await createClient();
+
+      // Step 1: Fetch our transaction record
+      const { data: transaction, error: transactionError } = await supabase
+        .from('payment_transactions')
+        .select('*')
+        .eq('id', transactionId)
+        .single();
+
+      if (transactionError || !transaction) {
+        logger.error('billing/payment-gateway', 'Transaction not found for verification', {
+          transactionId,
+        });
+        return {
+          verified: false,
+          status: 'failed',
+          amount: 0,
+          error: 'Transaction not found',
+        };
+      }
+
+      // Step 2: Check if already processed (anti-replay protection)
+      if (transaction.processed_at) {
+        logger.warn('billing/payment-gateway', 'Transaction already processed - potential replay attack', {
+          transactionId,
+          processedAt: transaction.processed_at,
+        });
+
+        // Log potential replay attempt
+        await PaymentAuditService.logReplayBlocked(
+          transactionId,
+          transaction.student_id,
+          transaction.institution_id
+        );
+
+        return {
+          verified: true, // Already verified previously
+          status: transaction.status as PaymentStatus,
+          amount: transaction.total_amount,
+          gatewayTransactionId: transaction.gateway_transaction_id,
+          error: 'Transaction already processed',
+        };
+      }
+
+      // Step 3: Call HDFC Order Status API to get REAL status
+      // Per HDFC documentation: GET /orders/{order_id}
+      // The order_id is OUR transaction_ref that we sent when creating the payment session
+      // Example from docs: GET /orders/JP1636474794
+      let hdfcResponse: HDFCOrderStatusResponse;
+
+      // Use our transaction_ref (the order_id we sent to HDFC)
+      const orderIdForLookup = transaction.transaction_ref;
+      const sessionIdForFallback = transaction.session_id;
+
+      logger.info('billing/payment-gateway', 'Calling HDFC Order Status API', {
+        transactionId,
+        orderIdForLookup,
+        sessionId: sessionIdForFallback,
+      });
+
+      try {
+        // Primary endpoint: /orders/{transaction_ref} - per HDFC documentation
+        // This is the order_id we sent when creating the payment session
+        hdfcResponse = await this.callHDFCApi<HDFCOrderStatusResponse>(
+          `/orders/${orderIdForLookup}`,
+          'GET'
+        );
+      } catch (primaryError) {
+        logger.warn('billing/payment-gateway', 'Primary endpoint with transaction_ref failed', {
+          error: primaryError,
+          transactionRef: orderIdForLookup,
+        });
+
+        try {
+          // Fallback: Try with session_id (ordeh_xxx)
+          // In case HDFC uses their internal ID instead
+          hdfcResponse = await this.callHDFCApi<HDFCOrderStatusResponse>(
+            `/orders/${sessionIdForFallback}`,
+            'GET'
+          );
+        } catch (secondError) {
+          logger.error('billing/payment-gateway', 'All HDFC API endpoints failed', {
+            primaryError,
+            secondError,
+            transactionRef: orderIdForLookup,
+            sessionId: sessionIdForFallback,
+          });
+
+          // Re-throw the original error for better debugging
+          throw primaryError;
+        }
+      }
+
+      // Get status and amount from response (handle both new and legacy field names)
+      const hdfcStatus = hdfcResponse.status || hdfcResponse.order_status || '';
+      const hdfcAmount = hdfcResponse.amount || hdfcResponse.order_amount || 0;
+
+      logger.info('billing/payment-gateway', 'HDFC verification response received', {
+        transactionId,
+        hdfcOrderId: hdfcResponse.order_id,
+        hdfcInternalId: hdfcResponse.id,
+        hdfcStatus,
+        hdfcStatusId: hdfcResponse.status_id,
+        hdfcAmount,
+      });
+
+      // Step 4: Map HDFC status to our PaymentStatus
+      const verifiedStatus = this.mapHDFCStatusToPaymentStatus(hdfcStatus);
+
+      // Step 5: Verify amount matches (prevent amount manipulation)
+      // Note: HDFC amounts are in paisa (multiply by 100), our amounts are in rupees
+      const expectedAmount = Number(transaction.total_amount);
+      // Convert HDFC amount from paisa to rupees for comparison
+      const actualAmount = Number(hdfcAmount) / 100;
+
+      if (Math.abs(expectedAmount - actualAmount) > 0.01) {
+        logger.error('billing/payment-gateway', '⚠️ SECURITY ALERT: Amount mismatch detected', {
+          transactionId,
+          expectedAmount,
+          actualAmount,
+          difference: Math.abs(expectedAmount - actualAmount),
+        });
+
+        // Log amount manipulation attempt
+        await PaymentAuditService.logAmountMismatch(
+          transactionId,
+          transaction.student_id,
+          transaction.institution_id,
+          expectedAmount,
+          actualAmount
+        );
+
+        return {
+          verified: false,
+          status: 'failed',
+          amount: actualAmount,
+          error: 'Amount mismatch - potential manipulation detected',
+          rawResponse: hdfcResponse,
+        };
+      }
+
+      // Step 6: Generate verification hash for audit trail
+      const verificationHash = this.generateVerificationHash(hdfcResponse);
+
+      // Step 7: Build verification result
+      // Extract transaction ID and payment method from new response structure
+      const gatewayTxnId = hdfcResponse.txn_id ||
+                          hdfcResponse.txn_detail?.txn_id ||
+                          hdfcResponse.payment_gateway_response?.epg_txn_id ||
+                          hdfcResponse.payment?.payment_id;
+      const paymentMethod = hdfcResponse.payment_method ||
+                           hdfcResponse.payment_method_type ||
+                           hdfcResponse.payment?.payment_method;
+      const paymentTime = hdfcResponse.date_created ||
+                         hdfcResponse.txn_detail?.created ||
+                         hdfcResponse.payment?.payment_time;
+
+      const result: PaymentVerificationResult = {
+        verified: verifiedStatus === 'success',
+        status: verifiedStatus,
+        amount: actualAmount,
+        gatewayOrderId: hdfcResponse.id || hdfcResponse.order_id,
+        gatewayTransactionId: gatewayTxnId,
+        paymentMethod: paymentMethod,
+        paymentTime: paymentTime,
+        verificationHash,
+        rawResponse: hdfcResponse,
+      };
+
+      logger.info('billing/payment-gateway', 'Payment verification completed', {
+        transactionId,
+        verified: result.verified,
+        status: result.status,
+      });
+
+      return result;
+    } catch (error) {
+      logger.error('billing/payment-gateway', 'Payment verification failed', error);
+      return {
+        verified: false,
+        status: 'failed',
+        amount: 0,
+        error: error instanceof Error ? error.message : 'Verification failed',
+      };
+    }
+  }
+
+  /**
+   * Processes a payment ONLY after server-side verification
+   * This method should be called after verifyPaymentWithGateway confirms success
+   *
+   * @param transactionId - Internal transaction ID
+   * @param verification - Verified payment result from HDFC
+   * @param clientStatus - Status claimed by client (for audit comparison)
+   * @param ipAddress - Client IP address for audit
+   * @param userAgent - Client user agent for audit
+   * @returns ProcessVerifiedPaymentResult
+   */
+  static async processVerifiedPayment(
+    transactionId: string,
+    verification: PaymentVerificationResult,
+    clientStatus?: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<ProcessVerifiedPaymentResult> {
+    try {
+      logger.info('billing/payment-gateway', 'Processing verified payment', {
+        transactionId,
+        verifiedStatus: verification.status,
+        clientStatus,
+      });
+
+      const supabase = await createClient();
+
+      // Step 1: Fetch transaction
+      const { data: transaction, error: txnError } = await supabase
+        .from('payment_transactions')
+        .select('*')
+        .eq('id', transactionId)
+        .single();
+
+      if (txnError || !transaction) {
+        return {
+          success: false,
+          error: 'Transaction not found',
+        };
+      }
+
+      // Step 2: Check for manipulation - client status vs server status
+      if (clientStatus) {
+        const clientClaimsSuccess = ['CHARGED', 'SUCCESS', 'COMPLETED', 'PAID'].includes(
+          clientStatus.toUpperCase()
+        );
+        const serverConfirmsSuccess = verification.verified && verification.status === 'success';
+
+        if (clientClaimsSuccess && !serverConfirmsSuccess) {
+          // MANIPULATION DETECTED - Client claims success but HDFC says otherwise
+          logger.error('billing/payment-gateway', '⚠️ CRITICAL: Payment manipulation detected', {
+            transactionId,
+            clientStatus,
+            serverStatus: verification.status,
+          });
+
+          await PaymentAuditService.logManipulationDetected(
+            transactionId,
+            transaction.student_id,
+            transaction.institution_id,
+            clientStatus,
+            verification.status,
+            ipAddress,
+            userAgent
+          );
+
+          // Update transaction to mark as failed
+          await supabase
+            .from('payment_transactions')
+            .update({
+              status: 'failed',
+              processed_at: new Date().toISOString(),
+              verification_hash: verification.verificationHash,
+              verification_response: verification.rawResponse,
+            })
+            .eq('id', transactionId);
+
+          return {
+            success: false,
+            error: 'Payment verification failed - status mismatch',
+          };
+        }
+      }
+
+      // Step 3: Update transaction with verified status
+      const updateData: Record<string, unknown> = {
+        status: verification.status,
+        gateway_transaction_id: verification.gatewayTransactionId,
+        payment_method: verification.paymentMethod,
+        payment_date: verification.paymentTime || new Date().toISOString(),
+        verified_amount: verification.amount,
+        verification_hash: verification.verificationHash,
+        verification_response: verification.rawResponse,
+        processed_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+      };
+
+      const { error: updateError } = await supabase
+        .from('payment_transactions')
+        .update(updateData)
+        .eq('id', transactionId);
+
+      if (updateError) {
+        logger.error('billing/payment-gateway', 'Failed to update transaction', updateError);
+        return {
+          success: false,
+          error: 'Failed to update transaction',
+        };
+      }
+
+      // Step 4: If payment is verified as successful, create receipt
+      if (verification.verified && verification.status === 'success') {
+        // Log verification success
+        await PaymentAuditService.logVerificationSuccess(
+          transactionId,
+          transaction.student_id,
+          transaction.institution_id,
+          verification.amount
+        );
+
+        // Fetch transaction items
+        const { data: items } = await supabase
+          .from('payment_transaction_items')
+          .select('bill_id, amount')
+          .eq('transaction_id', transactionId);
+
+        if (!items || items.length === 0) {
+          return {
+            success: false,
+            error: 'No transaction items found',
+          };
+        }
+
+        // Create receipt
+        const { data: student } = await supabase
+          .from('students')
+          .select('first_name, last_name, student_mobile')
+          .eq('id', transaction.student_id)
+          .single();
+
+        const payerName = student
+          ? `${student.first_name} ${student.last_name}`.trim()
+          : 'Online Payment';
+
+        const receiptData = {
+          student_id: transaction.student_id,
+          institution_id: transaction.institution_id,
+          payment_mode: 'online' as const,
+          payment_amount: verification.amount,
+          payment_paid_date: verification.paymentTime || new Date().toISOString(),
+          payer_name: payerName,
+          payer_contact: student?.student_mobile || '',
+          payment_reference_number: verification.gatewayTransactionId || transaction.transaction_ref,
+          payment_remarks: `Online payment via HDFC SmartGateway - ${verification.paymentMethod || 'CARD'} (Verified)`,
+          receipt_items: items.map((item) => ({
+            bill_id: item.bill_id,
+            amount_paid: item.amount,
+          })),
+        };
+
+        const receipt = await BillingReceiptService.createBillingReceipt(receiptData);
+
+        if (!receipt) {
+          logger.error('billing/payment-gateway', 'Failed to create receipt for verified payment');
+          return {
+            success: true, // Transaction updated, but receipt failed
+            error: 'Payment verified but receipt creation failed',
+          };
+        }
+
+        // Log receipt creation
+        await PaymentAuditService.logReceiptCreated(
+          transactionId,
+          transaction.student_id,
+          transaction.institution_id,
+          receipt.id,
+          receipt.receipt_number,
+          verification.amount
+        );
+
+        logger.info('billing/payment-gateway', 'Verified payment processed successfully', {
+          transactionId,
+          receiptId: receipt.id,
+          receiptNumber: receipt.receipt_number,
+        });
+
+        return {
+          success: true,
+          receiptId: receipt.id,
+          receiptNumber: receipt.receipt_number,
+        };
+      } else {
+        // Payment not successful - log verification failure
+        await PaymentAuditService.logVerificationFailed(
+          transactionId,
+          transaction.student_id,
+          transaction.institution_id,
+          verification.status,
+          { hdfcResponse: verification.rawResponse }
+        );
+
+        return {
+          success: true, // Process completed, but payment was not successful
+          error: `Payment status: ${verification.status}`,
+        };
+      }
+    } catch (error) {
+      logger.error('billing/payment-gateway', 'Process verified payment failed', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Processing failed',
+      };
+    }
+  }
+
+  /**
+   * Maps HDFC order status to our internal PaymentStatus
+   */
+  private static mapHDFCStatusToPaymentStatus(hdfcStatus: string): PaymentStatus {
+    const statusMap: Record<string, PaymentStatus> = {
+      'PAID': 'success',
+      'CHARGED': 'success',
+      'SUCCESS': 'success',
+      'COMPLETED': 'success',
+      'FAILED': 'failed',
+      'DECLINED': 'failed',
+      'CANCELLED': 'cancelled',
+      'CANCELED': 'cancelled',
+      'USER_DROPPED': 'cancelled',
+      'EXPIRED': 'expired',
+      'PENDING': 'processing',
+      'PENDING_VBV': 'processing',
+      'NEW': 'initiated',
+      'INITIATED': 'initiated',
+    };
+
+    const normalizedStatus = hdfcStatus?.toUpperCase() || '';
+    return statusMap[normalizedStatus] || 'failed';
+  }
+
+  /**
+   * Generates a SHA-256 hash of the HDFC response for anti-replay protection
+   */
+  private static generateVerificationHash(response: HDFCOrderStatusResponse): string {
+    const dataToHash = JSON.stringify({
+      order_id: response.order_id,
+      order_status: response.order_status,
+      order_amount: response.order_amount,
+      payment_id: response.payment?.payment_id,
+      payment_time: response.payment?.payment_time,
+    });
+
+    return crypto.createHash('sha256').update(dataToHash).digest('hex');
+  }
+
+  // ==========================================================================
   // HELPER METHODS
   // ==========================================================================
 
@@ -678,20 +1142,25 @@ export class PaymentGatewayService {
   private static async callHDFCApi<T>(
     endpoint: string,
     method: 'GET' | 'POST',
-    body?: any
+    body?: any,
+    customerId?: string
   ): Promise<T> {
     const config = getHDFCConfig();
     const url = `${config.baseUrl}${endpoint}`;
 
-    // Create authentication header (Basic Auth with API Key and Secret)
-    const authToken = Buffer.from(`${config.apiKey}:${config.apiSecret}`).toString('base64');
+    // Create authentication header (Basic Auth with API Key only - per HDFC docs)
+    // The API key should be Base64 encoded directly
+    const authToken = Buffer.from(config.apiKey).toString('base64');
 
+    // Headers as per HDFC Order Status API documentation:
+    // https://smartgateway.hdfcbank.com/docs/smartgateway-api-ref-basicauth/docs/apis/order-status-api
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      'Content-Type': method === 'GET' ? 'application/x-www-form-urlencoded' : 'application/json',
       'Authorization': `Basic ${authToken}`,
       'x-merchantid': config.merchantId,
-      'x-customerid': body?.customer_id || 'default_customer',
+      'x-customerid': customerId || body?.customer_id || 'default_customer',
       'x-resellerid': 'hdfc_reseller',
+      'version': '2023-06-30', // API version header - required per HDFC docs
     };
 
     const options: RequestInit = {

@@ -147,10 +147,60 @@ export interface HDFCWebhookPayload {
 }
 
 export interface HDFCOrderStatusResponse {
-  order_id: string;
-  order_status: string;
-  order_amount: number;
-  payment_session_id: string;
+  // Core order fields
+  id: string;                      // HDFC's internal order ID (ordeh_xxx)
+  order_id: string;                // Our transaction_ref
+  status: string;                  // Order status: CHARGED, PENDING, FAILED, etc.
+  status_id: number;               // Numeric status ID (21 = CHARGED)
+  amount: number;                  // Amount in paisa
+  currency: string;                // Currency code (INR)
+  date_created: string;            // Order creation timestamp
+  merchant_id: string;             // Merchant ID
+
+  // Legacy field names for backward compatibility
+  order_status?: string;           // Alias for status
+  order_amount?: number;           // Alias for amount
+  payment_session_id?: string;     // Session ID
+
+  // Customer info
+  customer_id?: string;
+  customer_email?: string;
+  customer_phone?: string;
+
+  // Transaction details
+  txn_id?: string;                 // Transaction ID
+  txn_uuid?: string;               // Transaction UUID
+  payment_method_type?: string;    // CARD, UPI, NETBANKING, WALLET
+  payment_method?: string;         // Specific method (VISA, MASTERCARD, etc.)
+  auth_type?: string;              // Authentication type (THREE_DS, etc.)
+
+  // For detailed transaction info
+  txn_detail?: {
+    txn_id: string;
+    order_id: string;
+    status: string;
+    error_code: string | null;
+    net_amount: number;
+    txn_amount: number;
+    currency: string;
+    gateway: string;
+    gateway_id: number;
+    created: string;
+    error_message: string;
+  };
+
+  // Gateway response
+  payment_gateway_response?: {
+    resp_code: string;
+    resp_message: string;
+    rrn: string;
+    epg_txn_id: string;
+    auth_id_code: string;
+    txn_id: string;
+    created: string;
+  };
+
+  // Legacy payment object for backward compatibility
   payment?: {
     payment_id: string;
     payment_status: string;
@@ -279,4 +329,52 @@ export interface PaymentStatusResult {
   success: boolean;
   data?: PaymentStatusCheckResponse;
   error?: PaymentErrorResponse;
+}
+
+// ============================================================================
+// Payment Verification Types (Security Enhancement)
+// ============================================================================
+
+export interface PaymentVerificationResult {
+  verified: boolean;
+  status: PaymentStatus;
+  amount: number;
+  gatewayOrderId?: string;
+  gatewayTransactionId?: string;
+  paymentMethod?: string;
+  paymentTime?: string;
+  verificationHash?: string;
+  error?: string;
+  rawResponse?: HDFCOrderStatusResponse;
+}
+
+export type PaymentAuditEventType =
+  | 'PAYMENT_VERIFICATION_SUCCESS'
+  | 'PAYMENT_VERIFICATION_FAILED'
+  | 'PAYMENT_MANIPULATION_DETECTED'
+  | 'PAYMENT_AMOUNT_MISMATCH'
+  | 'PAYMENT_REPLAY_BLOCKED'
+  | 'WEBHOOK_SIGNATURE_INVALID'
+  | 'PAYMENT_CALLBACK_RECEIVED'
+  | 'PAYMENT_RECEIPT_CREATED';
+
+export interface PaymentAuditLog {
+  eventType: PaymentAuditEventType;
+  transactionId: string;
+  studentId?: string;
+  institutionId?: string;
+  expectedAmount?: number;
+  actualAmount?: number;
+  clientStatus?: string;
+  serverStatus?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProcessVerifiedPaymentResult {
+  success: boolean;
+  receiptId?: string;
+  receiptNumber?: string;
+  error?: string;
 }
