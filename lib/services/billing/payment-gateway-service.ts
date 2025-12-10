@@ -479,7 +479,8 @@ export class PaymentGatewayService {
         })),
       };
 
-      const receipt = await BillingReceiptService.createBillingReceipt(receiptData);
+      // Pass server-side client for proper authentication in server context
+      const receipt = await BillingReceiptService.createBillingReceipt(receiptData, supabase);
 
       if (!receipt) {
         logger.error('billing/payment-gateway', 'Failed to create receipt');
@@ -987,7 +988,8 @@ export class PaymentGatewayService {
           })),
         };
 
-        const receipt = await BillingReceiptService.createBillingReceipt(receiptData);
+        // Pass service role client for server-side execution (API routes don't have user session)
+        const receipt = await BillingReceiptService.createBillingReceipt(receiptData, supabase);
 
         if (!receipt) {
           logger.error('billing/payment-gateway', 'Failed to create receipt for verified payment');

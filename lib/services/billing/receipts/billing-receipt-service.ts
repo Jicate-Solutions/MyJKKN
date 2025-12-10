@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { SupabaseClient } from '@supabase/supabase-js';
 import type {
   BillingReceipt,
   ReceiptFilters,
@@ -7,20 +8,27 @@ import type {
   UpdateReceiptDto,
   BulkOperationResult
 } from '@/types/billing-schedule';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export class BillingReceiptService {
   private static supabase = createClientSupabaseClient();
 
+  // Get the appropriate Supabase client (passed or default)
+  private static getClient(providedClient?: SupabaseClient): SupabaseClient {
+    return providedClient || this.supabase;
+  }
+
   // Generate a unique receipt number using database function
-  private static async generateReceiptNumber(): Promise<string> {
+  private static async generateReceiptNumber(supabaseClient?: SupabaseClient): Promise<string> {
+    const client = this.getClient(supabaseClient);
     try {
       // Use the database function for generating receipt numbers
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await client.rpc(
         'generate_receipt_number'
       );
 
       if (error) {
-        console.error('Error calling generate_receipt_number function:', error);
+        logger.error('billing/receipts', 'Error calling generate_receipt_number function', error);
         throw error;
       }
 
@@ -28,10 +36,10 @@ export class BillingReceiptService {
         throw new Error('Database function returned null receipt number');
       }
 
-      console.log('Generated receipt number from database:', data);
+      logger.info('billing/receipts', 'Generated receipt number from database', { receiptNumber: data });
       return data;
     } catch (error) {
-      console.error('Error in generateReceiptNumber:', error);
+      logger.error('billing/receipts', 'Error in generateReceiptNumber', error);
       // Fallback to timestamp-based approach if database function fails
       const now = new Date();
       const year = now.getFullYear();
@@ -43,30 +51,47 @@ export class BillingReceiptService {
 
       // Format: RCP-YYYY-MMDD-HHMMSS
       const fallbackNumber = `RCP-${year}-${month}${day}-${hours}${minutes}${seconds}`;
-      console.log('Using fallback receipt number:', fallbackNumber);
+      logger.warn('billing/receipts', 'Using fallback receipt number', { fallbackNumber });
       return fallbackNumber;
     }
   }
 
+  /**
+   * Creates a billing receipt with automatic bill status updates.
+   *
+   * @param receiptData - The receipt data to create
+   * @param supabaseClient - Optional Supabase client for server-side execution (API routes/callbacks)
+   *                         If not provided, uses the default client-side client
+   * @returns The created receipt
+   */
   static async createBillingReceipt(
-    receiptData: CreateReceiptDto
+    receiptData: CreateReceiptDto,
+    supabaseClient?: SupabaseClient
   ): Promise<BillingReceipt> {
+    const client = this.getClient(supabaseClient);
+
     try {
-      // Get current user ID
-      const { data: userData } = await this.supabase.auth.getUser();
-      const currentUserId = userData?.user?.id;
+      // Get current user ID (may be null for service role client)
+      let currentUserId: string | undefined;
+      try {
+        const { data: userData } = await client.auth.getUser();
+        currentUserId = userData?.user?.id;
+      } catch {
+        // Service role client may not have user context
+        logger.dev('billing/receipts', 'No user context available (likely server-side execution)');
+      }
 
       // Generate receipt number
-      const receiptNumber = await this.generateReceiptNumber();
+      const receiptNumber = await this.generateReceiptNumber(client);
 
       if (!receiptNumber) {
         throw new Error('Failed to generate receipt number');
       }
 
-      console.log('Creating receipt with number:', receiptNumber);
+      logger.info('billing/receipts', 'Creating receipt', { receiptNumber });
 
       // Start a transaction to create receipt and receipt items
-      const { data: receipt, error: receiptError } = await this.supabase
+      const { data: receipt, error: receiptError } = await client
         .from('billing_receipts')
         .insert({
           receipt_number: receiptNumber,
@@ -103,11 +128,11 @@ export class BillingReceiptService {
         .single();
 
       if (receiptError) {
-        console.error('Receipt creation error:', receiptError);
+        logger.error('billing/receipts', 'Receipt creation error', receiptError);
         throw receiptError;
       }
 
-      console.log('Receipt created successfully:', receipt.id);
+      logger.info('billing/receipts', 'Receipt created successfully', { receiptId: receipt.id });
 
       // Create receipt items
       if (receiptData.receipt_items && receiptData.receipt_items.length > 0) {
@@ -117,32 +142,29 @@ export class BillingReceiptService {
           amount_paid: item.amount_paid
         }));
 
-        const { error: itemsError } = await this.supabase
+        const { error: itemsError } = await client
           .from('billing_receipt_items')
           .insert(receiptItems);
 
         if (itemsError) {
-          console.error('Receipt items creation error:', itemsError);
+          logger.error('billing/receipts', 'Receipt items creation error', itemsError);
           throw itemsError;
         }
 
-        console.log('Receipt items created successfully');
-        console.log(
-          'Bill statuses will be updated automatically by database trigger'
-        );
+        logger.info('billing/receipts', 'Receipt items created successfully');
 
         // Manual validation and update as fallback in case trigger fails
         for (const item of receiptData.receipt_items) {
-          await this.validateAndUpdateBillStatus(item.bill_id);
+          await this.validateAndUpdateBillStatus(item.bill_id, client);
 
           // Check if bill is now fully paid and generate invoice if needed
-          await this.checkAndGenerateInvoice(item.bill_id);
+          await this.checkAndGenerateInvoice(item.bill_id, client);
         }
       }
 
       return receipt;
     } catch (error) {
-      console.error('Error creating receipt:', error);
+      logger.error('billing/receipts', 'Error creating receipt', error);
       throw new Error(
         error instanceof Error ? error.message : 'Failed to create receipt'
       );
@@ -823,32 +845,32 @@ export class BillingReceiptService {
 
   // Helper method to validate and update bill status manually
   private static async validateAndUpdateBillStatus(
-    billId: string
+    billId: string,
+    supabaseClient?: SupabaseClient
   ): Promise<void> {
+    const client = this.getClient(supabaseClient);
+
     try {
       // Get current bill details
-      const { data: bill, error: billError } = await this.supabase
+      const { data: bill, error: billError } = await client
         .from('billing_student_bills')
         .select('id, final_amount, status, balance_amount')
         .eq('id', billId)
         .single();
 
       if (billError || !bill) {
-        console.error('Error fetching bill for validation:', billError);
+        logger.error('billing/receipts', 'Error fetching bill for validation', billError);
         return;
       }
 
       // Calculate total payments for this bill
-      const { data: receiptItems, error: itemsError } = await this.supabase
+      const { data: receiptItems, error: itemsError } = await client
         .from('billing_receipt_items')
         .select('amount_paid')
         .eq('bill_id', billId);
 
       if (itemsError) {
-        console.error(
-          'Error fetching receipt items for validation:',
-          itemsError
-        );
+        logger.error('billing/receipts', 'Error fetching receipt items for validation', itemsError);
         return;
       }
 
@@ -875,44 +897,56 @@ export class BillingReceiptService {
 
       // Update bill if status or balance doesn't match
       if (newStatus !== bill.status || newBalance !== bill.balance_amount) {
-        console.log(
-          `Manual bill status update: ${bill.id} -> ${newStatus}, Balance: ${newBalance}`
-        );
+        logger.info('billing/receipts', 'Updating bill status', {
+          billId: bill.id,
+          oldStatus: bill.status,
+          newStatus,
+          oldBalance: bill.balance_amount,
+          newBalance
+        });
 
-        const updateData: any = {
+        const updateData: Record<string, unknown> = {
           status: newStatus,
-          balance_amount: newBalance
+          balance_amount: newBalance,
+          updated_at: new Date().toISOString()
         };
 
         if (paymentDate) {
           updateData.payment_date = paymentDate;
         }
 
-        const { error: updateError } = await this.supabase
+        const { error: updateError } = await client
           .from('billing_student_bills')
           .update(updateData)
           .eq('id', billId);
 
         if (updateError) {
-          console.error('Error updating bill status manually:', updateError);
+          logger.error('billing/receipts', 'Error updating bill status manually', updateError);
+        } else {
+          logger.info('billing/receipts', 'Bill status updated successfully', { billId, newStatus });
         }
       }
     } catch (error) {
-      console.error('Error in validateAndUpdateBillStatus:', error);
+      logger.error('billing/receipts', 'Error in validateAndUpdateBillStatus', error);
     }
   }
 
   // Method to check if a bill is now fully paid and generate an invoice if needed
-  private static async checkAndGenerateInvoice(billId: string): Promise<void> {
+  private static async checkAndGenerateInvoice(
+    billId: string,
+    supabaseClient?: SupabaseClient
+  ): Promise<void> {
+    const client = this.getClient(supabaseClient);
+
     try {
       // Get current bill details with related data
-      const { data: bill, error: billError } = await this.supabase
+      const { data: bill, error: billError } = await client
         .from('billing_student_bills')
         .select(
           `
-          id, 
-          final_amount, 
-          status, 
+          id,
+          final_amount,
+          status,
           balance_amount,
           student_id,
           institution_id,
@@ -924,19 +958,17 @@ export class BillingReceiptService {
         .single();
 
       if (billError || !bill) {
-        console.error('Error fetching bill for invoice generation:', billError);
+        logger.error('billing/receipts', 'Error fetching bill for invoice generation', billError);
         return;
       }
 
       // Check if bill is now fully paid
       if (bill.status === 'paid' && bill.balance_amount === 0) {
-        console.log(
-          `Bill ${bill.id} is now fully paid. Checking for invoice generation.`
-        );
+        logger.info('billing/receipts', 'Bill is fully paid, checking for invoice generation', { billId });
 
         // Check if invoice already exists for this bill
         const { data: existingInvoices, error: invoiceError } =
-          await this.supabase
+          await client
             .from('billing_invoices')
             .select(
               `
@@ -952,7 +984,7 @@ export class BillingReceiptService {
             .eq('student_id', bill.student_id);
 
         if (invoiceError) {
-          console.error('Error checking existing invoices:', invoiceError);
+          logger.error('billing/receipts', 'Error checking existing invoices', invoiceError);
           return;
         }
 
@@ -966,14 +998,12 @@ export class BillingReceiptService {
         );
 
         if (billAlreadyInvoiced) {
-          console.log(
-            `Bill ${billId} already has an invoice. Skipping auto-generation.`
-          );
+          logger.info('billing/receipts', 'Bill already has an invoice, skipping auto-generation', { billId });
           return;
         }
 
         // Get all receipts that paid for this bill
-        const { data: receiptItems, error: receiptError } = await this.supabase
+        const { data: receiptItems, error: receiptError } = await client
           .from('billing_receipt_items')
           .select(
             `
@@ -990,18 +1020,11 @@ export class BillingReceiptService {
           .eq('bill_id', billId);
 
         if (receiptError || !receiptItems || receiptItems.length === 0) {
-          console.error(
-            'Error fetching receipt items for invoice:',
-            receiptError
-          );
+          logger.error('billing/receipts', 'Error fetching receipt items for invoice', receiptError);
           return;
         }
 
         // Calculate total amount and create invoice items
-        const totalAmount = receiptItems.reduce(
-          (sum, item) => sum + item.amount_paid,
-          0
-        );
         const invoiceItems = receiptItems.map((item) => ({
           receipt_id: item.receipt_id,
           amount: item.amount_paid
@@ -1009,17 +1032,12 @@ export class BillingReceiptService {
 
         // Use database function to generate invoice (preferred method)
         try {
-          await this.supabase.rpc('generate_auto_invoice_for_bill', {
+          await client.rpc('generate_auto_invoice_for_bill', {
             p_bill_id: billId
           });
-          console.log(
-            `Auto-generated invoice for bill ${billId} using database function`
-          );
+          logger.info('billing/receipts', 'Auto-generated invoice using database function', { billId });
         } catch (dbError) {
-          console.warn(
-            'Database auto-invoice function failed, falling back to service:',
-            dbError
-          );
+          logger.warn('billing/receipts', 'Database auto-invoice function failed, using fallback', dbError);
 
           // Fallback: Create invoice using service
           const { BillingInvoiceService } = await import(
@@ -1039,13 +1057,11 @@ export class BillingReceiptService {
           };
 
           await BillingInvoiceService.createBillingInvoice(invoiceData);
-          console.log(
-            `Auto-generated invoice for bill ${billId} using service fallback`
-          );
+          logger.info('billing/receipts', 'Auto-generated invoice using service fallback', { billId });
         }
       }
     } catch (error) {
-      console.error('Error in checkAndGenerateInvoice:', error);
+      logger.error('billing/receipts', 'Error in checkAndGenerateInvoice', error);
       // Don't throw error to avoid breaking the main payment flow
     }
   }
