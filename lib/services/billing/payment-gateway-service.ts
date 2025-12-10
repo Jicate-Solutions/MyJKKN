@@ -3,7 +3,7 @@
 // Created: 2025-01-20
 // Purpose: Handle online payment processing via HDFC SmartGateway
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { BillingReceiptService } from './receipts/billing-receipt-service';
 import type {
   PaymentTransaction,
@@ -553,7 +553,7 @@ export class PaymentGatewayService {
 
       // Step 3: Query HDFC for latest status
       const hdfcStatus = await this.callHDFCApi<HDFCOrderStatusResponse>(
-        `/v1/orders/${transaction.transaction_ref}`,
+        `/orders/${transaction.transaction_ref}`,
         'GET'
       );
 
@@ -637,7 +637,8 @@ export class PaymentGatewayService {
         transactionId,
       });
 
-      const supabase = await createClient();
+      // Use service role client for server-side verification (no user session in callbacks)
+      const supabase = createServiceRoleClient();
 
       // Step 1: Fetch our transaction record
       const { data: transaction, error: transactionError } = await supabase
@@ -747,10 +748,10 @@ export class PaymentGatewayService {
       const verifiedStatus = this.mapHDFCStatusToPaymentStatus(hdfcStatus);
 
       // Step 5: Verify amount matches (prevent amount manipulation)
-      // Note: HDFC amounts are in paisa (multiply by 100), our amounts are in rupees
+      // Note: Both our amounts and HDFC amounts are in rupees (not paisa)
+      // HDFC Order Status API returns amount as Double type in rupees
       const expectedAmount = Number(transaction.total_amount);
-      // Convert HDFC amount from paisa to rupees for comparison
-      const actualAmount = Number(hdfcAmount) / 100;
+      const actualAmount = Number(hdfcAmount);
 
       if (Math.abs(expectedAmount - actualAmount) > 0.01) {
         logger.error('billing/payment-gateway', '⚠️ SECURITY ALERT: Amount mismatch detected', {
@@ -849,7 +850,8 @@ export class PaymentGatewayService {
         clientStatus,
       });
 
-      const supabase = await createClient();
+      // Use service role client for server-side processing (no user session in callbacks)
+      const supabase = createServiceRoleClient();
 
       // Step 1: Fetch transaction
       const { data: transaction, error: txnError } = await supabase
