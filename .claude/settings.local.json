@@ -121,7 +121,8 @@
       "Bash(/c/Users/Admin/AppData/Local/Programs/bd/bd.exe ready:*)",
       "Bash(/c/Users/Admin/AppData/Local/Programs/bd/bd.exe show:*)",
       "Bash(/c/Users/Admin/AppData/Local/Programs/bd/bd.exe close:*)",
-      "Bash(/c/Users/Admin/AppData/Local/Programs/bd/bd.exe stats)"
+      "Bash(/c/Users/Admin/AppData/Local/Programs/bd/bd.exe stats)",
+      "Bash(ssh:*)"
     ],
     "deny": [],
     "ask": []
