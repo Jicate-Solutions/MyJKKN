@@ -732,6 +732,122 @@ logger.error('module', 'Error message', error);    // Kept in production
 
 ---
 
+## 🔮 Beads Issue Tracker (bd)
+
+Beads is a **git-backed distributed issue tracker** designed for AI coding agents. It provides persistent memory across sessions using JSONL files that sync via git.
+
+### Installation (Completed)
+- **Binary location**: `C:\Users\Admin\AppData\Local\Programs\bd\bd.exe`
+- **Project database**: `D:\Projects\MyJKKN\.beads\`
+- **Git hooks**: Installed (pre-commit, post-merge, pre-push, post-checkout)
+
+### Key Benefits
+| Feature | Description |
+|---------|-------------|
+| **Persistent Memory** | Issues survive across Claude Code sessions |
+| **Dependency Tracking** | 4 types: blocks, related, parent-child, discovered-from |
+| **Ready Work Detection** | Auto-finds unblocked issues |
+| **Hash-based IDs** | Format `MyJKKN-xxxx` prevents merge conflicts |
+| **Git-Synced** | Team collaboration via version control |
+
+### Essential Commands
+
+```bash
+# Create an alias for easier use (add to your shell profile)
+alias bd='/c/Users/Admin/AppData/Local/Programs/bd/bd.exe'
+
+# Or use full path:
+/c/Users/Admin/AppData/Local/Programs/bd/bd.exe [command]
+
+# Core commands
+bd ready                              # See unblocked work
+bd list                               # View all issues
+bd create "Title" -t feature -p 1     # Create issue (P1 = highest priority)
+bd show MyJKKN-xxxx                   # View issue details
+bd update MyJKKN-xxxx --status in_progress  # Update status
+bd close MyJKKN-xxxx --reason "Done"  # Close issue
+
+# Dependencies
+bd dep add MyJKKN-a MyJKKN-b          # A blocks B
+bd dep tree MyJKKN-xxxx               # Visualize dependencies
+bd blocked                            # Show blocked issues
+
+# Sync & Info
+bd sync                               # Manual git sync
+bd info                               # Database info
+bd stats                              # Statistics
+```
+
+### Issue Types & Priorities
+```bash
+# Types: bug, feature, task, improvement, question
+bd create "Fix login" -t bug -p 0      # Critical bug (P0)
+bd create "Add dark mode" -t feature -p 2   # Normal feature (P2)
+
+# Priorities: 0 (critical) to 4 (low)
+# P0: Critical, P1: High, P2: Normal, P3: Low, P4: Trivial
+```
+
+### Workflow with Claude Code
+
+```bash
+# Start of session - check what's ready
+bd ready
+
+# Create issues for planned work
+bd create "Implement user authentication" -t feature -p 1
+bd create "Add password reset" -t task -p 2
+
+# Set dependencies
+bd dep add MyJKKN-xxxx MyJKKN-yyyy --type blocks
+
+# Track progress
+bd update MyJKKN-xxxx --status in_progress
+
+# Complete work
+bd close MyJKKN-xxxx --reason "Authentication implemented"
+
+# End of session - sync changes
+bd sync
+```
+
+### Integration with TodoWrite
+
+- **Beads (bd)**: Long-term persistent task tracking (survives sessions)
+- **TodoWrite**: Session-based immediate task tracking
+
+Use Beads for:
+- Multi-session features
+- Bugs to fix later
+- Technical debt tracking
+- Cross-team visibility
+
+Use TodoWrite for:
+- Current session tasks
+- Step-by-step work breakdown
+- Real-time progress display
+
+### Labels & Filtering
+```bash
+# Add labels
+bd label add MyJKKN-xxxx "billing"
+bd label add MyJKKN-xxxx "urgent"
+
+# Filter by label
+bd list --label billing
+bd list --status open --priority 0-1
+```
+
+### Best Practices
+
+1. **Create issues for discovered work**: When you find bugs or improvements while working on something else
+2. **Use dependencies**: Link related issues with `bd dep add`
+3. **Close with reasons**: Always provide context when closing
+4. **Sync regularly**: Run `bd sync` before ending sessions
+5. **Use meaningful titles**: Make issues searchable and clear
+
+---
+
 ## Notes
 - Memory persists across Claude Code sessions
 - Sequential thinking helps maintain consistency in complex tasks
