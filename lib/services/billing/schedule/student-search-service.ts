@@ -175,14 +175,17 @@ export class StudentSearchService {
 
       if (error) throw error;
 
-      // Calculate outstanding amounts for each student and properly type the data
-      const studentsWithOutstanding: StudentForBilling[] = await Promise.all(
-        (data || []).map(async (student: any) => {
-          const outstandingAmount = await this.calculateStudentOutstanding(
-            student.id
-          );
-          return this.mapToStudentForBilling(student, outstandingAmount);
-        })
+      // Bulk fetch outstanding amounts (eliminates N+1 queries)
+      const studentIds = (data || []).map((s: any) => s.id);
+      const outstandingMap = await this.bulkCalculateOutstanding(studentIds);
+
+      // Map students with their outstanding amounts
+      const studentsWithOutstanding: StudentForBilling[] = (data || []).map(
+        (student: any) =>
+          this.mapToStudentForBilling(
+            student,
+            outstandingMap.get(student.id) || 0
+          )
       );
 
       return {
@@ -426,6 +429,52 @@ export class StudentSearchService {
     }
   }
 
+  /**
+   * Bulk calculate outstanding amounts for multiple students in a single query.
+   * Eliminates N+1 query pattern by fetching all amounts at once.
+   */
+  private static async bulkCalculateOutstanding(
+    studentIds: string[]
+  ): Promise<Map<string, number>> {
+    const outstandingMap = new Map<string, number>();
+
+    if (studentIds.length === 0) {
+      return outstandingMap;
+    }
+
+    try {
+      const { data, error } = await this.supabase.rpc(
+        'bulk_calculate_student_outstanding',
+        { student_ids: studentIds }
+      );
+
+      if (error) throw error;
+
+      // Build map from results
+      if (data) {
+        for (const row of data) {
+          outstandingMap.set(row.student_id, row.outstanding_amount || 0);
+        }
+      }
+
+      // Ensure all requested students have an entry (default to 0)
+      for (const id of studentIds) {
+        if (!outstandingMap.has(id)) {
+          outstandingMap.set(id, 0);
+        }
+      }
+
+      return outstandingMap;
+    } catch (error) {
+      console.error('Error bulk calculating student outstanding:', error);
+      // Return map with all zeros on error
+      for (const id of studentIds) {
+        outstandingMap.set(id, 0);
+      }
+      return outstandingMap;
+    }
+  }
+
   static async getStudentsByInstitution(
     institutionId: string,
     limit: number = 50
@@ -457,14 +506,17 @@ export class StudentSearchService {
 
       if (error) throw error;
 
-      // Calculate outstanding amounts for each student and properly type the data
-      const studentsWithOutstanding: StudentForBilling[] = await Promise.all(
-        (data || []).map(async (student: any) => {
-          const outstandingAmount = await this.calculateStudentOutstanding(
-            student.id
-          );
-          return this.mapToStudentForBilling(student, outstandingAmount);
-        })
+      // Bulk fetch outstanding amounts (eliminates N+1 queries)
+      const studentIds = (data || []).map((s: any) => s.id);
+      const outstandingMap = await this.bulkCalculateOutstanding(studentIds);
+
+      // Map students with their outstanding amounts
+      const studentsWithOutstanding: StudentForBilling[] = (data || []).map(
+        (student: any) =>
+          this.mapToStudentForBilling(
+            student,
+            outstandingMap.get(student.id) || 0
+          )
       );
 
       return studentsWithOutstanding;
@@ -517,18 +569,19 @@ export class StudentSearchService {
 
       if (error) throw error;
 
-      // Filter students with outstanding bills and calculate amounts
-      const studentsWithOutstanding: StudentForBilling[] = [];
-      for (const student of data || []) {
-        const outstandingAmount = await this.calculateStudentOutstanding(
-          student.id
+      // Bulk fetch outstanding amounts (eliminates N+1 queries)
+      const studentIds = (data || []).map((s: any) => s.id);
+      const outstandingMap = await this.bulkCalculateOutstanding(studentIds);
+
+      // Filter students with outstanding bills and map them
+      const studentsWithOutstanding: StudentForBilling[] = (data || [])
+        .filter((student: any) => (outstandingMap.get(student.id) || 0) > 0)
+        .map((student: any) =>
+          this.mapToStudentForBilling(
+            student,
+            outstandingMap.get(student.id) || 0
+          )
         );
-        if (outstandingAmount > 0) {
-          studentsWithOutstanding.push(
-            this.mapToStudentForBilling(student, outstandingAmount)
-          );
-        }
-      }
 
       return studentsWithOutstanding;
     } catch (error) {
@@ -578,14 +631,17 @@ export class StudentSearchService {
 
       if (error) throw error;
 
-      // Calculate outstanding amounts for each student and properly type the data
-      const studentsWithOutstanding: StudentForBilling[] = await Promise.all(
-        (data || []).map(async (student: any) => {
-          const outstandingAmount = await this.calculateStudentOutstanding(
-            student.id
-          );
-          return this.mapToStudentForBilling(student, outstandingAmount);
-        })
+      // Bulk fetch outstanding amounts (eliminates N+1 queries)
+      const studentIds = (data || []).map((s: any) => s.id);
+      const outstandingMap = await this.bulkCalculateOutstanding(studentIds);
+
+      // Map students with their outstanding amounts
+      const studentsWithOutstanding: StudentForBilling[] = (data || []).map(
+        (student: any) =>
+          this.mapToStudentForBilling(
+            student,
+            outstandingMap.get(student.id) || 0
+          )
       );
 
       return studentsWithOutstanding;

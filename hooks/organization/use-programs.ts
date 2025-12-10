@@ -2,6 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Program, ProgramFilters } from '@/types/organizations';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
 
 export function usePrograms(filters: ProgramFilters) {
   return useQuery({
@@ -11,6 +12,6 @@ export function usePrograms(filters: ProgramFilters) {
       return { data, metadata };
     },
     placeholderData: (previousData) => previousData,
-    retry: false
+    ...QUERY_CONFIG.STABLE_DATA // Programs rarely change - use stable caching
   });
 }
