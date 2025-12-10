@@ -122,7 +122,8 @@
       "Bash(/c/Users/Admin/AppData/Local/Programs/bd/bd.exe show:*)",
       "Bash(/c/Users/Admin/AppData/Local/Programs/bd/bd.exe close:*)",
       "Bash(/c/Users/Admin/AppData/Local/Programs/bd/bd.exe stats)",
-      "Bash(ssh:*)"
+      "Bash(ssh:*)",
+      "mcp__supabase__generate_typescript_types"
     ],
     "deny": [],
     "ask": []
