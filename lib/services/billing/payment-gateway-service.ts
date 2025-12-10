@@ -174,7 +174,8 @@ export class PaymentGatewayService {
       const tempSessionId = `temp_${transactionRef}`;
 
       // Step 4: Create payment transaction record
-      const { data: transaction, error: transactionError } = await supabase
+      // Note: Using 'as any' cast because payment_transactions table types need regeneration
+      const { data: transaction, error: transactionError } = await (supabase as any)
         .from('payment_transactions')
         .insert({
           transaction_ref: transactionRef,
@@ -252,7 +253,7 @@ export class PaymentGatewayService {
       }
 
       // Step 7: Update transaction with HDFC session ID
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from('payment_transactions')
         .update({
           session_id: hdfcSessionId,
@@ -331,7 +332,7 @@ export class PaymentGatewayService {
 
       // Step 2: Find transaction by transaction_ref (order_id)
       const supabase = await createClient();
-      const { data: transaction, error: transactionError } = await supabase
+      const { data: transaction, error: transactionError } = await (supabase as any)
         .from('payment_transactions')
         .select('*')
         .eq('transaction_ref', payload.data.order.order_id)
@@ -371,7 +372,7 @@ export class PaymentGatewayService {
       }
 
       // Step 4: Update transaction status
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from('payment_transactions')
         .update({
           status: newStatus,
@@ -516,7 +517,7 @@ export class PaymentGatewayService {
       const supabase = await createClient();
 
       // Step 1: Fetch transaction
-      const { data: transaction, error: transactionError } = await supabase
+      const { data: transaction, error: transactionError } = await (supabase as any)
         .from('payment_transactions')
         .select('*')
         .eq('id', transactionId)
@@ -569,7 +570,7 @@ export class PaymentGatewayService {
       }
 
       if (newStatus !== transaction.status) {
-        const { error: updateError } = await supabase
+        const { error: updateError } = await (supabase as any)
           .from('payment_transactions')
           .update({
             status: newStatus,
@@ -641,7 +642,7 @@ export class PaymentGatewayService {
       const supabase = createServiceRoleClient();
 
       // Step 1: Fetch our transaction record
-      const { data: transaction, error: transactionError } = await supabase
+      const { data: transaction, error: transactionError } = await (supabase as any)
         .from('payment_transactions')
         .select('*')
         .eq('id', transactionId)
@@ -854,7 +855,7 @@ export class PaymentGatewayService {
       const supabase = createServiceRoleClient();
 
       // Step 1: Fetch transaction
-      const { data: transaction, error: txnError } = await supabase
+      const { data: transaction, error: txnError } = await (supabase as any)
         .from('payment_transactions')
         .select('*')
         .eq('id', transactionId)
@@ -893,7 +894,7 @@ export class PaymentGatewayService {
           );
 
           // Update transaction to mark as failed
-          await supabase
+          await (supabase as any)
             .from('payment_transactions')
             .update({
               status: 'failed',
@@ -923,7 +924,7 @@ export class PaymentGatewayService {
         completed_at: new Date().toISOString(),
       };
 
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from('payment_transactions')
         .update(updateData)
         .eq('id', transactionId);
@@ -947,7 +948,7 @@ export class PaymentGatewayService {
         );
 
         // Fetch transaction items
-        const { data: items } = await supabase
+        const { data: items } = await (supabase as any)
           .from('payment_transaction_items')
           .select('bill_id, amount')
           .eq('transaction_id', transactionId);
@@ -960,7 +961,7 @@ export class PaymentGatewayService {
         }
 
         // Create receipt
-        const { data: student } = await supabase
+        const { data: student } = await (supabase as any)
           .from('students')
           .select('first_name, last_name, student_mobile')
           .eq('id', transaction.student_id)
@@ -980,7 +981,7 @@ export class PaymentGatewayService {
           payer_contact: student?.student_mobile || '',
           payment_reference_number: verification.gatewayTransactionId || transaction.transaction_ref,
           payment_remarks: `Online payment via HDFC SmartGateway - ${verification.paymentMethod || 'CARD'} (Verified)`,
-          receipt_items: items.map((item) => ({
+          receipt_items: items.map((item: { bill_id: string; amount: number }) => ({
             bill_id: item.bill_id,
             amount_paid: item.amount,
           })),
@@ -1220,7 +1221,7 @@ export class PaymentGatewayService {
   static async getTransaction(transactionId: string): Promise<PaymentTransaction | null> {
     try {
       const supabase = await createClient();
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('payment_transactions')
         .select('*')
         .eq('id', transactionId)
@@ -1247,7 +1248,7 @@ export class PaymentGatewayService {
   static async getStudentTransactions(studentId: string): Promise<PaymentTransaction[]> {
     try {
       const supabase = await createClient();
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('payment_transactions')
         .select('*')
         .eq('student_id', studentId)
