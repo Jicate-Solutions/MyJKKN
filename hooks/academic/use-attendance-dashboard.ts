@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useState, useCallback } from 'react';
 import type { DashboardFilters } from '@/types/attendance-dashboard';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
 
 /**
  * Hook for fetching attendance dashboard statistics
@@ -55,8 +56,7 @@ export function useAttendanceStats(
         academicYearId
       ),
     enabled: queryAllInstitutions || !!queryInstitutionId,
-    refetchInterval: 5 * 60 * 1000, // Refetch every 5 minutes
-    staleTime: 2 * 60 * 1000 // Consider stale after 2 minutes
+    ...QUERY_CONFIG.DASHBOARD_DATA // Use dashboard config for stats
   });
 
   return {
@@ -92,13 +92,13 @@ export function usePendingAttendance(
     error,
     refetch
   } = useQuery({
-    queryKey: ['pending-attendance', queryFilters, refreshTrigger], // Removed timestamp to avoid excessive requests
+    queryKey: ['pending-attendance', queryFilters, refreshTrigger],
     queryFn: () =>
       AttendanceDashboardService.getTodayPendingAttendance(queryFilters),
     enabled: !!queryFilters.userInstitutionId,
-    refetchInterval: 2 * 60 * 1000, // Refetch every 2 minutes (more frequent)
-    staleTime: 30 * 1000, // Consider stale after 30 seconds (much more aggressive)
-    gcTime: 0 // Don't cache in garbage collection
+    // Use REALTIME_DATA config for pending attendance (needs frequent updates)
+    ...QUERY_CONFIG.REALTIME_DATA,
+    refetchInterval: 2 * 60 * 1000 // Override: 2 minutes for pending attendance
   });
 
   return {
@@ -137,8 +137,8 @@ export function useAttendanceTrend(institutionId?: string, days: number = 7) {
     queryFn: () =>
       AttendanceDashboardService.getAttendanceTrend(queryInstitutionId!, days),
     enabled: !!queryInstitutionId,
-    refetchInterval: 10 * 60 * 1000, // Refetch every 10 minutes
-    staleTime: 5 * 60 * 1000 // Consider stale after 5 minutes
+    ...QUERY_CONFIG.DASHBOARD_DATA,
+    refetchInterval: 10 * 60 * 1000 // Override: 10 minutes for trend (less frequent)
   });
 
   return {

@@ -150,12 +150,14 @@ export class BillingInvoiceService {
     }
   }
 
-  // Get invoices with filters and pagination
+  // Get invoices with filters and pagination (optimized: single query with count)
   static async getBillingInvoices(
     filters: InvoiceFilters = {}
   ): Promise<InvoiceListResponse> {
     try {
-      let query = this.supabase.from('billing_invoices').select(`
+      // Single query with count included (eliminates separate count query)
+      let query = this.supabase.from('billing_invoices').select(
+        `
           *,
           student:students(
             id,
@@ -179,7 +181,9 @@ export class BillingInvoiceService {
               payment_amount
             )
           )
-        `);
+        `,
+        { count: 'exact' }
+      );
 
       // Apply filters
       if (filters.search) {
@@ -221,11 +225,6 @@ export class BillingInvoiceService {
       const sortDirection = filters.sortDirection || 'desc';
       query = query.order(sortBy, { ascending: sortDirection === 'asc' });
 
-      // Get total count
-      const { count } = await this.supabase
-        .from('billing_invoices')
-        .select('*', { count: 'exact', head: true });
-
       // Apply pagination
       const page = filters.page || 1;
       const limit = filters.limit || 10;
@@ -234,7 +233,7 @@ export class BillingInvoiceService {
 
       query = query.range(from, to);
 
-      const { data, error } = await query;
+      const { data, count, error } = await query;
 
       if (error) {
         console.error('Error fetching invoices:', error);
@@ -256,25 +255,10 @@ export class BillingInvoiceService {
     }
   }
 
-  // Get single invoice
+  // Get single invoice (optimized: single query with fallback)
   static async getBillingInvoice(id: string): Promise<BillingInvoice> {
     try {
-      // First try simple query to check if invoice exists
-      const { data: simpleData, error: simpleError } = await this.supabase
-        .from('billing_invoices')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (simpleError) {
-        throw new Error(`Failed to fetch invoice: ${simpleError.message}`);
-      }
-
-      if (!simpleData) {
-        throw new Error('Invoice not found');
-      }
-
-      // Now try the complex query with joins
+      // Single optimized query with all relations
       const { data, error } = await this.supabase
         .from('billing_invoices')
         .select(
@@ -310,7 +294,22 @@ export class BillingInvoiceService {
         .single();
 
       if (error) {
-        // Return simple data with empty relations if complex query fails
+        // If complex query fails, try simple query as fallback
+        const { data: simpleData, error: simpleError } = await this.supabase
+          .from('billing_invoices')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (simpleError) {
+          throw new Error(`Failed to fetch invoice: ${simpleError.message}`);
+        }
+
+        if (!simpleData) {
+          throw new Error('Invoice not found');
+        }
+
+        // Return simple data with empty relations
         return {
           ...simpleData,
           student: null,
@@ -320,12 +319,7 @@ export class BillingInvoiceService {
       }
 
       if (!data) {
-        return {
-          ...simpleData,
-          student: null,
-          institution: null,
-          invoice_items: []
-        } as BillingInvoice;
+        throw new Error('Invoice not found');
       }
 
       return data as BillingInvoice;

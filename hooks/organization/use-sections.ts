@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Section, SectionFilters } from '@/types/organizations';
 import { SectionService } from '@/lib/services/organization/section-service';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
 
 export function useSections(filters: SectionFilters) {
   const query = useQuery({
@@ -10,7 +11,7 @@ export function useSections(filters: SectionFilters) {
       return { data, metadata };
     },
     placeholderData: (previousData) => previousData,
-    retry: false
+    ...QUERY_CONFIG.STABLE_DATA // Sections rarely change - use stable caching
   });
 
   return {
