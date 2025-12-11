@@ -709,4 +709,131 @@ export class AIQueryService {
       p_limit: limit || 50,
     });
   }
+
+  // ============================================
+  // Admissions Module Tools
+  // ============================================
+
+  /**
+   * Comprehensive admission query with ALL fields, filters, and statistics
+   * NO LIMIT - returns all matching records
+   */
+  static async getAdmissions(userId: string, params: {
+    institutionId?: string;
+    departmentId?: string;
+    programId?: string;
+    degreeId?: string;
+    status?: string;
+    entryType?: string;
+    district?: string;
+    state?: string;
+    taluk?: string;
+    gender?: string;
+    religion?: string;
+    community?: string;
+    counselingApplied?: boolean;
+    firstGraduate?: boolean;
+    quota?: string;
+    category?: string;
+    accommodationType?: string;
+    busRequired?: boolean;
+    search?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    includeStats?: boolean;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('admissions', userId, {
+      p_institution_id: params.institutionId,
+      p_department_id: params.departmentId,
+      p_program_id: params.programId,
+      p_degree_id: params.degreeId,
+      p_status: params.status,
+      p_entry_type: params.entryType,
+      p_district: params.district,
+      p_state: params.state,
+      p_taluk: params.taluk,
+      p_gender: params.gender,
+      p_religion: params.religion,
+      p_community: params.community,
+      p_counseling_applied: params.counselingApplied,
+      p_first_graduate: params.firstGraduate,
+      p_quota: params.quota,
+      p_category: params.category,
+      p_accommodation_type: params.accommodationType,
+      p_bus_required: params.busRequired,
+      p_search: params.search,
+      p_date_from: params.dateFrom,
+      p_date_to: params.dateTo,
+      p_include_stats: params.includeStats !== false,
+    });
+  }
+
+  /**
+   * Get complete details of a specific admission including all 54 fields
+   */
+  static async getAdmissionDetails(userId: string, params: {
+    admissionId?: string;
+    applicationId?: string;
+  }): Promise<ToolResponse> {
+    return this.executeTool('admission_details', userId, {
+      p_admission_id: params.admissionId,
+      p_application_id: params.applicationId,
+    });
+  }
+
+  /**
+   * Search admissions by geographic location
+   * Searches across district, state, taluk, city, and bus pickup location
+   */
+  static async getAdmissionsByLocation(userId: string, params: {
+    district?: string;
+    state?: string;
+    taluk?: string;
+    city?: string;
+    status?: string;
+    includeStats?: boolean;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('admissions_by_location', userId, {
+      p_district: params.district,
+      p_state: params.state,
+      p_taluk: params.taluk,
+      p_city: params.city,
+      p_status: params.status,
+      p_include_stats: params.includeStats !== false,
+    });
+  }
+
+  /**
+   * Get admission statistics and analytics
+   * Institution-wise, status-wise, demographic breakdowns
+   */
+  static async getAdmissionStatistics(userId: string, params: {
+    institutionId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    groupBy?: string;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('admission_statistics', userId, {
+      p_institution_id: params.institutionId,
+      p_date_from: params.dateFrom,
+      p_date_to: params.dateTo,
+      p_group_by: params.groupBy || 'status',
+    });
+  }
+
+  /**
+   * Advanced admission analytics
+   * Conversion rates, processing times, trends, comparisons
+   */
+  static async getAdmissionAnalytics(userId: string, params: {
+    institutionId?: string;
+    academicYearId?: string;
+    includeTrends?: boolean;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('admission_analytics', userId, {
+      p_institution_id: params.institutionId,
+      p_academic_year_id: params.academicYearId,
+      p_include_trends: params.includeTrends !== false,
+    });
+  }
 }
