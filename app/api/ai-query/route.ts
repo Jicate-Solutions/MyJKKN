@@ -802,9 +802,9 @@ function getContextAwareSuggestions(toolsCalled: string[]): string[] {
   // Determine which modules were queried
   const queriedModulesSet = new Set<string>();
   for (const tool of toolsCalled) {
-    const module = toolModuleMap[tool];
-    if (module) {
-      queriedModulesSet.add(module);
+    const moduleName = toolModuleMap[tool];
+    if (moduleName) {
+      queriedModulesSet.add(moduleName);
     }
   }
   const queriedModules = Array.from(queriedModulesSet);
@@ -813,8 +813,8 @@ function getContextAwareSuggestions(toolsCalled: string[]): string[] {
   const suggestions: string[] = [];
 
   // First, add suggestions from the modules that were queried
-  for (const module of queriedModules) {
-    const moduleSuggestions = suggestionsByModule[module] || [];
+  for (const queriedModule of queriedModules) {
+    const moduleSuggestions = suggestionsByModule[queriedModule] || [];
     // Add 2-3 suggestions from each queried module
     suggestions.push(...moduleSuggestions.slice(0, 3));
   }
