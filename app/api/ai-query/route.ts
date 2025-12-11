@@ -208,6 +208,89 @@ const AI_TOOLS: Anthropic.Tool[] = [
       },
     },
   },
+  // Admission Tools (JKKN: Admission Applications)
+  {
+    name: 'get_admissions',
+    description: 'COMPREHENSIVE admission query - searches ALL admission applications with FULL details including: identity, contact, parents, demographics, academic background (10th/12th marks, NEET scores), admission status, address, accommodation, and timestamps. Use for any admission-related query. Returns ALL fields and statistics by default. NO LIMIT on results.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        institution_id: { type: 'string', description: 'Filter by institution UUID' },
+        department_id: { type: 'string', description: 'Filter by department UUID' },
+        program_id: { type: 'string', description: 'Filter by program UUID' },
+        degree_id: { type: 'string', description: 'Filter by degree UUID' },
+        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'waitlisted', 'enrolled'], description: 'Admission status' },
+        entry_type: { type: 'string', description: 'Entry type (FIRST YEAR, LATERAL ENTRY)' },
+        district: { type: 'string', description: 'Filter by district (permanent address)' },
+        state: { type: 'string', description: 'Filter by state' },
+        taluk: { type: 'string', description: 'Filter by taluk' },
+        gender: { type: 'string', enum: ['male', 'female'], description: 'Filter by gender' },
+        religion: { type: 'string', description: 'Filter by religion' },
+        community: { type: 'string', description: 'Filter by community (BC, MBC, SC, ST, OC, etc.)' },
+        counseling_applied: { type: 'boolean', description: 'Filter by counseling status' },
+        first_graduate: { type: 'boolean', description: 'Filter first-generation graduates' },
+        quota: { type: 'string', description: 'Filter by admission quota (GOVERNMENT, MANAGEMENT)' },
+        category: { type: 'string', description: 'Filter by category' },
+        accommodation_type: { type: 'string', description: 'Filter by accommodation type (hostel, dayscholar)' },
+        bus_required: { type: 'boolean', description: 'Filter applicants who require bus transport' },
+        search: { type: 'string', description: 'Search by name, email, mobile, application ID, father name, mother name' },
+        date_from: { type: 'string', description: 'Admission date from (YYYY-MM-DD)' },
+        date_to: { type: 'string', description: 'Admission date to (YYYY-MM-DD)' },
+        include_stats: { type: 'boolean', description: 'Include statistics (default: true)' },
+      },
+    },
+  },
+  {
+    name: 'get_admission_details',
+    description: 'Get COMPLETE details of a specific admission application including ALL 54 fields: personal info, parent details, 10th/12th marks, NEET scores, address, accommodation preferences, reference info, admission status, and enrollment status.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        admission_id: { type: 'string', description: 'Admission UUID' },
+        application_id: { type: 'string', description: 'Application ID (e.g., JKKN-DCH-084)' },
+      },
+    },
+  },
+  {
+    name: 'get_admissions_by_location',
+    description: 'Search admissions by geographic location - searches across district, state, taluk, city, and bus pickup location. Returns ALL matching admissions with location statistics breakdown. Use this when asked about admissions from a specific district, city, or region.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        district: { type: 'string', description: 'District name (e.g., Karur, Salem, Erode, Coimbatore)' },
+        state: { type: 'string', description: 'State name (e.g., Tamil Nadu, Kerala)' },
+        taluk: { type: 'string', description: 'Taluk/sub-district name' },
+        city: { type: 'string', description: 'City name' },
+        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'waitlisted', 'enrolled'], description: 'Admission status filter' },
+        include_stats: { type: 'boolean', description: 'Include location statistics (default: true)' },
+      },
+    },
+  },
+  {
+    name: 'get_admission_statistics',
+    description: 'Get admission STATISTICS and ANALYTICS - institution-wise breakdown, status distribution, demographics, academic performance metrics, entry type analysis, geographic distribution, and year-wise trends.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        institution_id: { type: 'string', description: 'Filter by institution UUID' },
+        date_from: { type: 'string', description: 'Date range start (YYYY-MM-DD)' },
+        date_to: { type: 'string', description: 'Date range end (YYYY-MM-DD)' },
+        group_by: { type: 'string', enum: ['institution', 'status', 'entry_type', 'gender', 'community', 'district', 'program', 'department'], description: 'Primary grouping field' },
+      },
+    },
+  },
+  {
+    name: 'get_admission_analytics',
+    description: 'ADVANCED admission analytics - conversion rates, enrollment rates, counseling stats, quota utilization, first-graduate analysis, accommodation breakdown, reference source effectiveness, academic performance averages, and year-over-year comparisons.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        institution_id: { type: 'string', description: 'Filter by institution UUID' },
+        academic_year_id: { type: 'string', description: 'Filter by academic year UUID' },
+        include_trends: { type: 'boolean', description: 'Include time trends (default: true)' },
+      },
+    },
+  },
   // Learning Facilitator Tools (JKKN: staff → learning facilitators/team members)
   {
     name: 'get_staff',
@@ -361,6 +444,21 @@ ${context.academic_context?.current_academic_year_name ? `- Learning Year: ${con
 - **Tier 3 (Requires explicit confirmation)**: Bulk notifications (50+ recipients)
 - **Tier 4 (Blocked)**: Delete records, financial transactions - direct users to appropriate modules
 
+## Admission Module Guidelines
+1. For ANY admission-related query (admissions, applications, enrollments from locations), use the admission tools:
+   - **get_admissions**: Comprehensive search with ALL 54 fields + statistics
+   - **get_admissions_by_location**: For location-based queries (e.g., "admissions from Karur")
+   - **get_admission_details**: Full details for a single admission
+   - **get_admission_statistics**: Analytics and breakdowns
+   - **get_admission_analytics**: Advanced metrics and trends
+2. **ALWAYS show admission year** (extracted from created_at) in results
+3. Include comprehensive statistics when displaying admission data
+4. Show all relevant fields - do NOT limit to basic fields only
+5. For location queries, use get_admissions_by_location with district/state/taluk parameters
+6. Use JKKN terminology: "Admission Applications" not just "admissions"
+7. Results include linked learner data when admission is enrolled (student_id, roll_number)
+8. **NO LIMITS**: All matching records are returned - present data in organized tables
+
 ## Response Format
 - Be concise but informative
 - Use markdown formatting for better readability
@@ -487,6 +585,64 @@ async function executeTool(
         includeStats: toolInput.include_stats as boolean,
       });
 
+    // Admission Tools
+    case 'get_admissions':
+      return AIQueryService.getAdmissions(userId, {
+        institutionId: toolInput.institution_id as string,
+        departmentId: toolInput.department_id as string,
+        programId: toolInput.program_id as string,
+        degreeId: toolInput.degree_id as string,
+        status: toolInput.status as string,
+        entryType: toolInput.entry_type as string,
+        district: toolInput.district as string,
+        state: toolInput.state as string,
+        taluk: toolInput.taluk as string,
+        gender: toolInput.gender as string,
+        religion: toolInput.religion as string,
+        community: toolInput.community as string,
+        counselingApplied: toolInput.counseling_applied as boolean,
+        firstGraduate: toolInput.first_graduate as boolean,
+        quota: toolInput.quota as string,
+        category: toolInput.category as string,
+        accommodationType: toolInput.accommodation_type as string,
+        busRequired: toolInput.bus_required as boolean,
+        search: toolInput.search as string,
+        dateFrom: toolInput.date_from as string,
+        dateTo: toolInput.date_to as string,
+        includeStats: toolInput.include_stats as boolean,
+      });
+
+    case 'get_admission_details':
+      return AIQueryService.getAdmissionDetails(userId, {
+        admissionId: toolInput.admission_id as string,
+        applicationId: toolInput.application_id as string,
+      });
+
+    case 'get_admissions_by_location':
+      return AIQueryService.getAdmissionsByLocation(userId, {
+        district: toolInput.district as string,
+        state: toolInput.state as string,
+        taluk: toolInput.taluk as string,
+        city: toolInput.city as string,
+        status: toolInput.status as string,
+        includeStats: toolInput.include_stats as boolean,
+      });
+
+    case 'get_admission_statistics':
+      return AIQueryService.getAdmissionStatistics(userId, {
+        institutionId: toolInput.institution_id as string,
+        dateFrom: toolInput.date_from as string,
+        dateTo: toolInput.date_to as string,
+        groupBy: toolInput.group_by as string,
+      });
+
+    case 'get_admission_analytics':
+      return AIQueryService.getAdmissionAnalytics(userId, {
+        institutionId: toolInput.institution_id as string,
+        academicYearId: toolInput.academic_year_id as string,
+        includeTrends: toolInput.include_trends as boolean,
+      });
+
     case 'get_staff':
       return AIQueryService.getStaff(userId, {
         departmentId: toolInput.department_id as string,
@@ -541,6 +697,145 @@ async function executeTool(
         },
       };
   }
+}
+
+/**
+ * Generate context-aware suggestions based on tools called
+ * Returns suggestions related to the module the user queried
+ */
+function getContextAwareSuggestions(toolsCalled: string[]): string[] {
+  // Module-specific suggestions
+  const suggestionsByModule: Record<string, string[]> = {
+    // Admissions module
+    admissions: [
+      'Show admission statistics by institution',
+      'List pending admission applications',
+      'Show admissions from Salem district',
+      'Get admission analytics and trends',
+      'Show admissions by community breakdown',
+      'List first-year admissions',
+      'Show hostel accommodation requests',
+    ],
+    // Academic/Attendance module
+    academic: [
+      'Show learners with participation below 75%',
+      'Get learning participation summary by department',
+      'Show today\'s participation status',
+      'List sections with low participation',
+      'Get department-wise participation trends',
+    ],
+    // Billing module
+    billing: [
+      'List fee defaulters',
+      'Show pending bills summary',
+      'Get billing statistics by department',
+      'Show overdue payments',
+      'List partially paid bills',
+    ],
+    // Students/Learners module
+    learners: [
+      'Get department-wise learner count',
+      'Show learners by status',
+      'List learners from specific district',
+      'Get learner demographics summary',
+      'Show section-wise learner distribution',
+    ],
+    // Staff/Facilitators module
+    staff: [
+      'List facilitators by department',
+      'Show facilitator count by category',
+      'Get facilitator details',
+      'List active facilitators',
+    ],
+    // Organization module
+    organization: [
+      'Show institution hierarchy',
+      'List all departments',
+      'Get program-wise summary',
+      'Show organization structure',
+    ],
+    // Dashboard/Analytics module
+    dashboard: [
+      'Get KPI summary',
+      'Show analytics overview',
+      'Get institution performance metrics',
+      'Show key statistics',
+    ],
+  };
+
+  // Tool to module mapping
+  const toolModuleMap: Record<string, string> = {
+    // Admissions tools
+    get_admissions: 'admissions',
+    get_admission_details: 'admissions',
+    get_admissions_by_location: 'admissions',
+    get_admission_statistics: 'admissions',
+    get_admission_analytics: 'admissions',
+    // Academic tools
+    get_attendance: 'academic',
+    get_attendance_summary: 'academic',
+    get_attendance_defaulters: 'academic',
+    // Billing tools
+    get_student_bills: 'billing',
+    get_fee_defaulters: 'billing',
+    get_bills_summary: 'billing',
+    // Learner tools
+    get_students: 'learners',
+    get_student_details: 'learners',
+    get_students_by_department: 'learners',
+    get_students_summary: 'learners',
+    get_learners_by_location: 'learners',
+    get_learners_comprehensive: 'learners',
+    // Staff tools
+    get_staff: 'staff',
+    get_staff_details: 'staff',
+    get_staff_by_department: 'staff',
+    // Organization tools
+    get_hierarchy_summary: 'organization',
+    get_departments: 'organization',
+    get_institutions: 'organization',
+    // Dashboard tools
+    get_kpi_summary: 'dashboard',
+    get_analytics_overview: 'dashboard',
+  };
+
+  // Determine which modules were queried
+  const queriedModulesSet = new Set<string>();
+  for (const tool of toolsCalled) {
+    const module = toolModuleMap[tool];
+    if (module) {
+      queriedModulesSet.add(module);
+    }
+  }
+  const queriedModules = Array.from(queriedModulesSet);
+
+  // Generate suggestions from queried modules
+  const suggestions: string[] = [];
+
+  // First, add suggestions from the modules that were queried
+  for (const module of queriedModules) {
+    const moduleSuggestions = suggestionsByModule[module] || [];
+    // Add 2-3 suggestions from each queried module
+    suggestions.push(...moduleSuggestions.slice(0, 3));
+  }
+
+  // If we have suggestions, shuffle and return top 4
+  if (suggestions.length > 0) {
+    // Shuffle array
+    for (let i = suggestions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [suggestions[i], suggestions[j]] = [suggestions[j], suggestions[i]];
+    }
+    return suggestions.slice(0, 4);
+  }
+
+  // Default suggestions if no module detected
+  return [
+    'Show me learning participation defaulters',
+    'List fee defaulters',
+    'Get KPI summary',
+    'Show department-wise learner count',
+  ];
 }
 
 export async function POST(request: NextRequest) {
@@ -682,12 +977,7 @@ export async function POST(request: NextRequest) {
         timestamp: new Date().toISOString(),
         toolCalls: toolsCalled.map(name => ({ name, status: 'completed' })),
       },
-      suggestions: [
-        'Show me learning participation defaulters',
-        'List fee defaulters',
-        'Get KPI summary',
-        'Show department-wise learner count',
-      ],
+      suggestions: getContextAwareSuggestions(toolsCalled),
       rate_limit: rateLimit,
     });
 

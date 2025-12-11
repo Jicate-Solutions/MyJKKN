@@ -318,10 +318,13 @@ export const TOOL_PERMISSIONS: Record<string, string> = {
   get_employment_categories: 'staff.categories.view',
   get_faculty_course_assignments: 'staff.view',
 
-  // Admissions
+  // Admissions (JKKN: Admission Applications)
   get_admissions: 'admissions.view',
+  get_admission_details: 'admissions.view',
+  get_admissions_by_location: 'admissions.view',
   get_admission_by_status: 'admissions.view',
-  get_admission_statistics: 'admissions.view',
+  get_admission_statistics: 'admissions.analytics.view',
+  get_admission_analytics: 'admissions.analytics.view',
   get_applications: 'admissions.view',
 
   // Organization
@@ -437,10 +440,12 @@ export interface SuggestedQuery {
 }
 
 export const DEFAULT_SUGGESTED_QUERIES: SuggestedQuery[] = [
-  { text: 'Show students with attendance below 75%', category: 'academic', icon: 'Users' },
+  { text: 'Show learners with participation below 75%', category: 'academic', icon: 'Users' },
   { text: 'List fee defaulters in current semester', category: 'billing', icon: 'CreditCard' },
-  { text: 'Show my timetable for this week', category: 'academic', icon: 'Calendar' },
-  { text: 'Get department-wise student count', category: 'students', icon: 'BarChart' },
+  { text: 'Show admissions from Karur district', category: 'admissions', icon: 'FileText' },
+  { text: 'Get department-wise learner count', category: 'students', icon: 'BarChart' },
+  { text: 'Show admission statistics', category: 'admissions', icon: 'BarChart' },
+  { text: 'List pending admission applications', category: 'admissions', icon: 'FileText' },
   { text: 'Show pending resource reservations', category: 'resources', icon: 'Clock' },
   { text: 'List unread notifications', category: 'notifications', icon: 'Bell' },
 ];

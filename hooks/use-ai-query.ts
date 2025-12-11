@@ -36,10 +36,12 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
   const [rateLimit, setRateLimit] = useState<RateLimitResult | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestedQuery[]>([
-    { text: 'Show students with attendance below 75%', category: 'academic', icon: 'Users' },
+    { text: 'Show learners with participation below 75%', category: 'academic', icon: 'Users' },
     { text: 'List fee defaulters in current semester', category: 'billing', icon: 'CreditCard' },
-    { text: 'Show my timetable for this week', category: 'academic', icon: 'Calendar' },
-    { text: 'Get department-wise student count', category: 'students', icon: 'BarChart' },
+    { text: 'Show admissions from Karur district', category: 'admissions', icon: 'FileText' },
+    { text: 'Get department-wise learner count', category: 'students', icon: 'BarChart' },
+    { text: 'Show admission statistics', category: 'admissions', icon: 'BarChart' },
+    { text: 'List pending admission applications', category: 'admissions', icon: 'FileText' },
   ]);
   const conversationIdRef = useRef<string | null>(null);
 
@@ -161,10 +163,12 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
     conversationIdRef.current = null;
     setError(null);
     setSuggestions([
-      { text: 'Show students with attendance below 75%', category: 'academic', icon: 'Users' },
+      { text: 'Show learners with participation below 75%', category: 'academic', icon: 'Users' },
       { text: 'List fee defaulters in current semester', category: 'billing', icon: 'CreditCard' },
-      { text: 'Show my timetable for this week', category: 'academic', icon: 'Calendar' },
-      { text: 'Get department-wise student count', category: 'students', icon: 'BarChart' },
+      { text: 'Show admissions from Karur district', category: 'admissions', icon: 'FileText' },
+      { text: 'Get department-wise learner count', category: 'students', icon: 'BarChart' },
+      { text: 'Show admission statistics', category: 'admissions', icon: 'BarChart' },
+      { text: 'List pending admission applications', category: 'admissions', icon: 'FileText' },
     ]);
   }, []);
 
