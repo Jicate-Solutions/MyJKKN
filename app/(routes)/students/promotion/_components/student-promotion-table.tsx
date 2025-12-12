@@ -1354,7 +1354,7 @@ export function StudentPromotionTable({
                       </SelectContent>
                     </Select>
                     <FormDescription>
-                      Select the new status. For final year students completing their program, select "Graduated".
+                      Select the new status. For final year students completing their program, select &quot;Graduated&quot;.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -1429,7 +1429,7 @@ export function StudentPromotionTable({
                     <div className='text-sm text-blue-800'>
                       <p className='font-medium'>Graduation Status</p>
                       <p>
-                        Students marked as "Graduated" will retain their current semester and section records. This is typically used for final year students who have completed their program.
+                        Students marked as &quot;Graduated&quot; will retain their current semester and section records. This is typically used for final year students who have completed their program.
                       </p>
                     </div>
                   </div>
@@ -1441,7 +1441,7 @@ export function StudentPromotionTable({
                     <div className='text-sm text-red-800'>
                       <p className='font-medium'>Warning: User Accounts</p>
                       <p>
-                        Setting status to "Exited" will disable the user accounts for these students. They will no longer be able to log in.
+                        Setting status to &quot;Exited&quot; will disable the user accounts for these students. They will no longer be able to log in.
                       </p>
                     </div>
                   </div>
