@@ -21,7 +21,9 @@ export default function StudentPromotionPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [filters, setFilters] = useState<StudentFilters>({
     page: 1,
-    limit: 10
+    limit: 10,
+    is_profile_complete: true,
+    status: 'active'
   });
 
   const {
@@ -69,6 +71,8 @@ export default function StudentPromotionPage() {
     setFilters({
       page: 1,
       limit: 10,
+      is_profile_complete: true,
+      status: 'active',
       search: undefined,
       institution: undefined,
       degree: undefined,
@@ -137,6 +141,45 @@ export default function StudentPromotionPage() {
     }
   };
 
+  const bulkUpdateStatus = async (
+    studentIds: string[],
+    newStatus: 'active' | 'inactive' | 'pending' | 'exited' | 'graduated',
+    onProgress?: (progress: number, success: string[], failed: { id: string; error: string }[]) => void
+  ): Promise<boolean> => {
+    try {
+      const result = await StudentService.bulkUpdateStudentStatus(
+        studentIds,
+        newStatus,
+        onProgress
+      );
+
+      if (result.success.length > 0) {
+        toast.success(
+          `Successfully updated status for ${result.success.length} student(s)`
+        );
+
+        if (result.failed.length > 0) {
+          toast.error(
+            `Failed to update ${result.failed.length} student(s). Check console for details.`
+          );
+          console.error('Failed status updates:', result.failed);
+        }
+
+        // Invalidate all student-related queries to ensure fresh data
+        await queryClient.invalidateQueries({ queryKey: ['students'] });
+        await refetch();
+        return true;
+      } else {
+        toast.error('No students were updated successfully.');
+        return false;
+      }
+    } catch (e) {
+      toast.error('Failed to update student status.');
+      console.error(e);
+      return false;
+    }
+  };
+
   if (!canViewStudents) {
     return (
       <div className='flex justify-center items-center p-8'>
@@ -147,7 +190,7 @@ export default function StudentPromotionPage() {
 
   if (isError && hasSearched) {
     return (
-      <ContentLayout title='Student Promotion'>
+      <ContentLayout title='Learners Promotion'>
         <div className='text-center py-8'>
           <p className='text-destructive'>
             {error instanceof Error
@@ -163,21 +206,21 @@ export default function StudentPromotionPage() {
   }
 
   return (
-    <ContentLayout title='Student Promotion'>
+    <ContentLayout title='Learners Promotion'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Students', href: '/students' },
-          { label: 'Promotion' }
+          { label: 'Learners', href: '/students' },
+          { label: 'Learners Promotion' }
         ]}
       />
 
       <div className='space-y-6 mt-4'>
         <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
           <div>
-            <h1 className='text-2xl font-bold py-1'>Student Promotion</h1>
+            <h1 className='text-2xl font-bold py-1'> Learners Promotion</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Use filters to find students, then promote them to new semesters,
+              Use filters to find learners, then promote them to new semesters,
               sections, and optionally departments
             </p>
           </div>
@@ -201,7 +244,7 @@ export default function StudentPromotionPage() {
                 <h3 className='text-lg font-semibold mb-2'>Ready to Search</h3>
                 <p className='text-muted-foreground max-w-md'>
                   Set your filters above and click the <strong>Search</strong>{' '}
-                  button to find students for promotion. You can search by name,
+                  button to find learners for promotion. You can search by name,
                   roll number, or use advanced filters to narrow down results.
                 </p>
               </div>
@@ -239,11 +282,11 @@ export default function StudentPromotionPage() {
                   <Users className='h-8 w-8 text-muted-foreground' />
                 </div>
                 <h3 className='text-lg font-semibold mb-2'>
-                  No Students Found
+                  No Learners Found
                 </h3>
                 <p className='text-muted-foreground mb-4'>
-                  No students match your current filters. Try adjusting your
-                  search criteria or reset the filters to see all students.
+                  No learners match your current filters. Try adjusting your
+                  search criteria or reset the filters to see all learners.
                 </p>
                 <div className='flex gap-2'>
                   <Button variant='outline' onClick={handleReset}>
@@ -266,7 +309,7 @@ export default function StudentPromotionPage() {
               <div className='space-y-4'>
                 <div className='flex items-center justify-between'>
                   <div className='text-sm text-muted-foreground'>
-                    Found {metadata.total} student
+                    Found {metadata.total} learner
                     {metadata.total !== 1 ? 's' : ''} matching your criteria
                   </div>
                   <Button variant='outline' size='sm' onClick={handleReset}>
@@ -281,6 +324,7 @@ export default function StudentPromotionPage() {
                   onPageSizeChange={handlePageSizeChange}
                   canEdit={canEditStudents}
                   onBulkPromote={bulkPromoteStudents}
+                  onBulkUpdateStatus={bulkUpdateStatus}
                 />
               </div>
             )}

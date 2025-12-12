@@ -22,11 +22,18 @@ export default function StudentsPage() {
     Object.fromEntries(searchParams.entries())
   );
 
-  // Redirect to include default is_profile_complete filter if not present
+  // Redirect to include default filters if not present
   useEffect(() => {
-    if (!searchParams.has('is_profile_complete')) {
+    const needsRedirect = !searchParams.has('is_profile_complete') || !searchParams.has('status');
+
+    if (needsRedirect) {
       const params = new URLSearchParams(searchParams);
-      params.set('is_profile_complete', 'true');
+      if (!searchParams.has('is_profile_complete')) {
+        params.set('is_profile_complete', 'true');
+      }
+      if (!searchParams.has('status')) {
+        params.set('status', 'active,inactive');
+      }
       router.replace(`/students?${params.toString()}`);
     }
   }, [searchParams, router]);

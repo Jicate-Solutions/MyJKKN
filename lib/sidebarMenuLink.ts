@@ -48,6 +48,7 @@ import {
   Package,
   Bookmark,
   Cpu,
+  Award,
   CheckSquare,
   TrendingUp,
   Wrench,
@@ -137,6 +138,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/students/onboarding': 'students.onboarding.view',
   '/students/onboarding/edit': 'students.onboarding.edit',
   '/students/promotion': 'students.promotion.view',
+  '/students/graduated': 'students.graduated.view',
   '/admin/students/sync-profiles': 'super_admin', // Super admin only
 
   // Staff Management
@@ -446,6 +448,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Learners Promotion',
           active: pathname === '/students/promotion',
           icon: GraduationCap,
+          submenus: []
+        },
+        {
+          href: '/students/graduated',
+          label: 'Graduated & Exited',
+          active: pathname === '/students/graduated',
+          icon: Award,
           submenus: []
         }
       ]

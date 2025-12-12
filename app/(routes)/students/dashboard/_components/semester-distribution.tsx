@@ -212,7 +212,7 @@ export function SemesterDistribution({
           <h4 className='font-medium text-sm text-muted-foreground'>
             Semester Breakdown
           </h4>
-          <div className='space-y-2'>
+          <div className='space-y-2 max-h-40 overflow-y-auto'>
             {chartData
               .sort((a, b) => b.studentCount - a.studentCount)
               .map((semester) => (
