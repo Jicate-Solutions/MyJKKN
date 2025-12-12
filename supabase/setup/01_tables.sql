@@ -234,6 +234,40 @@ CREATE TABLE IF NOT EXISTS public.course_mappings (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Regulations (Academic Regulations)
+-- Created: 2025-12-12 - Academic regulations management
+CREATE TABLE IF NOT EXISTS public.regulations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution_id UUID NOT NULL,
+    regulation_year VARCHAR(10) NOT NULL,
+    regulation_code VARCHAR(50) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    CONSTRAINT regulations_institution_code_unique UNIQUE (institution_id, regulation_code)
+);
+CREATE INDEX IF NOT EXISTS idx_regulations_institution_id ON regulations(institution_id);
+CREATE INDEX IF NOT EXISTS idx_regulations_is_active ON regulations(is_active);
+
+-- Batches (Academic Batches/Cohorts)
+-- Created: 2025-12-12 - Academic batch/cohort management
+CREATE TABLE IF NOT EXISTS public.batches (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution_id UUID NOT NULL,
+    batch_year VARCHAR(20) NOT NULL,
+    batch_code VARCHAR(50) NOT NULL,
+    batch_name VARCHAR(255) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    CONSTRAINT batches_institution_code_unique UNIQUE (institution_id, batch_code),
+    CONSTRAINT batches_date_check CHECK (end_date > start_date)
+);
+CREATE INDEX IF NOT EXISTS idx_batches_institution_id ON batches(institution_id);
+CREATE INDEX IF NOT EXISTS idx_batches_is_active ON batches(is_active);
+
 -- =====================================================
 -- SECTION 4: STUDENT MANAGEMENT
 -- =====================================================

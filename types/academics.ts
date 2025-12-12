@@ -92,6 +92,114 @@ export interface PeriodListResponse {
   };
 }
 
+// =====================================================
+// REGULATION MANAGEMENT TYPES
+// Created: 2025-12-12
+// =====================================================
+
+export interface Regulation {
+  id: string;
+  institution_id: string;
+  regulation_year: string;
+  regulation_code: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code?: string;
+  };
+}
+
+export interface CreateRegulationDto {
+  institution_id: string;
+  regulation_year: string;
+  regulation_code: string;
+  is_active?: boolean;
+}
+
+export interface UpdateRegulationDto extends Partial<CreateRegulationDto> {}
+
+export interface RegulationFilters {
+  search?: string;
+  institution_id?: string;
+  isActive?: boolean;
+  regulation_year?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+}
+
+export interface RegulationListResponse {
+  data: Regulation[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// =====================================================
+// BATCH MANAGEMENT TYPES
+// Created: 2025-12-12
+// =====================================================
+
+export interface Batch {
+  id: string;
+  institution_id: string;
+  batch_year: string;
+  batch_code: string;
+  batch_name: string;
+  start_date: string;
+  end_date: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code?: string;
+  };
+}
+
+export interface CreateBatchDto {
+  institution_id: string;
+  batch_year: string;
+  batch_code: string;
+  batch_name: string;
+  start_date: string;
+  end_date: string;
+  is_active?: boolean;
+}
+
+export interface UpdateBatchDto extends Partial<CreateBatchDto> {}
+
+export interface BatchFilters {
+  search?: string;
+  institution_id?: string;
+  isActive?: boolean;
+  batch_year?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+}
+
+export interface BatchListResponse {
+  data: Batch[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
 // Timetable Management Types
 export type DayOfWeek =
   | 'MONDAY'

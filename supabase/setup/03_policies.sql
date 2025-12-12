@@ -479,6 +479,90 @@ CREATE POLICY "course_mappings_delete_admin" ON course_mappings
         )
     );
 
+-- REGULATIONS TABLE (4 policies)
+-- Created: 2025-12-12 - Academic regulations management
+ALTER TABLE regulations ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "regulations_select_institution" ON regulations
+    FOR SELECT USING (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid() AND is_active = true
+        )
+    );
+
+CREATE POLICY "regulations_insert_admin" ON regulations
+    FOR INSERT WITH CHECK (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type IN ('admin', 'write')
+            AND is_active = true
+        )
+    );
+
+CREATE POLICY "regulations_update_admin" ON regulations
+    FOR UPDATE USING (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type IN ('admin', 'write')
+            AND is_active = true
+        )
+    );
+
+CREATE POLICY "regulations_delete_admin" ON regulations
+    FOR DELETE USING (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type = 'admin'
+            AND is_active = true
+        )
+    );
+
+-- BATCHES TABLE (4 policies)
+-- Created: 2025-12-12 - Academic batch/cohort management
+ALTER TABLE batches ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "batches_select_institution" ON batches
+    FOR SELECT USING (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid() AND is_active = true
+        )
+    );
+
+CREATE POLICY "batches_insert_admin" ON batches
+    FOR INSERT WITH CHECK (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type IN ('admin', 'write')
+            AND is_active = true
+        )
+    );
+
+CREATE POLICY "batches_update_admin" ON batches
+    FOR UPDATE USING (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type IN ('admin', 'write')
+            AND is_active = true
+        )
+    );
+
+CREATE POLICY "batches_delete_admin" ON batches
+    FOR DELETE USING (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type = 'admin'
+            AND is_active = true
+        )
+    );
+
 -- ================================================================================
 -- SECTION 4: STUDENT MODULE TABLES
 -- ================================================================================
