@@ -162,6 +162,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
   '/academic/attendance/reports': 'academic.attendance.reports.view',
 
+  // Regulations Management
+  '/academic/regulations': 'academic.regulations.view',
+  '/academic/regulations/new': 'academic.regulations.create',
+  '/academic/regulations/[id]/edit': 'academic.regulations.edit',
+
+  // Batches Management
+  '/academic/batches': 'academic.batches.view',
+  '/academic/batches/new': 'academic.batches.create',
+  '/academic/batches/[id]/edit': 'academic.batches.edit',
+
   // Notification Management
   '/admin/notifications': 'notifications.view',
   '/admin/notifications/new': 'notifications.create',
@@ -497,12 +507,27 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/academic/regulations',
+          label: 'Regulations',
+          active: pathname.startsWith('/academic/regulations'),
+          icon: Bookmark,
+          submenus: []
+        },
+        {
+          href: '/academic/batches',
+          label: 'Batches',
+          active: pathname.startsWith('/academic/batches'),
+          icon: Boxes,
+          submenus: []
+        },
+        {
           href: '/academic/periods',
           label: 'Periods',
           active: pathname === '/academic/periods',
           icon: Clock,
           submenus: []
         },
+       
         {
           href: '/academic/staff-planning',
           label: 'Staff Planning',
