@@ -473,8 +473,10 @@ export default function TimetableDetailPage({
   // ===================================
 
   // NEW: 2025-12-05 - Get default slot data for pre-filling new slots
-  // This function finds existing slot configuration for a period and returns
-  // the staff/course/section data for pre-filling the slot dialog
+  // DISABLED: 2025-12-11 - Pre-fill feature caused confusion because empty slots
+  // appeared to have data from other days. Users would click an empty slot,
+  // see pre-filled data, and think the slot already existed.
+  // Keeping the function structure for potential future use with better UX.
   const getDefaultSlotDataForPeriod = useCallback(
     (periodId: string): {
       staff_ids?: string[];
@@ -483,29 +485,27 @@ export default function TimetableDetailPage({
       course?: any;
       section_ids?: string[];
     } | undefined => {
-      // Search through existing slots to find one with the same period_id
-      const existingSlotForPeriod = slots.find(
-        (slot: any) => slot.period_id === periodId && !slot.is_break_slot
-      );
-
-      if (existingSlotForPeriod) {
-        console.log('[page] Found existing slot for period pre-fill:', {
-          period_id: periodId,
-          staff_ids: existingSlotForPeriod.staff_ids,
-          staff_members_count: existingSlotForPeriod.staff_members?.length,
-          course_id: existingSlotForPeriod.course_id
-        });
-
-        return {
-          staff_ids: existingSlotForPeriod.staff_ids,
-          staff_members: existingSlotForPeriod.staff_members,
-          course_id: existingSlotForPeriod.course_id,
-          course: existingSlotForPeriod.course,
-          section_ids: existingSlotForPeriod.section_ids
-        };
-      }
-
+      // DISABLED: Pre-fill feature removed to avoid confusion
+      // Empty slots should show empty form, not data from other days
       return undefined;
+
+      // Original implementation (commented out for reference):
+      // Search through existing slots to find one with the same period_id
+      // const existingSlotForPeriod = slots.find(
+      //   (slot: any) => slot.period_id === periodId && !slot.is_break_slot
+      // );
+      //
+      // if (existingSlotForPeriod) {
+      //   return {
+      //     staff_ids: existingSlotForPeriod.staff_ids,
+      //     staff_members: existingSlotForPeriod.staff_members,
+      //     course_id: existingSlotForPeriod.course_id,
+      //     course: existingSlotForPeriod.course,
+      //     section_ids: existingSlotForPeriod.section_ids
+      //   };
+      // }
+      //
+      // return undefined;
     },
     [slots]
   );
@@ -696,7 +696,18 @@ export default function TimetableDetailPage({
 
               console.log(`[academic/timetables/page] Batch save: Updating ${dates.length} dates from ${startDate} to ${endDate}`);
 
-              // Use batch update to update all dates atomically
+              // Updated: 2025-12-11 - Also update the RANGE key so the grid shows correct data
+              // The batch grid displays data from RANGE keys, so we need to update that as well
+              // First update the RANGE slot
+              await TimetableService.updateTimetableSlot(
+                timetableId,
+                dayStr, // The RANGE marker itself (e.g., "RANGE:2025-11-02:2025-12-17")
+                period.id,
+                { ...slotData, slot_date: dayStr }, // Set slot_date to the RANGE marker
+                true // isBatch
+              );
+
+              // Then update all individual dates atomically
               await TimetableService.updateTimetableSlotsBatch(
                 timetableId,
                 dates,
@@ -792,7 +803,17 @@ export default function TimetableDetailPage({
 
             console.log(`[academic/timetables/page] Subdivision batch save: Updating ${dates.length} dates from ${startDate} to ${endDate}`);
 
-            // Use batch update to update all dates atomically
+            // Updated: 2025-12-11 - Also update the RANGE key so the grid shows correct data
+            // First update the RANGE slot
+            await TimetableService.updateTimetableSlot(
+              timetableId,
+              dayStr, // The RANGE marker itself
+              period.id,
+              { ...completeSlotData, slot_date: dayStr },
+              true // isBatch
+            );
+
+            // Then update all individual dates atomically
             await TimetableService.updateTimetableSlotsBatch(
               timetableId,
               dates,
@@ -1191,6 +1212,7 @@ export default function TimetableDetailPage({
           hasAttendance={hasAttendance}
           hasSlots={slots.length > 0}
           savingPeriods={savingPeriods}
+          hasUnsavedChanges={hasUnsavedChanges}
           onConfigurePeriods={periodSelectorDialog.open}
           onConfigureDays={dayConfigDialog.open}
           onAddDateRange={addDateRangeDialog.open}

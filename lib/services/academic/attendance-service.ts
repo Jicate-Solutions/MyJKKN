@@ -2535,8 +2535,8 @@ export class AttendanceService {
                 // Step 2: Find ONE representative slot per period from this date range
                 // Use a Map to track which periods we've already found slots for
                 // FIX: 2025-12-06 - Store the actual slot data (not just boolean) to compare staff counts
-                // This ensures we prefer slots with MORE staff members for complete visibility
-                const periodSlotMap = new Map<string, { slotData: any; day: string; staffCount: number }>();
+                // Updated: 2025-12-11 - Added isFromRange to prefer RANGE slots over individual slots
+                const periodSlotMap = new Map<string, { slotData: any; day: string; staffCount: number; isFromRange?: boolean }>();
 
                 Object.keys(timetableData).forEach((day) => {
                   const daySlots = timetableData[day];
@@ -2606,25 +2606,54 @@ export class AttendanceService {
                         }
 
                         if (shouldIncludeSlot) {
-                          // FIX: 2025-12-06 - Compare staff counts and keep slot with MORE staff
-                          // This ensures faculty assigned on some dates but not others still see their periods
+                          // FIX: 2025-12-11 - Prefer RANGE slots over individual date slots for consistency with grid
+                          // The grid displays from RANGE slots, so attendance should match
+                          // Only use "prefer more staff" as tiebreaker when both slots are same type
                           const currentStaffCount = slotData.staff_ids?.length || 0;
                           const existingSlot = periodSlotMap.get(periodId);
 
+                          // Track if slot comes from RANGE key vs individual date key
+                          const isFromRange = slotData.slot_date?.startsWith('RANGE:');
+                          const existingIsFromRange = existingSlot?.isFromRange;
+
                           if (!existingSlot) {
-                            // First slot for this period - store it
+                            // First slot for this period - store it with range flag
                             periodSlotMap.set(periodId, {
                               slotData,
                               day,
-                              staffCount: currentStaffCount
+                              staffCount: currentStaffCount,
+                              isFromRange
                             });
                             console.log('✅ First slot for period:', {
                               period_id: periodId,
                               staff_count: currentStaffCount,
-                              slot_date: slotData.slot_date
+                              slot_date: slotData.slot_date,
+                              is_range: isFromRange
+                            });
+                          } else if (isFromRange && !existingIsFromRange) {
+                            // Current is RANGE, existing is individual → prefer RANGE for consistency
+                            console.log('🔄 Replacing individual slot with RANGE slot:', {
+                              period_id: periodId,
+                              old_staff_count: existingSlot.staffCount,
+                              new_staff_count: currentStaffCount,
+                              old_date: existingSlot.slotData.slot_date,
+                              new_date: slotData.slot_date
+                            });
+                            periodSlotMap.set(periodId, {
+                              slotData,
+                              day,
+                              staffCount: currentStaffCount,
+                              isFromRange
+                            });
+                          } else if (!isFromRange && existingIsFromRange) {
+                            // Current is individual, existing is RANGE → keep RANGE (do nothing)
+                            console.log('⏭️ Keeping RANGE slot, ignoring individual slot:', {
+                              period_id: periodId,
+                              range_staff_count: existingSlot.staffCount,
+                              individual_staff_count: currentStaffCount
                             });
                           } else if (currentStaffCount > existingSlot.staffCount) {
-                            // Current slot has MORE staff - prefer it
+                            // Both same type - use "prefer more staff" as tiebreaker
                             console.log('🔄 Replacing slot with one having more staff:', {
                               period_id: periodId,
                               old_staff_count: existingSlot.staffCount,
@@ -2635,10 +2664,11 @@ export class AttendanceService {
                             periodSlotMap.set(periodId, {
                               slotData,
                               day,
-                              staffCount: currentStaffCount
+                              staffCount: currentStaffCount,
+                              isFromRange
                             });
                           }
-                          // If current has fewer or equal staff, keep the existing one
+                          // If current has fewer or equal staff and same type, keep existing
                         }
                       }
                     });

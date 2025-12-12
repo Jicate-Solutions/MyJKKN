@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { Save, ArrowLeft, CalendarIcon } from 'lucide-react';
+import { Save, ArrowLeft, CalendarIcon, AlertCircle, Lock } from 'lucide-react';
 import { format } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -43,6 +43,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import Loading from '@/components/Loading/Loading';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { useTimetables } from '@/hooks/academic/use-timetables';
@@ -135,6 +136,7 @@ export default function EditTimetablePage({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [timetable, setTimetable] = useState<Timetable | null>(null);
+  const [hasAttendance, setHasAttendance] = useState(false);
 
   // State for hierarchical dropdowns
   const [selectedInstitutionId, setSelectedInstitutionId] =
@@ -280,8 +282,15 @@ export default function EditTimetablePage({
       try {
         setLoading(true);
         setError(null);
-        const timetableData = await TimetableService.getTimetable(timetableId);
+
+        // Fetch timetable data and attendance status in parallel
+        const [timetableData, attendanceStatus] = await Promise.all([
+          TimetableService.getTimetable(timetableId),
+          TimetableService.hasAttendanceMarked(timetableId)
+        ]);
+
         setTimetable(timetableData);
+        setHasAttendance(attendanceStatus.hasAttendance);
 
         // Update form values
         form.reset({
@@ -490,6 +499,7 @@ export default function EditTimetablePage({
   }, [watchSemesterId, form, allSections, timetable]);
 
   // Form submission handler
+  // Updated: 2025-12-11 - Only send safe fields when attendance exists to allow editing name, dates
   const onSubmit = async (values: TimetableFormValues) => {
     if (!timetable) return;
 
@@ -504,30 +514,42 @@ export default function EditTimetablePage({
         return `${year}-${month}-${day}`;
       };
 
-      const updateData: UpdateTimetableDto = {
-        timetable_name: values.timetable_name,
-        institution_id: values.institution_id,
-        academic_year_id: values.academic_year_id,
-        degree_id: values.degree_id,
-        program_id: values.program_id,
-        department_id: values.department_id,
-        // Fix: use correct field names for UUIDs
-        semester_id: values.semester_id || undefined,
-        timetable_type: values.timetable_type, // Updated: 2025-10-08 - Include timetable_type in update
-        // Updated: 2025-10-09 - Clear section_id when changing to semester-level (use undefined, not null)
-        section_id: values.timetable_type === 'semester' ? undefined : (values.section_id || undefined),
-        start_date: formatDateForDB(values.start_date),
-        end_date: formatDateForDB(values.end_date),
-        is_active: values.is_active,
-        is_template: values.is_template,
-        template_name: values.is_template ? values.template_name : undefined
-      };
+      let updateData: UpdateTimetableDto;
 
+      // If attendance exists and user is not super admin, only send safe fields
+      // This allows editing timetable_name, start_date, end_date, is_active, is_template
+      if (hasAttendance && !isSuperAdmin) {
+        updateData = {
+          timetable_name: values.timetable_name,
+          start_date: formatDateForDB(values.start_date),
+          end_date: formatDateForDB(values.end_date),
+          is_active: values.is_active,
+          is_template: values.is_template,
+          template_name: values.is_template ? values.template_name : undefined
+        };
+      } else {
+        // Full update when no attendance or user is super admin
+        updateData = {
+          timetable_name: values.timetable_name,
+          institution_id: values.institution_id,
+          academic_year_id: values.academic_year_id,
+          degree_id: values.degree_id,
+          program_id: values.program_id,
+          department_id: values.department_id,
+          semester_id: values.semester_id || undefined,
+          timetable_type: values.timetable_type,
+          section_id: values.timetable_type === 'semester' ? undefined : (values.section_id || undefined),
+          start_date: formatDateForDB(values.start_date),
+          end_date: formatDateForDB(values.end_date),
+          is_active: values.is_active,
+          is_template: values.is_template,
+          template_name: values.is_template ? values.template_name : undefined
+        };
+      }
 
-      const success = await updateTimetable(timetableId, updateData);
+      const success = await updateTimetable(timetableId, updateData, isSuperAdmin);
       if (success) {
         router.push(`/academic/timetables/${timetableId}`);
-      } else {
       }
     } catch (error) {
       console.error('Error updating timetable:', error);
@@ -620,6 +642,36 @@ export default function EditTimetablePage({
           </Button>
         </div>
 
+        {/* Alert for attendance-locked timetables */}
+        {hasAttendance && !isSuperAdmin && (
+          <Alert className='border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950'>
+            <AlertCircle className='h-4 w-4 text-amber-600 dark:text-amber-400' />
+            <AlertTitle className='text-amber-800 dark:text-amber-200'>
+              Limited Editing Mode
+            </AlertTitle>
+            <AlertDescription className='text-amber-700 dark:text-amber-300'>
+              Attendance has been marked for this timetable. You can only edit the{' '}
+              <strong>timetable name</strong>, <strong>start date</strong>,{' '}
+              <strong>end date</strong>, and <strong>status</strong>. Structure fields
+              (institution, degree, program, semester, section) are locked to preserve
+              attendance data integrity.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {hasAttendance && isSuperAdmin && (
+          <Alert className='border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950'>
+            <Lock className='h-4 w-4 text-blue-600 dark:text-blue-400' />
+            <AlertTitle className='text-blue-800 dark:text-blue-200'>
+              Super Admin Override
+            </AlertTitle>
+            <AlertDescription className='text-blue-700 dark:text-blue-300'>
+              Attendance has been marked for this timetable. As a super admin, you can
+              modify all fields. Regular users can only edit name, dates, and status.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <Card>
           <CardContent className='p-6'>
             <Form {...form}>
@@ -628,7 +680,14 @@ export default function EditTimetablePage({
                 className='space-y-6'
               >
                 <div className='space-y-4'>
-                  <h3 className='text-lg font-medium'>Timetable Context</h3>
+                  <h3 className='text-lg font-medium'>
+                    Timetable Context
+                    {hasAttendance && !isSuperAdmin && (
+                      <span className='ml-2 text-sm font-normal text-amber-600'>
+                        (Locked - Attendance exists)
+                      </span>
+                    )}
+                  </h3>
                   <div className='grid grid-cols-2 gap-4'>
                     {/* Institution Field */}
                     <FormField
@@ -642,7 +701,8 @@ export default function EditTimetablePage({
                             value={field.value}
                             disabled={
                               loadingInstitutions ||
-                              (!isSuperAdmin && institutions.length <= 1)
+                              (!isSuperAdmin && institutions.length <= 1) ||
+                              (hasAttendance && !isSuperAdmin)
                             }
                           >
                             <FormControl>
@@ -682,7 +742,8 @@ export default function EditTimetablePage({
                             disabled={
                               loadingYears ||
                               !watchInstitutionId ||
-                              academicYears.length === 0
+                              academicYears.length === 0 ||
+                              (hasAttendance && !isSuperAdmin)
                             }
                           >
                             <FormControl>
@@ -725,7 +786,8 @@ export default function EditTimetablePage({
                             disabled={
                               loadingDegrees ||
                               !watchInstitutionId ||
-                              degrees.length === 0
+                              degrees.length === 0 ||
+                              (hasAttendance && !isSuperAdmin)
                             }
                           >
                             <FormControl>
@@ -766,7 +828,8 @@ export default function EditTimetablePage({
                             disabled={
                               loadingDepartments ||
                               !watchDegreeId ||
-                              departments.length === 0
+                              departments.length === 0 ||
+                              (hasAttendance && !isSuperAdmin)
                             }
                           >
                             <FormControl>
@@ -812,7 +875,8 @@ export default function EditTimetablePage({
                             disabled={
                               loadingPrograms ||
                               !watchDepartmentId ||
-                              programs.length === 0
+                              programs.length === 0 ||
+                              (hasAttendance && !isSuperAdmin)
                             }
                           >
                             <FormControl>
@@ -855,7 +919,8 @@ export default function EditTimetablePage({
                             disabled={
                               loadingSemesters ||
                               !watchProgramId ||
-                              uniqueSemesters.length === 0
+                              uniqueSemesters.length === 0 ||
+                              (hasAttendance && !isSuperAdmin)
                             }
                           >
                             <FormControl>
@@ -904,6 +969,7 @@ export default function EditTimetablePage({
                               }
                             }}
                             value={field.value}
+                            disabled={hasAttendance && !isSuperAdmin}
                           >
                             <FormControl>
                               <SelectTrigger>
@@ -963,7 +1029,8 @@ export default function EditTimetablePage({
                               disabled={
                                 loadingSections ||
                                 !effectiveSemesterId ||
-                                filteredSections.length === 0
+                                filteredSections.length === 0 ||
+                                (hasAttendance && !isSuperAdmin)
                               }
                             >
                               <FormControl>
