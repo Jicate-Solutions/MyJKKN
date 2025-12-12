@@ -331,9 +331,23 @@ export function SlotDialog({
           existingSlot.staff_ids &&
           existingSlot.staff_ids.length > 0
         ) {
-          setSelectedStaff(existingSlot.staff_ids);
-          // Clear existing slot staff when only IDs available (no enriched data)
-          setExistingSlotStaff([]);
+          // Updated: 2025-12-11 - Include primary_staff_id if it's not in staff_ids
+          const allStaffIds = [...existingSlot.staff_ids];
+          if (existingSlot.primary_staff_id && !allStaffIds.includes(existingSlot.primary_staff_id)) {
+            allStaffIds.unshift(existingSlot.primary_staff_id);
+          }
+          setSelectedStaff(allStaffIds);
+          // Updated: 2025-12-11 - Find staff details from the staff prop when staff_members isn't enriched
+          // This ensures saved staff are shown in the dialog even when enrichment didn't happen
+          const staffFromIds = allStaffIds
+            .map((staffId: string) => staff.find((s: any) => s.id === staffId))
+            .filter(Boolean);
+          setExistingSlotStaff(staffFromIds);
+          console.log('[slot-dialog] Found staff from IDs:', {
+            staff_ids: allStaffIds,
+            found_count: staffFromIds.length,
+            staff_names: staffFromIds.map((s: any) => `${s.first_name} ${s.last_name}`)
+          });
         } else {
           setSelectedStaff([]);
           setExistingSlotStaff([]);

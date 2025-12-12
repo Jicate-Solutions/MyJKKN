@@ -106,12 +106,13 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
     [fetchTimetables]
   );
 
+  // Updated: 2025-12-11 - Added isSuperAdmin parameter to allow super admins to bypass attendance lock
   const updateTimetable = useCallback(
-    async (id: string, data: UpdateTimetableDto) => {
+    async (id: string, data: UpdateTimetableDto, isSuperAdmin: boolean = false) => {
       try {
         setLoading(true);
         setError(null);
-        await TimetableService.updateTimetable(id, data);
+        await TimetableService.updateTimetable(id, data, isSuperAdmin);
         // Refresh timetables list
         fetchTimetables();
         return true;

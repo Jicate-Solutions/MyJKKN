@@ -41,6 +41,7 @@ interface TimetableActionsProps {
 
   // State
   savingPeriods: boolean;
+  hasUnsavedChanges?: boolean; // Updated: 2025-12-11 - Track unsaved changes to enable/disable save button
 
   // Actions
   onConfigurePeriods: () => void;
@@ -65,6 +66,7 @@ export function TimetableActions({
   hasAttendance,
   hasSlots,
   savingPeriods,
+  hasUnsavedChanges = false, // Updated: 2025-12-11 - Default to false (no unsaved changes)
   onConfigurePeriods,
   onConfigureDays,
   onAddDateRange,
@@ -168,26 +170,43 @@ export function TimetableActions({
       )}
 
       {/* Save Configuration */}
+      {/* Updated: 2025-12-11 - Disabled by default, only enabled when there are unsaved changes */}
       {canEdit && (!hasAttendance || isSuperAdmin) && (
-        <Button
-          variant="default"
-          size="sm"
-          onClick={onSaveConfiguration}
-          disabled={savingPeriods || (hasAttendance && !isSuperAdmin)}
-          className="bg-green-600 hover:bg-green-700"
-        >
-          {savingPeriods ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="h-4 w-4 mr-2" />
-              Save Configuration
-            </>
-          )}
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={onSaveConfiguration}
+                  disabled={savingPeriods || !hasUnsavedChanges || (hasAttendance && !isSuperAdmin)}
+                  className={cn(
+                    'bg-green-600 hover:bg-green-700',
+                    !hasUnsavedChanges && 'opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  {savingPeriods ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Configuration
+                    </>
+                  )}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {!hasUnsavedChanges && !savingPeriods && (
+              <TooltipContent>
+                <p>No changes to save</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
       )}
 
       {/* Export PDF */}

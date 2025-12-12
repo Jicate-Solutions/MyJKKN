@@ -367,18 +367,23 @@ Please select a different date period that doesn't overlap.`
     }
   }
 
+  // Updated: 2025-12-11 - Added isSuperAdmin parameter to allow super admins to bypass attendance lock
   static async updateTimetable(
     id: string,
-    data: UpdateTimetableDto
+    data: UpdateTimetableDto,
+    isSuperAdmin: boolean = false
   ): Promise<Timetable> {
     try {
       // Define fields that are safe to update even when attendance exists
       // Updated: 2025-11-17 - Added periods to safe fields (changing period list doesn't affect existing attendance)
+      // Updated: 2025-12-11 - Added start_date, end_date to safe fields (metadata changes don't affect existing attendance)
       const safeFields = [
         'selected_days',
         'selected_dates',
         'timetable_format',
         'timetable_name',
+        'start_date',
+        'end_date',
         'periods',
         'is_active',
         'is_template',
@@ -410,8 +415,9 @@ Please select a different date period that doesn't overlap.`
         throw attendanceCheckError;
       }
 
-      // If attendance records exist, only block unsafe modifications
-      if (attendanceRecords && attendanceRecords.length > 0 && hasUnsafeChanges) {
+      // If attendance records exist, only block unsafe modifications (unless super admin)
+      // Super admins can bypass this restriction to make emergency changes
+      if (attendanceRecords && attendanceRecords.length > 0 && hasUnsafeChanges && !isSuperAdmin) {
         const errorMessage =
           'Cannot modify this timetable structure because attendance has been marked. Once attendance is recorded, the timetable structure becomes locked to preserve data integrity. You can still update days, dates, and other configuration settings.';
 
