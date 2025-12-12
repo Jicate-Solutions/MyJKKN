@@ -1,16 +1,15 @@
 import { z } from 'zod';
 
-export const studentsSearchParamsSchema = z.object({
+export const graduatedSearchParamsSchema = z.object({
   page: z.coerce.number().default(1),
   pageSize: z.coerce.number().default(10),
   search: z.string().optional(),
   sortBy: z.string().optional(),
   sortOrder: z.enum(['asc', 'desc']).optional(),
 
-  // Custom filters for students
-  // Supports single status or comma-separated statuses (e.g., "active,inactive")
-  status: z.string().optional(),
-  is_profile_complete: z.coerce.boolean().default(true),
+  // Custom filters for graduated/exited students
+  // Supports single status or comma-separated statuses (e.g., "graduated,exited")
+  status: z.string().default('graduated,exited'),
 
   // Advanced filters
   institution_id: z.string().optional(),
@@ -22,4 +21,4 @@ export const studentsSearchParamsSchema = z.object({
   academic_year_id: z.string().optional()
 });
 
-export type StudentsSearchParams = z.infer<typeof studentsSearchParamsSchema>;
+export type GraduatedSearchParams = z.infer<typeof graduatedSearchParamsSchema>;

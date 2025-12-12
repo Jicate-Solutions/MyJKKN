@@ -278,9 +278,9 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent className='max-h-60 overflow-y-auto'>
-                  <SelectItem value='MALE'>Male</SelectItem>
-                  <SelectItem value='FEMALE'>Female</SelectItem>
-                  <SelectItem value='OTHER'>Other</SelectItem>
+                  <SelectItem value='Male'>Male</SelectItem>
+                  <SelectItem value='Female'>Female</SelectItem>
+                  <SelectItem value='Other'>Other</SelectItem>
                 </SelectContent>
               </Select>
               <FormMessage />

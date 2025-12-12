@@ -374,7 +374,7 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
       mother_occupation: mappedData.mother_occupation?.toString().trim().toUpperCase() || '',
       mother_mobile: mappedData.mother_mobile?.toString().replace(/\D/g, '') || '',
       date_of_birth: mappedData.date_of_birth ? new Date(mappedData.date_of_birth).toISOString().split('T')[0] : '',
-      gender: mappedData.gender?.toString().trim().toUpperCase() || '',
+      gender: mappedData.gender?.toString().trim().toLowerCase().replace(/^\w/, (c: string) => c.toUpperCase()) || '',
       religion: mappedData.religion?.toString().trim().toUpperCase() || '',
       community: mappedData.community?.toString().trim().toUpperCase() || '',
       caste: mappedData.caste?.toString().trim().toUpperCase() || '',

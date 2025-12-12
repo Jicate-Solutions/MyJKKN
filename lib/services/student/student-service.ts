@@ -796,7 +796,13 @@ export class StudentService {
       }
 
       if (filters.status) {
-        query = query.eq('status', filters.status);
+        // Support both single status and comma-separated multiple statuses
+        if (filters.status.includes(',')) {
+          const statuses = filters.status.split(',').map(s => s.trim());
+          query = query.in('status', statuses);
+        } else {
+          query = query.eq('status', filters.status);
+        }
       }
 
       if (filters.created_from) {
@@ -1221,10 +1227,23 @@ export class StudentService {
         );
       }
 
-      // Fetch all students using the helper method
+      // For overview stats, we want CURRENT state of all students
+      // Date range filter should NOT apply to overview stats
+      // Only apply institution, department, program, and status filters
+      const overviewFilters = filters
+        ? {
+            institutionId: filters.institutionId,
+            departmentId: filters.departmentId,
+            programId: filters.programId,
+            status: filters.status
+            // Intentionally NOT including dateRange
+          }
+        : undefined;
+
+      // Fetch all students using the helper method (without date range filter)
       const students = await this.fetchAllStudents(
         'status, is_profile_complete',
-        filters
+        overviewFilters
       );
 
       const totalStudents = students?.length || 0;
@@ -1316,13 +1335,21 @@ export class StudentService {
   // Get institution statistics
   private static async getInstitutionStats(filters?: any) {
     try {
+      // For institution stats, we want CURRENT distribution of students
+      // Date range filter should NOT apply - show where students ARE NOW
+      const currentStateFilters = filters
+        ? {
+            departmentId: filters.departmentId,
+            programId: filters.programId,
+            status: filters.status
+            // Intentionally NOT including dateRange or institutionId
+          }
+        : undefined;
+
       // Fetch all students using the helper method (excluding institution filter for this query)
       const students = await this.fetchAllStudents(
         `institution_id, status, institutions!inner(id, name)`,
-        {
-          ...filters,
-          institutionId: undefined // Exclude institution filter for this specific query
-        }
+        currentStateFilters
       );
 
       const totalStudents = students?.length || 0;
@@ -1368,10 +1395,21 @@ export class StudentService {
   // Get department statistics
   private static async getDepartmentStats(filters?: any) {
     try {
+      // For department stats, we want CURRENT distribution of students
+      // Date range filter should NOT apply - show where students ARE NOW
+      const currentStateFilters = filters
+        ? {
+            institutionId: filters.institutionId,
+            programId: filters.programId,
+            status: filters.status
+            // Intentionally NOT including dateRange
+          }
+        : undefined;
+
       // Fetch all students using the helper method
       const students = await this.fetchAllStudents(
         `department_id, departments!inner(id, department_name), institutions!inner(name)`,
-        filters
+        currentStateFilters
       );
 
       const totalStudents = students?.length || 0;
@@ -1414,10 +1452,21 @@ export class StudentService {
   // Get program statistics
   private static async getProgramStats(filters?: any) {
     try {
+      // For program stats, we want CURRENT distribution of students
+      // Date range filter should NOT apply - show where students ARE NOW
+      const currentStateFilters = filters
+        ? {
+            institutionId: filters.institutionId,
+            departmentId: filters.departmentId,
+            status: filters.status
+            // Intentionally NOT including dateRange
+          }
+        : undefined;
+
       // Fetch all students using the helper method
       const students = await this.fetchAllStudents(
         `program_id, programs!inner(id, program_name), departments!inner(department_name)`,
-        filters
+        currentStateFilters
       );
 
       const totalStudents = students?.length || 0;
@@ -1460,10 +1509,22 @@ export class StudentService {
   // Get semester statistics
   private static async getSemesterStats(filters?: any) {
     try {
+      // For semester stats, we want CURRENT distribution of students
+      // Date range filter should NOT apply - show where students ARE NOW
+      const currentStateFilters = filters
+        ? {
+            institutionId: filters.institutionId,
+            departmentId: filters.departmentId,
+            programId: filters.programId,
+            status: filters.status
+            // Intentionally NOT including dateRange
+          }
+        : undefined;
+
       // Fetch all students using the helper method
       const students = await this.fetchAllStudents(
         `semester_id, semesters!inner(id, semester_name)`,
-        filters
+        currentStateFilters
       );
 
       const totalStudents = students?.length || 0;
@@ -1502,32 +1563,50 @@ export class StudentService {
   // Get section statistics
   private static async getSectionStats(filters?: any) {
     try {
-      let query = this.supabase.from('students').select(
-        `
-          section_id,
-          sections!inner(id, section_name),
-          semesters!inner(semester_name)
-        `
-      );
+      // For section stats, we want CURRENT distribution of students
+      // Date range filter should NOT apply - show where students ARE NOW
+      // Use manual pagination to avoid 1000 row limit
+      let allStudents: any[] = [];
+      let hasMore = true;
+      const pageSize = 1000;
+      let currentPage = 0;
 
-      // Apply filters
-      if (filters?.institutionId) {
-        query = query.eq('institution_id', filters.institutionId);
-      }
-      if (filters?.departmentId) {
-        query = query.eq('department_id', filters.departmentId);
-      }
-      if (filters?.programId) {
-        query = query.eq('program_id', filters.programId);
-      }
-      if (filters?.dateRange?.from && filters?.dateRange?.to) {
-        query = query
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
+      while (hasMore) {
+        let query = this.supabase.from('students').select(
+          `
+            section_id,
+            sections!inner(id, section_name),
+            semesters!inner(semester_name)
+          `
+        ).range(currentPage * pageSize, (currentPage + 1) * pageSize - 1);
+
+        // Apply filters (excluding dateRange - we want current state)
+        if (filters?.institutionId) {
+          query = query.eq('institution_id', filters.institutionId);
+        }
+        if (filters?.departmentId) {
+          query = query.eq('department_id', filters.departmentId);
+        }
+        if (filters?.programId) {
+          query = query.eq('program_id', filters.programId);
+        }
+        // Intentionally NOT applying dateRange filter - show current distribution
+
+        const { data: pageStudents, error } = await query;
+        if (error) throw error;
+
+        if (pageStudents && pageStudents.length > 0) {
+          allStudents = allStudents.concat(pageStudents);
+          currentPage++;
+          if (pageStudents.length < pageSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
       }
 
-      const { data: students, error } = await query;
-      if (error) throw error;
+      const students = allStudents;
 
       const totalStudents = students?.length || 0;
 
@@ -1569,33 +1648,23 @@ export class StudentService {
   // Get demographic statistics
   private static async getDemographicStats(filters?: any) {
     try {
-      let query = this.supabase
-        .from('students')
-        .select(
-          'gender, entry_type, accommodation_type, religion, community, date_of_birth'
-        );
+      // For demographic stats, we want CURRENT demographics of all students
+      // Date range filter should NOT apply - show current student demographics
+      const currentStateFilters = filters
+        ? {
+            institutionId: filters.institutionId,
+            departmentId: filters.departmentId,
+            programId: filters.programId,
+            status: filters.status
+            // Intentionally NOT including dateRange - show current demographics
+          }
+        : undefined;
 
-      // Apply filters
-      if (filters?.institutionId) {
-        query = query.eq('institution_id', filters.institutionId);
-      }
-      if (filters?.departmentId) {
-        query = query.eq('department_id', filters.departmentId);
-      }
-      if (filters?.programId) {
-        query = query.eq('program_id', filters.programId);
-      }
-      if (filters?.status && filters.status.length > 0) {
-        query = query.in('status', filters.status);
-      }
-      if (filters?.dateRange?.from && filters?.dateRange?.to) {
-        query = query
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
-      }
-
-      const { data: students, error } = await query;
-      if (error) throw error;
+      // Use fetchAllStudents helper to handle pagination (avoids 1000 row limit)
+      const students = await this.fetchAllStudents(
+        'gender, entry_type, accommodation_type, religion, community, date_of_birth',
+        currentStateFilters
+      );
 
       const totalStudents = students?.length || 0;
 
@@ -1710,31 +1779,23 @@ export class StudentService {
   // Get geographic statistics
   private static async getGeographicStats(filters?: any) {
     try {
-      let query = this.supabase
-        .from('students')
-        .select('permanent_address_state, permanent_address_district');
+      // For geographic stats, we want CURRENT geographic distribution of all students
+      // Date range filter should NOT apply - show where current students are from
+      const currentStateFilters = filters
+        ? {
+            institutionId: filters.institutionId,
+            departmentId: filters.departmentId,
+            programId: filters.programId,
+            status: filters.status
+            // Intentionally NOT including dateRange - show current geographic distribution
+          }
+        : undefined;
 
-      // Apply filters
-      if (filters?.institutionId) {
-        query = query.eq('institution_id', filters.institutionId);
-      }
-      if (filters?.departmentId) {
-        query = query.eq('department_id', filters.departmentId);
-      }
-      if (filters?.programId) {
-        query = query.eq('program_id', filters.programId);
-      }
-      if (filters?.status && filters.status.length > 0) {
-        query = query.in('status', filters.status);
-      }
-      if (filters?.dateRange?.from && filters?.dateRange?.to) {
-        query = query
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
-      }
-
-      const { data: students, error } = await query;
-      if (error) throw error;
+      // Use fetchAllStudents helper to handle pagination (avoids 1000 row limit)
+      const students = await this.fetchAllStudents(
+        'permanent_address_state, permanent_address_district',
+        currentStateFilters
+      );
 
       const totalStudents = students?.length || 0;
 
@@ -1769,41 +1830,23 @@ export class StudentService {
   // Get onboarding statistics
   private static async getOnboardingStats(filters?: any) {
     try {
-      let query = this.supabase.from('students').select(
-        `
-          roll_number,
-          college_email,
-          student_photo_url,
-          academic_year_id,
-          semester_id,
-          section_id,
-          is_profile_complete,
-          created_at,
-          updated_at
-        `
+      // For onboarding stats, we want CURRENT onboarding status of all students
+      // Date range filter should NOT apply - show current profile completion state
+      const currentStateFilters = filters
+        ? {
+            institutionId: filters.institutionId,
+            departmentId: filters.departmentId,
+            programId: filters.programId,
+            status: filters.status
+            // Intentionally NOT including dateRange - show current onboarding state
+          }
+        : undefined;
+
+      // Use fetchAllStudents helper to handle pagination (avoids 1000 row limit)
+      const students = await this.fetchAllStudents(
+        'roll_number, college_email, student_photo_url, academic_year_id, semester_id, section_id, is_profile_complete, created_at, updated_at',
+        currentStateFilters
       );
-
-      // Apply filters
-      if (filters?.institutionId) {
-        query = query.eq('institution_id', filters.institutionId);
-      }
-      if (filters?.departmentId) {
-        query = query.eq('department_id', filters.departmentId);
-      }
-      if (filters?.programId) {
-        query = query.eq('program_id', filters.programId);
-      }
-      if (filters?.status && filters.status.length > 0) {
-        query = query.in('status', filters.status);
-      }
-      if (filters?.dateRange?.from && filters?.dateRange?.to) {
-        query = query
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
-      }
-
-      const { data: students, error } = await query;
-      if (error) throw error;
 
       const totalStudents = students?.length || 0;
 
@@ -2245,6 +2288,122 @@ export class StudentService {
       return { success, failed };
     } catch (error) {
       console.error('Error in bulk promotion:', error);
+      studentIds.forEach((id) => {
+        failed.push({
+          id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      });
+      return { success, failed };
+    }
+  }
+
+  /**
+   * Bulk update student status (e.g., to 'graduated')
+   * This method ONLY updates the status field - it does NOT modify semester, section, or other academic fields
+   */
+  static async bulkUpdateStudentStatus(
+    studentIds: string[],
+    newStatus: 'active' | 'inactive' | 'pending' | 'exited' | 'graduated',
+    onProgress?: (
+      progress: number,
+      success: string[],
+      failed: { id: string; error: string }[]
+    ) => void
+  ): Promise<{
+    success: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    const success: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    try {
+      // Validate student IDs exist and get their current emails for account management
+      const { data: existingStudents, error: studentsError } =
+        await this.supabase
+          .from('students')
+          .select('id, first_name, last_name, college_email, status')
+          .in('id', studentIds);
+
+      if (studentsError) {
+        throw new Error(
+          `Failed to validate students: ${studentsError.message}`
+        );
+      }
+
+      if (!existingStudents || existingStudents.length !== studentIds.length) {
+        const foundIds = existingStudents?.map((s) => s.id) || [];
+        const missingIds = studentIds.filter((id) => !foundIds.includes(id));
+        throw new Error(`Some students not found: ${missingIds.join(', ')}`);
+      }
+
+      // Build update payload - ONLY status and audit fields
+      const updatePayload = {
+        status: newStatus,
+        updated_at: new Date().toISOString(),
+        updated_by: (await this.supabase.auth.getUser()).data.user?.id
+      };
+
+      // Process in chunks to avoid overwhelming the server
+      const chunkSize = 50;
+      let processedCount = 0;
+
+      for (let i = 0; i < studentIds.length; i += chunkSize) {
+        const chunk = studentIds.slice(i, i + chunkSize);
+        const chunkStudents = existingStudents.filter((s) =>
+          chunk.includes(s.id)
+        );
+
+        try {
+          const { error } = await this.supabase
+            .from('students')
+            .update(updatePayload)
+            .in('id', chunk);
+
+          if (error) {
+            throw new Error(`Failed to update status: ${error.message}`);
+          }
+
+          // Handle user account state for exited status
+          for (const student of chunkStudents) {
+            if (student.college_email) {
+              await this.manageUserAccountState(
+                student.college_email,
+                newStatus,
+                student.status
+              );
+            }
+          }
+
+          // Log successful updates for debugging
+          console.log(
+            `Successfully updated status for ${chunk.length} students in chunk ${
+              i / chunkSize + 1
+            }`
+          );
+          success.push(...chunk);
+          processedCount += chunk.length;
+        } catch (error) {
+          console.error('Error in bulk status update chunk:', error);
+          chunk.forEach((id) => {
+            failed.push({
+              id,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          });
+          processedCount += chunk.length;
+        }
+
+        // Call progress callback
+        if (onProgress) {
+          const progress = (processedCount / studentIds.length) * 100;
+          onProgress(progress, [...success], [...failed]);
+        }
+      }
+
+      return { success, failed };
+    } catch (error) {
+      console.error('Error in bulk status update:', error);
       studentIds.forEach((id) => {
         failed.push({
           id,
