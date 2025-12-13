@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
     // Apply filters
     if (search) {
       query = query.or(
-        `section_code.ilike.%${search}%,section_name.ilike.%${search}%`
+        `section_name.ilike.%${search}%`
       );
     }
 

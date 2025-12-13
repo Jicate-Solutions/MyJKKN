@@ -41,6 +41,8 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { RegulationService, Regulation } from '@/lib/services/organization/regulation-service';
+import { BatchService, Batch } from '@/lib/services/organization/batch-service';
 import { Section } from '@/types/organizations';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
@@ -90,6 +92,9 @@ const editStudentSchema = z.object({
   program_id: z.string().optional(),
   semester_id: z.string().min(1, 'Semester is required'),
   section_id: z.string().min(1, 'Section is required'),
+  regulation_id: z.string().optional(),
+  batch_id: z.string().optional(),
+  register_number: z.string().optional(),
   entry_type: z.string().optional(),
 
   // Address
@@ -337,10 +342,14 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
   const [programs, setPrograms] = useState<
     Array<{ id: string; program_name: string }>
   >([]);
+  const [regulations, setRegulations] = useState<Regulation[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
   const [isLoadingInstitutions, setIsLoadingInstitutions] = useState(false);
   const [isLoadingDegrees, setIsLoadingDegrees] = useState(false);
   const [isLoadingDepartments, setIsLoadingDepartments] = useState(false);
   const [isLoadingPrograms, setIsLoadingPrograms] = useState(false);
+  const [isLoadingRegulations, setIsLoadingRegulations] = useState(false);
+  const [isLoadingBatches, setIsLoadingBatches] = useState(false);
 
   // Initialize form with default values
   const form = useForm<EditStudentFormValues>({
@@ -374,6 +383,9 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
       program_id: '',
       semester_id: '',
       section_id: '',
+      regulation_id: '',
+      batch_id: '',
+      register_number: '',
       entry_type: '',
       permanent_address_street: '',
       permanent_address_taluk: '',
@@ -489,6 +501,9 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
           program_id: student.program_id || '',
           semester_id: student.semester_id || '',
           section_id: student.section_id || '',
+          regulation_id: student.regulation_id || '',
+          batch_id: student.batch_id || '',
+          register_number: student.register_number || '',
           entry_type: student.entry_type || '',
           permanent_address_street: student.permanent_address_street || '',
           permanent_address_taluk: student.permanent_address_taluk || '',
@@ -540,10 +555,23 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
         if (student.section_id) {
           form.setValue('section_id', student.section_id);
         }
+        // Explicitly set dropdown values that may not be picked up correctly
+        if (student.category) {
+          form.setValue('category', student.category);
+        }
+        if (student.quota) {
+          form.setValue('quota', student.quota);
+        }
+        if (student.register_number) {
+          form.setValue('register_number', student.register_number);
+        }
         console.log('Form values after reset:', {
           gender: form.getValues('gender'),
           semester_id: form.getValues('semester_id'),
-          section_id: form.getValues('section_id')
+          section_id: form.getValues('section_id'),
+          category: form.getValues('category'),
+          quota: form.getValues('quota'),
+          register_number: form.getValues('register_number')
         });
       }, 0);
     }
@@ -701,6 +729,36 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
           setIsLoadingPrograms(false);
         }
       }
+
+      // Load regulations based on student's institution
+      if (student?.institution_id) {
+        try {
+          setIsLoadingRegulations(true);
+          const regulationsData = await RegulationService.getRegulationsByInstitution(
+            student.institution_id!
+          );
+          setRegulations(regulationsData);
+        } catch (error) {
+          console.error('Error fetching regulations:', error);
+        } finally {
+          setIsLoadingRegulations(false);
+        }
+      }
+
+      // Load batches based on student's institution
+      if (student?.institution_id) {
+        try {
+          setIsLoadingBatches(true);
+          const batchesData = await BatchService.getBatchesByInstitution(
+            student.institution_id!
+          );
+          setBatches(batchesData);
+        } catch (error) {
+          console.error('Error fetching batches:', error);
+        } finally {
+          setIsLoadingBatches(false);
+        }
+      }
     }
 
     if (student) {
@@ -719,6 +777,8 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
     form.setValue('program_id', '');
     form.setValue('semester_id', '');
     form.setValue('section_id', '');
+    form.setValue('regulation_id', '');
+    form.setValue('batch_id', '');
     form.setValue('academic_year_id', '');
 
     // Clear data arrays
@@ -727,6 +787,8 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
     setPrograms([]);
     setSemesters([]);
     setSections([]);
+    setRegulations([]);
+    setBatches([]);
 
     // Load degrees for the new institution
     if (value) {
@@ -738,6 +800,28 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
         console.error('Error loading degrees:', error);
       } finally {
         setIsLoadingDegrees(false);
+      }
+
+      // Load regulations for the new institution
+      try {
+        setIsLoadingRegulations(true);
+        const regulationsData = await RegulationService.getRegulationsByInstitution(value);
+        setRegulations(regulationsData);
+      } catch (error) {
+        console.error('Error loading regulations:', error);
+      } finally {
+        setIsLoadingRegulations(false);
+      }
+
+      // Load batches for the new institution
+      try {
+        setIsLoadingBatches(true);
+        const batchesData = await BatchService.getBatchesByInstitution(value);
+        setBatches(batchesData);
+      } catch (error) {
+        console.error('Error loading batches:', error);
+      } finally {
+        setIsLoadingBatches(false);
       }
     }
   };
@@ -1356,6 +1440,26 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                       <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
                         <FormField
                           control={form.control}
+                          name='register_number'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Register Number</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  placeholder='Enter register number'
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                University register number for the student
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
                           name='quota'
                           render={({ field }) => (
                             <FormItem>
@@ -1851,6 +1955,112 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                               </Select>
                               <FormDescription>
                                 Current section of the student
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='regulation_id'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Regulation</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                                disabled={
+                                  !form.watch('institution_id') ||
+                                  isLoadingRegulations
+                                }
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select regulation' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {!form.watch('institution_id') ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      Select an institution first
+                                    </div>
+                                  ) : isLoadingRegulations ? (
+                                    <div className='flex items-center justify-center p-2'>
+                                      <Loader2 className='h-4 w-4 animate-spin mr-2' />
+                                      Loading...
+                                    </div>
+                                  ) : regulations.length === 0 ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      No regulations available
+                                    </div>
+                                  ) : (
+                                    regulations.map((regulation) => (
+                                      <SelectItem
+                                        key={regulation.id}
+                                        value={regulation.id}
+                                      >
+                                        {regulation.regulation_code} ({regulation.regulation_year})
+                                      </SelectItem>
+                                    ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                Academic regulation for the student
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='batch_id'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Batch</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                                disabled={
+                                  !form.watch('institution_id') ||
+                                  isLoadingBatches
+                                }
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select batch' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {!form.watch('institution_id') ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      Select an institution first
+                                    </div>
+                                  ) : isLoadingBatches ? (
+                                    <div className='flex items-center justify-center p-2'>
+                                      <Loader2 className='h-4 w-4 animate-spin mr-2' />
+                                      Loading...
+                                    </div>
+                                  ) : batches.length === 0 ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      No batches available
+                                    </div>
+                                  ) : (
+                                    batches.map((batch) => (
+                                      <SelectItem
+                                        key={batch.id}
+                                        value={batch.id}
+                                      >
+                                        {batch.batch_name} ({batch.batch_code})
+                                      </SelectItem>
+                                    ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                Academic batch for the student
                               </FormDescription>
                               <FormMessage />
                             </FormItem>

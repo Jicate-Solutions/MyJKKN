@@ -660,7 +660,7 @@ export class AdmissionService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters(id, semester_name, semester_code),
-          section:sections(id, section_name, section_code),
+          section:sections(id, section_name),
           academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
           regulation:regulations(id, regulation_code, regulation_year),
           batch:batches(id, batch_name, batch_code),
