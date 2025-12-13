@@ -20,17 +20,21 @@ export async function GET(
     }
 
     // Check permissions (same as notifications list)
-    const { data: userProfile } = await supabase
+    const { data: userProfileData } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single();
 
-    const { data: rolePermissions } = await supabase
+    const userProfile = userProfileData as { role: string } | null;
+
+    const { data: rolePermissionsData } = await supabase
       .from('custom_roles')
       .select('permissions')
-      .eq('role_key', userProfile?.role)
+      .eq('role_key', userProfile?.role || '')
       .single();
+
+    const rolePermissions = rolePermissionsData as { permissions: Record<string, boolean> } | null;
 
     const hasPermission =
       userProfile?.role === 'super_admin' ||
@@ -85,48 +89,68 @@ export async function GET(
       );
     }
 
+    // Type assertion for notification data
+    const notificationData = notification as {
+      id: string;
+      title: string;
+      body: string;
+      url?: string;
+      icon?: string;
+      priority: string;
+      category?: string;
+      sent_at?: string;
+      expires_at?: string;
+      targeting: Record<string, string | null>;
+      created_by: string;
+      created_at: string;
+      creator: { full_name?: string; email?: string } | null;
+    };
+
     // --- Fetch target names ---
-    const targetingWithNames = { ...notification.targeting };
+    const targetingWithNames = { ...notificationData.targeting };
     const promises = [];
 
-    if (notification.targeting.institution_id) {
+    if (notificationData.targeting.institution_id) {
       promises.push(
         supabase
           .from('institutions')
           .select('name')
-          .eq('id', notification.targeting.institution_id)
+          .eq('id', notificationData.targeting.institution_id)
           .single()
           .then(({ data }) => {
-            if (data) (targetingWithNames as any).institution_name = data.name;
+            const instData = data as { name: string } | null;
+            if (instData) (targetingWithNames as any).institution_name = instData.name;
           })
       );
     }
 
-    if (notification.targeting.department_id) {
+    if (notificationData.targeting.department_id) {
       promises.push(
         supabase
           .from('departments')
           .select('department_name')
-          .eq('id', notification.targeting.department_id)
+          .eq('id', notificationData.targeting.department_id)
           .single()
           .then(({ data }) => {
-            if (data)
+            const deptData = data as { department_name: string } | null;
+            if (deptData)
               (targetingWithNames as any).department_name =
-                data.department_name;
+                deptData.department_name;
           })
       );
     }
 
-    if (notification.targeting.program_id) {
+    if (notificationData.targeting.program_id) {
       promises.push(
         supabase
           .from('programs')
           .select('program_name')
-          .eq('id', notification.targeting.program_id)
+          .eq('id', notificationData.targeting.program_id)
           .single()
           .then(({ data }) => {
-            if (data)
-              (targetingWithNames as any).program_name = data.program_name;
+            const progData = data as { program_name: string } | null;
+            if (progData)
+              (targetingWithNames as any).program_name = progData.program_name;
           })
       );
     }
@@ -148,7 +172,7 @@ export async function GET(
 
     // Add delivery stats to the notification
     const notificationWithDetails = {
-      ...notification,
+      ...notificationData,
       targeting: targetingWithNames,
       delivery_stats: {
         total_recipients: totalRecipients || 0,
@@ -187,22 +211,26 @@ export async function DELETE(
     }
 
     // Check permissions (same as notifications list)
-    const { data: userProfile } = await supabase
+    const { data: userProfileData } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single();
 
-    const { data: rolePermissions } = await supabase
+    const userProfileDelete = userProfileData as { role: string } | null;
+
+    const { data: rolePermissionsData } = await supabase
       .from('custom_roles')
       .select('permissions')
-      .eq('role_key', userProfile?.role)
+      .eq('role_key', userProfileDelete?.role || '')
       .single();
 
+    const rolePermissionsDelete = rolePermissionsData as { permissions: Record<string, boolean> } | null;
+
     const hasPermission =
-      userProfile?.role === 'super_admin' ||
-      rolePermissions?.permissions?.['notifications.delete'] === true ||
-      rolePermissions?.permissions?.['notifications.delete.all'] === true;
+      userProfileDelete?.role === 'super_admin' ||
+      rolePermissionsDelete?.permissions?.['notifications.delete'] === true ||
+      rolePermissionsDelete?.permissions?.['notifications.delete.all'] === true;
 
     if (!hasPermission) {
       return NextResponse.json(

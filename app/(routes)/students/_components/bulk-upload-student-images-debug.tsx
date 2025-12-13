@@ -324,8 +324,9 @@ export function BulkUploadStudentImagesDebug() {
             .single();
 
           validation.student_found = !studentError && !!student;
+          const studentData = student as { institutions?: { name: string }[] } | null;
           validation.institution_found =
-            validation.student_found && !!student?.institutions?.[0]?.name;
+            validation.student_found && !!studentData?.institutions?.[0]?.name;
         }
       } catch (error) {
         addLog('error', `Validation failed for ${file.name}`, error);

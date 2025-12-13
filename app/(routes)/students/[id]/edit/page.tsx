@@ -61,7 +61,8 @@ const editStudentSchema = z.object({
   gender: z.string().optional(),
 
   // Academic information
-  roll_number: z.string().min(1, 'Roll number is required'),
+  // NOTE: roll_number is now optional (removed from profile completion requirements)
+  roll_number: z.string().optional(),
   college_email: z
     .string()
     .email('Invalid college email format')
@@ -230,7 +231,7 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
       setIsLoadingSemesters(true);
       const data = await SemesterService.getSemestersByProgram(
         student.program_id
-      );
+      ) as { id: string; semester_name: string; semester_code: string }[];
       setSemesters(data);
       // If student has a semester_id and it's in the loaded list, set it and load sections
       if (

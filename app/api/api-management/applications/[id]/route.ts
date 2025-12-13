@@ -78,8 +78,15 @@ export async function GET(
       );
     }
 
+    const apiKeyData = keyData as {
+      id: string;
+      expires_at: string | null;
+      permissions: { read?: boolean; write?: boolean } | null;
+      metadata: { role?: string } | null;
+    };
+
     // Check if key has expired
-    if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
+    if (apiKeyData.expires_at && new Date(apiKeyData.expires_at) < new Date()) {
       return NextResponse.json(
         { error: 'API key has expired' },
         { status: 401, headers: corsHeaders }
@@ -87,7 +94,7 @@ export async function GET(
     }
 
     // Check read permission
-    if (!keyData.permissions?.read) {
+    if (!apiKeyData.permissions?.read) {
       return NextResponse.json(
         { error: 'API key does not have read permission' },
         { status: 403, headers: corsHeaders }
@@ -95,13 +102,12 @@ export async function GET(
     }
 
     // Update last used timestamp
-    await supabase
-      .from('api_keys')
+    await (supabase.from('api_keys') as any)
       .update({ last_used_at: new Date().toISOString() })
-      .eq('id', keyData.id);
+      .eq('id', apiKeyData.id);
 
     // Get the user role from the API key (if available) or set to guest by default
-    const userRole = keyData.metadata?.role || 'guest';
+    const userRole = apiKeyData.metadata?.role || 'guest';
 
     // Debug log for role-based filtering
     console.log('Using role for filtering:', userRole);
@@ -139,9 +145,20 @@ export async function GET(
       );
     }
 
+    const appData = application as {
+      id: string;
+      roles_access: string[] | null;
+      subcategory_id: string | null;
+      tags: string[] | null;
+      api_endpoints: string[] | null;
+      screenshots: string[] | null;
+      category: { id: string; name: string; description: string } | null;
+      [key: string]: unknown;
+    };
+
     // Check if the user has permission to access this application based on roles
-    const rolesAccess = Array.isArray(application.roles_access)
-      ? application.roles_access
+    const rolesAccess = Array.isArray(appData.roles_access)
+      ? appData.roles_access
       : [];
 
     // Skip role check if the API key has the admin role
@@ -155,11 +172,11 @@ export async function GET(
 
     // Fetch subcategory if ID is provided
     let subcategory = null;
-    if (application.subcategory_id) {
+    if (appData.subcategory_id) {
       const { data: subcategoryData } = await supabase
         .from('subcategories')
         .select('id, name')
-        .eq('id', application.subcategory_id)
+        .eq('id', appData.subcategory_id)
         .single();
 
       if (subcategoryData) {
@@ -169,14 +186,14 @@ export async function GET(
 
     // Process application to ensure proper structure
     const processedApplication = {
-      ...application,
+      ...appData,
       roles_access: rolesAccess,
-      tags: Array.isArray(application.tags) ? application.tags : [],
-      api_endpoints: Array.isArray(application.api_endpoints)
-        ? application.api_endpoints
+      tags: Array.isArray(appData.tags) ? appData.tags : [],
+      api_endpoints: Array.isArray(appData.api_endpoints)
+        ? appData.api_endpoints
         : [],
-      screenshots: Array.isArray(application.screenshots)
-        ? application.screenshots
+      screenshots: Array.isArray(appData.screenshots)
+        ? appData.screenshots
         : [],
       subcategory
     };

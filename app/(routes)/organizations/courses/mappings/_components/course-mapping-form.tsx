@@ -193,9 +193,9 @@ export function CourseMappingForm({
         );
 
         // Filter departments for HOD users - show only their department
-        let filteredDepartments = data;
+        let filteredDepartments = data as { id: string; department_name: string; institution_id: string }[];
         if (hasDepartmentRestriction && departmentId) {
-          filteredDepartments = data.filter(dept => dept.id === departmentId);
+          filteredDepartments = (data as { id: string; department_name: string; institution_id: string }[]).filter(dept => dept.id === departmentId);
 
           // Auto-select user's department if not already selected
           // Use setTimeout to ensure the form is ready

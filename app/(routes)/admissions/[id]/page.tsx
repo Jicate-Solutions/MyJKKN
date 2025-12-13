@@ -85,17 +85,20 @@ export default function AdmissionDetailsPage() {
       if (admissionError) throw admissionError;
       if (!admissionData) throw new Error('Admission not found');
 
+      // Type assertion for admissionData
+      const admission = admissionData as Record<string, any>;
+
       // Fetch course separately if needed
-      if (admissionData.year_and_branch) {
+      if (admission.year_and_branch) {
         try {
           const { data: courseData } = await supabase
             .from('courses')
             .select('id, course_name')
-            .eq('id', admissionData.year_and_branch)
+            .eq('id', admission.year_and_branch)
             .maybeSingle();
 
           if (courseData) {
-            admissionData.course = courseData;
+            admission.course = courseData;
           }
         } catch (courseError) {
           console.log('Course fetch error:', courseError);
@@ -103,7 +106,7 @@ export default function AdmissionDetailsPage() {
         }
       }
 
-      setAdmission(admissionData);
+      setAdmission(admission);
     } catch (err: any) {
       console.error('Error fetching admission:', err);
       setError(err.message || 'Failed to fetch admission details');

@@ -109,17 +109,20 @@ export default function EditAdmissionPage() {
         if (admissionError) throw admissionError;
         if (!admissionData) throw new Error('Admission not found');
 
+        // Type assertion for admissionData
+        const admission = admissionData as Record<string, any>;
+
         // Fetch course separately if needed
-        if (admissionData.year_and_branch) {
+        if (admission.year_and_branch) {
           try {
             const { data: courseData } = await supabase
               .from('courses')
               .select('id, course_name')
-              .eq('id', admissionData.year_and_branch)
+              .eq('id', admission.year_and_branch)
               .maybeSingle();
 
             if (courseData) {
-              admissionData.course = courseData;
+              admission.course = courseData;
             }
           } catch (courseError) {
             console.log('Course fetch error:', courseError);
@@ -127,14 +130,14 @@ export default function EditAdmissionPage() {
           }
         }
 
-        console.log('Raw admission data:', admissionData);
+        console.log('Raw admission data:', admission);
 
         // Create a data object that will be enhanced with related information
-        let formattedData: any = { ...admissionData };
+        let formattedData: any = { ...admission };
 
         // Parse JSON fields if they're stored as strings
-        let tenthMarks = admissionData.tenth_marks;
-        let twelfthMarks = admissionData.twelfth_marks;
+        let tenthMarks = admission.tenth_marks;
+        let twelfthMarks = admission.twelfth_marks;
 
         console.log('Raw tenth marks:', tenthMarks);
         console.log('Raw twelfth marks:', twelfthMarks);
@@ -219,14 +222,14 @@ export default function EditAdmissionPage() {
         console.log('Processed twelfth marks:', twelfthMarks);
 
         // Map location database names to form IDs
-        const stateId = mapStateNameToId(admissionData.permanent_address_state);
-        const districtId = mapDistrictNameToId(stateId, admissionData.permanent_address_district);
-        const talukId = mapTalukNameToId(stateId, districtId, admissionData.permanent_address_taluk);
+        const stateId = mapStateNameToId(admission.permanent_address_state);
+        const districtId = mapDistrictNameToId(stateId, admission.permanent_address_district);
+        const talukId = mapTalukNameToId(stateId, districtId, admission.permanent_address_taluk);
 
         console.log('Location mapping debug:', {
-          dbState: admissionData.permanent_address_state,
-          dbDistrict: admissionData.permanent_address_district,
-          dbTaluk: admissionData.permanent_address_taluk,
+          dbState: admission.permanent_address_state,
+          dbDistrict: admission.permanent_address_district,
+          dbTaluk: admission.permanent_address_taluk,
           mappedStateId: stateId,
           mappedDistrictId: districtId,
           mappedTalukId: talukId
@@ -236,30 +239,30 @@ export default function EditAdmissionPage() {
         formattedData = {
           ...formattedData,
           // Basic Details section
-          id: admissionData.id,
-          status: admissionData.status || 'pending',
-          firstName: admissionData.first_name || '',
-          lastName: admissionData.last_name || '',
-          fatherName: admissionData.father_name || '',
-          fatherOccupation: admissionData.father_occupation || '',
-          fatherMobile: admissionData.father_mobile || '',
-          motherName: admissionData.mother_name || '',
-          motherOccupation: admissionData.mother_occupation || '',
-          motherMobile: admissionData.mother_mobile || '',
-          dateOfBirth: admissionData.date_of_birth || '',
-          gender: admissionData.gender || '',
-          religion: admissionData.religion || '',
-          community: admissionData.community || '',
-          caste: admissionData.caste || '',
-          annualIncome: admissionData.annual_income || '',
-          aadharNumber: admissionData.aadhar_number || '',
+          id: admission.id,
+          status: admission.status || 'pending',
+          firstName: admission.first_name || '',
+          lastName: admission.last_name || '',
+          fatherName: admission.father_name || '',
+          fatherOccupation: admission.father_occupation || '',
+          fatherMobile: admission.father_mobile || '',
+          motherName: admission.mother_name || '',
+          motherOccupation: admission.mother_occupation || '',
+          motherMobile: admission.mother_mobile || '',
+          dateOfBirth: admission.date_of_birth || '',
+          gender: admission.gender || '',
+          religion: admission.religion || '',
+          community: admission.community || '',
+          caste: admission.caste || '',
+          annualIncome: admission.annual_income || '',
+          aadharNumber: admission.aadhar_number || '',
 
           // Academic Information section with properly formatted marks
-          lastSchool: admissionData.last_school || '',
-          boardOfStudy: admissionData.board_of_study || '',
+          lastSchool: admission.last_school || '',
+          boardOfStudy: admission.board_of_study || '',
           // Pass the raw marks data to let the form component handle processing
-          tenth_marks: admissionData.tenth_marks,
-          twelfth_marks: admissionData.twelfth_marks,
+          tenth_marks: admission.tenth_marks,
+          twelfth_marks: admission.twelfth_marks,
           // Also map to the expected form structure
           tenthMarks: {
             maxMarks: tenthMarks?.maxMarks || tenthMarks?.max_marks || '',
@@ -275,52 +278,52 @@ export default function EditAdmissionPage() {
             percentage: twelfthMarks?.percentage || '',
             subjects: twelfthMarks?.subjects || {}
           },
-          counselingApplied: Boolean(admissionData.counseling_applied),
-          counselingNumber: admissionData.counseling_number || '',
-          firstGraduate: Boolean(admissionData.first_graduate),
-          medicalCutoffMarks: admissionData.medical_cutoff_marks || '',
-          engineeringCutoffMarks: admissionData.engineering_cutoff_marks || '',
-          neetRollNumber: admissionData.neet_roll_number || '',
-          neetScore: admissionData.neet_score || '',
+          counselingApplied: Boolean(admission.counseling_applied),
+          counselingNumber: admission.counseling_number || '',
+          firstGraduate: Boolean(admission.first_graduate),
+          medicalCutoffMarks: admission.medical_cutoff_marks || '',
+          engineeringCutoffMarks: admission.engineering_cutoff_marks || '',
+          neetRollNumber: admission.neet_roll_number || '',
+          neetScore: admission.neet_score || '',
 
           // Course Selection section
-          fieldOfStudy: admissionData.field_of_study || '',
-          degreeId: admissionData.degree_id || '',
-          departmentId: admissionData.department_id || '',
-          programId: admissionData.program_id || '',
-          courseType: admissionData.course_type || '',
-          entryType: admissionData.entry_type || '',
-          yearAndBranch: admissionData.year_and_branch || '',
-          quota: admissionData.quota || '',
-          category: admissionData.category || '',
+          fieldOfStudy: admission.field_of_study || '',
+          degreeId: admission.degree_id || '',
+          departmentId: admission.department_id || '',
+          programId: admission.program_id || '',
+          courseType: admission.course_type || '',
+          entryType: admission.entry_type || '',
+          yearAndBranch: admission.year_and_branch || '',
+          quota: admission.quota || '',
+          category: admission.category || '',
 
           // Contact Details section (using mapped location IDs)
-          permanentAddressStreet: admissionData.permanent_address_street || '',
+          permanentAddressStreet: admission.permanent_address_street || '',
           permanentAddressTaluk: talukId,
           permanentAddressDistrict: districtId,
           permanentAddressPinCode:
-            admissionData.permanent_address_pin_code || '',
+            admission.permanent_address_pin_code || '',
           permanentAddressState: stateId,
-          studentMobile: admissionData.student_mobile || '',
-          studentEmail: admissionData.student_email || '',
+          studentMobile: admission.student_mobile || '',
+          studentEmail: admission.student_email || '',
 
           // Accommodation Preferences section
-          accommodationType: admissionData.accommodation_type || '',
-          hostelType: admissionData.hostel_type || '',
-          foodType: admissionData.food_type || '',
-          busRequired: Boolean(admissionData.bus_required),
-          busRoute: admissionData.bus_route || '',
-          busPickupLocation: admissionData.bus_pickup_location || '',
-          referenceType: admissionData.reference_type || '',
-          referenceName: admissionData.reference_name || '',
-          referenceContact: admissionData.reference_contact || '',
+          accommodationType: admission.accommodation_type || '',
+          hostelType: admission.hostel_type || '',
+          foodType: admission.food_type || '',
+          busRequired: Boolean(admission.bus_required),
+          busRoute: admission.bus_route || '',
+          busPickupLocation: admission.bus_pickup_location || '',
+          referenceType: admission.reference_type || '',
+          referenceName: admission.reference_name || '',
+          referenceContact: admission.reference_contact || '',
 
           // Institution and Program information
-          institution: admissionData.institution || {},
-          degree: admissionData.degree || {},
-          department: admissionData.department || {},
-          program: admissionData.program || {},
-          course: admissionData.course || {}
+          institution: admission.institution || {},
+          degree: admission.degree || {},
+          department: admission.department || {},
+          program: admission.program || {},
+          course: admission.course || {}
         };
 
         console.log('Formatted data for form:', formattedData);

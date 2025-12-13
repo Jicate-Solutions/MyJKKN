@@ -44,6 +44,14 @@ export interface Admission {
   department_id?: string; // reference to department
   program_id?: string; // reference to program
   academic_year_id?: string; // reference to academic year - captured during admission
+  semester_id?: string; // reference to semester - REQUIRED for non-draft submission
+  section_id?: string; // reference to section - REQUIRED for non-draft submission
+  roll_number?: string; // Optional roll number
+  college_email?: string; // Optional college email (must be @jkkn.ac.in)
+  student_photo_url?: string; // Optional student photo URL
+  register_number?: string; // Optional register number
+  regulation_id?: string; // reference to regulation (optional)
+  batch_id?: string; // reference to batch (optional)
   entry_type: string; // FIRST YEAR, LATERAL ENTRY, etc.
   permanent_address_street: string;
   permanent_address_taluk?: string;
@@ -91,6 +99,25 @@ export interface Admission {
     end_date?: string;
     is_active?: boolean;
   };
+  semester?: {
+    id: string;
+    semester_name: string;
+    semester_code: string;
+  };
+  section?: {
+    id: string;
+    section_name: string;
+  };
+  regulation?: {
+    id: string;
+    regulation_code: string;
+    regulation_year: string;
+  };
+  batch?: {
+    id: string;
+    batch_name: string;
+    batch_code: string;
+  };
   course?: {
     id: string;
     course_name: string;
@@ -126,6 +153,10 @@ export interface AdmissionFilters {
   department?: string; // department filter
   entry_type?: string; // entry type filter (FIRST YEAR, LATERAL ENTRY, etc.)
   course?: string; // year_and_branch
+  semester?: string; // semester filter
+  section?: string; // section filter
+  regulation?: string; // regulation filter
+  batch?: string; // batch filter
   fromDate?: string;
   toDate?: string;
   page?: number;

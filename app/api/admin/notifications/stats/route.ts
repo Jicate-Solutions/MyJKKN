@@ -16,17 +16,21 @@ export async function GET(request: NextRequest) {
     }
 
     // Check permissions (same as notifications list)
-    const { data: userProfile } = await supabase
+    const { data: userProfileData } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single();
 
-    const { data: rolePermissions } = await supabase
+    const userProfile = userProfileData as { role: string } | null;
+
+    const { data: rolePermissionsData } = await supabase
       .from('custom_roles')
       .select('permissions')
-      .eq('role_key', userProfile?.role)
+      .eq('role_key', userProfile?.role || '')
       .single();
+
+    const rolePermissions = rolePermissionsData as { permissions: Record<string, boolean> } | null;
 
     const hasPermission =
       userProfile?.role === 'super_admin' ||

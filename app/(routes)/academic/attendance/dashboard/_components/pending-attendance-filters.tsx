@@ -237,13 +237,14 @@ export function PendingAttendanceFilters({
   // Load departments based on selected degree
   useEffect(() => {
     if (filters.degreeId) {
+      const degreeId = filters.degreeId; // Capture for TypeScript narrowing
       const loadDepartments = async () => {
         setLoadingDepartments(true);
         try {
           const { data, error } = await supabase
             .from('departments')
             .select('id, department_name')
-            .eq('degree_id', filters.degreeId)
+            .eq('degree_id', degreeId)
             .eq('is_active', true)
             .order('department_name');
 
@@ -264,13 +265,14 @@ export function PendingAttendanceFilters({
   // Load programs based on selected department
   useEffect(() => {
     if (filters.departmentId) {
+      const departmentId = filters.departmentId; // Capture for TypeScript narrowing
       const loadPrograms = async () => {
         setLoadingPrograms(true);
         try {
           const { data, error } = await supabase
             .from('programs')
             .select('id, program_name')
-            .eq('department_id', filters.departmentId)
+            .eq('department_id', departmentId)
             .eq('is_active', true)
             .order('program_name');
 
@@ -291,13 +293,14 @@ export function PendingAttendanceFilters({
   // Load semesters based on selected program
   useEffect(() => {
     if (filters.programId) {
+      const programId = filters.programId; // Capture for TypeScript narrowing
       const loadSemesters = async () => {
         setLoadingSemesters(true);
         try {
           const { data, error } = await supabase
             .from('semesters')
             .select('id, semester_name')
-            .eq('program_id', filters.programId)
+            .eq('program_id', programId)
             .eq('is_active', true)
             .order('semester_name');
 
@@ -318,13 +321,14 @@ export function PendingAttendanceFilters({
   // Load sections based on selected semester
   useEffect(() => {
     if (filters.semesterId) {
+      const semesterId = filters.semesterId; // Capture for TypeScript narrowing
       const loadSections = async () => {
         setLoadingSections(true);
         try {
           const { data, error } = await supabase
             .from('sections')
             .select('id, section_name')
-            .eq('semester_id', filters.semesterId)
+            .eq('semester_id', semesterId)
             .eq('is_active', true)
             .order('section_name');
 

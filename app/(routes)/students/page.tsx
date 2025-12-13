@@ -9,8 +9,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { BarChart3, UserCheck, Users2 } from 'lucide-react';
-import { CanView, CanCreate } from '@/components/auth/permission-guard';
+import { BarChart3, Users2 } from 'lucide-react';
+import { CanView } from '@/components/auth/permission-guard';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { LearnersActionsMenu } from './_components/learners-actions-menu';
 
@@ -23,14 +23,13 @@ export default function StudentsPage() {
   );
 
   // Redirect to include default filters if not present
+  // NOTE: Changed from showing only complete profiles to showing all students
   useEffect(() => {
-    const needsRedirect = !searchParams.has('is_profile_complete') || !searchParams.has('status');
+    const needsRedirect = !searchParams.has('status');
 
     if (needsRedirect) {
       const params = new URLSearchParams(searchParams);
-      if (!searchParams.has('is_profile_complete')) {
-        params.set('is_profile_complete', 'true');
-      }
+      // Default to showing active and inactive students (all profile statuses)
       if (!searchParams.has('status')) {
         params.set('status', 'active,inactive');
       }
@@ -96,14 +95,6 @@ export default function StudentsPage() {
                 </Button>
               </Link>
             </CanView>
-            <CanCreate module='students'>
-              <Link href='/students/onboarding'>
-                <Button variant='outline' size='sm'>
-                  <UserCheck className='h-4 w-4 mr-2' />
-                  Onboarding
-                </Button>
-              </Link>
-            </CanCreate>
           </div>
         </div>
 

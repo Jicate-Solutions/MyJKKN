@@ -45,7 +45,7 @@ const lookupInstitutionId = async (institutionName: string): Promise<string | nu
     return null;
   }
 
-  return data.id;
+  return (data as { id: string }).id;
 };
 
 const lookupProgramId = async (programName: string): Promise<string | null> => {
@@ -64,7 +64,7 @@ const lookupProgramId = async (programName: string): Promise<string | null> => {
     return null;
   }
 
-  return data.id;
+  return (data as { id: string }).id;
 };
 
 const lookupDegreeId = async (degreeName: string): Promise<string | null> => {
@@ -83,7 +83,7 @@ const lookupDegreeId = async (degreeName: string): Promise<string | null> => {
     return null;
   }
 
-  return data.id;
+  return (data as { id: string }).id;
 };
 
 const lookupDepartmentId = async (departmentName: string): Promise<string | null> => {
@@ -102,7 +102,7 @@ const lookupDepartmentId = async (departmentName: string): Promise<string | null
     return null;
   }
 
-  return data.id;
+  return (data as { id: string }).id;
 };
 
 export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => void }) {

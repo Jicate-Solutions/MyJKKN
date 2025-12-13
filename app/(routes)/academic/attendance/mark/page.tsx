@@ -224,6 +224,21 @@ export default function AttendanceMarkPage() {
           return;
         }
 
+        // Type assertion for timetableData to ensure TypeScript knows the shape
+        const timetable = timetableData as {
+          id: string;
+          institution_id: string;
+          section_id: string | null;
+          semester_id: string | null;
+          timetable_type: string;
+          timetable_data: unknown;
+          academic_year_id: string | null;
+          degree_id: string | null;
+          program_id: string | null;
+          department_id: string | null;
+          [key: string]: unknown;
+        };
+
         // Extract section information from timetable data
         // Updated: 2025-10-08 - Fixed priority to use URL sectionId first for multi-section support
         let resolvedSectionId = sectionId;
@@ -261,14 +276,15 @@ export default function AttendanceMarkPage() {
               .select(
                 'id, section_name, degree_id, program_id, department_id, semester_id'
               )
-              .eq('institution_id', timetableData.institution_id)
+              .eq('institution_id', timetable.institution_id)
               .eq('section_name', resolvedSectionId)
               .eq('is_active', true)
               .maybeSingle();
 
             if (!sectionError && sections) {
-              resolvedSectionId = sections.id;
-              sectionData = sections;
+              const sectionResult = sections as { id: string; section_name: string; degree_id: string; program_id: string; department_id: string; semester_id: string };
+              resolvedSectionId = sectionResult.id;
+              sectionData = sectionResult;
             } else {
               console.error(
                 '❌ Failed to resolve section name from URL:',
@@ -282,8 +298,8 @@ export default function AttendanceMarkPage() {
         // Updated: 2025-10-08 - Don't use timetable.section_id for semester-level timetables
         if (
           !sectionData &&
-          timetableData.section_id &&
-          timetableData.timetable_type === 'section'
+          timetable.section_id &&
+          timetable.timetable_type === 'section'
         ) {
           // Fetch section data using the UUID directly
           const { data: sectionFromDb, error: countError } = await supabase
@@ -291,11 +307,11 @@ export default function AttendanceMarkPage() {
             .select(
               'id, section_name, degree_id, program_id, department_id, semester_id'
             )
-            .eq('id', timetableData.section_id)
+            .eq('id', timetable.section_id)
             .single();
 
           if (!countError && sectionFromDb) {
-            resolvedSectionId = timetableData.section_id;
+            resolvedSectionId = timetable.section_id;
             sectionData = sectionFromDb;
           } else {
             console.error(
@@ -305,19 +321,19 @@ export default function AttendanceMarkPage() {
           }
         } else if (
           !sectionData &&
-          timetableData.timetable_type === 'semester'
+          timetable.timetable_type === 'semester'
         ) {
         }
 
         // Updated: 2025-10-08 - For semester-level multi-section slots, resolvedSectionId may be undefined
         // This is OK - we'll use section_ids from the slot instead
-        if (!resolvedSectionId && timetableData.timetable_type === 'section') {
+        if (!resolvedSectionId && timetable.timetable_type === 'section') {
           console.error(
             '❌ Unable to resolve section information for section-level timetable'
           );
           toast.error(
             `Unable to resolve section information. Section ID: ${
-              timetableData.section_id || sectionId || 'Unknown'
+              timetable.section_id || sectionId || 'Unknown'
             }`
           );
           setLoadingContext(false);
@@ -327,7 +343,7 @@ export default function AttendanceMarkPage() {
         // Updated: 2025-10-08 - Fetch semester name from timetable or section
         let semesterName = null;
         const semesterId =
-          sectionData?.semester_id || timetableData.semester_id;
+          sectionData?.semester_id || timetable.semester_id;
 
         if (semesterId) {
           try {
@@ -338,7 +354,8 @@ export default function AttendanceMarkPage() {
               .single();
 
             if (!semesterError && semesterData) {
-              semesterName = semesterData.semester_name;
+              const semester = semesterData as { id: string; semester_name: string };
+              semesterName = semester.semester_name;
             } else {
               console.error('❌ Failed to fetch semester name:', semesterError);
             }
@@ -354,9 +371,9 @@ export default function AttendanceMarkPage() {
         let slotSectionIds: string[] = [];
         let slotSections: any[] = [];
 
-        if (periodId && timetableData.timetable_data) {
+        if (periodId && timetable.timetable_data) {
           // Parse timetable_data to find the specific period's section_ids
-          const timetableSlots = timetableData.timetable_data;
+          const timetableSlots = timetable.timetable_data as Record<string, Record<string, any>>;
 
           // Updated: 2025-10-08 - The periodId is the slot_id, not the key in timetable_data
           // We need to search through all slots to find where slot.slot_id === periodId
@@ -461,12 +478,12 @@ export default function AttendanceMarkPage() {
         // Use timetable's institution_id for consistency
         const context = {
           institution_id:
-            timetableData.institution_id || profile?.institution_id,
-          academic_year_id: timetableData.academic_year_id,
-          degree_id: timetableData.degree_id,
-          program_id: timetableData.program_id,
-          department_id: timetableData.department_id,
-          semester_id: sectionData?.semester_id || timetableData.semester_id,
+            timetable.institution_id || profile?.institution_id,
+          academic_year_id: timetable.academic_year_id,
+          degree_id: timetable.degree_id,
+          program_id: timetable.program_id,
+          department_id: timetable.department_id,
+          semester_id: sectionData?.semester_id || timetable.semester_id,
           section_id: resolvedSectionId,
           // Updated: 2025-10-08 - Properly handle section_ids for multi-section slots
           section_ids:
@@ -477,7 +494,7 @@ export default function AttendanceMarkPage() {
               : [], // Empty array for multi-section slots without resolved section
           timetable_id: timetableId,
           timetable_data: timetableData,
-          timetable_type: timetableData.timetable_type || 'section', // Track timetable type
+          timetable_type: timetable.timetable_type || 'section', // Track timetable type
           section_data: sectionData,
           slot_sections: slotSections, // All sections for this slot
           academic_year_name: (timetableData as any).academic_years
@@ -1266,12 +1283,13 @@ export default function AttendanceMarkPage() {
             .single();
 
           if (staffData) {
+            const staff = staffData as { first_name: string; last_name: string; email: string; institution_email: string };
             markerName =
-              `${staffData.first_name || ''} ${
-                staffData.last_name || ''
+              `${staff.first_name || ''} ${
+                staff.last_name || ''
               }`.trim() || markerName;
             markerEmail =
-              staffData.email || staffData.institution_email || markerEmail;
+              staff.email || staff.institution_email || markerEmail;
           }
         } catch (error) {
           console.warn(
@@ -1305,7 +1323,7 @@ export default function AttendanceMarkPage() {
       }
 
       // Fetch course details if we have a course_id
-      let courseDetails = null;
+      let courseDetails: { id: string; course_name: string; course_code: string } | null = null;
       if (courseId) {
         try {
           const { createClientSupabaseClient } = await import(
@@ -1320,7 +1338,7 @@ export default function AttendanceMarkPage() {
             .single();
 
           if (course) {
-            courseDetails = course;
+            courseDetails = course as { id: string; course_name: string; course_code: string };
           }
         } catch (error) {
           console.warn('Failed to fetch course details:', error);

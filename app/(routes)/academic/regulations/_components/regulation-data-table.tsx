@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
 import { getColumns } from './columns';
 import type { RegulationsSearchParams } from './data-table-schema';
@@ -11,6 +11,17 @@ import { RegulationService } from '@/lib/services/academic/regulation-service';
 import { Regulation } from '@/types/academics';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
+import { toast } from 'react-hot-toast';
 
 interface RegulationsDataTableProps {
   search: RegulationsSearchParams;
@@ -24,6 +35,14 @@ export function RegulationsDataTable({ search }: RegulationsDataTableProps) {
     userProfile,
     isLoading: permissionsLoading
   } = usePermissions();
+
+  // State for delete confirmation dialog
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{
+    rows: Regulation[];
+    resetSelection: () => void;
+  } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Wait for permissions and profile to be loaded before rendering the table
   const isReady = !permissionsLoading && !!userProfile;
@@ -106,33 +125,45 @@ export function RegulationsDataTable({ search }: RegulationsDataTableProps) {
     [search, isSuperAdmin, userProfile?.institution_id]
   );
 
-  const handleBulkDelete = async (
+  // Open delete confirmation dialog
+  const handleBulkDeleteClick = (
     selectedRows: Regulation[],
     resetSelection: () => void
   ) => {
     if (selectedRows.length === 0) return;
+    setPendingDelete({ rows: selectedRows, resetSelection });
+    setDeleteDialogOpen(true);
+  };
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedRows.length} regulation${
-        selectedRows.length > 1 ? 's' : ''
-      }? This action cannot be undone.`
-    );
+  // Execute the actual deletion
+  const handleConfirmDelete = async () => {
+    if (!pendingDelete) return;
 
-    if (!confirmed) return;
-
+    const count = pendingDelete.rows.length;
+    setIsDeleting(true);
     try {
-      // Delete all selected regulations
+      // Delete all selected regulations without showing individual toasts
       await Promise.all(
-        selectedRows.map((regulation: Regulation) =>
-          RegulationService.deleteRegulation(regulation.id)
+        pendingDelete.rows.map((regulation: Regulation) =>
+          RegulationService.deleteRegulation(regulation.id, { showToast: false })
         )
       );
 
+      // Show a single toast for the bulk delete
+      toast.success(
+        `${count} regulation${count > 1 ? 's' : ''} deleted successfully`
+      );
+
       // Reset selection and refresh data
-      resetSelection();
+      pendingDelete.resetSelection();
       // The DataTable will automatically refetch data after this
     } catch (error) {
       console.error('Error deleting regulations:', error);
+      toast.error('Failed to delete some regulations');
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+      setPendingDelete(null);
     }
   };
 
@@ -157,7 +188,7 @@ export function RegulationsDataTable({ search }: RegulationsDataTableProps) {
       {canDeleteRegulation && props.selectedRows.length > 0 && (
         <Button
           onClick={() =>
-            handleBulkDelete(
+            handleBulkDeleteClick(
               props.selectedRows as Regulation[],
               props.resetSelection
             )
@@ -191,28 +222,54 @@ export function RegulationsDataTable({ search }: RegulationsDataTableProps) {
   }
 
   return (
-    <DataTable
-      fetchDataFn={fetchData}
-      getColumns={() => columns as any}
-      exportConfig={{
-        entityName: 'regulations',
-        columnMapping: {},
-        columnWidths: [],
-        headers: []
-      }}
-      idField='id'
-      config={{
-        enableUrlState: true,
-        enableDateFilter: false,
-        enableExport: false,
-        enableRowSelection: true,
-        enableSearch: true,
-        enableColumnFilters: false,
-        enableColumnVisibility: true,
-        enableColumnResizing: true,
-        columnResizingTableId: 'regulations-table'
-      }}
-      renderToolbarContent={renderCustomToolbar}
-    />
+    <>
+      <DataTable
+        fetchDataFn={fetchData}
+        getColumns={() => columns as any}
+        exportConfig={{
+          entityName: 'regulations',
+          columnMapping: {},
+          columnWidths: [],
+          headers: []
+        }}
+        idField='id'
+        config={{
+          enableUrlState: true,
+          enableDateFilter: false,
+          enableExport: false,
+          enableRowSelection: true,
+          enableSearch: true,
+          enableColumnFilters: false,
+          enableColumnVisibility: true,
+          enableColumnResizing: true,
+          columnResizingTableId: 'regulations-table'
+        }}
+        renderToolbarContent={renderCustomToolbar}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Regulations</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {pendingDelete?.rows.length || 0}{' '}
+              regulation{(pendingDelete?.rows.length || 0) > 1 ? 's' : ''}? This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

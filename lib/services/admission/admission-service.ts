@@ -541,6 +541,11 @@ export class AdmissionService {
           *,
           institution:institutions!institution_id(id, name),
           program:programs!program_id(id, program_name),
+          semester:semesters!semester_id(id, semester_name, semester_code),
+          section:sections!section_id(id, section_name),
+          regulation:regulations!regulation_id(id, regulation_code, regulation_year),
+          batch:batches!batch_id(id, batch_name, batch_code),
+          academic_year:academic_years!academic_year_id(id, academic_year_name, is_active),
           student:students!admission_id(id)
         `,
         { count: 'exact' }
@@ -577,6 +582,22 @@ export class AdmissionService {
 
       if (filters.course && filters.course !== 'all') {
         query = query.eq('program_id', filters.course);
+      }
+
+      if (filters.semester && filters.semester !== 'all') {
+        query = query.eq('semester_id', filters.semester);
+      }
+
+      if (filters.section && filters.section !== 'all') {
+        query = query.eq('section_id', filters.section);
+      }
+
+      if (filters.regulation && filters.regulation !== 'all') {
+        query = query.eq('regulation_id', filters.regulation);
+      }
+
+      if (filters.batch && filters.batch !== 'all') {
+        query = query.eq('batch_id', filters.batch);
       }
 
       if (filters.fromDate) {
@@ -638,6 +659,11 @@ export class AdmissionService {
           degree:degrees(id, degree_name),
           department:departments(id, department_name),
           program:programs(id, program_name),
+          semester:semesters(id, semester_name, semester_code),
+          section:sections(id, section_name, section_code),
+          academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
+          regulation:regulations(id, regulation_code, regulation_year),
+          batch:batches(id, batch_name, batch_code),
           course:courses(id, course_name)
         `
         )

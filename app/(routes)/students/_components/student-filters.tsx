@@ -65,7 +65,8 @@ export function StudentFilters({
     section_id: searchParams.section_id || undefined,
     academic_year_id: searchParams.academic_year_id || undefined,
     status: searchParams.status || undefined,
-    is_profile_complete: searchParams.is_profile_complete?.toString() || 'true'
+    // Changed default to undefined to show all students (not just complete profiles)
+    is_profile_complete: searchParams.is_profile_complete?.toString() || undefined
   });
 
   // State for dropdown options
@@ -119,7 +120,7 @@ export function StudentFilters({
 
   // Handle clear filters
   const handleClear = () => {
-    // Clear local state but maintain default for is_profile_complete
+    // Clear all local state filters
     setLocalFilters({
       institution_id: undefined,
       degree_id: undefined,
@@ -129,13 +130,12 @@ export function StudentFilters({
       section_id: undefined,
       academic_year_id: undefined,
       status: undefined,
-      is_profile_complete: 'true'
+      is_profile_complete: undefined
     });
 
-    // Navigate to clean URL with default is_profile_complete
+    // Navigate to clean URL
     const params = new URLSearchParams();
     params.set('page', '1');
-    params.set('is_profile_complete', 'true');
 
     // Preserve page size if it exists
     const currentPageSize = currentSearchParams.get('pageSize');
@@ -159,7 +159,7 @@ export function StudentFilters({
       academic_year_id: searchParams.academic_year_id || undefined,
       status: searchParams.status || undefined,
       is_profile_complete:
-        searchParams.is_profile_complete?.toString() || 'true'
+        searchParams.is_profile_complete?.toString() || undefined
     });
   }, [searchParams]);
 
