@@ -135,8 +135,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/students/[id]': 'students.view',
   '/students/[id]/edit': 'students.edit',
   '/students/[id]/edit-promotion': 'students.promotion.edit',
-  '/students/onboarding': 'students.onboarding.view',
-  '/students/onboarding/edit': 'students.onboarding.edit',
+  // NOTE: Onboarding routes removed - students now go directly to learners page after approval
   '/students/promotion': 'students.promotion.view',
   '/students/graduated': 'students.graduated.view',
   '/admin/students/sync-profiles': 'super_admin', // Super admin only
@@ -437,13 +436,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Learners Analytics',
           active: pathname === '/students/dashboard',
           icon: BarChart,
-          submenus: []
-        },
-        {
-          href: '/students/onboarding',
-          label: 'Learners Onboarding',
-          active: pathname === '/students/onboarding',
-          icon: UserCheck,
           submenus: []
         },
         {

@@ -401,7 +401,7 @@ const resolveInstitutionName = async (name: string): Promise<string | null> => {
       .single();
 
     if (error || !data) return null;
-    return data.id;
+    return (data as { id: string }).id;
   } catch (error) {
     console.error('Error resolving institution name:', error);
     return null;
@@ -427,7 +427,7 @@ const resolveDegreeName = async (
       .single();
 
     if (error || !data) return null;
-    return data.id;
+    return (data as { id: string }).id;
   } catch (error) {
     console.error('Error resolving degree name:', error);
     return null;
@@ -453,7 +453,7 @@ const resolveDepartmentName = async (
       .single();
 
     if (error || !data) return null;
-    return data.id;
+    return (data as { id: string }).id;
   } catch (error) {
     console.error('Error resolving department name:', error);
     return null;
@@ -479,7 +479,7 @@ const resolveProgramName = async (
       .single();
 
     if (error || !data) return null;
-    return data.id;
+    return (data as { id: string }).id;
   } catch (error) {
     console.error('Error resolving program name:', error);
     return null;
@@ -520,7 +520,7 @@ const resolveSemesterName = async (
       }
       return null;
     }
-    return data.id;
+    return (data as { id: string }).id;
   } catch (error) {
     console.error('Error resolving semester name:', error);
     return null;
@@ -548,12 +548,13 @@ const resolveSectionName = async (
       .single();
 
     if (data) {
+      const sectionData = data as { id: string; section_name: string };
       console.log(
-        `Section resolved: "${name.trim()}" -> "${data.section_name}" (ID: ${
-          data.id
+        `Section resolved: "${name.trim()}" -> "${sectionData.section_name}" (ID: ${
+          sectionData.id
         })`
       );
-      return data.id;
+      return sectionData.id;
     }
 
     // If exact match fails, try with whitespace-normalized comparison
@@ -570,7 +571,8 @@ const resolveSectionName = async (
 
     // Find section with normalized name comparison
     const normalizedInputName = name.trim().toLowerCase();
-    const matchedSection = allSections.find(
+    const sectionsData = allSections as { id: string; section_name: string }[];
+    const matchedSection = sectionsData.find(
       (section) =>
         section.section_name.trim().toLowerCase() === normalizedInputName
     );
@@ -589,7 +591,7 @@ const resolveSectionName = async (
     );
     console.log(
       'Available sections:',
-      allSections.map((s) => `"${s.section_name}"`)
+      sectionsData.map((s) => `"${s.section_name}"`)
     );
     return null;
   } catch (error) {
@@ -618,7 +620,7 @@ const resolveAcademicYearName = async (
       .single();
 
     if (error || !data) return null;
-    return data.id;
+    return (data as { id: string }).id;
   } catch (error) {
     console.error('Error resolving academic year name:', error);
     return null;
@@ -797,14 +799,15 @@ const checkForDuplicateStudent = async (
       if (emailError) throw emailError;
 
       if (existingByEmail && existingByEmail.length > 0) {
+        const existing = existingByEmail[0] as { id: string; first_name: string; last_name: string | null };
         return {
           isDuplicate: true,
           duplicateField: 'student_email',
           existingStudentInfo: `Student with email "${
             studentData.student_email
-          }" already exists: ${existingByEmail[0].first_name} ${
-            existingByEmail[0].last_name || ''
-          } (ID: ${existingByEmail[0].id})`
+          }" already exists: ${existing.first_name} ${
+            existing.last_name || ''
+          } (ID: ${existing.id})`
         };
       }
     }
@@ -821,14 +824,15 @@ const checkForDuplicateStudent = async (
       if (collegeEmailError) throw collegeEmailError;
 
       if (existingByCollegeEmail && existingByCollegeEmail.length > 0) {
+        const existingCollege = existingByCollegeEmail[0] as { id: string; first_name: string; last_name: string | null };
         return {
           isDuplicate: true,
           duplicateField: 'college_email',
           existingStudentInfo: `Student with college email "${
             studentData.college_email
-          }" already exists: ${existingByCollegeEmail[0].first_name} ${
-            existingByCollegeEmail[0].last_name || ''
-          } (ID: ${existingByCollegeEmail[0].id})`
+          }" already exists: ${existingCollege.first_name} ${
+            existingCollege.last_name || ''
+          } (ID: ${existingCollege.id})`
         };
       }
     }
@@ -844,14 +848,15 @@ const checkForDuplicateStudent = async (
       if (rollError) throw rollError;
 
       if (existingByRoll && existingByRoll.length > 0) {
+        const existingRoll = existingByRoll[0] as { id: string; first_name: string; last_name: string | null };
         return {
           isDuplicate: true,
           duplicateField: 'roll_number',
           existingStudentInfo: `Student with roll number "${
             studentData.roll_number
-          }" already exists: ${existingByRoll[0].first_name} ${
-            existingByRoll[0].last_name || ''
-          } (ID: ${existingByRoll[0].id})`
+          }" already exists: ${existingRoll.first_name} ${
+            existingRoll.last_name || ''
+          } (ID: ${existingRoll.id})`
         };
       }
     }
@@ -869,6 +874,7 @@ const checkForDuplicateStudent = async (
       if (mobileNameError) throw mobileNameError;
 
       if (existingByMobileAndName && existingByMobileAndName.length > 0) {
+        const existingMobileName = existingByMobileAndName[0] as { id: string };
         return {
           isDuplicate: true,
           duplicateField: 'student_mobile + first_name',
@@ -876,7 +882,7 @@ const checkForDuplicateStudent = async (
             studentData.student_mobile
           }" and name "${studentData.first_name} ${
             studentData.last_name || ''
-          }" already exists (ID: ${existingByMobileAndName[0].id})`
+          }" already exists (ID: ${existingMobileName.id})`
         };
       }
     }

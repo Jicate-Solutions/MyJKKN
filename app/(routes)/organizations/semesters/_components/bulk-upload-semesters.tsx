@@ -204,7 +204,7 @@ export default function BulkUploadSemesters() {
         flattenedDegrees.map(async (degree) => {
           const deptsForDegree = await DepartmentService.getDepartmentsByDegree(
             degree.id
-          );
+          ) as { id: string; department_name: string; department_code: string; institution_id?: string }[];
           return deptsForDegree.map((d) => ({
             ...d,
             institution_id: degree.institution_id,
@@ -219,7 +219,7 @@ export default function BulkUploadSemesters() {
         flattenedDepartments.map(async (dept) => {
           const progsForDept = await ProgramService.getProgramsByDepartment(
             dept.id
-          );
+          ) as { id: string; program_id: string; program_name: string; institution_id?: string }[];
           return progsForDept.map((p) => ({
             ...p,
             institution_id: dept.institution_id,

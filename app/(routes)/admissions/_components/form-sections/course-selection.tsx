@@ -23,9 +23,14 @@ import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
-import type { Degree, Department, Program } from '@/types/organizations';
+import { SemesterService } from '@/lib/services/organization/semester-service';
+import { SectionService } from '@/lib/services/organization/section-service';
+import { RegulationService, type Regulation } from '@/lib/services/organization/regulation-service';
+import { BatchService, type Batch } from '@/lib/services/organization/batch-service';
+import type { Degree, Department, Program, Semester, Section } from '@/types/organizations';
 import type { AcademicYear } from '@/types/academics';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Label } from '@/components/ui/label';
 
 interface CourseSelectionFormProps {
   form: UseFormReturn<any>;
@@ -44,6 +49,10 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
+  const [regulations, setRegulations] = useState<Regulation[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
 
   // Loading states
   const [loadingInstitutions, setLoadingInstitutions] = useState(true);
@@ -51,6 +60,10 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
   const [loadingDepartments, setLoadingDepartments] = useState(false);
   const [loadingPrograms, setLoadingPrograms] = useState(false);
   const [loadingAcademicYears, setLoadingAcademicYears] = useState(false);
+  const [loadingSemesters, setLoadingSemesters] = useState(false);
+  const [loadingSections, setLoadingSections] = useState(false);
+  const [loadingRegulations, setLoadingRegulations] = useState(false);
+  const [loadingBatches, setLoadingBatches] = useState(false);
 
   // Get current values for dynamic options
   const institution_id = useWatch({
@@ -81,6 +94,16 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
   const academicYearId = useWatch({
     control: form.control,
     name: 'academicYearId'
+  });
+
+  const semesterId = useWatch({
+    control: form.control,
+    name: 'semesterId'
+  });
+
+  const sectionId = useWatch({
+    control: form.control,
+    name: 'sectionId'
   });
 
   // Log form values for debugging
@@ -258,11 +281,13 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
 
         if (user) {
           // Get user profile to check role
-          const { data: profile } = await supabase
+          const { data: profileData } = await supabase
             .from('profiles')
             .select('role')
             .eq('id', user.id)
             .single();
+
+          const profile = profileData as { role: string } | null;
 
           // Check if user has admission role or is super admin
           shouldBypassUserFilter =
@@ -322,7 +347,7 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
 
           // Only reset if current values are invalid for the new institution
           if (currentDegreeId) {
-            const isDegreeValid = data.some((d) => d.id === currentDegreeId);
+            const isDegreeValid = (data as Degree[]).some((d) => d.id === currentDegreeId);
             if (!isDegreeValid) {
               form.setValue('degreeId', '');
               form.setValue('departmentId', '');
@@ -440,7 +465,7 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
           setLoadingDepartments(true);
           console.log('Fetching departments for degree:', degreeId);
           const data = await DepartmentService.getDepartmentsByDegree(degreeId);
-          setDepartments(data);
+          setDepartments(data as Department[]);
 
           // Check if current department is valid for the selected degree
           const currentDepartmentId = form.getValues('departmentId');
@@ -448,7 +473,7 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
 
           // Only reset if current values are invalid for the new degree
           if (currentDepartmentId) {
-            const isDepartmentValid = data.some(
+            const isDepartmentValid = (data as Department[]).some(
               (d) => d.id === currentDepartmentId
             );
             if (!isDepartmentValid) {
@@ -492,7 +517,7 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
 
           // Only reset if current value is invalid for the new department
           if (currentProgramId) {
-            const isProgramValid = data.some((p) => p.id === currentProgramId);
+            const isProgramValid = (data as Program[]).some((p) => p.id === currentProgramId);
             if (!isProgramValid) {
               form.setValue('programId', '');
             }
@@ -511,6 +536,136 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
       form.setValue('programId', '');
     }
   }, [departmentId, form, degreeId]);
+
+  // Fetch semesters when program changes
+  useEffect(() => {
+    if (programId) {
+      async function fetchSemesters() {
+        try {
+          setLoadingSemesters(true);
+          console.log('Fetching semesters for program:', programId);
+          const data = await SemesterService.getSemestersByProgram(programId);
+          setSemesters(data);
+
+          // Check if current semester is valid for the selected program
+          const currentSemesterId = form.getValues('semesterId');
+          if (currentSemesterId) {
+            const isSemesterValid = (data as Semester[]).some((s) => s.id === currentSemesterId);
+            if (!isSemesterValid) {
+              form.setValue('semesterId', '');
+              form.setValue('sectionId', '');
+              setSections([]);
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching semesters:', error);
+        } finally {
+          setLoadingSemesters(false);
+        }
+      }
+      fetchSemesters();
+    } else {
+      // Program is cleared, reset semester and section
+      setSemesters([]);
+      setSections([]);
+      form.setValue('semesterId', '');
+      form.setValue('sectionId', '');
+    }
+  }, [programId, form]);
+
+  // Fetch sections when semester AND institution are selected
+  useEffect(() => {
+    if (semesterId && institution_id) {
+      async function fetchSections() {
+        try {
+          setLoadingSections(true);
+          console.log('Fetching sections for semester:', semesterId, 'and institution:', institution_id);
+          const data = await SectionService.getSectionsBySemesterAndInstitution(semesterId, institution_id);
+          setSections(data);
+
+          // Check if current section is valid
+          const currentSectionId = form.getValues('sectionId');
+          if (currentSectionId) {
+            const isSectionValid = (data as Section[]).some((s) => s.id === currentSectionId);
+            if (!isSectionValid) {
+              form.setValue('sectionId', '');
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching sections:', error);
+        } finally {
+          setLoadingSections(false);
+        }
+      }
+      fetchSections();
+    } else {
+      // Semester or institution is cleared, reset section
+      setSections([]);
+      form.setValue('sectionId', '');
+    }
+  }, [semesterId, institution_id, form]);
+
+  // Fetch regulations when institution changes
+  useEffect(() => {
+    if (institution_id) {
+      async function fetchRegulations() {
+        try {
+          setLoadingRegulations(true);
+          console.log('Fetching regulations for institution:', institution_id);
+          const data = await RegulationService.getRegulationsByInstitution(institution_id);
+          setRegulations(data);
+
+          // Check if current regulation is valid
+          const currentRegulationId = form.getValues('regulationId');
+          if (currentRegulationId) {
+            const isRegulationValid = (data as Regulation[]).some((r) => r.id === currentRegulationId);
+            if (!isRegulationValid) {
+              form.setValue('regulationId', '');
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching regulations:', error);
+        } finally {
+          setLoadingRegulations(false);
+        }
+      }
+      fetchRegulations();
+    } else {
+      setRegulations([]);
+      form.setValue('regulationId', '');
+    }
+  }, [institution_id, form]);
+
+  // Fetch batches when institution changes
+  useEffect(() => {
+    if (institution_id) {
+      async function fetchBatches() {
+        try {
+          setLoadingBatches(true);
+          console.log('Fetching batches for institution:', institution_id);
+          const data = await BatchService.getBatchesByInstitution(institution_id);
+          setBatches(data);
+
+          // Check if current batch is valid
+          const currentBatchId = form.getValues('batchId');
+          if (currentBatchId) {
+            const isBatchValid = (data as Batch[]).some((b) => b.id === currentBatchId);
+            if (!isBatchValid) {
+              form.setValue('batchId', '');
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching batches:', error);
+        } finally {
+          setLoadingBatches(false);
+        }
+      }
+      fetchBatches();
+    } else {
+      setBatches([]);
+      form.setValue('batchId', '');
+    }
+  }, [institution_id, form]);
 
   // For selectability in edit mode, we need to pre-fetch data
   // when initializing with existing values
@@ -1026,6 +1181,257 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
               </Select>
               <FormDescription>
                 The academic year for the student&apos;s admission
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Semester - REQUIRED */}
+        <FormField
+          control={form.control}
+          name='semesterId'
+          render={({ field }) => (
+            <FormItem key={`semester-${semesters.length}`}>
+              <FormLabel>Semester <span className='text-red-500'>*</span></FormLabel>
+              <Select
+                value={field.value}
+                onValueChange={field.onChange}
+                disabled={field.disabled || !programId || loadingSemesters}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select semester'>
+                      {field.value
+                        ? semesters.length > 0 && isValidUUID(field.value)
+                          ? semesters.find((s) => s.id === field.value)?.semester_name || field.value
+                          : field.value
+                        : 'Select semester'}
+                    </SelectValue>
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {loadingSemesters ? (
+                    <div className='p-2'>
+                      <Skeleton className='h-5 w-full' />
+                      <Skeleton className='h-5 w-full mt-2' />
+                    </div>
+                  ) : (
+                    semesters.map((semester) => (
+                      <SelectItem key={semester.id} value={semester.id}>
+                        {semester.semester_name}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                The semester the student is enrolling in (required)
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Section - REQUIRED */}
+        <FormField
+          control={form.control}
+          name='sectionId'
+          render={({ field }) => (
+            <FormItem key={`section-${sections.length}`}>
+              <FormLabel>Section <span className='text-red-500'>*</span></FormLabel>
+              <Select
+                value={field.value}
+                onValueChange={field.onChange}
+                disabled={field.disabled || !semesterId || loadingSections}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select section'>
+                      {field.value
+                        ? sections.length > 0 && isValidUUID(field.value)
+                          ? sections.find((s) => s.id === field.value)?.section_name || field.value
+                          : field.value
+                        : 'Select section'}
+                    </SelectValue>
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {loadingSections ? (
+                    <div className='p-2'>
+                      <Skeleton className='h-5 w-full' />
+                      <Skeleton className='h-5 w-full mt-2' />
+                    </div>
+                  ) : (
+                    sections.map((section) => (
+                      <SelectItem key={section.id} value={section.id}>
+                        {section.section_name}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                The section the student is assigned to (required)
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Roll Number - OPTIONAL */}
+        <FormField
+          control={form.control}
+          name='rollNumber'
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Roll Number</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder='Enter roll number (optional)'
+                  {...field}
+                  value={field.value || ''}
+                />
+              </FormControl>
+              <FormDescription>
+                Student&apos;s roll number (optional, can be added later)
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* College Email - OPTIONAL */}
+        <FormField
+          control={form.control}
+          name='collegeEmail'
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>College Email</FormLabel>
+              <FormControl>
+                <Input
+                  type='email'
+                  placeholder='student@jkkn.ac.in (optional)'
+                  {...field}
+                  value={field.value || ''}
+                />
+              </FormControl>
+              <FormDescription>
+                College email must use @jkkn.ac.in domain (optional)
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Register Number - OPTIONAL */}
+        <FormField
+          control={form.control}
+          name='registerNumber'
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Register Number</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder='Enter register number (optional)'
+                  {...field}
+                  value={field.value || ''}
+                />
+              </FormControl>
+              <FormDescription>
+                Student&apos;s register number (optional)
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Regulation - OPTIONAL */}
+        <FormField
+          control={form.control}
+          name='regulationId'
+          render={({ field }) => (
+            <FormItem key={`regulation-${regulations.length}`}>
+              <FormLabel>Regulation</FormLabel>
+              <Select
+                value={field.value || ''}
+                onValueChange={field.onChange}
+                disabled={field.disabled || !institution_id || loadingRegulations}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select regulation (optional)'>
+                      {field.value
+                        ? regulations.length > 0 && isValidUUID(field.value)
+                          ? regulations.find((r) => r.id === field.value)?.regulation_code || field.value
+                          : field.value
+                        : 'Select regulation (optional)'}
+                    </SelectValue>
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {loadingRegulations ? (
+                    <div className='p-2'>
+                      <Skeleton className='h-5 w-full' />
+                      <Skeleton className='h-5 w-full mt-2' />
+                    </div>
+                  ) : (
+                    regulations.map((regulation) => (
+                      <SelectItem key={regulation.id} value={regulation.id}>
+                        {regulation.regulation_code} ({regulation.regulation_year})
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                The regulation under which the student is admitted (optional)
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Batch - OPTIONAL */}
+        <FormField
+          control={form.control}
+          name='batchId'
+          render={({ field }) => (
+            <FormItem key={`batch-${batches.length}`}>
+              <FormLabel>Batch</FormLabel>
+              <Select
+                value={field.value || ''}
+                onValueChange={field.onChange}
+                disabled={field.disabled || !institution_id || loadingBatches}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select batch (optional)'>
+                      {field.value
+                        ? batches.length > 0 && isValidUUID(field.value)
+                          ? batches.find((b) => b.id === field.value)?.batch_name || field.value
+                          : field.value
+                        : 'Select batch (optional)'}
+                    </SelectValue>
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {loadingBatches ? (
+                    <div className='p-2'>
+                      <Skeleton className='h-5 w-full' />
+                      <Skeleton className='h-5 w-full mt-2' />
+                    </div>
+                  ) : (
+                    batches.map((batch) => (
+                      <SelectItem key={batch.id} value={batch.id}>
+                        {batch.batch_name}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                The batch the student belongs to (optional)
               </FormDescription>
               <FormMessage />
             </FormItem>

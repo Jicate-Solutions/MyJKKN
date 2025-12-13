@@ -84,7 +84,8 @@ export default function AttendanceReportsPage() {
           .single();
 
         if (data && !error) {
-          setFacultyStaffId(data.id);
+          const staffData = data as { id: string };
+          setFacultyStaffId(staffData.id);
         }
       }
     };

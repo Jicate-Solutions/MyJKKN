@@ -122,13 +122,13 @@ export default function TimetableConflictsPage() {
 
       // Call the sync function directly
       const { data: syncResult, error: syncError } = await supabase.rpc(
-        'sync_timetable_staff_assignment',
+        'sync_timetable_staff_assignment' as any,
         {
           p_timetable_id: conflict.timetable_id,
           p_course_id: conflict.course_id,
           p_old_staff_id: conflict.timetable_staff_id,
           p_new_staff_id: conflict.planned_staff_id
-        }
+        } as any
       );
 
       console.log('Sync result:', { syncResult, syncError });

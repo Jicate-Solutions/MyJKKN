@@ -41,6 +41,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
+    const profileData = profile as { role: string };
+
     // Extract query parameters
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get('page') || '1');
@@ -68,10 +70,10 @@ export async function GET(request: NextRequest) {
     };
 
     // Apply role-based access control
-    if (profile.role === 'student' || profile.role === 'staff') {
+    if (profileData.role === 'student' || profileData.role === 'staff') {
       // Regular users can only see their own activity logs
       filters.user_id = user.id;
-    } else if (profile.role === 'administrator') {
+    } else if (profileData.role === 'administrator') {
       // Administrators can see all logs except super admin activities
       // This is handled in the service layer
     }
@@ -144,8 +146,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
+    const profileDataPost = profile as { role: string; institution_id: string | null };
     // Only allow system services and authorized users to create activity logs
-    if (!['super_admin', 'administrator'].includes(profile.role)) {
+    if (!['super_admin', 'administrator'].includes(profileDataPost.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -160,7 +163,7 @@ export async function POST(request: NextRequest) {
       description: body.description,
       request,
       metadata: body.metadata || {},
-      institution_id: body.institution_id || profile.institution_id
+      institution_id: body.institution_id || profileDataPost.institution_id
     });
 
     return NextResponse.json(activityLog, { status: 201 });

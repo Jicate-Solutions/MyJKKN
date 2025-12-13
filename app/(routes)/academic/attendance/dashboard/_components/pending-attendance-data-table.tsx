@@ -120,8 +120,9 @@ export function PendingAttendanceDataTable({
           .eq('timetable_id', period.timetable_id)
           .single();
 
-        if (existingAttendance?.attendance_data) {
-          const attendanceData = existingAttendance.attendance_data as any;
+        const attendanceRecord = existingAttendance as { attendance_data: Record<string, unknown> } | null;
+        if (attendanceRecord?.attendance_data) {
+          const attendanceData = attendanceRecord.attendance_data;
           if (attendanceData && typeof attendanceData === 'object' && attendanceData[period.period_id]) {
             toast.info(
               `Attendance for ${period.period_name} on ${format(new Date(period.attendance_date), 'MMM dd, yyyy')} has already been marked`,

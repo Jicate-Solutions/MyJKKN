@@ -49,6 +49,9 @@ export interface Student {
   semester_id?: string;
   section_id?: string;
   academic_year_id?: string;
+  register_number?: string; // Optional register number
+  regulation_id?: string; // reference to regulation (optional)
+  batch_id?: string; // reference to batch (optional)
   entry_type: string; // FIRST YEAR, LATERAL ENTRY, etc.
   permanent_address_street: string;
   permanent_address_taluk?: string;
@@ -113,6 +116,16 @@ export interface Student {
     end_date: string;
     is_active: boolean;
   };
+  regulation?: {
+    id: string;
+    regulation_code: string;
+    regulation_year: string;
+  };
+  batch?: {
+    id: string;
+    batch_name: string;
+    batch_code: string;
+  };
 }
 
 // Zod schema for validation
@@ -164,6 +177,9 @@ export const studentSchema = z.object({
   degree_id: z.string().nullable().optional(),
   department_id: z.string().nullable().optional(),
   program_id: z.string().nullable().optional(),
+  register_number: z.string().optional(),
+  regulation_id: z.string().nullable().optional(),
+  batch_id: z.string().nullable().optional(),
   entry_type: z.string().optional(),
   permanent_address_street: z.string().optional(),
   permanent_address_taluk: z.string().optional(),

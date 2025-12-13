@@ -69,7 +69,10 @@ export class BatchService {
     }
   }
 
-  static async deleteBatch(id: string): Promise<void> {
+  static async deleteBatch(
+    id: string,
+    options: { showToast?: boolean } = { showToast: true }
+  ): Promise<void> {
     try {
       const { error } = await this.supabase
         .from('batches')
@@ -78,7 +81,9 @@ export class BatchService {
 
       if (error) throw error;
 
-      toast.success('Batch deleted successfully');
+      if (options.showToast) {
+        toast.success('Batch deleted successfully');
+      }
     } catch (error) {
       console.error('Error deleting batch:', error);
       throw error;

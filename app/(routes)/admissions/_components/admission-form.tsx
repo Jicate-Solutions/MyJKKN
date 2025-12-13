@@ -91,7 +91,8 @@ const academicInformationSchema = z.object({
   firstGraduate: z.boolean().optional()
 });
 
-// Schema for course selection - ALL FIELDS ARE OPTIONAL
+// Schema for course selection - ALL FIELDS ARE OPTIONAL for draft mode
+// Note: semesterId and sectionId are REQUIRED for non-draft submission (validated in onSubmit)
 const courseSelectionSchema = z.object({
   quota: z.string().optional(),
   category: z.string().optional(),
@@ -100,7 +101,24 @@ const courseSelectionSchema = z.object({
   departmentId: z.string().optional(),
   programId: z.string().optional(),
   academicYearId: z.string().optional(),
-  entryType: z.string().optional()
+  entryType: z.string().optional(),
+  // NEW fields for semester/section (REQUIRED for non-draft submission)
+  semesterId: z.string().optional(),
+  sectionId: z.string().optional(),
+  // NEW optional fields
+  rollNumber: z.string().optional(),
+  collegeEmail: z
+    .string()
+    .email('Invalid college email')
+    .refine(
+      (val) => !val || val.toLowerCase().endsWith('@jkkn.ac.in'),
+      'College email must use @jkkn.ac.in domain'
+    )
+    .optional()
+    .or(z.literal('')),
+  registerNumber: z.string().optional(),
+  regulationId: z.string().optional(),
+  batchId: z.string().optional()
 });
 
 // Schema for contact details - ALL FIELDS ARE OPTIONAL
@@ -278,7 +296,15 @@ export function AdmissionForm({
       hostelType: data.hostelType || '',
       referenceType: data.referenceType || '',
       referenceName: data.referenceName || '',
-      referenceContact: data.referenceContact || ''
+      referenceContact: data.referenceContact || '',
+      // NEW fields: Map database field names to form field names
+      semesterId: data.semesterId || data.semester_id || '',
+      sectionId: data.sectionId || data.section_id || '',
+      rollNumber: data.rollNumber || data.roll_number || '',
+      collegeEmail: data.collegeEmail || data.college_email || '',
+      registerNumber: data.registerNumber || data.register_number || '',
+      regulationId: data.regulationId || data.regulation_id || '',
+      batchId: data.batchId || data.batch_id || ''
     };
   };
 
@@ -339,6 +365,14 @@ export function AdmissionForm({
           programId: '',
           academicYearId: '',
           entryType: '',
+          // NEW fields
+          semesterId: '',
+          sectionId: '',
+          rollNumber: '',
+          collegeEmail: '',
+          registerNumber: '',
+          regulationId: '',
+          batchId: '',
 
           // Contact Details
           permanentAddressStreet: '',
@@ -561,16 +595,16 @@ export function AdmissionForm({
     }
   };
 
+  // Helper function to check if a string is a valid UUID (moved to component scope)
+  const isValidUUID = (str: string | undefined): boolean => {
+    if (!str) return false;
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidPattern.test(str);
+  };
+
   // Function to format form data for API (reusable for both draft and final submission)
   const formatFormDataForAPI = (data: AdmissionFormValues, isDraft: boolean = false) => {
-    // Helper function to check if a string is a valid UUID
-    function isValidUUID(str: string | undefined): boolean {
-      if (!str) return false;
-      const uuidPattern =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      return uuidPattern.test(str);
-    }
-
     // Helper function to convert string to uppercase (except email fields)
     function formatStringValue(
       str: string,
@@ -642,6 +676,15 @@ export function AdmissionForm({
       program_id: isValidUUID(data.programId) ? data.programId : undefined,
       academic_year_id: isValidUUID(data.academicYearId) ? data.academicYearId : undefined,
       entry_type: formatStringValue(data.entryType || ''),
+
+      // NEW: Semester, Section, and optional fields
+      semester_id: isValidUUID(data.semesterId) ? data.semesterId : undefined,
+      section_id: isValidUUID(data.sectionId) ? data.sectionId : undefined,
+      roll_number: data.rollNumber || undefined,
+      college_email: data.collegeEmail || undefined,
+      register_number: data.registerNumber || undefined,
+      regulation_id: isValidUUID(data.regulationId) ? data.regulationId : undefined,
+      batch_id: isValidUUID(data.batchId) ? data.batchId : undefined,
 
       // Contact Details
       permanent_address_street: formatStringValue(data.permanentAddressStreet || ''),
@@ -759,6 +802,23 @@ export function AdmissionForm({
           setIsSubmitting(false);
           return;
         }
+      }
+
+      // Validate required fields for non-draft submission: semester and section
+      if (!data.semesterId || !isValidUUID(data.semesterId)) {
+        toast.error('Semester is required for admission submission');
+        setActiveTab('course-selection');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!data.sectionId || !isValidUUID(data.sectionId)) {
+        toast.error('Section is required for admission submission');
+        setActiveTab('course-selection');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setIsSubmitting(false);
+        return;
       }
 
       // Convert form data to the format expected by Supabase

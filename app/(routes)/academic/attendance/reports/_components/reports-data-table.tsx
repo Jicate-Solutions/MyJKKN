@@ -51,7 +51,8 @@ export function AttendanceReportsDataTable({
           .single();
 
         if (data && !error) {
-          setFacultyStaffId(data.id);
+          const staffData = data as { id: string };
+          setFacultyStaffId(staffData.id);
         }
       }
     };

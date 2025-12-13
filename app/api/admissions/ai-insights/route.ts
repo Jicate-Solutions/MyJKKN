@@ -47,18 +47,20 @@ export async function GET(request: NextRequest) {
     }
 
     // 2. Check permissions
-    const { data: profile, error: profileError } = await supabase
+    const { data: profileData, error: profileError } = await supabase
       .from('profiles')
       .select('id, role, is_super_admin, institution_id')
       .eq('id', user.id)
       .single();
 
-    if (profileError || !profile) {
+    if (profileError || !profileData) {
       return NextResponse.json(
         { error: 'Failed to fetch user profile' },
         { status: 500 }
       );
     }
+
+    const profile = profileData as { id: string; role: string; is_super_admin: boolean | null; institution_id: string | null };
 
     // Get user's role and permissions
     const { data: roleData, error: roleError } = await supabase
@@ -74,8 +76,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const rolePermissions = roleData as { permissions: Record<string, boolean> } | null;
+
     // Check for admissions.dashboard permission
-    const permissions = roleData?.permissions || {};
+    const permissions = rolePermissions?.permissions || {};
     const hasPermission =
       permissions['all'] === true ||
       permissions['admissions.dashboard'] === true ||
@@ -164,7 +168,7 @@ export async function GET(request: NextRequest) {
     // 5. Fetch analytics data with server-side client and user context
     const userContext = {
       userId: user.id,
-      institutionId: profile.institution_id,
+      institutionId: profile.institution_id ?? undefined,
       isSuperAdmin: profile.is_super_admin || false
     };
 

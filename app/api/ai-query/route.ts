@@ -855,7 +855,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Initialize AIQueryService with the server-side Supabase client
-    AIQueryService.initialize(supabase);
+    AIQueryService.initialize(supabase as any);
 
     // Parse request body
     const body: AIQueryRequest = await request.json();

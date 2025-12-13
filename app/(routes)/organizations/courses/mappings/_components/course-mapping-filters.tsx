@@ -129,9 +129,9 @@ export function CourseMappingFilters({
           );
 
           // If user has department restriction, filter to show only their department
-          let filteredDepartments = data;
+          let filteredDepartments = data as { id: string; department_name: string; institution_id: string }[];
           if (hasDepartmentRestriction && departmentId) {
-            filteredDepartments = data.filter(dept => dept.id === departmentId);
+            filteredDepartments = (data as { id: string; department_name: string; institution_id: string }[]).filter(dept => dept.id === departmentId);
 
             // Auto-select user's department if not already selected
             if (filteredDepartments.length > 0 && !searchParams.department_id) {

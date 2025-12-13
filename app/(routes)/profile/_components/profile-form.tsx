@@ -119,13 +119,14 @@ export function ProfileForm({ user, onComplete }: ProfileFormProps) {
         gender: data.gender || null
       };
 
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          ...formData,
-          profile_completed: true,
-          updated_at: new Date().toISOString()
-        })
+      const updateData = {
+        ...formData,
+        profile_completed: true,
+        updated_at: new Date().toISOString()
+      };
+      const { error } = await (supabase
+        .from('profiles') as any)
+        .update(updateData)
         .eq('id', userData.user.id);
 
       if (error) throw error;

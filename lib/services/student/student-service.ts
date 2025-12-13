@@ -70,8 +70,10 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name),
-          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
+          section:sections!section_id(id, section_name, section_code),
+          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active),
+          regulation:regulations!regulation_id(id, regulation_code, regulation_year),
+          batch:batches!batch_id(id, batch_name, batch_code)
         `
         )
         .eq('id', id)
@@ -293,8 +295,10 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name),
-          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
+          section:sections!section_id(id, section_name, section_code),
+          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active),
+          regulation:regulations!regulation_id(id, regulation_code, regulation_year),
+          batch:batches!batch_id(id, batch_name, batch_code)
         `
         )
         .single();
@@ -529,8 +533,10 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name),
-          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
+          section:sections!section_id(id, section_name, section_code),
+          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active),
+          regulation:regulations!regulation_id(id, regulation_code, regulation_year),
+          batch:batches!batch_id(id, batch_name, batch_code)
         `
         )
         .single();
@@ -891,7 +897,9 @@ export class StudentService {
           program:programs (*),
           semester:semesters (*),
           section:sections (*),
-          academic_year:academic_years (*)
+          academic_year:academic_years (*),
+          regulation:regulations (*),
+          batch:batches (*)
         `
         )
         .eq('id', id)
@@ -1049,11 +1057,19 @@ export class StudentService {
         reference_type: admission.reference_type || '',
         reference_name: admission.reference_name || '',
         reference_contact: admission.reference_contact || '',
-        is_profile_complete: false,
-        status: 'active', // Use a valid student_status enum value
-        semester_id: undefined, // Will be set later during onboarding
-        section_id: undefined, // Will be set later during onboarding
-        academic_year_id: admission.academic_year_id || undefined // Copy from admission if available
+        // NEW: Copy these fields from admission (if provided during admission)
+        semester_id: admission.semester_id || undefined,
+        section_id: admission.section_id || undefined,
+        academic_year_id: admission.academic_year_id || undefined,
+        roll_number: admission.roll_number || undefined,
+        college_email: admission.college_email || undefined,
+        student_photo_url: admission.student_photo_url || undefined,
+        register_number: admission.register_number || undefined,
+        regulation_id: admission.regulation_id || undefined,
+        batch_id: admission.batch_id || undefined,
+        // Profile completion will be calculated in createStudent based on new criteria
+        is_profile_complete: false, // Will be recalculated in createStudent
+        status: 'active' // Use a valid student_status enum value
       };
 
       // Create the student record
@@ -2065,9 +2081,13 @@ export class StudentService {
     student: Partial<Student>
   ): boolean {
     // List of required fields for a complete profile
-    // Note: student_photo_url is optional and not required for profile completion
+    // NEW CRITERIA: Only these 4 fields are required (roll_number REMOVED)
+    // - college_email: Required for user account creation
+    // - academic_year_id: Required for academic tracking
+    // - semester_id: Required for course enrollment
+    // - section_id: Required for class assignment
+    // Note: roll_number, student_photo_url, register_number are now optional
     const requiredFields = [
-      'roll_number',
       'college_email',
       'academic_year_id',
       'semester_id',

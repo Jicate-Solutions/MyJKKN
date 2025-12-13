@@ -368,12 +368,13 @@ export default function DashboardPage() {
 
         if (user) {
           // Get user profile to get full name
-          const { data: profile } = await supabase
+          const { data: profileData } = await supabase
             .from('profiles')
             .select('full_name')
             .eq('id', user.id)
             .single();
 
+          const profile = profileData as { full_name: string | null } | null;
           setCurrentUser(
             profile?.full_name || user.email?.split('@')[0] || 'User'
           );

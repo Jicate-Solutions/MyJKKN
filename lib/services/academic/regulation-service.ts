@@ -69,7 +69,10 @@ export class RegulationService {
     }
   }
 
-  static async deleteRegulation(id: string): Promise<void> {
+  static async deleteRegulation(
+    id: string,
+    options: { showToast?: boolean } = { showToast: true }
+  ): Promise<void> {
     try {
       const { error } = await this.supabase
         .from('regulations')
@@ -78,7 +81,9 @@ export class RegulationService {
 
       if (error) throw error;
 
-      toast.success('Regulation deleted successfully');
+      if (options.showToast) {
+        toast.success('Regulation deleted successfully');
+      }
     } catch (error) {
       console.error('Error deleting regulation:', error);
       throw error;

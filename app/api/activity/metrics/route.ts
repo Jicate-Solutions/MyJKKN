@@ -27,8 +27,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
+    const profileData = profile as { role: string };
     // Only allow administrators and super admins to view metrics
-    if (!['super_admin', 'administrator'].includes(profile.role)) {
+    if (!['super_admin', 'administrator'].includes(profileData.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

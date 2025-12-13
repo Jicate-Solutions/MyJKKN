@@ -19,9 +19,9 @@ const baseColumns: ColumnDef<Batch>[] = [
         aria-label='Select all'
       />
     ),
-    size: 50,
-    minSize: 50,
-    maxSize: 50,
+    size: 200,
+    minSize: 200,
+    maxSize: 200,
     cell: ({ row }) => (
       <Checkbox
         checked={row.getIsSelected()}

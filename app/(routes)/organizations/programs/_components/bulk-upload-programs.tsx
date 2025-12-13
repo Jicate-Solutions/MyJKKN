@@ -163,7 +163,7 @@ export default function BulkUploadPrograms() {
         flattenedDegrees.map(async (degree) => {
           const deptsForDegree = await DepartmentService.getDepartmentsByDegree(
             degree.id
-          );
+          ) as { id: string; department_name: string; department_code: string; institution_id?: string }[];
           return deptsForDegree.map((d) => ({
             ...d,
             institution_id: degree.institution_id,
