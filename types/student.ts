@@ -107,7 +107,6 @@ export interface Student {
   section?: {
     id: string;
     section_name: string;
-    section_code: string;
   };
   academic_year?: {
     id: string;

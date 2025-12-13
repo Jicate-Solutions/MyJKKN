@@ -70,7 +70,7 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name, section_code),
+          section:sections!section_id(id, section_name),
           academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active),
           regulation:regulations!regulation_id(id, regulation_code, regulation_year),
           batch:batches!batch_id(id, batch_name, batch_code)
@@ -295,7 +295,7 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name, section_code),
+          section:sections!section_id(id, section_name),
           academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active),
           regulation:regulations!regulation_id(id, regulation_code, regulation_year),
           batch:batches!batch_id(id, batch_name, batch_code)
@@ -533,7 +533,7 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name, section_code),
+          section:sections!section_id(id, section_name),
           academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active),
           regulation:regulations!regulation_id(id, regulation_code, regulation_year),
           batch:batches!batch_id(id, batch_name, batch_code)

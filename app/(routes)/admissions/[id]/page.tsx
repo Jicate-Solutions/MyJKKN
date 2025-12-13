@@ -76,7 +76,12 @@ export default function AdmissionDetailsPage() {
           institution:institutions(id, name),
           degree:degrees(id, degree_name),
           department:departments(id, department_name),
-          program:programs(id, program_name)
+          program:programs(id, program_name),
+          academic_year:academic_years(id, academic_year_name),
+          semester:semesters!semester_id(id, semester_name, semester_code),
+          section:sections!section_id(id, section_name),
+          regulation:regulations!regulation_id(id, regulation_code, regulation_year),
+          batch:batches!batch_id(id, batch_name, batch_code)
         `
         )
         .eq('id', admissionId)
@@ -507,7 +512,79 @@ export default function AdmissionDetailsPage() {
                     value={admission.program?.program_name || 'Not provided'}
                   />
                   <DetailItem label='Entry Type' value={admission.entry_type} />
+                  <DetailItem
+                    label='Academic Year'
+                    value={
+                      admission.academic_year?.academic_year_name ||
+                      'Not provided'
+                    }
+                  />
+                  <DetailItem
+                    label='Semester'
+                    value={
+                      admission.semester
+                        ? `${admission.semester.semester_name} (${admission.semester.semester_code})`
+                        : 'Not provided'
+                    }
+                  />
+                  <DetailItem
+                    label='Section'
+                    value={admission.section?.section_name || 'Not provided'}
+                  />
+                </div>
+              </div>
 
+              <Separator />
+
+              <div>
+                <h3 className='text-lg font-semibold mb-4'>
+                  Enrollment Details
+                </h3>
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                  <DetailItem
+                    label='Roll Number'
+                    value={admission.roll_number}
+                  />
+                  <DetailItem
+                    label='Register Number'
+                    value={admission.register_number}
+                  />
+                  <DetailItem
+                    label='College Email'
+                    value={admission.college_email}
+                  />
+                  <DetailItem
+                    label='Regulation'
+                    value={
+                      admission.regulation
+                        ? `${admission.regulation.regulation_code} (${admission.regulation.regulation_year})`
+                        : 'Not provided'
+                    }
+                  />
+                  <DetailItem
+                    label='Batch'
+                    value={
+                      admission.batch
+                        ? `${admission.batch.batch_name} (${admission.batch.batch_code})`
+                        : 'Not provided'
+                    }
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div>
+                <h3 className='text-lg font-semibold mb-4'>
+                  Admission Information
+                </h3>
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                  {admission.quota && (
+                    <DetailItem label='Admission Quota' value={admission.quota} />
+                  )}
+                  {admission.category && (
+                    <DetailItem label='Category' value={admission.category} />
+                  )}
                   {admission.medical_cutoff_marks && (
                     <DetailItem
                       label='Medical Cutoff'
@@ -519,12 +596,6 @@ export default function AdmissionDetailsPage() {
                       label='Engineering Cutoff'
                       value={`${admission.engineering_cutoff_marks}%`}
                     />
-                  )}
-                  {admission.quota && (
-                    <DetailItem label='Quota' value={admission.quota} />
-                  )}
-                  {admission.category && (
-                    <DetailItem label='Category' value={admission.category} />
                   )}
                 </div>
               </div>

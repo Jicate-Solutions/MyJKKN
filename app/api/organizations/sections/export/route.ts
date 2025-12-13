@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     // Apply search term if provided
     if (searchTerm) {
       query = query.or(
-        `section_code.ilike.%${searchTerm}%,section_name.ilike.%${searchTerm}%`
+        `section_name.ilike.%${searchTerm}%`
       );
     }
 
@@ -98,7 +98,6 @@ export async function GET(request: NextRequest) {
     const formattedData = sections.map((section) => {
       return {
         id: section.id,
-        sectionCode: section.section_code,
         sectionName: section.section_name,
         institutionName: section.institutions?.name || '',
         degreeName: section.degrees?.degree_name || '',

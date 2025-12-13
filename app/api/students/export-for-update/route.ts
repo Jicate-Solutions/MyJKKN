@@ -196,7 +196,7 @@ export async function GET(request: NextRequest) {
 
     const { data: sections } = await supabaseAdmin
       .from('sections')
-      .select('id, section_name, section_code')
+      .select('id, section_name')
       .order('section_name');
 
     // Create Excel workbook with multiple sheets
@@ -243,11 +243,10 @@ export async function GET(request: NextRequest) {
     if (sections && sections.length > 0) {
       const secData = sections.map((sec: any) => ({
         'Section ID': sec.id,
-        'Section Name': sec.section_name,
-        'Section Code': sec.section_code
+        'Section Name': sec.section_name
       }));
       const ws4 = XLSX.utils.json_to_sheet(secData);
-      ws4['!cols'] = [{ wch: 40 }, { wch: 20 }, { wch: 15 }];
+      ws4['!cols'] = [{ wch: 40 }, { wch: 20 }];
       XLSX.utils.book_append_sheet(wb, ws4, 'Sections');
     }
 

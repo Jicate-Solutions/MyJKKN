@@ -142,6 +142,14 @@ export function StudentDetail({ student }: StudentDetailProps) {
                   </div>
                   <div className='space-y-1'>
                     <h3 className='text-sm font-medium text-muted-foreground'>
+                      Register Number
+                    </h3>
+                    <p className='text-sm'>
+                      {student.register_number || 'Not assigned'}
+                    </p>
+                  </div>
+                  <div className='space-y-1'>
+                    <h3 className='text-sm font-medium text-muted-foreground'>
                       College Email
                     </h3>
                     <p className='text-sm'>
@@ -211,6 +219,26 @@ export function StudentDetail({ student }: StudentDetailProps) {
                     </h3>
                     <p className='text-sm'>
                       {student.section?.section_name || 'Not specified'}
+                    </p>
+                  </div>
+                  <div className='space-y-1'>
+                    <h3 className='text-sm font-medium text-muted-foreground'>
+                      Regulation
+                    </h3>
+                    <p className='text-sm'>
+                      {student.regulation
+                        ? `${student.regulation.regulation_code} (${student.regulation.regulation_year})`
+                        : 'Not specified'}
+                    </p>
+                  </div>
+                  <div className='space-y-1'>
+                    <h3 className='text-sm font-medium text-muted-foreground'>
+                      Batch
+                    </h3>
+                    <p className='text-sm'>
+                      {student.batch
+                        ? `${student.batch.batch_name} (${student.batch.batch_code})`
+                        : 'Not specified'}
                     </p>
                   </div>
                 </div>
@@ -339,6 +367,46 @@ export function StudentDetail({ student }: StudentDetailProps) {
                       </p>
                     )}
                   </div>
+
+                  <Separator />
+
+                  <div className='space-y-2'>
+                    <h3 className='text-sm font-medium'>Cutoff Marks & Entrance Exams</h3>
+                    <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          Engineering Cutoff
+                        </h4>
+                        <p className='text-sm'>
+                          {student.engineering_cutoff_marks || 'Not specified'}
+                        </p>
+                      </div>
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          Medical Cutoff
+                        </h4>
+                        <p className='text-sm'>
+                          {student.medical_cutoff_marks || 'Not specified'}
+                        </p>
+                      </div>
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          NEET Roll Number
+                        </h4>
+                        <p className='text-sm'>
+                          {student.neet_roll_number || 'Not specified'}
+                        </p>
+                      </div>
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          NEET Score
+                        </h4>
+                        <p className='text-sm'>
+                          {student.neet_score || 'Not specified'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </>
@@ -451,6 +519,14 @@ export function StudentDetail({ student }: StudentDetailProps) {
                         </h4>
                         <p className='text-sm'>
                           {student.annual_income || 'Not specified'}
+                        </p>
+                      </div>
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          Aadhar Number
+                        </h4>
+                        <p className='text-sm'>
+                          {student.aadhar_number || 'Not specified'}
                         </p>
                       </div>
                     </div>
@@ -681,6 +757,14 @@ export function StudentDetail({ student }: StudentDetailProps) {
                           {student.hostel_type || 'Not specified'}
                         </p>
                       </div>
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          Food Type
+                        </h4>
+                        <p className='text-sm'>
+                          {student.food_type || 'Not specified'}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -751,6 +835,14 @@ export function StudentDetail({ student }: StudentDetailProps) {
                       </div>
                       <div className='space-y-1'>
                         <h4 className='text-sm font-medium text-muted-foreground'>
+                          Application ID
+                        </h4>
+                        <p className='text-sm'>
+                          {student.application_id || 'Not specified'}
+                        </p>
+                      </div>
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
                           Quota
                         </h4>
                         <p className='text-sm'>
@@ -779,6 +871,14 @@ export function StudentDetail({ student }: StudentDetailProps) {
                         </h4>
                         <p className='text-sm'>
                           {student.counseling_number || 'Not specified'}
+                        </p>
+                      </div>
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          First Graduate
+                        </h4>
+                        <p className='text-sm'>
+                          {student.first_graduate ? 'Yes' : 'No'}
                         </p>
                       </div>
                     </div>
@@ -813,6 +913,44 @@ export function StudentDetail({ student }: StudentDetailProps) {
                         </h4>
                         <p className='text-sm'>
                           {student.reference_contact || 'Not specified'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className='space-y-2'>
+                    <h3 className='text-sm font-medium'>
+                      Record Information
+                    </h3>
+                    <div className='grid grid-cols-2 gap-4'>
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          Profile Complete
+                        </h4>
+                        <p className='text-sm'>
+                          {student.is_profile_complete ? 'Yes' : 'No'}
+                        </p>
+                      </div>
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          Created At
+                        </h4>
+                        <p className='text-sm'>
+                          {student.created_at
+                            ? format(new Date(student.created_at), 'PPP p')
+                            : 'Not specified'}
+                        </p>
+                      </div>
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          Last Updated
+                        </h4>
+                        <p className='text-sm'>
+                          {student.updated_at
+                            ? format(new Date(student.updated_at), 'PPP p')
+                            : 'Not specified'}
                         </p>
                       </div>
                     </div>
