@@ -926,6 +926,8 @@ CREATE POLICY "periods_select_time_range" ON periods
     );
 
 -- STUDENT_ATTENDANCE TABLE (6 policies)
+-- Updated: 2025-12-15 - Changed to role-based permissions (not user_institution_access)
+-- Uses profiles.role and custom_roles.permissions for access control
 ALTER TABLE student_attendance ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "student_attendance_select_institution" ON student_attendance
@@ -936,23 +938,48 @@ CREATE POLICY "student_attendance_select_institution" ON student_attendance
         )
     );
 
-CREATE POLICY "student_attendance_insert_staff" ON student_attendance
+-- INSERT policy using role-based permissions
+-- Allows: super_admin, admin (full access), and roles with academic.attendance.mark permission
+CREATE POLICY "student_attendance_insert_by_role" ON student_attendance
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'staff')
-            AND is_active = true
+        -- Check user has proper role
+        EXISTS (
+            SELECT 1 FROM profiles p
+            LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
+            WHERE p.id = auth.uid()
+            AND (
+                -- Super admin and admin always have access
+                p.role IN ('super_admin', 'admin')
+                OR
+                -- Check if user's role has academic.attendance.mark permission
+                (cr.permissions->>'academic.attendance.mark')::boolean = true
+            )
+        )
+        -- Also verify institution matches
+        AND institution_id IN (
+            SELECT institution_id FROM profiles WHERE id = auth.uid()
         )
     );
 
-CREATE POLICY "student_attendance_update_staff" ON student_attendance
+-- UPDATE policy using role-based permissions
+CREATE POLICY "student_attendance_update_by_role" ON student_attendance
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'staff')
-            AND is_active = true
+        -- Check user has proper role
+        EXISTS (
+            SELECT 1 FROM profiles p
+            LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
+            WHERE p.id = auth.uid()
+            AND (
+                -- Super admin and admin always have access
+                p.role IN ('super_admin', 'admin')
+                OR
+                -- Check if user's role has academic.attendance.mark permission
+                (cr.permissions->>'academic.attendance.mark')::boolean = true
+            )
+        )
+        -- Also verify institution matches
+        AND institution_id IN (
+            SELECT institution_id FROM profiles WHERE id = auth.uid()
         )
     );
 
