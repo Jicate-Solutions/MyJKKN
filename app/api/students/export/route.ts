@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import type { Database } from '@/types/supabase';
 import type { Student } from '@/types/student'; // Assuming Student type includes related data
 
 // Helper function to fetch all students with pagination to overcome Supabase 1000-row limit
@@ -164,7 +163,7 @@ export async function GET(request: NextRequest) {
     const exportAll = searchParams.get('exportAll') === 'true'; // Currently defaults to true
 
     // Create Supabase Admin Client
-    const supabaseAdmin = createClient<Database>(
+    const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { autoRefreshToken: false, persistSession: false } }

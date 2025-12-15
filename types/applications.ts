@@ -76,6 +76,32 @@ export type CreateApplicationDTO = Omit<
 
 export type UpdateApplicationDTO = Partial<CreateApplicationDTO>;
 
+// API Key types for Database
+export interface ApiKeyPermissions {
+  read: boolean;
+  write: boolean;
+}
+
+export interface ApiKeyMetadata {
+  role?: string;
+  description?: string;
+  [key: string]: unknown;
+}
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  key_value: string;
+  created_by: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  is_active: boolean;
+  permissions: ApiKeyPermissions;
+  metadata?: ApiKeyMetadata;
+  created_at: string;
+  updated_at: string;
+}
+
 // Database types for Supabase
 export interface Database {
   public: {
@@ -84,6 +110,11 @@ export interface Database {
         Row: Application;
         Insert: CreateApplicationDTO;
         Update: UpdateApplicationDTO;
+      };
+      api_keys: {
+        Row: ApiKey;
+        Insert: Omit<ApiKey, 'id' | 'created_at' | 'updated_at' | 'last_used_at'>;
+        Update: Partial<Omit<ApiKey, 'id' | 'created_at' | 'updated_at'>>;
       };
     };
   };

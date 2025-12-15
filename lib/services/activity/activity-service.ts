@@ -265,7 +265,9 @@ export class ActivityService {
           return acc;
         }, {} as Record<string, number>) || {};
 
-      const topActions = Object.entries(actionCounts)
+      const topActions = (
+        Object.entries(actionCounts) as [string, number][]
+      )
         .sort(([, a], [, b]) => b - a)
         .slice(0, 10)
         .map(([action_type, count]) => ({
@@ -290,7 +292,9 @@ export class ActivityService {
           return acc;
         }, {} as Record<string, number>) || {};
 
-      const topResources = Object.entries(resourceCounts)
+      const topResources = (
+        Object.entries(resourceCounts) as [string, number][]
+      )
         .sort(([, a], [, b]) => b - a)
         .slice(0, 10)
         .map(([resource_type, count]) => ({
@@ -321,9 +325,9 @@ export class ActivityService {
           return acc;
         }, {} as Record<string, number>) || {};
 
-      const mostActiveUserId = Object.entries(userCounts).sort(
-        ([, a], [, b]) => b - a
-      )[0]?.[0];
+      const mostActiveUserId = (
+        Object.entries(userCounts) as [string, number][]
+      ).sort(([, a], [, b]) => b - a)[0]?.[0];
 
       const mostActiveUser =
         userActivityData?.find((log) => log.user_id === mostActiveUserId)
@@ -379,7 +383,7 @@ export class ActivityService {
           return acc;
         }, {} as Record<string, number>) || {};
 
-      return Object.entries(dailyCounts)
+      return (Object.entries(dailyCounts) as [string, number][])
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, count]) => ({ date, count }));
     }
@@ -447,7 +451,7 @@ export class ActivityService {
           return acc;
         }, {} as Record<string, number>) || {};
 
-      return Object.entries(institutionCounts)
+      return (Object.entries(institutionCounts) as [string, number][])
         .sort(([, a], [, b]) => b - a)
         .slice(0, 10)
         .map(([institution_name, count]) => ({

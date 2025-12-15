@@ -1,7 +1,6 @@
 import { createHash } from 'crypto';
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
-import type { Database } from '@/types/applications';
 
 // CORS headers
 const corsHeaders = {
@@ -27,7 +26,7 @@ export async function GET(
     });
 
     // Use service role key for API key authentication to bypass RLS
-    const supabase = createServerClient<Database>(
+    const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       {
