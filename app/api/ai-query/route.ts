@@ -20,6 +20,76 @@ const anthropic = new Anthropic({
   apiKey: process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY!,
 });
 
+// Maximum characters for tool results to prevent token overflow
+// Claude's context is ~200K tokens, we need to leave room for system prompt, tools, and response
+const MAX_TOOL_RESULT_CHARS = 80000; // ~20K tokens per result, safe margin
+const MAX_DATA_RECORDS = 100; // Maximum records to return in data array
+
+/**
+ * Smart truncation of tool results to prevent token overflow
+ * Preserves metadata, statistics, and summary while limiting data records
+ */
+function truncateToolResult(result: ToolResponse): ToolResponse {
+  if (!result.success || !result.data) {
+    return result;
+  }
+
+  const resultStr = JSON.stringify(result);
+
+  // If result is small enough, return as-is
+  if (resultStr.length <= MAX_TOOL_RESULT_CHARS) {
+    return result;
+  }
+
+  // If data is an array, truncate it
+  if (Array.isArray(result.data)) {
+    const originalCount = result.data.length;
+    const truncatedData = result.data.slice(0, MAX_DATA_RECORDS);
+
+    return {
+      ...result,
+      data: truncatedData,
+      metadata: {
+        ...result.metadata,
+        total_count: originalCount,
+        returned_count: truncatedData.length,
+        has_more: originalCount > truncatedData.length,
+        truncated: true,
+        truncation_note: `Showing ${truncatedData.length} of ${originalCount} records. Use filters to narrow results.`,
+      },
+    };
+  }
+
+  // If data is an object with nested arrays, truncate those
+  if (typeof result.data === 'object' && result.data !== null) {
+    const truncatedData: Record<string, unknown> = {};
+    let wasTruncated = false;
+
+    for (const [key, value] of Object.entries(result.data)) {
+      if (Array.isArray(value) && value.length > MAX_DATA_RECORDS) {
+        truncatedData[key] = value.slice(0, MAX_DATA_RECORDS);
+        wasTruncated = true;
+      } else {
+        truncatedData[key] = value;
+      }
+    }
+
+    if (wasTruncated) {
+      return {
+        ...result,
+        data: truncatedData,
+        metadata: {
+          ...result.metadata,
+          truncated: true,
+          truncation_note: 'Some arrays were truncated. Use filters to narrow results.',
+        },
+      };
+    }
+  }
+
+  return result;
+}
+
 // Tool definitions for Claude (JKKN Terminology: students→learners, staff→facilitators, attendance→learning participation)
 const AI_TOOLS: Anthropic.Tool[] = [
   // Academic Tools
@@ -879,6 +949,12 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
   const toolsCalled: string[] = [];
 
+  // Capture request context for error logging
+  const ipAddress = request.headers.get('x-forwarded-for') || undefined;
+  const userAgent = request.headers.get('user-agent') || undefined;
+  let queryMessage: string | undefined;
+  let userInstitutionId: string | undefined;
+
   try {
     // Get authenticated user
     const supabase = await createClient();
@@ -897,6 +973,7 @@ export async function POST(request: NextRequest) {
     // Parse request body
     const body: AIQueryRequest = await request.json();
     const { message, conversation_id } = body;
+    queryMessage = message; // Capture for error logging
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json(
@@ -928,6 +1005,7 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+    userInstitutionId = userContext.institution_ids?.[0]; // Capture for error logging
 
     // Increment query count
     await AIQueryService.incrementQueryCount(user.id);
@@ -962,10 +1040,12 @@ export async function POST(request: NextRequest) {
               toolUse.input as Record<string, unknown>,
               user.id
             );
+            // Apply smart truncation to prevent token overflow
+            const truncatedResult = truncateToolResult(result);
             return {
               type: 'tool_result' as const,
               tool_use_id: toolUse.id,
-              content: JSON.stringify(result),
+              content: JSON.stringify(truncatedResult),
             };
           })
         ),
@@ -1021,7 +1101,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[ai-query] API error:', error);
 
-    // Log failed query
+    // Log failed query with all required parameters
     const responseTime = Date.now() - startTime;
     try {
       const supabase = await createClient();
@@ -1029,14 +1109,20 @@ export async function POST(request: NextRequest) {
       if (user) {
         await AIQueryService.logQuery({
           userId: user.id,
-          queryText: 'error',
+          institutionId: userInstitutionId,
+          queryText: queryMessage || 'unknown_query',
+          queryType: 'data_query',
+          toolsCalled: toolsCalled.length > 0 ? toolsCalled : [],
           responseTimeMs: responseTime,
           success: false,
           errorCode: 'SERVER_ERROR',
+          ipAddress,
+          userAgent,
         });
       }
-    } catch {
-      // Ignore logging errors
+    } catch (logError) {
+      // Log but don't fail on logging errors
+      console.error('[ai-query] Failed to log error query:', logError);
     }
 
     return NextResponse.json(

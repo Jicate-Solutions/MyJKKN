@@ -43,6 +43,8 @@ export interface ResultMetadata {
   filters_applied: Record<string, any>;
   query_time_ms?: number;
   source_table?: string;
+  truncated?: boolean;
+  truncation_note?: string;
 }
 
 export interface ChartData {
