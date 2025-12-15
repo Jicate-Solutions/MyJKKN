@@ -836,4 +836,35 @@ export class AIQueryService {
       p_include_trends: params.includeTrends !== false,
     });
   }
+
+  /**
+   * Admission Referrers/Consultants Analytics
+   * Get top consultants, staff referrers with program and location breakdown
+   * Supports queries like "top 5 consultants and which programs they refer from which places"
+   */
+  static async getAdmissionReferrers(userId: string, params: {
+    referenceType?: string;
+    referenceName?: string;
+    institutionId?: string;
+    programId?: string;
+    departmentId?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    topN?: number;
+    includeDetails?: boolean;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('admission_referrers', userId, {
+      p_reference_type: params.referenceType,
+      p_reference_name: params.referenceName,
+      p_institution_id: params.institutionId,
+      p_program_id: params.programId,
+      p_department_id: params.departmentId,
+      p_status: params.status,
+      p_date_from: params.dateFrom,
+      p_date_to: params.dateTo,
+      p_top_n: params.topN || 10,
+      p_include_details: params.includeDetails !== false,
+    });
+  }
 }

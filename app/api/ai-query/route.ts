@@ -291,6 +291,25 @@ const AI_TOOLS: Anthropic.Tool[] = [
       },
     },
   },
+  {
+    name: 'get_admission_referrers',
+    description: 'CONSULTANT/REFERRER ANALYTICS - Get top consultants, staff referrers, and direct admissions with detailed breakdown. Shows which programs each referrer refers to and from which locations/districts. Use this for queries like "top 5 consultants", "which consultants refer the most", "referrer performance", "consultant analytics", or "admission sources".',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        reference_type: { type: 'string', enum: ['CONSULTANT', 'STAFF', 'DIRECT', 'ALUMNI', 'OTHER'], description: 'Filter by referrer type (CONSULTANT, STAFF, DIRECT, etc.)' },
+        reference_name: { type: 'string', description: 'Search for specific referrer by name' },
+        institution_id: { type: 'string', description: 'Filter by institution UUID' },
+        program_id: { type: 'string', description: 'Filter by program UUID' },
+        department_id: { type: 'string', description: 'Filter by department UUID' },
+        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'waitlisted', 'enrolled'], description: 'Filter by admission status' },
+        date_from: { type: 'string', description: 'Date range start (YYYY-MM-DD)' },
+        date_to: { type: 'string', description: 'Date range end (YYYY-MM-DD)' },
+        top_n: { type: 'number', description: 'Number of top referrers to return (default: 10)' },
+        include_details: { type: 'boolean', description: 'Include program and location breakdown for each referrer (default: true)' },
+      },
+    },
+  },
   // Learning Facilitator Tools (JKKN: staff → learning facilitators/team members)
   {
     name: 'get_staff',
@@ -643,6 +662,20 @@ async function executeTool(
         includeTrends: toolInput.include_trends as boolean,
       });
 
+    case 'get_admission_referrers':
+      return AIQueryService.getAdmissionReferrers(userId, {
+        referenceType: toolInput.reference_type as string,
+        referenceName: toolInput.reference_name as string,
+        institutionId: toolInput.institution_id as string,
+        programId: toolInput.program_id as string,
+        departmentId: toolInput.department_id as string,
+        status: toolInput.status as string,
+        dateFrom: toolInput.date_from as string,
+        dateTo: toolInput.date_to as string,
+        topN: toolInput.top_n as number,
+        includeDetails: toolInput.include_details as boolean,
+      });
+
     case 'get_staff':
       return AIQueryService.getStaff(userId, {
         departmentId: toolInput.department_id as string,
@@ -715,6 +748,9 @@ function getContextAwareSuggestions(toolsCalled: string[]): string[] {
       'Show admissions by community breakdown',
       'List first-year admissions',
       'Show hostel accommodation requests',
+      'Show top 5 consultants and their referrals',
+      'List consultants with their programs and locations',
+      'Get consultant performance analytics',
     ],
     // Academic/Attendance module
     academic: [
@@ -771,6 +807,7 @@ function getContextAwareSuggestions(toolsCalled: string[]): string[] {
     get_admissions_by_location: 'admissions',
     get_admission_statistics: 'admissions',
     get_admission_analytics: 'admissions',
+    get_admission_referrers: 'admissions',
     // Academic tools
     get_attendance: 'academic',
     get_attendance_summary: 'academic',
