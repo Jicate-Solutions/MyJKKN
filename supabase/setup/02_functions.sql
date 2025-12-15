@@ -2642,11 +2642,79 @@ BEGIN
     END LOOP;
     
     -- Update the timetable with new data
-    UPDATE timetables 
+    UPDATE timetables
     SET timetable_data = v_updated_data,
         updated_at = now()
     WHERE id = p_timetable_id;
-    
+
     RETURN true;
 END;
+$$;
+
+-- ================================================================================
+-- SECTION: STAFF PLAN ACCESS OPTIMIZATION FUNCTIONS
+-- Added: 2025-12-15 - Performance optimization for staff planning RLS policies
+-- ================================================================================
+
+-- Get staff plan IDs accessible by current user (for optimized RLS)
+CREATE OR REPLACE FUNCTION get_user_staff_plan_access()
+RETURNS TABLE(staff_plan_id uuid)
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT sp.id
+  FROM staff_plans sp
+  WHERE sp.institution_id IN (
+    SELECT institution_id FROM profiles WHERE id = auth.uid()
+  )
+$$;
+
+-- ================================================================================
+-- SECTION: PROFILES RLS HELPER FUNCTIONS
+-- Added: 2025-12-15 - Security definer functions to prevent RLS infinite recursion
+-- ================================================================================
+
+-- Get current user's role without triggering RLS
+CREATE OR REPLACE FUNCTION get_current_user_role()
+RETURNS TEXT
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT role FROM profiles WHERE id = auth.uid()
+$$;
+
+-- Check if current user can manage staff (create/edit)
+CREATE OR REPLACE FUNCTION can_user_manage_staff()
+RETURNS BOOLEAN
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM profiles p
+        LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
+        WHERE p.id = auth.uid()
+        AND (
+            p.role IN ('super_admin', 'admin')
+            OR (cr.permissions->>'staff.create')::boolean = true
+            OR (cr.permissions->>'staff.edit')::boolean = true
+        )
+    )
+$$;
+
+-- Get current user's institution_id without triggering RLS
+CREATE OR REPLACE FUNCTION get_current_user_institution_id()
+RETURNS UUID
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT institution_id FROM profiles WHERE id = auth.uid()
 $$;

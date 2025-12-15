@@ -347,6 +347,7 @@ export class FacultyAttendanceService {
   /**
    * Check if a date is within the timetable's valid range
    * Updated: 2025-10-14 - Added support for 'regular' format timetables
+   * Updated: 2025-12-15 - Added support for 'batch' format timetables (clinical postings)
    */
   private static isDateInTimetableRange(
     targetDate: string,
@@ -365,13 +366,52 @@ export class FacultyAttendanceService {
       return target >= start && target <= end;
     }
 
+    // Handle 'batch' format - used for clinical postings
+    // selected_dates contains RANGE entries like "RANGE:2025-12-01:2025-12-11"
+    if (format === 'batch') {
+      // First check if target is within overall date range
+      if (startDate && endDate) {
+        const start = new Date(startDate + 'T00:00:00');
+        const end = new Date(endDate + 'T00:00:00');
+        if (target < start || target > end) {
+          return false;
+        }
+      }
+
+      // If selected_dates exists, check if target falls within any of the batch ranges
+      if (selectedDates && Array.isArray(selectedDates) && selectedDates.length > 0) {
+        for (const dateEntry of selectedDates) {
+          if (typeof dateEntry === 'string' && dateEntry.startsWith('RANGE:')) {
+            // Parse RANGE format: "RANGE:2025-12-01:2025-12-11"
+            const parts = dateEntry.split(':');
+            if (parts.length === 3) {
+              const rangeStart = new Date(parts[1] + 'T00:00:00');
+              const rangeEnd = new Date(parts[2] + 'T00:00:00');
+              if (target >= rangeStart && target <= rangeEnd) {
+                return true;
+              }
+            }
+          } else if (typeof dateEntry === 'string') {
+            // Regular date entry
+            if (dateEntry === targetDate) {
+              return true;
+            }
+          }
+        }
+        return false; // Target date not in any batch range
+      }
+
+      // If no selected_dates, just use the overall date range (already checked above)
+      return startDate !== null && endDate !== null;
+    }
+
     // Handle 'specific-dates' format - only certain dates are valid
     if (format === 'specific-dates' && selectedDates && Array.isArray(selectedDates)) {
       return selectedDates.includes(targetDate);
     }
 
     // Unknown format - log warning and return false for safety
-    if (format !== 'date-range' && format !== 'regular' && format !== 'specific-dates') {
+    if (format !== 'date-range' && format !== 'regular' && format !== 'specific-dates' && format !== 'batch') {
       console.warn(`[faculty-attendance] Unknown timetable format: '${format}'`);
     }
 

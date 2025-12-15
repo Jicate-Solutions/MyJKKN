@@ -61,7 +61,9 @@ import {
   Download,
   Trash2,
   Building,
-  GraduationCap
+  GraduationCap,
+  Copy,
+  Shield
 } from 'lucide-react';
 import { BugReportChat } from '../_components/bug-report-chat';
 import { ConsoleOutput } from '../_components/console-output';
@@ -215,6 +217,37 @@ export default function BugReportDetailsPage() {
 
   const handleGoBack = () => {
     router.push('/admin/bug-reports');
+  };
+
+  // Format role name for display (e.g., "super_admin" -> "Super Admin")
+  const formatRoleName = (role: string | null | undefined): string => {
+    if (!role) return 'Unknown';
+    return role
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
+  // Copy reporter details to clipboard
+  const handleCopyReporterDetails = () => {
+    if (!report) return;
+
+    const details = [
+      `Name: ${report.reporter?.full_name || 'Unknown'}`,
+      `Email: ${report.reporter?.email || 'Unknown'}`,
+      `Role: ${formatRoleName(report.reporter?.role)}`,
+      `Institution: ${report.institution_name || 'Not specified'}`,
+      `Department: ${report.department_name || 'Not specified'}`
+    ].join('\n');
+
+    navigator.clipboard
+      .writeText(details)
+      .then(() => {
+        toast.success('Reporter details copied to clipboard');
+      })
+      .catch(() => {
+        toast.error('Failed to copy reporter details');
+      });
   };
 
   const handleDownloadScreenshot = async () => {
@@ -530,9 +563,20 @@ export default function BugReportDetailsPage() {
               {/* Reporter Information Card */}
               <Card>
                 <CardHeader>
-                  <CardTitle className='flex items-center gap-2 text-lg'>
-                    <User className='w-5 h-5' />
-                    Reporter Info
+                  <CardTitle className='flex items-center justify-between'>
+                    <div className='flex items-center gap-2 text-lg'>
+                      <User className='w-5 h-5' />
+                      Reporter Info
+                    </div>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={handleCopyReporterDetails}
+                      className='flex items-center gap-2'
+                    >
+                      <Copy className='w-4 h-4' />
+                      Copy
+                    </Button>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className='space-y-4'>
@@ -550,6 +594,15 @@ export default function BugReportDetailsPage() {
                     </label>
                     <p className='text-sm mt-1'>
                       {report.reporter?.email || 'Unknown'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className='text-sm font-medium text-muted-foreground flex items-center gap-2'>
+                      <Shield className='w-4 h-4' />
+                      Role
+                    </label>
+                    <p className='text-sm mt-1'>
+                      {formatRoleName(report.reporter?.role)}
                     </p>
                   </div>
                   <div>

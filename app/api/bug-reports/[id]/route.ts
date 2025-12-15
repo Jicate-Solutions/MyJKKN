@@ -61,7 +61,8 @@ export async function GET(
         ? {
             id: report.reporter_user_id,
             full_name: report.reporter_name,
-            email: report.reporter_email
+            email: report.reporter_email,
+            role: report.reporter_role
           }
         : null
     };
