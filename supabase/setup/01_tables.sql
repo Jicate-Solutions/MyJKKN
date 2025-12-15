@@ -1058,11 +1058,12 @@ CREATE TABLE IF NOT EXISTS public.bug_report_messages (
 );
 
 -- Bug Report Participants
+-- Updated: 2025-12-15 - Fixed role default and added check constraint
 CREATE TABLE IF NOT EXISTS public.bug_report_participants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     bug_report_id UUID NOT NULL,
     user_id UUID NOT NULL,
-    role VARCHAR(20) DEFAULT 'viewer',
+    role VARCHAR(20) DEFAULT 'participant' CHECK (role IN ('reporter', 'admin', 'participant')),
     last_viewed_at TIMESTAMPTZ,
     is_subscribed BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT now(),

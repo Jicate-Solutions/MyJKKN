@@ -85,7 +85,7 @@ export async function POST(
           hasAccess = true;
 
           // Determine participant role
-          const participantRole = bugReportCheck.reporter_user_id === user.id ? 'reporter' : 'viewer';
+          const participantRole = bugReportCheck.reporter_user_id === user.id ? 'reporter' : 'participant';
 
           // Try to auto-create participant record for future efficiency
           const { data: insertedParticipant, error: insertError } = await supabase
@@ -368,7 +368,7 @@ export async function GET(
             hasAccess = true;
 
             // Determine participant role
-            const participantRole = bugReportCheck.reporter_user_id === user.id ? 'reporter' : 'viewer';
+            const participantRole = bugReportCheck.reporter_user_id === user.id ? 'reporter' : 'participant';
 
             // Try to auto-create participant record for future efficiency
             const { data: insertedParticipant, error: insertError } = await supabase

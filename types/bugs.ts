@@ -36,6 +36,7 @@ export interface BugReport {
     id: string;
     full_name: string | null;
     email: string | null;
+    role?: string | null;
   } | null;
   institution_name?: string | null;
   department_name?: string | null;
@@ -55,6 +56,7 @@ export interface DetailedBugReport extends BugReport {
     id: string;
     full_name: string | null;
     email: string | null;
+    role?: string | null;
   } | null;
 }
 

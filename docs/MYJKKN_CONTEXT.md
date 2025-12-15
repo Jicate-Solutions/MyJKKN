@@ -5,6 +5,34 @@
 
 ---
 
+## For Child App Developers
+
+**Building an application that connects to MyJKKN?** Start here:
+
+| Resource | Path | Description |
+|----------|------|-------------|
+| **Quick Start** | [Integration Guide](./context/integration/README.md) | Architecture, patterns, getting started |
+| **Authentication** | [Auth Guide](./context/integration/AUTHENTICATION.md) | Supabase Auth SSR, session management |
+| **API Reference** | [API Docs](./context/integration/API_REFERENCE.md) | Complete endpoint documentation |
+| **Permissions** | [RBAC Guide](./context/integration/PERMISSIONS.md) | Permission system, role templates |
+| **Code Examples** | [Examples](./context/integration/EXAMPLES.md) | TypeScript/React code samples |
+
+### Module Documentation
+
+| Module | Documentation | Key Entities |
+|--------|---------------|--------------|
+| Organizations | [Docs](./context/modules/organizations/README.md) | Institutions, Degrees, Departments, Programs, Semesters, Sections, Courses |
+| Students | [Docs](./context/modules/students/README.md) | Student profiles (80+ fields), promotion tracking |
+| Users | [Docs](./context/modules/users/README.md) | Profiles, custom roles, institution access |
+| Academic | [Docs](./context/modules/academic/README.md) | Timetables, attendance, periods, staff planning |
+| Billing | [Docs](./context/modules/billing/README.md) | Categories, bills, receipts, invoices, discounts, refunds |
+| Staff | [Docs](./context/modules/staff/README.md) | Staff profiles, employment categories |
+
+> **Full Documentation Index**: [docs/context/INDEX.md](./context/INDEX.md)
+> **Implementation Status**: [docs/context/IMPLEMENTATION_STATUS.md](./context/IMPLEMENTATION_STATUS.md)
+
+---
+
 ## Quick Reference
 
 | Property | Value |
@@ -180,12 +208,15 @@ organizations/
 
 | Metric | Count |
 |--------|-------|
-| Total Tables | 53 |
+| Total Tables | 68 |
+| Total Fields | 1,200+ |
 | Stored Functions | 236+ |
 | RLS Policies | 250+ |
 | Database Triggers | 72 |
 | Views | 7 |
 | Indexes | 382 |
+
+> **Detailed Entity Documentation**: See [docs/context/entities/](./context/entities/) for complete field definitions and relationships.
 
 ### Tables by Domain
 
@@ -974,6 +1005,22 @@ D:\Projects\MyJKKN\
 
 ## Additional Resources
 
+### Context Documentation (For AI-Assisted Development)
+
+The `docs/context/` folder contains comprehensive, module-wise documentation designed for students building connected applications using AI assistants:
+
+| Resource | Path | Description |
+|----------|------|-------------|
+| **Documentation Index** | [docs/context/INDEX.md](./context/INDEX.md) | Complete navigation guide |
+| **Implementation Status** | [docs/context/IMPLEMENTATION_STATUS.md](./context/IMPLEMENTATION_STATUS.md) | Track documentation progress |
+| **Integration Guide** | [docs/context/integration/](./context/integration/) | Child app integration (5 files) |
+| **Organizations Module** | [docs/context/modules/organizations/](./context/modules/organizations/) | Academic hierarchy (8 files) |
+| **Students Module** | [docs/context/modules/students/](./context/modules/students/) | Student entity (80+ fields) |
+| **Users Module** | [docs/context/modules/users/](./context/modules/users/) | RBAC, profiles, access |
+| **Academic Module** | [docs/context/modules/academic/](./context/modules/academic/) | Timetables, attendance (6 files) |
+| **Billing Module** | [docs/context/modules/billing/](./context/modules/billing/) | Financial operations (7 files) |
+| **Staff Module** | [docs/context/modules/staff/](./context/modules/staff/) | Staff management (3 files) |
+
 ### Internal Documentation
 - `docs/development-flow/CODEBASE_STRUCTURE.md` - Architecture overview
 - `docs/development-flow/MODULE_CREATION_QUICK_START.md` - Quick start guide
@@ -994,11 +1041,18 @@ D:\Projects\MyJKKN\
 
 | Component | Version |
 |-----------|---------|
-| Document Version | 1.0 |
+| Document Version | 2.0 |
 | Last Updated | December 2024 |
 | MyJKKN Version | 15.5.7 |
 | Author | Claude Code |
 
+### Change Log
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 2.0 | Dec 2024 | Added "For Child App Developers" section, corrected database statistics (68 tables), added context documentation links (40+ files), integration guide navigation |
+| 1.0 | Nov 2024 | Initial document creation |
+
 ---
 
-*This document provides a comprehensive overview of the MyJKKN system. For detailed implementation guidance, refer to the specific module documentation and existing code patterns.*
+*This document provides a comprehensive overview of the MyJKKN system. For detailed implementation guidance, refer to the [context documentation](./context/INDEX.md) and existing code patterns.*
