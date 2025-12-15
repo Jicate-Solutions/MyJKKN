@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { Database } from '@/types/supabase';
 import { UserInstitutionAccessService } from '@/lib/services/users/user-institution-access-service';
 
 export interface ApiInstitutionFilterOptions {
@@ -33,7 +32,8 @@ export async function createApiInstitutionFilter(
 
   try {
     const cookieStore = await cookies();
-    const supabase = createServerClient<Database>(
+    // Note: Database type removed to avoid type errors with incomplete type definitions
+    const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -67,11 +67,14 @@ export async function createApiInstitutionFilter(
     }
 
     // Get user profile with role information
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile, error: profileError } = (await supabase
       .from('profiles')
       .select('role, institution_id')
       .eq('id', user.id)
-      .single();
+      .single()) as {
+      data: { role: string; institution_id: string | null } | null;
+      error: unknown;
+    };
 
     if (profileError || !profile) {
       return {

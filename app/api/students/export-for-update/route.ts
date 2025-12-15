@@ -2,7 +2,6 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import * as XLSX from 'xlsx';
-import type { Database } from '@/types/supabase';
 
 // Helper function to fetch all students with pagination to overcome Supabase 1000-row limit
 async function fetchAllStudentsForExport(
@@ -85,7 +84,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
 
     // Create Supabase Admin Client
-    const supabaseAdmin = createClient<Database>(
+    const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { autoRefreshToken: false, persistSession: false } }

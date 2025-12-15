@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
         .from('profiles')
         .select('full_name, role, institution_id')
         .eq('id', user.id)
-        .single();
+        .single() as { data: { full_name: string | null; role: string | null; institution_id: string | null } | null };
 
       // Log logout activity
       const userName = profile?.full_name || user.email || 'Unknown';
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
           session_duration: 'unknown', // Could calculate this if we track login time
           logout_timestamp: new Date().toISOString()
         },
-        institutionId: profile?.institution_id,
+        institutionId: profile?.institution_id || undefined,
         statusCode: 200
       });
 

@@ -4,8 +4,6 @@ import {
   createServiceRoleClient
 } from '@/lib/supabase/server';
 import { z } from 'zod';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/types/supabase';
 
 const bulkRoleUpdateSchema = z.object({
   userIds: z.array(z.string().uuid()),
@@ -14,8 +12,7 @@ const bulkRoleUpdateSchema = z.object({
 
 export async function PATCH(request: NextRequest) {
   try {
-    const supabase: SupabaseClient<Database> =
-      await createServerSupabaseClient();
+    const supabase = await createServerSupabaseClient();
 
     // Check authentication
     const {

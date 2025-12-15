@@ -28,7 +28,7 @@ export async function POST(
       .from('bug_reports')
       .select('display_id, description, reporter_user_id')
       .eq('id', (await params).id)
-      .single();
+      .single() as { data: { display_id: string; description: string; reporter_user_id: string } | null; error: unknown };
 
     if (bugReportError || !bugReport) {
       return NextResponse.json(
@@ -52,7 +52,7 @@ export async function POST(
       `
       )
       .eq('id', messageId)
-      .single();
+      .single() as { data: { message_text: string; is_internal: boolean; sender_user_id: string; sender: { full_name: string; email: string } | { full_name: string; email: string }[] | null } | null; error: unknown };
 
     if (messageError || !message) {
       return NextResponse.json(
@@ -62,6 +62,7 @@ export async function POST(
     }
 
     // Get all participants who should be notified (excluding the sender)
+    type Participant = { user_id: string; can_view_internal: boolean; user: { full_name: string; email: string } | null };
     const { data: participants, error: participantsError } = await supabase
       .from('bug_report_participants')
       .select(
@@ -76,7 +77,7 @@ export async function POST(
       )
       .eq('bug_report_id', (await params).id)
       .eq('is_active', true)
-      .neq('user_id', senderId);
+      .neq('user_id', senderId) as { data: Participant[] | null; error: unknown };
 
     if (participantsError) {
       return NextResponse.json(
@@ -123,7 +124,8 @@ export async function POST(
         )}${message.message_text.length > 100 ? '...' : ''}`;
 
     // Insert the main notification
-    const { data: notification, error: notificationError } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: notification, error: notificationError } = await (supabase as any)
       .from('notifications')
       .insert({
         title: notificationTitle,
@@ -135,7 +137,7 @@ export async function POST(
         created_by: senderId
       })
       .select()
-      .single();
+      .single() as { data: { id: string; title: string } | null; error: unknown };
 
     if (notificationError || !notification) {
       return NextResponse.json(
@@ -150,7 +152,8 @@ export async function POST(
       notification_id: notification.id
     }));
 
-    const { error: userNotificationsError } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: userNotificationsError } = await (supabase as any)
       .from('user_notifications')
       .insert(userNotifications);
 

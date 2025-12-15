@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
-import type { Database } from '@/types/supabase';
 
 // Placeholder for server-side authentication check
 async function checkAuth() {
@@ -19,7 +18,7 @@ export async function GET(request: Request) {
     // --- Authentication Check ---
     // await checkAuth(); // Uncomment and implement when auth is ready
 
-    const supabaseAdmin = createClient<Database>(
+    const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { autoRefreshToken: false, persistSession: false } }

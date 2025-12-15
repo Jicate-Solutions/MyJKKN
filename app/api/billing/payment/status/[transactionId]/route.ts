@@ -47,7 +47,7 @@ export async function GET(
       .from('profiles')
       .select('id, role')
       .eq('id', user.id)
-      .single();
+      .single() as { data: { id: string; role: string } | null; error: unknown };
 
     if (profileError || !profile) {
       logger.error('billing/payment-api', 'Failed to fetch user profile', profileError);

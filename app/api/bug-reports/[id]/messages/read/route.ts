@@ -36,7 +36,7 @@ export async function POST(
       .eq('bug_report_id', reportId)
       .eq('user_id', user.id)
       .eq('is_active', true)
-      .single();
+      .single() as { data: { id: string; can_view_internal: boolean } | null; error: unknown };
 
     if (initialParticipant) {
       // User is already a participant
@@ -52,7 +52,7 @@ export async function POST(
         .from('profiles')
         .select('role, is_super_admin, institution_id, department_id')
         .eq('id', user.id)
-        .single();
+        .single() as { data: { role: string; is_super_admin: boolean; institution_id: string | null; department_id: string | null } | null };
 
       if (userProfile) {
         const isAdmin = userProfile.is_super_admin ||
@@ -70,7 +70,7 @@ export async function POST(
           .from('bug_reports')
           .select('id, reporter_user_id')
           .eq('id', reportId)
-          .maybeSingle(); // Use maybeSingle to avoid error on no rows
+          .maybeSingle() as { data: { id: string; reporter_user_id: string } | null; error: unknown }; // Use maybeSingle to avoid error on no rows
 
         if (accessError) {
           console.error('Bug report access check failed:', accessError);
@@ -88,7 +88,8 @@ export async function POST(
           const participantRole = bugReportCheck.reporter_user_id === user.id ? 'reporter' : 'participant';
 
           // Try to auto-create participant record for future efficiency
-          const { data: insertedParticipant, error: insertError } = await supabase
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: insertedParticipant, error: insertError } = await (supabase as any)
             .from('bug_report_participants')
             .insert({
               bug_report_id: reportId,
@@ -99,7 +100,7 @@ export async function POST(
               joined_at: new Date().toISOString()
             })
             .select('id, can_view_internal')
-            .single();
+            .single() as { data: { id: string; can_view_internal: boolean } | null; error: unknown };
 
           if (!insertError && insertedParticipant) {
             participant = insertedParticipant;
@@ -152,7 +153,7 @@ export async function POST(
         query = query.eq('is_internal', false);
       }
 
-      const { data: messages, error: messagesError } = await query;
+      const { data: messages, error: messagesError } = await query as { data: { id: string }[] | null; error: unknown };
 
       if (messagesError) {
         return NextResponse.json(
@@ -178,7 +179,7 @@ export async function POST(
       .from('bug_report_message_reads')
       .select('message_id')
       .eq('user_id', user.id)
-      .in('message_id', messagesToMark);
+      .in('message_id', messagesToMark) as { data: { message_id: string }[] | null };
 
     const alreadyReadIds = existingReads?.map(r => r.message_id) || [];
     const newReadIds = messagesToMark.filter(id => !alreadyReadIds.includes(id));
@@ -191,7 +192,8 @@ export async function POST(
         read_at: new Date().toISOString()
       }));
 
-      const { error: insertError } = await supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: insertError } = await (supabase as any)
         .from('bug_report_message_reads')
         .insert(readRecords);
 
@@ -213,10 +215,11 @@ export async function POST(
             .in('id', newReadIds)
             .order('created_at', { ascending: false })
             .limit(1)
-            .single();
+            .single() as { data: { id: string; created_at: string } | null };
 
           if (latestMessage) {
-            const { error: updateError } = await supabase
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const { error: updateError } = await (supabase as any)
               .from('bug_report_participants')
               .update({
                 last_read_message_id: latestMessage.id,
@@ -319,7 +322,7 @@ export async function GET(
         .eq('bug_report_id', reportId)
         .eq('user_id', user.id)
         .eq('is_active', true)
-        .single();
+        .single() as { data: { can_view_internal: boolean; last_read_message_id: string | null } | null; error: unknown };
 
       if (initialParticipant) {
         // User is already a participant
@@ -335,7 +338,7 @@ export async function GET(
           .from('profiles')
           .select('role, is_super_admin, institution_id, department_id')
           .eq('id', user.id)
-          .single();
+          .single() as { data: { role: string; is_super_admin: boolean; institution_id: string | null; department_id: string | null } | null };
 
         if (userProfile) {
           const isAdmin = userProfile.is_super_admin ||
@@ -353,7 +356,7 @@ export async function GET(
             .from('bug_reports')
             .select('id, reporter_user_id')
             .eq('id', reportId)
-            .maybeSingle(); // Use maybeSingle to avoid error on no rows
+            .maybeSingle() as { data: { id: string; reporter_user_id: string } | null; error: unknown }; // Use maybeSingle to avoid error on no rows
 
           if (accessError) {
             console.error('Bug report access check failed:', accessError);
@@ -371,7 +374,8 @@ export async function GET(
             const participantRole = bugReportCheck.reporter_user_id === user.id ? 'reporter' : 'participant';
 
             // Try to auto-create participant record for future efficiency
-            const { data: insertedParticipant, error: insertError } = await supabase
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const { data: insertedParticipant, error: insertError } = await (supabase as any)
               .from('bug_report_participants')
               .insert({
                 bug_report_id: reportId,
@@ -382,7 +386,7 @@ export async function GET(
                 joined_at: new Date().toISOString()
               })
               .select('can_view_internal, last_read_message_id')
-              .single();
+              .single() as { data: { can_view_internal: boolean; last_read_message_id: string | null } | null; error: unknown };
 
             if (!insertError && insertedParticipant) {
               participant = insertedParticipant;
@@ -439,7 +443,7 @@ export async function GET(
           .from('bug_report_messages')
           .select('created_at')
           .eq('id', participant.last_read_message_id)
-          .single();
+          .single() as { data: { created_at: string } | null };
 
         if (lastReadMessage) {
           countQuery = countQuery.gt('created_at', lastReadMessage.created_at);

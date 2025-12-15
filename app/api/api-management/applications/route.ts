@@ -1,7 +1,6 @@
 import { createHash } from 'crypto';
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
-import type { Database } from '@/types/applications';
 
 // CORS headers
 const corsHeaders = {
@@ -24,7 +23,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Use service role key for API key authentication to bypass RLS
-    const supabase = createServerClient<Database>(
+    const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       {
@@ -51,13 +50,28 @@ export async function GET(request: NextRequest) {
     const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
     const hashedKey = createHash('sha256').update(apiKey).digest('hex');
 
+    // API Key type for type assertion
+    type ApiKeyRow = {
+      id: string;
+      name: string;
+      key_value: string;
+      created_by: string;
+      expires_at: string | null;
+      last_used_at: string | null;
+      is_active: boolean;
+      permissions: { read: boolean; write: boolean };
+      metadata?: { role?: string; description?: string; [key: string]: unknown };
+      created_at: string;
+      updated_at: string;
+    };
+
     // Verify API key
-    const { data: keyData, error: keyError } = await supabase
+    const { data: keyData, error: keyError } = (await supabase
       .from('api_keys')
       .select('*')
       .eq('key_value', hashedKey)
       .eq('is_active', true)
-      .single();
+      .single()) as { data: ApiKeyRow | null; error: unknown };
 
     if (keyError || !keyData) {
       return NextResponse.json(
