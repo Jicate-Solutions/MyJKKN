@@ -15,6 +15,7 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -163,7 +164,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             courses: coursesData
           });
         } catch (error) {
-          console.error('Error loading staff plan:', error);
+          logger.error('academic/staff-planning', 'Error loading staff plan', error);
           toast.error('Failed to load staff plan');
         } finally {
           setLoading(false);
@@ -268,7 +269,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             is_active: staffPlan.is_active
           });
         } catch (error) {
-          console.error('Error loading initial edit data:', error);
+          logger.error('academic/staff-planning', 'Error loading initial edit data', error);
           toast.error('Failed to load form data');
         }
       } else {
@@ -287,7 +288,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             // Don't load academic years initially - wait for institution selection
             setAcademicYears([]);
           } catch (error) {
-            console.error('Error loading initial data:', error);
+            logger.error('academic/staff-planning', 'Error loading initial data', error);
             toast.error('Failed to load form data');
           }
         };
@@ -309,7 +310,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           );
           setAcademicYears(data);
         } catch (error) {
-          console.error('Error loading academic years:', error);
+          logger.error('academic/staff-planning', 'Error loading academic years', error);
           setAcademicYears([]);
         }
       };
@@ -334,7 +335,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           form.setValue('program_id', '');
           form.setValue('semester_id', '');
         } catch (error) {
-          console.error('Error loading degrees:', error);
+          logger.error('academic/staff-planning', 'Error loading degrees', error);
         }
       };
       loadDegrees();
@@ -353,7 +354,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           form.setValue('program_id', '');
           form.setValue('semester_id', '');
         } catch (error) {
-          console.error('Error loading departments:', error);
+          logger.error('academic/staff-planning', 'Error loading departments', error);
         }
       };
       loadDepartments();
@@ -371,7 +372,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           form.setValue('program_id', '');
           form.setValue('semester_id', '');
         } catch (error) {
-          console.error('Error loading programs:', error);
+          logger.error('academic/staff-planning', 'Error loading programs', error);
         }
       };
       loadPrograms();
@@ -406,7 +407,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
           form.setValue('semester_id', '');
         } catch (error) {
-          console.error('Error loading program data:', error);
+          logger.error('academic/staff-planning', 'Error loading program data', error);
           toast.error('Failed to load courses. Please check your selections.');
         }
       };
@@ -447,7 +448,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             }
           }
         } catch (checkError) {
-          console.warn('Could not check for existing plans:', checkError);
+          logger.warn('academic/staff-planning', 'Could not check for existing plans', checkError);
           // Continue with creation if check fails
         }
       }
@@ -485,7 +486,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
       router.push('/academic/staff-planning');
       router.refresh();
     } catch (error) {
-      console.error('Form submission error:', error);
+      logger.error('academic/staff-planning', 'Form submission error', error);
       toast.error(
         error instanceof Error ? error.message : 'Failed to save staff plan'
       );

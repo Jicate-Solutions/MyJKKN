@@ -197,8 +197,6 @@ export function AttendanceFilters({
         searchContext.department_id &&
         searchContext.semester_id
       ) {
-        console.log('🔍 Detecting timetable type for semester...');
-
         const type = await AttendanceService.getTimetableTypeForSemester(
           searchContext.institution_id,
           searchContext.academic_year_id,
@@ -208,7 +206,6 @@ export function AttendanceFilters({
           searchContext.semester_id
         );
 
-        console.log('📊 Timetable type detected:', type);
         setTimetableType(type);
         const isRequired = type === 'section';
         setIsSectionRequired(isRequired);
@@ -216,11 +213,6 @@ export function AttendanceFilters({
         // Notify parent component about section requirement change
         if (onSectionRequirementChange) {
           onSectionRequirementChange(isRequired);
-        }
-
-        // If section is now required and was previously set to null, clear it
-        if (type === 'section' && !searchContext.section_id) {
-          console.log('⚠️ Section is required for section-level timetables');
         }
       } else {
         // Reset if semester is not selected
@@ -257,8 +249,8 @@ export function AttendanceFilters({
 
         onContextChange({ attendance_date: dateString });
         setCalendarOpen(false);
-      } catch (error) {
-        console.error('Error formatting date:', error);
+      } catch {
+        // Ignore date formatting errors
       }
     }
   };

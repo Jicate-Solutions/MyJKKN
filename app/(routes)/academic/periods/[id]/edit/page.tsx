@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { ArrowLeft } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -44,7 +45,7 @@ export default function EditPeriodPage({ params }: EditPeriodPageProps) {
         setPeriod(data);
         setError(null);
       } catch (err) {
-        console.error('Error fetching period:', err);
+        logger.error('academic/periods', 'Error fetching period', err);
         setError('Failed to load period data. Please try again.');
       } finally {
         setLoading(false);
@@ -61,7 +62,7 @@ export default function EditPeriodPage({ params }: EditPeriodPageProps) {
       toast.success('Period updated successfully!');
       router.push('/academic/periods');
     } catch (err: any) {
-      console.error('Error updating period:', err);
+      logger.error('academic/periods', 'Error updating period', err);
 
       // Check for specific database constraint errors
       if (

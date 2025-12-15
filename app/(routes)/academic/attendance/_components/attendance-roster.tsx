@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { Search, Save, Users, UserCheck, UserX } from 'lucide-react';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -91,7 +92,7 @@ export function AttendanceRoster({
         const finalPermission = canMarkForSlot || canMarkAttendance;
         setCanMarkThisSlot(finalPermission);
       } catch (error) {
-        console.error('Error checking slot permission:', error);
+        logger.error('academic/attendance', 'Error checking slot permission', error);
         // On error, fall back to general permission
         setCanMarkThisSlot(canMarkAttendance);
       } finally {
@@ -257,7 +258,7 @@ export function AttendanceRoster({
         });
       }
     } catch (error) {
-      console.error('Error saving attendance:', error);
+      logger.error('academic/attendance', 'Error saving attendance', error);
       toast({
         title: 'Error',
         description: 'Failed to save attendance. Please try again.',

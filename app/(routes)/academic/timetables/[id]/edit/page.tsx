@@ -3,6 +3,7 @@
 import { use, useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -325,7 +326,7 @@ export default function EditTimetablePage({
           fetchAcademicYears(timetableData.institution_id);
         }
       } catch (err) {
-        console.error('Error fetching timetable:', err);
+        logger.error('academic/timetables', 'Error fetching timetable', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);
@@ -552,7 +553,7 @@ export default function EditTimetablePage({
         router.push(`/academic/timetables/${timetableId}`);
       }
     } catch (error) {
-      console.error('Error updating timetable:', error);
+      logger.error('academic/timetables', 'Error updating timetable', error);
     } finally {
       setSubmitting(false);
     }

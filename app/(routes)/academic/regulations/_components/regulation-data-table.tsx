@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
 import { getColumns } from './columns';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type { RegulationsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon } from 'lucide-react';
@@ -118,7 +119,7 @@ export function RegulationsDataTable({ search }: RegulationsDataTableProps) {
           }
         };
       } catch (error) {
-        console.error('Error fetching regulations:', error);
+        logger.error('academic/regulations', 'Error fetching regulations', error);
         throw error;
       }
     },
@@ -158,7 +159,7 @@ export function RegulationsDataTable({ search }: RegulationsDataTableProps) {
       pendingDelete.resetSelection();
       // The DataTable will automatically refetch data after this
     } catch (error) {
-      console.error('Error deleting regulations:', error);
+      logger.error('academic/regulations', 'Error deleting regulations', error);
       toast.error('Failed to delete some regulations');
     } finally {
       setIsDeleting(false);

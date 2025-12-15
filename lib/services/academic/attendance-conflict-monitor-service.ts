@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 /**
  * Updated: 2025-09-05 - Created monitoring service for attendance staff assignment conflicts
@@ -64,13 +65,13 @@ export class AttendanceConflictMonitorService {
       );
 
       if (error) {
-        console.error('Error fetching attendance conflicts:', error);
+        logger.error('academic/attendance', 'Error fetching attendance conflicts', error);
         return [];
       }
 
       return data || [];
     } catch (error) {
-      console.error('Error in getActiveConflicts:', error);
+      logger.error('academic/attendance', 'Error in getActiveConflicts', error);
       return [];
     }
   }
@@ -93,13 +94,13 @@ export class AttendanceConflictMonitorService {
       );
 
       if (error) {
-        console.error('Error fetching conflict summary:', error);
+        logger.error('academic/attendance', 'Error fetching conflict summary', error);
         return this.getEmptyConflictSummary();
       }
 
       return data || this.getEmptyConflictSummary();
     } catch (error) {
-      console.error('Error in getConflictSummary:', error);
+      logger.error('academic/attendance', 'Error in getConflictSummary', error);
       return this.getEmptyConflictSummary();
     }
   }
@@ -121,7 +122,7 @@ export class AttendanceConflictMonitorService {
       );
 
       if (error) {
-        console.error('Error validating attendance record:', error);
+        logger.error('academic/attendance', 'Error validating attendance record', error);
         return {
           isValid: false,
           conflicts: [],
@@ -135,7 +136,7 @@ export class AttendanceConflictMonitorService {
         suggestions: []
       };
     } catch (error) {
-      console.error('Error in validateAttendanceRecord:', error);
+      logger.error('academic/attendance', 'Error in validateAttendanceRecord', error);
       return {
         isValid: false,
         conflicts: [],
@@ -201,7 +202,7 @@ export class AttendanceConflictMonitorService {
         staff_with_conflicts: Array.from(staffConflicts.values())
       };
     } catch (error) {
-      console.error('Error in getDailyConflictReport:', error);
+      logger.error('academic/attendance', 'Error in getDailyConflictReport', error);
       return {
         date,
         total_attendance: 0,
@@ -295,14 +296,14 @@ export class AttendanceConflictMonitorService {
 
       // If conflicts found, you could send notification or log
       if (report.conflicts_found > 0 && notificationEmail) {
-        console.log(`Found ${report.conflicts_found} attendance conflicts on ${dateStr}`);
+        logger.warn('academic/attendance', `Found ${report.conflicts_found} attendance conflicts on ${dateStr}`, { report });
         // Here you could integrate with email service to send alerts
         // await this.sendConflictNotification(notificationEmail, report);
       }
 
       return true;
     } catch (error) {
-      console.error('Error in automated conflict detection:', error);
+      logger.error('academic/attendance', 'Error in automated conflict detection', error);
       return false;
     }
   }

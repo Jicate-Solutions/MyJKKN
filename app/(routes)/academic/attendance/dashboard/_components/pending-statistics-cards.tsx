@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { 
@@ -76,8 +77,6 @@ export function PendingStatisticsCards({
           sectionId: filters.sectionId,
         };
 
-        console.log('🔍 Fetching pending stats with filters:', apiFilters);
-
         const result = await AttendanceDashboardService.getTodayPendingAttendance(apiFilters);
         const periods = result.data || [];
 
@@ -99,7 +98,7 @@ export function PendingStatisticsCards({
           staff: uniqueStaff
         });
       } catch (err) {
-        console.error('Error fetching pending statistics:', err);
+        logger.error('academic/attendance-dashboard', 'Error fetching pending statistics', err);
         setError('Failed to load statistics');
       } finally {
         setLoading(false);

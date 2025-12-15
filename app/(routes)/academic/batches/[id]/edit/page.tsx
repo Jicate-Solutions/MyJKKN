@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { ArrowLeft } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -43,7 +44,7 @@ export default function EditBatchPage({ params }: EditBatchPageProps) {
         setBatch(data);
         setError(null);
       } catch (err) {
-        console.error('Error fetching batch:', err);
+        logger.error('academic/batches', 'Error fetching batch', err);
         setError('Failed to load batch data. Please try again.');
       } finally {
         setLoading(false);
@@ -60,7 +61,7 @@ export default function EditBatchPage({ params }: EditBatchPageProps) {
       toast.success('Batch updated successfully!');
       router.push('/academic/batches');
     } catch (err: any) {
-      console.error('Error updating batch:', err);
+      logger.error('academic/batches', 'Error updating batch', err);
 
       if (err?.code === '23505' || err?.message?.includes('duplicate')) {
         toast.error(

@@ -151,8 +151,6 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
       slot.sub_slots?.forEach((subSlot: any, index: number) => {
         if (subSlot.course?.course_code) {
           allCourses.add(subSlot.course.course_code);
-        } else {
-          console.warn(`Sub-slot ${index} missing course.course_code`);
         }
 
         subSlot.staff_members?.forEach((staff: any) => {

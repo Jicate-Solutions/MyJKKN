@@ -342,27 +342,6 @@ export const BatchTimetableGrid = React.forwardRef<
                         slot.period_id === period.id
                     );
 
-                    // DEBUG: Log what slot data we're passing to the dialog
-                    if (existingSlot) {
-                      console.log('[batch-grid] Found existing slot for click:', {
-                        slot_date: existingSlot.slot_date,
-                        period_id: existingSlot.period_id,
-                        staff_ids: existingSlot.staff_ids,
-                        is_subdivided: existingSlot.is_subdivided,
-                        subdivision_type: existingSlot.subdivision_type,
-                        sub_slots: existingSlot.sub_slots?.map((s: any) => ({
-                          sub_slot_order: s.sub_slot_order,
-                          staff_ids: s.staff_ids,
-                          group_name: s.group_name
-                        })),
-                        dateRange: {
-                          start: dateRange.start,
-                          end: dateRange.end,
-                          datesCount: dateRange.dates.length
-                        }
-                      });
-                    }
-
                     const isLocked = lockedPeriods.includes(period.id);
                     const isEmpty = !existingSlot;
                     const isBreakPeriod = period.is_break;

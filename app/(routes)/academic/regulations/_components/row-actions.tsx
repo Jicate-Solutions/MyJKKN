@@ -27,6 +27,7 @@ import {
 import { Regulation } from '@/types/academics';
 import { RegulationService } from '@/lib/services/academic/regulation-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -58,7 +59,7 @@ export function DataTableRowActions<TData>({
      
       router.refresh();
     } catch (error) {
-      console.error('Delete regulation error:', error);
+      logger.error('academic/regulations', 'Failed to delete regulation', error);
       toast.error('Failed to delete regulation');
     } finally {
       setIsDeleting(false);

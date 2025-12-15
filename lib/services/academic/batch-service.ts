@@ -7,6 +7,7 @@ import type {
   BatchFilters,
   BatchListResponse
 } from '@/types/academics';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export class BatchService {
   private static supabase = createClientSupabaseClient();
@@ -20,7 +21,7 @@ export class BatchService {
         .single();
 
       if (error) {
-        console.error('Database error:', error);
+        logger.error('academic/batches', 'Database error', error);
         // Preserve the error code for proper handling in the UI
         const enhancedError: any = new Error(
           error.message || 'Failed to create batch'
@@ -32,7 +33,7 @@ export class BatchService {
 
       return batch;
     } catch (error) {
-      console.error('Error creating batch:', error);
+      logger.error('academic/batches', 'Error creating batch', error);
       throw error;
     }
   }
@@ -53,7 +54,7 @@ export class BatchService {
         .single();
 
       if (error) {
-        console.error('Database error:', error);
+        logger.error('academic/batches', 'Database error', error);
         const enhancedError: any = new Error(
           error.message || 'Failed to update batch'
         );
@@ -64,7 +65,7 @@ export class BatchService {
 
       return batch;
     } catch (error) {
-      console.error('Error updating batch:', error);
+      logger.error('academic/batches', 'Error updating batch', error);
       throw error;
     }
   }
@@ -85,7 +86,7 @@ export class BatchService {
         toast.success('Batch deleted successfully');
       }
     } catch (error) {
-      console.error('Error deleting batch:', error);
+      logger.error('academic/batches', 'Error deleting batch', error);
       throw error;
     }
   }
@@ -103,7 +104,7 @@ export class BatchService {
         await this.deleteBatch(id);
         success.push(id);
       } catch (error) {
-        console.error(`Error deleting batch ${id}:`, error);
+        logger.error('academic/batches', `Error deleting batch ${id}`, error);
         failed.push({
           id,
           error: error instanceof Error ? error.message : 'Unknown error'
@@ -175,7 +176,7 @@ export class BatchService {
         }
       };
     } catch (error) {
-      console.error('Error fetching batches:', error);
+      logger.error('academic/batches', 'Error fetching batches', error);
       throw error;
     }
   }
@@ -197,7 +198,7 @@ export class BatchService {
 
       return batch;
     } catch (error) {
-      console.error('Error fetching batch:', error);
+      logger.error('academic/batches', 'Error fetching batch', error);
       throw error;
     }
   }
@@ -272,7 +273,7 @@ export class BatchService {
         }
       };
     } catch (error) {
-      console.error('Error fetching batches with access control:', error);
+      logger.error('academic/batches', 'Error fetching batches with access control', error);
       throw error;
     }
   }
@@ -305,7 +306,7 @@ export class BatchService {
 
       return data || [];
     } catch (error) {
-      console.error('Error fetching batches by institution:', error);
+      logger.error('academic/batches', 'Error fetching batches by institution', error);
       throw error;
     }
   }

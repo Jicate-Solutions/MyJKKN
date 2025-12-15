@@ -117,7 +117,7 @@ export function AttendanceReportsDataTable({
           totalCount: count || 0
         };
       } catch (error) {
-        console.error('Failed to fetch attendance reports:', error);
+        // Failed to fetch attendance reports
         throw new Error(
           error instanceof Error ? error.message : 'Failed to fetch data'
         );

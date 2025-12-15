@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Timetable } from '@/types/academics';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface UseStaffPlanningDataResult {
   // Data
@@ -65,16 +66,13 @@ export function useStaffPlanningData(
           if (matchingSemester) {
             semesterIdForStaffPlan = matchingSemester.id;
           } else {
-            console.warn(
-              '[useStaffPlanningData] No matching semester found:',
-              currentTimetable.semester_id
-            );
+            logger.warn('academic/timetables', 'No matching semester found', { semesterName: currentTimetable.semester_id });
             setStaffPlanningCourses([]);
             setStaffPlanningStaff([]);
             return;
           }
         } catch (error) {
-          console.error('[useStaffPlanningData] Error finding semester ID:', error);
+          logger.error('academic/timetables', 'Error finding semester ID', error);
           setStaffPlanningCourses([]);
           setStaffPlanningStaff([]);
           return;
@@ -82,9 +80,7 @@ export function useStaffPlanningData(
       }
 
       if (!semesterIdForStaffPlan) {
-        console.warn(
-          '[useStaffPlanningData] No semester ID available - cannot match staff planning'
-        );
+        logger.warn('academic/timetables', 'No semester ID available - cannot match staff planning');
         setStaffPlanningCourses([]);
         setStaffPlanningStaff([]);
         return;
@@ -105,7 +101,7 @@ export function useStaffPlanningData(
           consolidatedPlan.total_courses === 0 &&
           consolidatedPlan.all_courses.length === 0
         ) {
-          console.warn('[useStaffPlanningData] Empty staff plan for this semester');
+          logger.warn('academic/timetables', 'Empty staff plan for this semester');
         }
 
         // Extract unique courses and staff
@@ -134,17 +130,9 @@ export function useStaffPlanningData(
 
         setStaffPlanningCourses(coursesFromStaffPlanning);
         setStaffPlanningStaff(staffFromStaffPlanning);
-
-        console.log('[useStaffPlanningData] Loaded:', {
-          courses: coursesFromStaffPlanning.length,
-          staff: staffFromStaffPlanning.length
-        });
       } catch (error) {
         // Fallback to individual queries
-        console.warn(
-          '[useStaffPlanningData] Consolidated fetch failed, using fallback:',
-          error
-        );
+        logger.warn('academic/timetables', 'Consolidated fetch failed, using fallback', error);
 
         const staffPlanFilters = {
           institution_id: currentTimetable.institution_id,
@@ -162,7 +150,7 @@ export function useStaffPlanningData(
         );
 
         if (staffPlansResult.data.length === 0) {
-          console.warn('[useStaffPlanningData] No staff plans found');
+          logger.warn('academic/timetables', 'No staff plans found');
         }
 
         // For now, just set empty arrays
@@ -170,7 +158,7 @@ export function useStaffPlanningData(
         setStaffPlanningStaff([]);
       }
     } catch (error) {
-      console.error('[useStaffPlanningData] Error fetching staff planning data:', error);
+      logger.error('academic/timetables', 'Error fetching staff planning data', error);
       setStaffPlanningCourses([]);
       setStaffPlanningStaff([]);
     } finally {

@@ -29,6 +29,7 @@ import {
 import { StaffPlan } from '@/types/staff-planning';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -60,7 +61,7 @@ export function DataTableRowActions<TData>({
       setShowDeleteAlert(false);
     },
     onError: (error: any) => {
-      console.error('Error deleting staff plan:', error);
+      logger.error('academic/staff-planning', 'Error deleting staff plan', error);
 
       // Provide more specific error messages
       if (

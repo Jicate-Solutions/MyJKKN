@@ -25,6 +25,7 @@ import {
 import { AttendanceViewSelector } from './_components/attendance-view-selector';
 import { SectionSelectionModal } from './_components/section-selection-modal';
 import { formatTimeRange } from '@/utils/time-format';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   AttendanceSearchContext,
   AttendancePeriodOption
@@ -91,14 +92,6 @@ export default function AttendancePage() {
 
   // Initialize with user's institution
   useEffect(() => {
-    console.log('🔍 Attendance Page - Initialization:', {
-      hasProfile: !!profile,
-      institution_id: profile?.institution_id,
-      role: profile?.role,
-      isSuperAdmin,
-      loadingInitialData
-    });
-
     if (profile?.institution_id) {
       updateSearchContext({
         institution_id: profile.institution_id
@@ -106,11 +99,9 @@ export default function AttendancePage() {
       setLoadingInitialData(false);
     } else if (isSuperAdmin) {
       // For super admins without a specific institution, we need to handle this case
-      console.log('✅ Super admin detected - enabling search interface');
       setLoadingInitialData(false);
     } else if (profile && !profile.institution_id) {
       // Profile loaded but no institution - still allow loading to finish
-      console.log('⚠️ Profile loaded without institution_id - finishing load');
       setLoadingInitialData(false);
     }
   }, [profile?.institution_id, isSuperAdmin, profile, loadingInitialData]);
@@ -143,7 +134,7 @@ export default function AttendancePage() {
 
         setAttendancePermissions(permissions);
       } catch (error) {
-        console.error('Error checking permissions:', error);
+        logger.error('academic/attendance', 'Error checking permissions', error);
       } finally {
         setLoadingPeriods(false);
       }
@@ -169,12 +160,7 @@ export default function AttendancePage() {
       (period.section_ids && period.section_ids.length > 1);
 
     if (isMultiSection) {
-      // Updated: 2025-10-09 - For semester-level with multiple sections,
-      // mark attendance for ALL sections together (no section selection needed)
-      console.log(
-        '📚 Multi-section semester-level slot - marking all sections together'
-      );
-      // Navigate without specific sectionId - mark page will handle all sections
+      // For semester-level with multiple sections, mark attendance for ALL sections together
       navigateToMarkAttendance(period, undefined);
       return;
     }
@@ -206,12 +192,6 @@ export default function AttendancePage() {
   // Handle section selection from modal
   const handleSectionSelected = (sectionId: string) => {
     if (selectedPeriodForModal) {
-      console.log(
-        '✅ Section selected from modal:',
-        sectionId,
-        'for period:',
-        selectedPeriodForModal.period_name
-      );
       navigateToMarkAttendance(selectedPeriodForModal, sectionId);
       setSelectedPeriodForModal(null);
     }
@@ -243,15 +223,6 @@ export default function AttendancePage() {
     if ((period as any).is_subdivided && (period as any).subdivision_group) {
       const group = (period as any).subdivision_group;
 
-      console.log('[academic/attendance] Navigating with subdivision group:', {
-        group_name: group.group_name,
-        has_student_ids: !!group.student_ids,
-        student_count: group.student_ids?.length || 0,
-        has_staff_ids: !!group.staff_ids,
-        staff_ids: group.staff_ids,
-        staff_count: group.staff_ids?.length || 0
-      });
-
       params.isSubdivided = 'true';
       params.subdivisionGroupOrder = String(group.group_order);
       params.subdivisionGroupName = group.group_name;
@@ -261,9 +232,8 @@ export default function AttendancePage() {
       }
       if (group.staff_ids && group.staff_ids.length > 0) {
         params.subdivisionStaffIds = group.staff_ids.join(',');
-        console.log('[academic/attendance] Setting subdivisionStaffIds parameter:', params.subdivisionStaffIds);
       } else {
-        console.warn('[academic/attendance] No staff_ids found in subdivision group!');
+        logger.warn('academic/attendance', 'No staff_ids found in subdivision group', { group_name: group.group_name });
       }
       if (group.lab_room) {
         params.subdivisionLabRoom = group.lab_room;

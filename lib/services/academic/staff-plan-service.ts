@@ -4,6 +4,7 @@ import {
   applyInstitutionFilterToQuery
 } from '@/lib/auth/api-institution-filter';
 import { TimetableStaffSyncService } from './timetable-staff-sync-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   StaffPlan,
   CreateStaffPlanDto,
@@ -51,7 +52,7 @@ export class StaffPlanService {
       if (error) throw error;
       return courses || [];
     } catch (error) {
-      console.error('Error fetching courses by institution:', error);
+      logger.error('academic/staff-planning', 'Error fetching courses by institution', error);
       return [];
     }
   }
@@ -90,10 +91,6 @@ export class StaffPlanService {
 
         if (updateError) throw updateError;
         staffPlan = updatedPlan;
-
-        console.log(
-          `Updated existing staff plan ${primaryPlan.id} instead of creating duplicate`
-        );
       } else {
         // Create new staff plan
         const { data: newPlan, error: planError } = await this.supabase
@@ -139,7 +136,7 @@ export class StaffPlanService {
 
       return staffPlan;
     } catch (error) {
-      console.error('Error creating/updating staff plan:', error);
+      logger.error('academic/staff-planning', 'Error creating/updating staff plan', error);
       throw error;
     }
   }
@@ -171,10 +168,7 @@ export class StaffPlanService {
       );
 
       if (error) {
-        console.warn(
-          'Consolidated RPC failed, falling back to original method:',
-          error
-        );
+        logger.warn('academic/staff-planning', 'Consolidated RPC failed, falling back to original method', { error });
         return this.getStaffPlansOriginal(filters);
       }
 
@@ -193,7 +187,7 @@ export class StaffPlanService {
         }
       };
     } catch (error) {
-      console.error('Error fetching consolidated staff plans:', error);
+      logger.error('academic/staff-planning', 'Error fetching consolidated staff plans', error);
       // Fallback to original method
       return this.getStaffPlansOriginal(filters);
     }
@@ -274,7 +268,7 @@ export class StaffPlanService {
           .eq('course_id', filters.course_id);
 
         if (courseFilterError) {
-          console.warn('Error filtering by course:', courseFilterError);
+          logger.warn('academic/staff-planning', 'Error filtering by course', { error: courseFilterError });
         } else if (staffPlanIds && staffPlanIds.length > 0) {
           const planIds = staffPlanIds.map(sp => sp.staff_plan_id);
           query = query.in('id', planIds);
@@ -295,11 +289,6 @@ export class StaffPlanService {
       // Apply text search - PostgREST doesn't support direct nested field search in or() clause
       // We'll fetch all records and filter client-side for search functionality
       // This is a limitation when searching across related tables
-      if (filters.search) {
-        // For now, we'll skip the text search in the query and handle it client-side
-        // after getting the data with all related fields populated
-        console.log(`Search term: ${filters.search} - will be applied client-side`);
-      }
 
       // Store pagination params for later use
       const page = filters.page || 1;
@@ -335,7 +324,7 @@ export class StaffPlanService {
               .in('staff_plan_id', planIds);
 
           if (countError) {
-            console.warn('Error fetching course counts:', countError);
+            logger.warn('academic/staff-planning', 'Error fetching course counts', { error: countError });
             // Set default counts for all plans
             finalPlans.forEach((plan) => {
               plan.course_count = 0;
@@ -370,7 +359,7 @@ export class StaffPlanService {
             });
           }
         } catch (error) {
-          console.warn('Error calculating counts:', error);
+          logger.warn('academic/staff-planning', 'Error calculating counts', { error });
           // Set default counts for all plans
           finalPlans.forEach((plan) => {
             plan.course_count = 0;
@@ -426,7 +415,7 @@ export class StaffPlanService {
         }
       };
     } catch (error) {
-      console.error('Error fetching staff plans:', error);
+      logger.error('academic/staff-planning', 'Error fetching staff plans', error);
       throw error;
     }
   }
@@ -470,10 +459,7 @@ export class StaffPlanService {
           .in('staff_plan_id', consolidatedPlan.plan_ids);
 
         if (coursesError) {
-          console.warn(
-            'Error fetching courses for consolidation:',
-            coursesError
-          );
+          logger.warn('academic/staff-planning', 'Error fetching courses for consolidation', { error: coursesError });
           // Use fallback counts
           consolidatedPlan.course_count = consolidatedPlan.duplicate_count;
           consolidatedPlan.total_staff = consolidatedPlan.duplicate_count;
@@ -488,7 +474,7 @@ export class StaffPlanService {
           consolidatedPlan.total_staff = uniqueStaff.size;
         }
       } catch (error) {
-        console.warn('Error in consolidation:', error);
+        logger.warn('academic/staff-planning', 'Error in consolidation', { error });
         // Use fallback counts
         consolidatedPlan.course_count = consolidatedPlan.duplicate_count;
         consolidatedPlan.total_staff = consolidatedPlan.duplicate_count;
@@ -565,7 +551,7 @@ export class StaffPlanService {
 
       return result;
     } catch (error) {
-      console.error('Error fetching available courses from mappings:', error);
+      logger.error('academic/staff-planning', 'Error fetching available courses from mappings', error);
       throw error;
     }
   }
@@ -597,7 +583,7 @@ export class StaffPlanService {
       if (error) throw error;
       return courses || [];
     } catch (error) {
-      console.error('Error fetching staff plan courses:', error);
+      logger.error('academic/staff-planning', 'Error fetching staff plan courses', error);
       throw error;
     }
   }
@@ -657,7 +643,7 @@ export class StaffPlanService {
 
       return staffPlan;
     } catch (error) {
-      console.error('Error updating staff plan:', error);
+      logger.error('academic/staff-planning', 'Error updating staff plan', error);
       throw error;
     }
   }
@@ -728,7 +714,7 @@ export class StaffPlanService {
         courses: courses || []
       };
     } catch (error) {
-      console.error('Error fetching staff plan:', error);
+      logger.error('academic/staff-planning', 'Error fetching staff plan', error);
       throw error;
     }
   }
@@ -878,7 +864,7 @@ export class StaffPlanService {
 
       return consolidatedPlan;
     } catch (error) {
-      console.error('Error fetching consolidated staff plan:', error);
+      logger.error('academic/staff-planning', 'Error fetching consolidated staff plan', error);
       throw error;
     }
   }
@@ -898,7 +884,7 @@ export class StaffPlanService {
         throw new Error('Staff plan not found or has already been deleted');
       }
     } catch (error) {
-      console.error('Error deleting staff plan:', error);
+      logger.error('academic/staff-planning', 'Error deleting staff plan', error);
       throw error;
     }
   }
@@ -916,7 +902,7 @@ export class StaffPlanService {
         await this.deleteStaffPlan(id);
         success.push(id);
       } catch (error) {
-        console.error(`Error deleting staff plan ${id}:`, error);
+        logger.error('academic/staff-planning', `Error deleting staff plan ${id}`, error);
         failed.push({
           id,
           error: error instanceof Error ? error.message : 'Unknown error'
@@ -1053,7 +1039,7 @@ export class StaffPlanService {
 
       return result;
     } catch (error) {
-      console.error('Error fetching staff assigned to course:', error);
+      logger.error('academic/staff-planning', 'Error fetching staff assigned to course', error);
       throw error;
     }
   }
@@ -1115,7 +1101,7 @@ export class StaffPlanService {
 
       return { success: true };
     } catch (error) {
-      console.error('Error updating staff assignment with sync:', error);
+      logger.error('academic/staff-planning', 'Error updating staff assignment with sync', error);
       throw error;
     }
   }
@@ -1128,7 +1114,7 @@ export class StaffPlanService {
     try {
       return await TimetableStaffSyncService.getAllTimetableStaffConflicts();
     } catch (error) {
-      console.error('Error getting timetable conflicts:', error);
+      logger.error('academic/staff-planning', 'Error getting timetable conflicts', error);
       return [];
     }
   }

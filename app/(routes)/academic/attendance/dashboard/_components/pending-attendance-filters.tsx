@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/popover';
 import { Label } from '@/components/ui/label';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type { DashboardFilters } from '@/types/attendance-dashboard';
 
 interface PendingAttendanceFiltersProps {
@@ -169,7 +170,7 @@ export function PendingAttendanceFilters({
           if (error) throw error;
           setInstitutions(data || []);
         } catch (error) {
-          console.error('Error loading institutions:', error);
+          logger.error('academic/attendance-dashboard', 'Error loading institutions', error);
         } finally {
           setLoadingInstitutions(false);
         }
@@ -195,7 +196,7 @@ export function PendingAttendanceFilters({
           if (error) throw error;
           setAcademicYears(data || []);
         } catch (error) {
-          console.error('Error loading academic years:', error);
+          logger.error('academic/attendance-dashboard', 'Error loading academic years', error);
         } finally {
           setLoadingAcademicYears(false);
         }
@@ -223,7 +224,7 @@ export function PendingAttendanceFilters({
           if (error) throw error;
           setDegrees(data || []);
         } catch (error) {
-          console.error('Error loading degrees:', error);
+          logger.error('academic/attendance-dashboard', 'Error loading degrees', error);
         } finally {
           setLoadingDegrees(false);
         }
@@ -251,7 +252,7 @@ export function PendingAttendanceFilters({
           if (error) throw error;
           setDepartments(data || []);
         } catch (error) {
-          console.error('Error loading departments:', error);
+          logger.error('academic/attendance-dashboard', 'Error loading departments', error);
         } finally {
           setLoadingDepartments(false);
         }
@@ -279,7 +280,7 @@ export function PendingAttendanceFilters({
           if (error) throw error;
           setPrograms(data || []);
         } catch (error) {
-          console.error('Error loading programs:', error);
+          logger.error('academic/attendance-dashboard', 'Error loading programs', error);
         } finally {
           setLoadingPrograms(false);
         }
@@ -307,7 +308,7 @@ export function PendingAttendanceFilters({
           if (error) throw error;
           setSemesters(data || []);
         } catch (error) {
-          console.error('Error loading semesters:', error);
+          logger.error('academic/attendance-dashboard', 'Error loading semesters', error);
         } finally {
           setLoadingSemesters(false);
         }
@@ -335,7 +336,7 @@ export function PendingAttendanceFilters({
           if (error) throw error;
           setSections(data || []);
         } catch (error) {
-          console.error('Error loading sections:', error);
+          logger.error('academic/attendance-dashboard', 'Error loading sections', error);
         } finally {
           setLoadingSections(false);
         }
@@ -363,7 +364,7 @@ export function PendingAttendanceFilters({
           if (error) throw error;
           setStaff(data || []);
         } catch (error) {
-          console.error('Error loading staff:', error);
+          logger.error('academic/attendance-dashboard', 'Error loading staff', error);
         } finally {
           setLoadingStaff(false);
         }

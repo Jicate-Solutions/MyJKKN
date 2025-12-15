@@ -3,6 +3,7 @@
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { AcademicYearsSearchParams } from './data-table-schema';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -83,7 +84,7 @@ export function AcademicYearsDataTable({
         }
       };
     } catch (error) {
-      console.error('Error fetching academic years:', error);
+      logger.error('academic/academic-years', 'Error fetching academic years', error);
       throw error;
     }
   };
@@ -114,7 +115,7 @@ export function AcademicYearsDataTable({
       resetSelection();
       // The DataTable will automatically refetch data after this
     } catch (error) {
-      console.error('Error deleting academic years:', error);
+      logger.error('academic/academic-years', 'Error deleting academic years', error);
     }
   };
 

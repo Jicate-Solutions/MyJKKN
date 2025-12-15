@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Period } from '@/types/academics';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import toast from 'react-hot-toast';
 
 interface UseTimetablePeriodsResult {
@@ -76,10 +77,6 @@ export function useTimetablePeriods(
             // Legacy format: has period_id instead of id
             if (period.period_id && !period.id) {
               legacyCount++;
-              console.log('[academic/timetables] Converting legacy period format:', {
-                period_id: period.period_id,
-                period_name: period.period_name
-              });
 
               return {
                 id: period.period_id,
@@ -103,13 +100,6 @@ export function useTimetablePeriods(
           })
           .filter(Boolean) as Period[];
 
-        if (legacyCount > 0) {
-          console.log('[academic/timetables] Loaded timetable with legacy period format', {
-            legacyCount,
-            modernCount,
-            totalMapped: mappedPeriods.length
-          });
-        }
       }
 
       setSelectedPeriods(mappedPeriods);
@@ -138,7 +128,7 @@ export function useTimetablePeriods(
             setSelectedPeriods(orderedPeriods);
           }
         } catch (err) {
-          console.error('[useTimetablePeriods] Error parsing stored periods:', err);
+          logger.error('academic/timetables', 'Error parsing stored periods', err);
         }
       }
     }
@@ -155,7 +145,7 @@ export function useTimetablePeriods(
           const lockedIds = JSON.parse(storedLockedPeriods);
           setLockedPeriods(lockedIds);
         } catch (err) {
-          console.error('[useTimetablePeriods] Error parsing locked periods:', err);
+          logger.error('academic/timetables', 'Error parsing locked periods', err);
         }
       }
     }
@@ -221,16 +211,6 @@ export function useTimetablePeriods(
         updated_at: period.updated_at
       }));
 
-      // DEBUGGING: Log what we're about to save
-      console.log('[useTimetablePeriods] Saving period selections:', {
-        timetableId,
-        selectedPeriodsCount: selectedPeriods.length,
-        periodsData,
-        timetableFormat,
-        selectedDates,
-        selectedDays
-      });
-
       // Build update data
       const updateData: any = {
         periods: periodsData,
@@ -244,16 +224,12 @@ export function useTimetablePeriods(
         updateData.selected_days = selectedDays;
       }
 
-      console.log('[useTimetablePeriods] Update data to be sent:', updateData);
-
       // Update timetable
       await TimetableService.updateTimetable(timetableId, updateData);
 
-      console.log('[useTimetablePeriods] Save successful');
-
       toast.success('Timetable configuration saved successfully');
     } catch (error) {
-      console.error('[useTimetablePeriods] Error saving period selections:', error);
+      logger.error('academic/timetables', 'Error saving period selections', error);
       toast.error('Failed to save timetable configuration');
       throw error;
     } finally {

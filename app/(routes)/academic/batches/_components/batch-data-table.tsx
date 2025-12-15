@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
 import { getColumns } from './columns';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type { BatchesSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon } from 'lucide-react';
@@ -117,7 +118,7 @@ export function BatchesDataTable({ search }: BatchesDataTableProps) {
           }
         };
       } catch (error) {
-        console.error('Error fetching batches:', error);
+        logger.error('academic/batches', 'Error fetching batches', error);
         throw error;
       }
     },
@@ -157,7 +158,7 @@ export function BatchesDataTable({ search }: BatchesDataTableProps) {
       pendingDelete.resetSelection();
       // The DataTable will automatically refetch data after this
     } catch (error) {
-      console.error('Error deleting batches:', error);
+      logger.error('academic/batches', 'Error deleting batches', error);
       toast.error('Failed to delete some batches');
     } finally {
       setIsDeleting(false);

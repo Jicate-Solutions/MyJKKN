@@ -20,6 +20,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface EditAcademicYearPageProps {
   params: Promise<{ id: string }>;
@@ -41,7 +42,7 @@ export default function EditAcademicYearPage({
         const data = await AcademicYearService.getAcademicYear(id);
         setAcademicYear(data);
       } catch (err) {
-        console.error('Error fetching academic year:', err);
+        logger.error('academic/academic-years', 'Error fetching academic year', err);
         setError(
           err instanceof Error ? err.message : 'Failed to fetch academic year'
         );

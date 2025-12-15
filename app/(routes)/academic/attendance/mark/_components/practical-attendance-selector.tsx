@@ -89,7 +89,7 @@ export function PracticalAttendanceSelector({
             : '✓ Available - No attendance marked yet'
         });
       } catch (error) {
-        console.error('[academic/attendance] Error checking conflict:', error);
+        // Error checking attendance conflict - show warning message
         setConflictCheck({
           checking: false,
           hasConflict: false,

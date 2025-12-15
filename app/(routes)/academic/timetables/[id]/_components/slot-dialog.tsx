@@ -34,6 +34,7 @@ import {
   PracticalConfig
 } from '@/types/academics';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { format } from 'date-fns';
 import { PracticalPeriodConfigForm } from './practical-period-config-form';
 import { AlertCircle } from 'lucide-react';
@@ -143,13 +144,6 @@ export function SlotDialog({
   // NEW: Auto-detect break period and enforce break slot type (Added: 2025-10-27)
   useEffect(() => {
     if (isPeriodBreak && !existingSlot) {
-      // If the period is marked as a break in the periods table, automatically set as break slot
-      console.log('[academic/timetables/slot-dialog] Period is marked as break, enforcing break slot', {
-        periodId: selectedPeriod?.id,
-        periodName: selectedPeriod?.period_name,
-        isBreak: selectedPeriod?.is_break
-      });
-
       setSlotType('break');
       setIsBreakSlot(true);
       setBreakDescription(selectedPeriod?.period_name || 'Break');
@@ -165,47 +159,9 @@ export function SlotDialog({
 
   // Populate form when existing slot is provided
   useEffect(() => {
-    // Updated: 2025-12-01 - Add debug logging for slot loading diagnosis
-    if (existingSlot) {
-      const courseInList = courses?.find((c: any) => c.id === existingSlot?.course_id);
-      console.log('[slot-dialog] Loading existingSlot data:', {
-        hasExistingSlot: !!existingSlot,
-        // CRITICAL: slot_date shows if this is from RANGE or individual date
-        slot_date: existingSlot?.slot_date,
-        day_of_week: existingSlot?.day_of_week,
-        slot_id: existingSlot?.slot_id,
-        course_id: existingSlot?.course_id,
-        course: existingSlot?.course,
-        courseInAvailableList: !!courseInList,
-        availableCoursesCount: courses?.length || 0,
-        // IMPORTANT: Check both staff_ids (raw) and staff_members (enriched)
-        staff_ids: existingSlot?.staff_ids,
-        staff_ids_count: existingSlot?.staff_ids?.length || 0,
-        staff_members_count: existingSlot?.staff_members?.length || 0,
-        section_ids: existingSlot?.section_ids,
-        sections_count: existingSlot?.sections?.length,
-        is_combined: existingSlot?.is_combined,
-        is_subdivided: existingSlot?.is_subdivided,
-        branch: existingSlot?.is_subdivided ? 'subdivided' :
-                existingSlot?.is_combined ? 'combined' : 'regular'
-      });
-    }
-
     if (existingSlot) {
       // Updated: 2025-10-13 - Handle subdivided slots with sub_slots
       if (existingSlot.is_subdivided && existingSlot.sub_slots) {
-        // Handle subdivided slot (practical/lab groups)
-        console.log(
-          '[academic/timetables] Loading subdivided slot with sub_slots:',
-          {
-            slotId: existingSlot.id,
-            subSlotCount: existingSlot.sub_slots.length,
-            subdivisionType: existingSlot.subdivision_type,
-            subdivisionMode: existingSlot.subdivision_mode,
-            subSlots: existingSlot.sub_slots
-          }
-        );
-
         setSlotType('regular');
         setIsBreakSlot(false);
         setBreakDescription('');
@@ -235,11 +191,6 @@ export function SlotDialog({
           course: ss.course,
           staff_members: ss.staff_members
         }));
-
-        console.log(
-          '[academic/timetables] Updated sub-slots for dialog:',
-          updatedSubSlots
-        );
 
         setSubSlots(updatedSubSlots);
       } else if (
@@ -343,11 +294,6 @@ export function SlotDialog({
             .map((staffId: string) => staff.find((s: any) => s.id === staffId))
             .filter(Boolean);
           setExistingSlotStaff(staffFromIds);
-          console.log('[slot-dialog] Found staff from IDs:', {
-            staff_ids: allStaffIds,
-            found_count: staffFromIds.length,
-            staff_names: staffFromIds.map((s: any) => `${s.first_name} ${s.last_name}`)
-          });
         } else {
           setSelectedStaff([]);
           setExistingSlotStaff([]);
@@ -409,16 +355,9 @@ export function SlotDialog({
           setSelectedStaff(defaultSlotData.staff_members.map((s: any) => s.id));
           setExistingSlotStaff(defaultSlotData.staff_members);
           setIsPrefilledFromDefault(true);
-          console.log('[slot-dialog] Pre-filled staff from defaultSlotData:', {
-            staff_count: defaultSlotData.staff_members.length,
-            staff_ids: defaultSlotData.staff_members.map((s: any) => s.id)
-          });
         } else if (defaultSlotData.staff_ids && defaultSlotData.staff_ids.length > 0) {
           setSelectedStaff(defaultSlotData.staff_ids);
           setIsPrefilledFromDefault(true);
-          console.log('[slot-dialog] Pre-filled staff_ids from defaultSlotData:', {
-            staff_ids: defaultSlotData.staff_ids
-          });
         } else {
           setSelectedStaff([]);
           setIsPrefilledFromDefault(false);
@@ -508,31 +447,6 @@ export function SlotDialog({
       practical_config: periodMode === 'practical' ? practicalConfig : undefined
     };
 
-    // Updated: 2025-12-01 - Add debug logging for ALL slot saves to trace staff persistence issue
-    console.log('[slot-dialog] handleSave - Preparing slotData:', {
-      selectedStaff_state: selectedStaff,
-      selectedStaff_count: selectedStaff?.length || 0,
-      staff_ids_in_slotData: slotData.staff_ids,
-      staff_ids_count: slotData.staff_ids?.length || 0,
-      course_id: slotData.course_id,
-      section_ids: slotData.section_ids,
-      is_combined: slotData.is_combined,
-      is_subdivided: slotData.is_subdivided,
-      period_mode: slotData.period_mode
-    });
-
-    // DEBUGGING: Log practical mode data (Updated: 2025-10-27)
-    if (periodMode === 'practical') {
-      console.log('[academic/timetables/slot-dialog] Saving practical mode slot:', {
-        periodMode,
-        practicalConfig,
-        practicalConfigExists: !!practicalConfig,
-        batchCount: practicalConfig?.batches?.length || 0,
-        courseCount: practicalConfig?.available_courses?.length || 0,
-        completeSlotData: slotData
-      });
-    }
-
     // Pass the slot data to the parent
     // Updated: 2025-10-27 - Pass shouldConfigureSubdivision flag for new subdivided slots
     // For new subdivided slots (not editing existing), open subdivision config dialog
@@ -574,7 +488,7 @@ export function SlotDialog({
           );
         }
       } catch (error) {
-        console.error('Error fetching course assigned staff:', error);
+        logger.error('academic/timetables', 'Error fetching course assigned staff', error);
         setCourseStaffError(
           'Failed to load course-assigned staff. Please check Staff Planning module.'
         );
@@ -615,10 +529,7 @@ export function SlotDialog({
 
         setSubSlotStaff((prev) => ({ ...prev, [subSlotIndex]: assignedStaff }));
       } catch (error) {
-        console.error(
-          `Error fetching staff for sub-slot ${subSlotIndex}:`,
-          error
-        );
+        logger.error('academic/timetables', `Error fetching staff for sub-slot ${subSlotIndex}`, error);
         setSubSlotStaff((prev) => ({ ...prev, [subSlotIndex]: [] }));
       } finally {
         setLoadingSubSlotStaff((prev) => ({ ...prev, [subSlotIndex]: false }));
@@ -758,10 +669,7 @@ export function SlotDialog({
 
         setPracticalModeStaff(uniqueStaff);
       } catch (error) {
-        console.error(
-          '[academic/timetables] Error loading practical mode staff:',
-          error
-        );
+        logger.error('academic/timetables', 'Error loading practical mode staff', error);
         setPracticalModeStaff([]);
       } finally {
         setLoadingPracticalStaff(false);
@@ -1889,7 +1797,7 @@ export function SlotDialog({
       </Dialog>
     );
   } catch (error) {
-    console.error('Error rendering SlotDialog:', error);
+    logger.error('academic/timetables', 'Error rendering SlotDialog', error);
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent>

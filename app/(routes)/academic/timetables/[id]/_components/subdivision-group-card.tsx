@@ -87,7 +87,7 @@ export function SubdivisionGroupCard({
         );
         setCourseAssignedStaff(assignedStaff);
       } catch (error) {
-        console.error('[subdivision-group-card] Error fetching course assigned staff:', error);
+        // Error fetching course assigned staff - show empty list
         setCourseAssignedStaff([]);
       } finally {
         setLoadingCourseStaff(false);

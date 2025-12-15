@@ -21,6 +21,7 @@ import { PeriodForm } from '../_components/period-form';
 import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
 import { CreatePeriodDto } from '@/types/academics';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export default function NewPeriodPage() {
   const router = useRouter();
@@ -93,7 +94,7 @@ export default function NewPeriodPage() {
 
       router.push('/academic/periods');
     } catch (error: any) {
-      console.error('Error creating period:', error);
+      logger.error('academic/periods', 'Error creating period', error);
 
       // Check for specific database constraint errors
       if (

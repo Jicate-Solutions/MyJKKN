@@ -40,6 +40,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 const academicYearSchema = z
   .object({
@@ -105,8 +106,7 @@ export function AcademicYearForm({
           const month = String(date.getMonth() + 1).padStart(2, '0');
           const day = String(date.getDate()).padStart(2, '0');
           return `${year}-${month}-${day}`;
-        } catch (error) {
-          console.error('Error formatting date:', dateString, error);
+        } catch {
           return dateString; // Fallback to original string
         }
       };
@@ -138,7 +138,7 @@ export function AcademicYearForm({
         const data = await OrganizationService.getInstitutionNames(true);
         setInstitutions(data);
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        logger.error('academic/academic-years', 'Error loading institutions', error);
         toast.error('Failed to load institutions');
       } finally {
         setLoadingInstitutions(false);
@@ -195,7 +195,7 @@ export function AcademicYearForm({
       router.push('/academic/years');
       router.refresh();
     } catch (error) {
-      console.error('Form submission error:', error);
+      logger.error('academic/academic-years', 'Form submission error', error);
       toast.error(
         error instanceof Error ? error.message : 'Failed to save academic year'
       );
@@ -293,12 +293,7 @@ export function AcademicYearForm({
                                     field.value + 'T00:00:00'
                                   );
                                   return format(date, 'PPP');
-                                } catch (error) {
-                                  console.error(
-                                    'Error formatting start date:',
-                                    field.value,
-                                    error
-                                  );
+                                } catch {
                                   return field.value; // Fallback to raw value
                                 }
                               })()
@@ -318,12 +313,7 @@ export function AcademicYearForm({
                                   try {
                                     // Handle YYYY-MM-DD format properly
                                     return new Date(field.value + 'T00:00:00');
-                                  } catch (error) {
-                                    console.error(
-                                      'Error parsing start date for calendar:',
-                                      field.value,
-                                      error
-                                    );
+                                  } catch {
                                     return undefined;
                                   }
                                 })()
@@ -379,12 +369,7 @@ export function AcademicYearForm({
                                     field.value + 'T00:00:00'
                                   );
                                   return format(date, 'PPP');
-                                } catch (error) {
-                                  console.error(
-                                    'Error formatting end date:',
-                                    field.value,
-                                    error
-                                  );
+                                } catch {
                                   return field.value; // Fallback to raw value
                                 }
                               })()
@@ -404,12 +389,7 @@ export function AcademicYearForm({
                                   try {
                                     // Handle YYYY-MM-DD format properly
                                     return new Date(field.value + 'T00:00:00');
-                                  } catch (error) {
-                                    console.error(
-                                      'Error parsing end date for calendar:',
-                                      field.value,
-                                      error
-                                    );
+                                  } catch {
                                     return undefined;
                                   }
                                 })()

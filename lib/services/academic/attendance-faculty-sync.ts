@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export class AttendanceFacultySync {
   private static supabase = createClientSupabaseClient();
@@ -26,7 +27,7 @@ export class AttendanceFacultySync {
         .single();
 
       if (fetchError || !attendance) {
-        console.error('Error fetching attendance:', fetchError);
+        logger.error('academic/attendance', 'Error fetching attendance', fetchError);
         return { success: false, error: fetchError };
       }
 
@@ -136,7 +137,7 @@ export class AttendanceFacultySync {
           .eq('id', attendanceId);
 
         if (updateError) {
-          console.error('Error updating attendance:', updateError);
+          logger.error('academic/attendance', 'Error updating attendance', updateError);
           return { success: false, error: updateError };
         }
 
@@ -151,7 +152,7 @@ export class AttendanceFacultySync {
 
       return { success: true, hasChanges: false, message: 'No updates needed' };
     } catch (error) {
-      console.error('Error syncing faculty:', error);
+      logger.error('academic/attendance', 'Error syncing faculty', error);
       return { success: false, error };
     }
   }
@@ -217,7 +218,7 @@ export class AttendanceFacultySync {
 
       return { success: true, results };
     } catch (error) {
-      console.error('Batch sync error:', error);
+      logger.error('academic/attendance', 'Batch sync error', error);
       return { success: false, error };
     }
   }
@@ -304,7 +305,7 @@ export class AttendanceFacultySync {
 
       return { hasChanges, currentFaculty, newFaculty };
     } catch (error) {
-      console.error('Error checking faculty changes:', error);
+      logger.error('academic/attendance', 'Error checking faculty changes', error);
       return { hasChanges: false };
     }
   }

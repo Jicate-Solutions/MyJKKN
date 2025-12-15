@@ -9,6 +9,7 @@ import type {
   FacultyWorkloadStats
 } from '@/types/faculty-calendar';
 import type { DayOfWeek } from '@/types/academics';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export class FacultyTimetableService {
   private static supabase = createClientSupabaseClient();
@@ -23,8 +24,6 @@ export class FacultyTimetableService {
     filters?: Partial<FacultyCalendarFilters>
   ): Promise<FacultyCalendarApiResponse> {
     try {
-      console.log('Fetching faculty timetable slots for staff:', staffId);
-
       // Get all timetables where this staff member might be assigned
       let timetableQuery = this.supabase
         .from('timetables')
@@ -60,7 +59,7 @@ export class FacultyTimetableService {
       const { data: timetables, error: timetableError } = await timetableQuery;
 
       if (timetableError) {
-        console.error('Error fetching timetables:', timetableError);
+        logger.error('academic/timetables', 'Error fetching timetables', timetableError);
         throw timetableError;
       }
 
@@ -80,10 +79,7 @@ export class FacultyTimetableService {
             });
 
           if (slotsError) {
-            console.error(
-              `Error fetching slots for timetable ${timetable.id}:`,
-              slotsError
-            );
+            logger.error('academic/timetables', `Error fetching slots for timetable ${timetable.id}`, slotsError);
             continue;
           }
 
@@ -179,7 +175,7 @@ export class FacultyTimetableService {
             allSlots.push(facultySlot);
           }
         } catch (error) {
-          console.error(`Error processing timetable ${timetable.id}:`, error);
+          logger.error('academic/timetables', `Error processing timetable ${timetable.id}`, error);
           continue;
         }
       }
@@ -199,14 +195,12 @@ export class FacultyTimetableService {
         );
       }
 
-      console.log(`Found ${filteredSlots.length} slots for faculty ${staffId}`);
-
       return {
         slots: filteredSlots,
         total_count: filteredSlots.length
       };
     } catch (error) {
-      console.error('Error in getFacultyTimetableSlots:', error);
+      logger.error('academic/timetables', 'Error in getFacultyTimetableSlots', error);
       throw error;
     }
   }
@@ -220,10 +214,6 @@ export class FacultyTimetableService {
     filters: FacultyCalendarFilters
   ): Promise<FacultyCalendarApiResponse> {
     try {
-      console.log('Fetching all faculty timetable slots for admin view');
-      console.log('Admin filters:', JSON.stringify(filters, null, 2));
-      console.log('Date range:', { from: dateRange.from, to: dateRange.to });
-
       // Build timetable query with filters
       let timetableQuery = this.supabase
         .from('timetables')
@@ -289,16 +279,11 @@ export class FacultyTimetableService {
       const { data: timetables, error: timetableError } = await timetableQuery;
 
       if (timetableError) {
-        console.error('Error fetching timetables for admin:', timetableError);
+        logger.error('academic/timetables', 'Error fetching timetables for admin', timetableError);
         throw timetableError;
       }
 
-      console.log(
-        `Found ${timetables?.length || 0} timetables matching filters`
-      );
-
       if (!timetables || timetables.length === 0) {
-        console.log('No timetables found - returning empty result');
         return { slots: [], total_count: 0 };
       }
 
@@ -313,10 +298,7 @@ export class FacultyTimetableService {
             });
 
           if (slotsError) {
-            console.error(
-              `Error fetching slots for timetable ${timetable.id}:`,
-              slotsError
-            );
+            logger.error('academic/timetables', `Error fetching slots for timetable ${timetable.id}`, slotsError);
             continue;
           }
 
@@ -420,21 +402,17 @@ export class FacultyTimetableService {
             allSlots.push(facultySlot);
           }
         } catch (error) {
-          console.error(`Error processing timetable ${timetable.id}:`, error);
+          logger.error('academic/timetables', `Error processing timetable ${timetable.id}`, error);
           continue;
         }
       }
-
-      console.log(
-        `Found ${allSlots.length} total faculty slots for admin view`
-      );
 
       return {
         slots: allSlots,
         total_count: allSlots.length
       };
     } catch (error) {
-      console.error('Error in getAllFacultyTimetableSlots:', error);
+      logger.error('academic/timetables', 'Error in getAllFacultyTimetableSlots', error);
       throw error;
     }
   }
@@ -449,12 +427,6 @@ export class FacultyTimetableService {
     filters: InstitutionHierarchyFilters
   ): Promise<FacultyAvailabilityApiResponse> {
     try {
-      console.log('Checking faculty availability for:', {
-        date,
-        periodId,
-        filters
-      });
-
       // Get period details
       const { data: period, error: periodError } = await this.supabase
         .from('periods')
@@ -487,7 +459,7 @@ export class FacultyTimetableService {
       const { data: allStaff, error: staffError } = await staffQuery;
 
       if (staffError) {
-        console.error('Error fetching staff:', staffError);
+        logger.error('academic/timetables', 'Error fetching staff', staffError);
         throw staffError;
       }
 
@@ -516,7 +488,7 @@ export class FacultyTimetableService {
         .gte('end_date', date);
 
       if (timetableError) {
-        console.error('Error fetching timetables:', timetableError);
+        logger.error('academic/timetables', 'Error fetching timetables', timetableError);
         throw timetableError;
       }
 
@@ -613,10 +585,7 @@ export class FacultyTimetableService {
             }
           }
         } catch (error) {
-          console.error(
-            `Error checking conflicts in timetable ${timetable.id}:`,
-            error
-          );
+          logger.error('academic/timetables', `Error checking conflicts in timetable ${timetable.id}`, error);
           continue;
         }
       }
@@ -643,7 +612,7 @@ export class FacultyTimetableService {
         unavailable_faculty: unavailableFaculty
       };
     } catch (error) {
-      console.error('Error in getFacultyAvailability:', error);
+      logger.error('academic/timetables', 'Error in getFacultyAvailability', error);
       throw error;
     }
   }
@@ -671,13 +640,12 @@ export class FacultyTimetableService {
         .single();
 
       if (profileError || !profile) {
-        console.warn('Profile lookup failed:', profileError?.message);
+        logger.warn('academic/timetables', 'Profile lookup failed', { message: profileError?.message });
         return null;
       }
 
       // If user is not faculty, return null
       if (profile.role !== 'faculty') {
-        console.log('User is not faculty, role:', profile.role);
         return null;
       }
 
@@ -702,22 +670,17 @@ export class FacultyTimetableService {
         .single();
 
       if (staffError || !staffRecord) {
-        console.warn(
-          'No staff record found for faculty user:',
-          user.email,
-          'Error:',
-          staffError?.message
-        );
-        console.warn(
-          'Available staff lookup query:',
-          `email.eq.${user.email},institution_email.eq.${user.email}`
-        );
+        logger.warn('academic/timetables', 'No staff record found for faculty user', {
+          email: user.email,
+          error: staffError?.message,
+          query: `email.eq.${user.email},institution_email.eq.${user.email}`
+        });
         return null;
       }
 
       return staffRecord;
     } catch (error) {
-      console.error('Error getting current user staff record:', error);
+      logger.error('academic/timetables', 'Error getting current user staff record', error);
       return null;
     }
   }
@@ -815,7 +778,7 @@ export class FacultyTimetableService {
 
       return workloadStats;
     } catch (error) {
-      console.error('Error calculating faculty workload stats:', error);
+      logger.error('academic/timetables', 'Error calculating faculty workload stats', error);
       throw error;
     }
   }

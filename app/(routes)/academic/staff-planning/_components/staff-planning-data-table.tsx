@@ -3,6 +3,7 @@
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { StaffPlanningSearchParams } from './data-table-schema';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -77,7 +78,7 @@ export function StaffPlanningDataTable({
       setResetSelectionFn(null);
     },
     onError: (error: any) => {
-      console.error('Error bulk deleting staff plans:', error);
+      logger.error('academic/staff-planning', 'Error bulk deleting staff plans', error);
       toast.error(error?.message || 'Failed to delete staff plans');
       // Close dialog even on error
       setShowDeleteDialog(false);
@@ -138,7 +139,7 @@ export function StaffPlanningDataTable({
         }
       };
     } catch (error) {
-      console.error('Error fetching staff plans:', error);
+      logger.error('academic/staff-planning', 'Error fetching staff plans', error);
       throw error;
     }
   };

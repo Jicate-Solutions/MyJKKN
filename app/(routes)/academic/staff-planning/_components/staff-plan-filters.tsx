@@ -19,6 +19,7 @@ import { AcademicYearService } from '@/lib/services/academic/academic-year-servi
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { StaffPlanningSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface StaffPlanFiltersProps {
   searchParams: StaffPlanningSearchParams;
@@ -62,7 +63,7 @@ export function StaffPlanFilters({
         const data = await OrganizationService.getInstitutionNames(true);
         setInstitutions(data);
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        logger.error('academic/staff-planning', 'Error loading institutions', error);
       } finally {
         setLoading(false);
       }
@@ -97,7 +98,7 @@ export function StaffPlanFilters({
           );
           setDegrees(data);
         } catch (error) {
-          console.error('Error loading degrees:', error);
+          logger.error('academic/staff-planning', 'Error loading degrees', error);
         }
       } else {
         setDegrees([]);
@@ -115,7 +116,7 @@ export function StaffPlanFilters({
           );
           setDepartments(data);
         } catch (error) {
-          console.error('Error loading departments:', error);
+          logger.error('academic/staff-planning', 'Error loading departments', error);
         }
       } else {
         setDepartments([]);
@@ -133,7 +134,7 @@ export function StaffPlanFilters({
           );
           setPrograms(data);
         } catch (error) {
-          console.error('Error loading programs:', error);
+          logger.error('academic/staff-planning', 'Error loading programs', error);
         }
       } else {
         setPrograms([]);
@@ -151,7 +152,7 @@ export function StaffPlanFilters({
           );
           setSemesters(data);
         } catch (error) {
-          console.error('Error loading semesters:', error);
+          logger.error('academic/staff-planning', 'Error loading semesters', error);
         }
       } else {
         setSemesters([]);
@@ -169,7 +170,7 @@ export function StaffPlanFilters({
           );
           setAcademicYears(data);
         } catch (error) {
-          console.error('Error loading academic years:', error);
+          logger.error('academic/staff-planning', 'Error loading academic years', error);
         }
       } else {
         setAcademicYears([]);
@@ -187,7 +188,7 @@ export function StaffPlanFilters({
           );
           setCourses(data);
         } catch (error) {
-          console.error('Error loading courses:', error);
+          logger.error('academic/staff-planning', 'Error loading courses', error);
         }
       } else {
         setCourses([]);

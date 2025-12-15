@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   Regulation,
   CreateRegulationDto,
@@ -20,7 +21,7 @@ export class RegulationService {
         .single();
 
       if (error) {
-        console.error('Database error:', error);
+        logger.error('academic/regulations', 'Database error', error);
         // Preserve the error code for proper handling in the UI
         const enhancedError: any = new Error(
           error.message || 'Failed to create regulation'
@@ -32,7 +33,7 @@ export class RegulationService {
 
       return regulation;
     } catch (error) {
-      console.error('Error creating regulation:', error);
+      logger.error('academic/regulations', 'Error creating regulation', error);
       throw error;
     }
   }
@@ -53,7 +54,7 @@ export class RegulationService {
         .single();
 
       if (error) {
-        console.error('Database error:', error);
+        logger.error('academic/regulations', 'Database error', error);
         const enhancedError: any = new Error(
           error.message || 'Failed to update regulation'
         );
@@ -64,7 +65,7 @@ export class RegulationService {
 
       return regulation;
     } catch (error) {
-      console.error('Error updating regulation:', error);
+      logger.error('academic/regulations', 'Error updating regulation', error);
       throw error;
     }
   }
@@ -85,7 +86,7 @@ export class RegulationService {
         toast.success('Regulation deleted successfully');
       }
     } catch (error) {
-      console.error('Error deleting regulation:', error);
+      logger.error('academic/regulations', 'Error deleting regulation', error);
       throw error;
     }
   }
@@ -103,7 +104,7 @@ export class RegulationService {
         await this.deleteRegulation(id);
         success.push(id);
       } catch (error) {
-        console.error(`Error deleting regulation ${id}:`, error);
+        logger.error('academic/regulations', `Error deleting regulation ${id}`, error);
         failed.push({
           id,
           error: error instanceof Error ? error.message : 'Unknown error'
@@ -175,7 +176,7 @@ export class RegulationService {
         }
       };
     } catch (error) {
-      console.error('Error fetching regulations:', error);
+      logger.error('academic/regulations', 'Error fetching regulations', error);
       throw error;
     }
   }
@@ -197,7 +198,7 @@ export class RegulationService {
 
       return regulation;
     } catch (error) {
-      console.error('Error fetching regulation:', error);
+      logger.error('academic/regulations', 'Error fetching regulation', error);
       throw error;
     }
   }
@@ -272,7 +273,7 @@ export class RegulationService {
         }
       };
     } catch (error) {
-      console.error('Error fetching regulations with access control:', error);
+      logger.error('academic/regulations', 'Error fetching regulations with access control', error);
       throw error;
     }
   }
@@ -305,7 +306,7 @@ export class RegulationService {
 
       return data || [];
     } catch (error) {
-      console.error('Error fetching regulations by institution:', error);
+      logger.error('academic/regulations', 'Error fetching regulations by institution', error);
       throw error;
     }
   }

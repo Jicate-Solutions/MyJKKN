@@ -4,6 +4,7 @@ import {
   createApiInstitutionFilter,
   applyInstitutionFilterToQuery
 } from '@/lib/auth/api-institution-filter';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   Period,
   CreatePeriodDto,
@@ -24,7 +25,7 @@ export class PeriodService {
         .single();
 
       if (error) {
-        console.error('Database error:', error);
+        logger.error('academic/periods', 'Database error', error);
         // Preserve the error code for proper handling in the UI
         const enhancedError: any = new Error(
           error.message || 'Failed to create period'
@@ -36,7 +37,7 @@ export class PeriodService {
 
       return period;
     } catch (error) {
-      console.error('Error creating period:', error);
+      logger.error('academic/periods', 'Error creating period', error);
       throw error;
     }
   }
@@ -57,7 +58,7 @@ export class PeriodService {
         .single();
 
       if (error) {
-        console.error('Database error:', error);
+        logger.error('academic/periods', 'Database error', error);
         // Preserve the error code for proper handling in the UI
         const enhancedError: any = new Error(
           error.message || 'Failed to update period'
@@ -69,7 +70,7 @@ export class PeriodService {
 
       return period;
     } catch (error) {
-      console.error('Error updating period:', error);
+      logger.error('academic/periods', 'Error updating period', error);
       throw error;
     }
   }
@@ -85,7 +86,7 @@ export class PeriodService {
 
       toast.success('Period deleted successfully');
     } catch (error) {
-      console.error('Error deleting period:', error);
+      logger.error('academic/periods', 'Error deleting period', error);
       throw error;
     }
   }
@@ -103,7 +104,7 @@ export class PeriodService {
         await this.deletePeriod(id);
         success.push(id);
       } catch (error) {
-        console.error(`Error deleting period ${id}:`, error);
+        logger.error('academic/periods', `Error deleting period ${id}`, error);
         failed.push({
           id,
           error: error instanceof Error ? error.message : 'Unknown error'
@@ -169,7 +170,7 @@ export class PeriodService {
         }
       };
     } catch (error) {
-      console.error('Error fetching periods:', error);
+      logger.error('academic/periods', 'Error fetching periods', error);
       throw error;
     }
   }
@@ -191,7 +192,7 @@ export class PeriodService {
 
       return period;
     } catch (error) {
-      console.error('Error fetching period:', error);
+      logger.error('academic/periods', 'Error fetching period', error);
       throw error;
     }
   }
@@ -213,7 +214,7 @@ export class PeriodService {
 
       return periods || [];
     } catch (error) {
-      console.error('Error fetching periods by time range:', error);
+      logger.error('academic/periods', 'Error fetching periods by time range', error);
       throw error;
     }
   }
@@ -292,7 +293,7 @@ export class PeriodService {
         }
       };
     } catch (error) {
-      console.error('Error fetching periods with access control:', error);
+      logger.error('academic/periods', 'Error fetching periods with access control', error);
       throw error;
     }
   }
@@ -325,7 +326,7 @@ export class PeriodService {
 
       return data || [];
     } catch (error) {
-      console.error('Error fetching periods by institution:', error);
+      logger.error('academic/periods', 'Error fetching periods by institution', error);
       throw error;
     }
   }

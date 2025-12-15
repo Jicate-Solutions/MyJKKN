@@ -45,6 +45,7 @@ import {
   useConsolidatedAttendance
 } from '@/hooks/academic/use-attendance';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { AttendanceSummaryModal } from './components/attendance-summary-modal';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
 import { PracticalAttendanceSelector } from './_components/practical-attendance-selector';
@@ -74,21 +75,6 @@ export default function AttendanceMarkPage() {
   const subdivisionStudentIds = searchParams.get('subdivisionStudentIds');
   const subdivisionStaffIds = searchParams.get('subdivisionStaffIds');
   const subdivisionLabRoom = searchParams.get('subdivisionLabRoom');
-
-  // Debug: Log subdivision parameters from URL
-  console.log('[academic/attendance/mark] Subdivision parameters from URL:', {
-    isSubdividedFromUrl,
-    subdivisionGroupOrder,
-    subdivisionGroupName,
-    subdivisionStudentIds: subdivisionStudentIds
-      ? `${subdivisionStudentIds.split(',').length} IDs`
-      : 'none',
-    subdivisionStaffIds: subdivisionStaffIds
-      ? `${subdivisionStaffIds.split(',').length} IDs`
-      : 'none',
-    actualStaffIds: subdivisionStaffIds,
-    subdivisionLabRoom
-  });
 
   const [students, setStudents] = useState<any[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
@@ -211,12 +197,7 @@ export default function AttendanceMarkPage() {
           await query.single();
 
         if (timetableError || !timetableData) {
-          console.error('❌ Failed to fetch timetable data:', {
-            error: timetableError,
-            timetableId,
-            institutionId: profile?.institution_id,
-            data: timetableData
-          });
+          logger.error('academic/attendance/mark', 'Failed to fetch timetable data', timetableError);
           toast.error(
             timetableError?.message || 'Failed to load class information'
           );
@@ -264,10 +245,7 @@ export default function AttendanceMarkPage() {
             if (!sectionError && sections) {
               sectionData = sections;
             } else {
-              console.error(
-                '❌ Failed to fetch section data for URL UUID:',
-                sectionError
-              );
+              logger.error('academic/attendance/mark', 'Failed to fetch section data for URL UUID', sectionError);
             }
           } else {
             // It's a name, resolve to UUID
@@ -286,10 +264,7 @@ export default function AttendanceMarkPage() {
               resolvedSectionId = sectionResult.id;
               sectionData = sectionResult;
             } else {
-              console.error(
-                '❌ Failed to resolve section name from URL:',
-                sectionError
-              );
+              logger.error('academic/attendance/mark', 'Failed to resolve section name from URL', sectionError);
             }
           }
         }
@@ -314,10 +289,7 @@ export default function AttendanceMarkPage() {
             resolvedSectionId = timetable.section_id;
             sectionData = sectionFromDb;
           } else {
-            console.error(
-              '❌ Failed to fetch section data from timetable fallback:',
-              countError
-            );
+            logger.error('academic/attendance/mark', 'Failed to fetch section data from timetable fallback', countError);
           }
         } else if (
           !sectionData &&
@@ -328,9 +300,7 @@ export default function AttendanceMarkPage() {
         // Updated: 2025-10-08 - For semester-level multi-section slots, resolvedSectionId may be undefined
         // This is OK - we'll use section_ids from the slot instead
         if (!resolvedSectionId && timetable.timetable_type === 'section') {
-          console.error(
-            '❌ Unable to resolve section information for section-level timetable'
-          );
+          logger.error('academic/attendance/mark', 'Unable to resolve section information for section-level timetable');
           toast.error(
             `Unable to resolve section information. Section ID: ${
               timetable.section_id || sectionId || 'Unknown'
@@ -357,13 +327,13 @@ export default function AttendanceMarkPage() {
               const semester = semesterData as { id: string; semester_name: string };
               semesterName = semester.semester_name;
             } else {
-              console.error('❌ Failed to fetch semester name:', semesterError);
+              logger.error('academic/attendance/mark', 'Failed to fetch semester name', semesterError);
             }
           } catch (error) {
-            console.error('Error fetching semester data:', error);
+            logger.error('academic/attendance/mark', 'Error fetching semester data', error);
           }
         } else {
-          console.warn('⚠️ No semester_id found in section or timetable data');
+          logger.warn('academic/attendance/mark', 'No semester_id found in section or timetable data');
         }
 
         // Updated: 2025-10-08 - Extract section_ids from timetable slot for multi-section support
@@ -385,11 +355,6 @@ export default function AttendanceMarkPage() {
                 const slot = daySlots[periodKey];
                 // Match by slot_id instead of periodKey
                 if (slot && slot.slot_id === periodId) {
-                  console.log(
-                    '[academic/attendance] Found matching slot:',
-                    slot
-                  );
-
                   // NEW: Check if this is a subdivided slot (Updated: 2025-10-11)
                   if (
                     slot.is_subdivided &&
@@ -421,7 +386,6 @@ export default function AttendanceMarkPage() {
 
                   // NEW: Check if this is a practical period (Updated: 2025-10-25)
                   if (slot.period_mode === 'practical' && slot.practical_config) {
-                    console.log('[academic/attendance] Practical period detected:', slot);
                     setPeriodMode('practical');
                     setPracticalConfig(slot.practical_config);
                   } else {
@@ -447,17 +411,11 @@ export default function AttendanceMarkPage() {
                     if (!sectionsError && sectionsData) {
                       slotSections = sectionsData;
                     } else {
-                      console.error(
-                        '❌ Failed to load section details:',
-                        sectionsError
-                      );
+                      logger.error('academic/attendance/mark', 'Failed to load section details', sectionsError);
                     }
                     break;
                   } else {
-                    console.warn(
-                      '⚠️ Slot has no section_ids or empty array:',
-                      slot
-                    );
+                    logger.warn('academic/attendance/mark', 'Slot has no section_ids or empty array', { slotId: slot.slot_id });
                   }
                 }
               }
@@ -467,10 +425,7 @@ export default function AttendanceMarkPage() {
           }
 
           if (slotSectionIds.length === 0) {
-            console.warn(
-              '⚠️ No section_ids found in any slot for period:',
-              periodId
-            );
+            logger.warn('academic/attendance/mark', 'No section_ids found in any slot for period', { periodId });
           }
         }
 
@@ -512,7 +467,7 @@ export default function AttendanceMarkPage() {
 
         setContextData(context);
       } catch (error) {
-        console.error('❌ Error loading context data:', error);
+        logger.error('academic/attendance/mark', 'Error loading context data', error);
         toast.error(
           error instanceof Error
             ? `Failed to load class context: ${error.message}`
@@ -536,34 +491,13 @@ export default function AttendanceMarkPage() {
   // Load students using the resolved context
   useEffect(() => {
     const loadStudents = async () => {
-      console.log('[academic/attendance/mark] loadStudents called:', {
-        hasContextData: !!contextData,
-        contextData: contextData
-          ? {
-              institution_id: contextData.institution_id,
-              section_id: contextData.section_id,
-              section_ids: contextData.section_ids
-            }
-          : null,
-        isSubdividedFromUrl,
-        subdivisionStudentIds: subdivisionStudentIds
-          ? `${subdivisionStudentIds.split(',').length} IDs`
-          : 'none'
-      });
-
       // Updated: 2025-10-08 - Allow loading without section_id for multi-section slots
       if (!contextData) {
-        console.log(
-          '[academic/attendance/mark] No contextData - returning early'
-        );
         return;
       }
 
       // NEW: For practical periods, wait for batch/lab selection (Updated: 2025-10-25)
       if (periodMode === 'practical' && !practicalSelection) {
-        console.log(
-          '[academic/attendance/mark] Practical period - waiting for batch/lab selection'
-        );
         setLoadingStudents(false);
         return;
       }
@@ -580,9 +514,6 @@ export default function AttendanceMarkPage() {
         !contextData.section_id &&
         (!effectiveSectionIds || effectiveSectionIds.length === 0)
       ) {
-        console.log(
-          '[academic/attendance/mark] No section_id or section_ids - returning early'
-        );
         return;
       }
 
@@ -593,22 +524,6 @@ export default function AttendanceMarkPage() {
         // Use effective section_ids (from practical selection or context)
         const hasMultipleSections =
           effectiveSectionIds && effectiveSectionIds.length > 0;
-
-        console.log(
-          '[academic/attendance/mark] Fetching students with filters:',
-          {
-            institution_id: contextData.institution_id,
-            degree_id: contextData.degree_id,
-            program_id: contextData.program_id,
-            department_id: contextData.department_id,
-            semester_id: contextData.semester_id,
-            section_id: contextData.section_id,
-            section_ids: effectiveSectionIds,
-            hasMultipleSections,
-            periodMode,
-            practicalSelection: practicalSelection ? 'Yes' : 'No'
-          }
-        );
 
         const studentsData = await AttendanceService.getStudentsForAttendance({
           institution_id: contextData.institution_id,
@@ -622,32 +537,12 @@ export default function AttendanceMarkPage() {
             : { section_id: contextData.section_id })
         });
 
-        console.log(
-          '[academic/attendance/mark] Students fetched from service:',
-          {
-            count: studentsData.length,
-            sampleStudent: studentsData[0]
-              ? {
-                  id: studentsData[0].id,
-                  name: `${(studentsData[0] as any).first_name} ${
-                    (studentsData[0] as any).last_name
-                  }`
-                }
-              : null
-          }
-        );
-
-        // If we got 0 students, log a detailed error
+        // If we got 0 students, log a warning
         if (studentsData.length === 0) {
-          console.error(
-            '[academic/attendance/mark] ⚠️ NO STUDENTS RETURNED! Check console for service logs with emoji icons (🎯, 📋, 🔐, etc.)'
-          );
-          console.error(
-            '[academic/attendance/mark] This usually means RLS policy is blocking the query.'
-          );
-          console.error(
-            '[academic/attendance/mark] Check if faculty user profile has correct institution_id and department_id'
-          );
+          logger.warn('academic/attendance/mark', 'No students returned - check RLS policy', {
+            institutionId: contextData.institution_id,
+            sectionId: contextData.section_id
+          });
         }
 
         // Updated: 2025-10-13 - Filter students by subdivision group if applicable
@@ -656,20 +551,6 @@ export default function AttendanceMarkPage() {
           const groupStudentIds = subdivisionStudentIds.split(',');
           filteredStudents = studentsData.filter((student: any) =>
             groupStudentIds.includes(student.id)
-          );
-
-          console.log(
-            `[academic/attendance/mark] Filtered students for subdivision group:`,
-            {
-              totalStudents: studentsData.length,
-              groupStudents: filteredStudents.length,
-              groupName: subdivisionGroupName,
-              groupStudentIds: groupStudentIds.length
-            }
-          );
-        } else {
-          console.log(
-            '[academic/attendance/mark] No subdivision filtering applied'
           );
         }
 
@@ -700,7 +581,7 @@ export default function AttendanceMarkPage() {
           );
         }
       } catch (error) {
-        console.error('Error fetching students for attendance:', error);
+        logger.error('academic/attendance/mark', 'Error fetching students for attendance', error);
 
         if (error instanceof Error) {
           if (error.message.includes('invalid input syntax for type uuid')) {
@@ -783,7 +664,7 @@ export default function AttendanceMarkPage() {
           setExistingAttendance(null);
         }
       } catch (error) {
-        console.error('Error checking existing attendance:', error);
+        logger.error('academic/attendance/mark', 'Error checking existing attendance', error);
         // Don't show error to user, just log it
       } finally {
         setLoadingExistingAttendance(false);
@@ -796,18 +677,7 @@ export default function AttendanceMarkPage() {
   // Load assigned staff information for the current period
   useEffect(() => {
     const loadAssignedStaff = async () => {
-      console.log('[academic/attendance/mark] loadAssignedStaff called:', {
-        hasContextData: !!contextData?.timetable_data,
-        hasPeriodId: !!periodId,
-        hasDate: !!date,
-        isSubdividedFromUrl,
-        hasSubdivisionStaffIds: !!subdivisionStaffIds
-      });
-
       if (!contextData?.timetable_data || !periodId || !date) {
-        console.log(
-          '[academic/attendance/mark] Early return - missing required data'
-        );
         return;
       }
 
@@ -834,12 +704,10 @@ export default function AttendanceMarkPage() {
 
           if (hasDirectDays) {
             actualTimetableData = contextData.timetable_data;
-            console.log('[academic/attendance] Using direct day keys');
           }
         }
 
         if (!actualTimetableData) {
-          console.log('[academic/attendance] No timetable_data found');
           return;
         }
 
@@ -883,17 +751,8 @@ export default function AttendanceMarkPage() {
             .toUpperCase();
         }
 
-        console.log(
-          '[academic/attendance] Timetable keys:',
-          Object.keys(actualTimetableData).slice(0, 10)
-        );
-
         const dayData = actualTimetableData[dayKey];
         if (!dayData) {
-          console.log(
-            '[academic/attendance] No data found for day key:',
-            dayKey
-          );
           return;
         }
 
@@ -903,13 +762,6 @@ export default function AttendanceMarkPage() {
         let searchSlotId = periodId;
         if (periodId && periodId.includes('_group_')) {
           searchSlotId = periodId.split('_group_')[0];
-          console.log(
-            '[academic/attendance/mark] Detected subdivided period, using original slot_id:',
-            {
-              periodId,
-              searchSlotId
-            }
-          );
         }
 
         // Find the specific period slot
@@ -926,13 +778,6 @@ export default function AttendanceMarkPage() {
                 (slot as any).slot_id === searchSlotId
               ) {
                 periodSlot = slot as any;
-                console.log(
-                  '[academic/attendance/mark] Found slot by searching slot_id:',
-                  {
-                    periodKey,
-                    slot_id: (slot as any).slot_id
-                  }
-                );
                 break;
               }
             }
@@ -940,20 +785,6 @@ export default function AttendanceMarkPage() {
         }
 
         if (!periodSlot) {
-          console.log(
-            '[academic/attendance] Period slot not found for periodId:',
-            periodId
-          );
-
-          // Log first few slots to debug structure
-          const sampleSlots = Object.entries(dayData).slice(0, 2);
-          sampleSlots.forEach(([key, slot]) => {
-            console.log(`[academic/attendance] Sample slot ${key}:`, {
-              slot_id: (slot as any)?.slot_id,
-              course_id: (slot as any)?.course_id,
-              staff_ids: (slot as any)?.staff_ids
-            });
-          });
           return;
         }
 
@@ -961,41 +792,12 @@ export default function AttendanceMarkPage() {
         const staffIds: string[] = [];
         let primaryStaffId: string | null = null;
 
-        console.log(
-          '[academic/attendance/mark] About to determine staff IDs:',
-          {
-            isSubdividedFromUrl,
-            subdivisionStaffIds,
-            hasSubdivisionStaffIds: !!subdivisionStaffIds
-          }
-        );
-
         // Priority 1: Use subdivision group staff IDs from URL if this is a subdivided period
         if (isSubdividedFromUrl && subdivisionStaffIds) {
           const groupStaffIds = subdivisionStaffIds.split(',');
           staffIds.push(...groupStaffIds);
           primaryStaffId = groupStaffIds[0] || null;
-
-          console.log(
-            `[academic/attendance/mark] Using subdivision group staff IDs:`,
-            {
-              groupName: subdivisionGroupName,
-              staffCount: staffIds.length,
-              staffIds,
-              primaryStaffId
-            }
-          );
         } else {
-          console.log(
-            '[academic/attendance/mark] Using regular slot staff IDs (not subdivision):',
-            {
-              reason: !isSubdividedFromUrl
-                ? 'Not a subdivided period'
-                : 'No subdivision staff IDs in URL',
-              isSubdividedFromUrl,
-              subdivisionStaffIds
-            }
-          );
           // Priority 2: Get primary staff ID from slot
           if (
             periodSlot.primary_staff_id &&
@@ -1018,16 +820,8 @@ export default function AttendanceMarkPage() {
           }
         }
 
-        console.log('[academic/attendance/mark] Staff IDs collected:', {
-          staffIds,
-          count: staffIds.length,
-          primaryStaffId
-        });
-
         if (staffIds.length === 0) {
-          console.warn(
-            '[academic/attendance/mark] No staff IDs found - setting empty array'
-          );
+          logger.warn('academic/attendance/mark', 'No staff IDs found for period');
           setAssignedStaff([]);
           return;
         }
@@ -1037,11 +831,6 @@ export default function AttendanceMarkPage() {
           '@/lib/supabase/client'
         );
         const supabase = createClientSupabaseClient();
-
-        console.log(
-          '[academic/attendance/mark] Querying staff table with IDs:',
-          staffIds
-        );
 
         const { data: staffData, error: staffError } = await supabase
           .from('staff')
@@ -1059,18 +848,10 @@ export default function AttendanceMarkPage() {
           .in('id', staffIds);
 
         if (staffError) {
-          console.error(
-            '[academic/attendance/mark] Error fetching staff data:',
-            staffError
-          );
+          logger.error('academic/attendance/mark', 'Error fetching staff data', staffError);
           setAssignedStaff([]);
           return;
         }
-
-        console.log('[academic/attendance/mark] Staff query result:', {
-          staffData,
-          count: staffData?.length || 0
-        });
 
         if (staffData) {
           // Mark primary staff and sort
@@ -1090,24 +871,13 @@ export default function AttendanceMarkPage() {
               return a.full_name.localeCompare(b.full_name);
             });
 
-          console.log('[academic/attendance/mark] Setting assigned staff:', {
-            count: enrichedStaffData.length,
-            staff: enrichedStaffData.map((s) => ({
-              id: s.id,
-              name: s.full_name,
-              is_primary: s.is_primary
-            }))
-          });
-
           setAssignedStaff(enrichedStaffData);
         } else {
-          console.warn(
-            '[academic/attendance/mark] No staff data returned from query'
-          );
+          logger.warn('academic/attendance/mark', 'No staff data returned from query');
           setAssignedStaff([]);
         }
       } catch (error) {
-        console.error('Error loading assigned staff:', error);
+        logger.error('academic/attendance/mark', 'Error loading assigned staff', error);
         setAssignedStaff([]);
       } finally {
         setLoadingStaff(false);
@@ -1292,10 +1062,7 @@ export default function AttendanceMarkPage() {
               staff.email || staff.institution_email || markerEmail;
           }
         } catch (error) {
-          console.warn(
-            'Could not fetch staff details, using profile data:',
-            error
-          );
+          logger.warn('academic/attendance/mark', 'Could not fetch staff details, using profile data', error);
         }
       }
 
@@ -1341,7 +1108,7 @@ export default function AttendanceMarkPage() {
             courseDetails = course as { id: string; course_name: string; course_code: string };
           }
         } catch (error) {
-          console.warn('Failed to fetch course details:', error);
+          logger.warn('academic/attendance/mark', 'Failed to fetch course details', error);
         }
       }
 
@@ -1369,7 +1136,7 @@ export default function AttendanceMarkPage() {
           : null);
 
       if (!effectiveSectionId) {
-        console.error('❌ No valid section ID found');
+        logger.error('academic/attendance/mark', 'No valid section ID found');
         toast.error('Missing section information. Please try again.');
         return;
       }
@@ -1518,11 +1285,11 @@ export default function AttendanceMarkPage() {
           }
         }, 1500);
       } else {
-        console.error('❌ Save result was null/undefined');
+        logger.error('academic/attendance/mark', 'Save result was null/undefined');
         toast.error('Failed to save attendance - no result returned');
       }
     } catch (error) {
-      console.error('❌ Error saving attendance:', error);
+      logger.error('academic/attendance/mark', 'Error saving attendance', error);
       toast.error(
         `Failed to save attendance: ${
           error instanceof Error ? error.message : 'Unknown error'
@@ -2168,7 +1935,6 @@ export default function AttendanceMarkPage() {
             date={date || ''}
             timetableId={timetableId || ''}
             onSelectionComplete={(selection) => {
-              console.log('[academic/attendance] Practical selection:', selection);
               setPracticalSelection(selection);
               // Students will be loaded in the existing useEffect when practicalSelection changes
             }}

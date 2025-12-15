@@ -118,7 +118,7 @@ export function PendingAttendanceHierarchyFilters({
         onFiltersChange({ attendanceDate: dateString });
         setCalendarOpen(false);
       } catch (error) {
-        console.error('Error formatting date:', error);
+        // Error formatting date - do nothing
       }
     }
   };

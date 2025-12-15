@@ -19,6 +19,7 @@ import {
 import { AttendancePeriodOption } from '@/types/attendance';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { cn } from '@/lib/utils';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface AvailablePeriodsCardsProps {
   periods: AttendancePeriodOption[];
@@ -78,24 +79,12 @@ export function AvailablePeriodsCards({
             periodChecks
           );
 
-        // DEBUG: Log the attendance check results
-        console.log('🔍 Attendance check results:', {
-          periodChecksCount: periodChecks.length,
-          attendanceMapSize: attendanceMap.size,
-          attendanceMapEntries: Array.from(attendanceMap.entries())
-        });
-
         // Updated: 2025-10-09 - Simplified: One check per slot, service handles multi-section logic
         const marked = new Set<string>();
         const recordIds = new Map<string, string>();
 
         // Simply check each slot - if marked, add to marked periods
         for (const [slotId, attendanceInfo] of attendanceMap) {
-          console.log(`📊 Checking slot ${slotId}:`, {
-            isMarked: attendanceInfo.isMarked,
-            recordId: attendanceInfo.recordId
-          });
-
           if (attendanceInfo.isMarked) {
             marked.add(slotId);
             if (attendanceInfo.recordId) {
@@ -104,16 +93,10 @@ export function AvailablePeriodsCards({
           }
         }
 
-        console.log('✅ Final marked periods:', {
-          markedCount: marked.size,
-          markedSlotIds: Array.from(marked),
-          recordIdsCount: recordIds.size
-        });
-
         setMarkedPeriods(marked);
         setPeriodRecordIds(recordIds);
       } catch (error) {
-        console.error('Error checking existing attendance:', error);
+        logger.error('academic/attendance', 'Error checking existing attendance', error);
         setMarkedPeriods(new Set());
         setPeriodRecordIds(new Map());
       } finally {

@@ -68,6 +68,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import Loading from '@/components/Loading/Loading';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { useTimetables } from '@/hooks/academic/use-timetables';
 import { useCourses } from '@/hooks/organization/use-courses';
 import { useStaffForSelection } from '@/hooks/staff/use-staff';
@@ -248,21 +249,9 @@ export default function TimetableDetailPage({
 
   const removePeriod = useCallback(
     (period: Period) => {
-      // Updated: 2025-10-27 - Added validation and logging for period deletion
-      console.log('[academic/timetables] Removing period:', {
-        periodId: period.id,
-        periodName: period.period_name,
-        currentSelectedCount: selectedPeriods.length
-      });
-
       const newSelectedPeriods = selectedPeriods.filter(
         (p: Period) => p.id !== period.id
       );
-
-      console.log('[academic/timetables] After removal:', {
-        newSelectedCount: newSelectedPeriods.length,
-        removed: selectedPeriods.length - newSelectedPeriods.length
-      });
 
       setSelectedPeriods(newSelectedPeriods);
       setHasUnsavedChanges(true);
@@ -357,7 +346,6 @@ export default function TimetableDetailPage({
       );
 
       if (missingStaff.length > 0) {
-        console.log('[page] Merging missing staff from existing slot:', missingStaff.map((s: any) => `${s.first_name} ${s.last_name}`));
         return [...baseStaff, ...missingStaff];
       }
     }
@@ -375,22 +363,10 @@ export default function TimetableDetailPage({
         (section) => section.semester_id === timetable.semester_id
       );
 
-      // Debug logging to help diagnose issues
       if (filtered.length === 0) {
-        console.warn('[academic/timetables] No sections found after filtering', {
+        logger.warn('academic/timetables', 'No sections found after filtering', {
           timetableSemesterId: timetable.semester_id,
-          totalSections: sections.length,
-          sampleSections: sections.slice(0, 3).map(s => ({
-            id: s.id,
-            name: s.section_name,
-            semester_id: s.semester_id
-          }))
-        });
-      } else {
-        console.log('[academic/timetables] Filtered sections successfully', {
-          timetableSemesterId: timetable.semester_id,
-          filteredCount: filtered.length,
-          sections: filtered.map(s => s.section_name)
+          totalSections: sections.length
         });
       }
 
@@ -435,7 +411,7 @@ export default function TimetableDetailPage({
         setPendingNavigation(null);
       }
     } catch (error) {
-      console.error('[academic/timetables] Error saving configuration:', error);
+      logger.error('academic/timetables', 'Error saving configuration', error);
       toast.error('Failed to save configuration. Please try again.');
     }
   };
@@ -463,7 +439,7 @@ export default function TimetableDetailPage({
         throw new Error('Failed to save template');
       }
     } catch (err) {
-      console.error('[academic/timetables] Error saving as template:', err);
+      logger.error('academic/timetables', 'Error saving as template', err);
       toast.error('Failed to save as template. Please try again.');
     }
   };
@@ -557,10 +533,7 @@ export default function TimetableDetailPage({
               students: studentsResponse.data || []
             });
           } catch (error) {
-            console.error(
-              '[academic/timetables] Error fetching students:',
-              error
-            );
+            logger.error('academic/timetables', 'Error fetching students', error);
             toast.error('Failed to load student data. Please try again.');
           }
           return;
@@ -640,38 +613,12 @@ export default function TimetableDetailPage({
             slot_date: day as string
           };
 
-          // Updated: 2025-12-01 - Add debug logging for ALL slot saves
-          console.log('[academic/timetables/page] handleSlotSave - Received slotData:', {
-            day,
-            period_id: period.id,
-            timetableFormat,
-            isBatch: timetableFormat === 'batch',
-            staff_ids_received: slotData.staff_ids,
-            staff_ids_count: slotData.staff_ids?.length || 0,
-            course_id: slotData.course_id,
-            slot_date_being_saved: day
-          });
-
-          // DEBUGGING: Log validation data for practical mode (Updated: 2025-10-27)
-          if (slotData.period_mode === 'practical') {
-            console.log('[academic/timetables/page] Validating practical mode slot:', {
-              completeSlotData,
-              period_mode: completeSlotData.period_mode,
-              practical_config: completeSlotData.practical_config,
-              hasPracticalConfig: !!completeSlotData.practical_config,
-              batchCount: completeSlotData.practical_config?.batches?.length || 0,
-              courseCount: completeSlotData.practical_config?.available_courses?.length || 0
-            });
-          }
-
           const validation = validateSlotData(completeSlotData);
           if (!validation.valid) {
-            console.error('[academic/timetables/page] Validation failed:', validation.errors);
+            logger.error('academic/timetables', 'Slot validation failed', { errors: validation.errors });
             toast.error(validation.errors.join(', '));
             return;
           }
-
-          console.log('[academic/timetables/page] Validation passed, saving slot with staff_ids:', slotData.staff_ids);
 
           // Updated: 2025-12-01 - Handle RANGE markers in batch mode
           // When day is a RANGE marker (e.g., "RANGE:2025-11-02:2025-12-17"),
@@ -694,8 +641,6 @@ export default function TimetableDetailPage({
                 current.setDate(current.getDate() + 1);
               }
 
-              console.log(`[academic/timetables/page] Batch save: Updating ${dates.length} dates from ${startDate} to ${endDate}`);
-
               // Updated: 2025-12-11 - Also update the RANGE key so the grid shows correct data
               // The batch grid displays data from RANGE keys, so we need to update that as well
               // First update the RANGE slot
@@ -717,7 +662,7 @@ export default function TimetableDetailPage({
               );
             } else {
               // Fallback for malformed range - save as single entry
-              console.warn('[academic/timetables/page] Malformed range marker:', dayStr);
+              logger.warn('academic/timetables', 'Malformed range marker', { dayStr });
               await TimetableService.updateTimetableSlot(
                 timetableId,
                 dayStr,
@@ -741,7 +686,7 @@ export default function TimetableDetailPage({
           toast.success('Slot saved successfully');
         }
       } catch (error) {
-        console.error('[academic/timetables] Error saving slot:', error);
+        logger.error('academic/timetables', 'Error saving slot', error);
         toast.error('Failed to save slot. Please try again.');
       }
     },
@@ -801,8 +746,6 @@ export default function TimetableDetailPage({
               current.setDate(current.getDate() + 1);
             }
 
-            console.log(`[academic/timetables/page] Subdivision batch save: Updating ${dates.length} dates from ${startDate} to ${endDate}`);
-
             // Updated: 2025-12-11 - Also update the RANGE key so the grid shows correct data
             // First update the RANGE slot
             await TimetableService.updateTimetableSlot(
@@ -823,7 +766,7 @@ export default function TimetableDetailPage({
             );
           } else {
             // Fallback for malformed range
-            console.warn('[academic/timetables/page] Malformed range marker in subdivision:', dayStr);
+            logger.warn('academic/timetables', 'Malformed range marker in subdivision', { dayStr });
             await TimetableService.updateTimetableSlot(
               timetableId,
               dayStr,
@@ -846,7 +789,7 @@ export default function TimetableDetailPage({
         subdivisionDialog.close();
         toast.success('Subdivided slot saved successfully');
       } catch (error) {
-        console.error('[academic/timetables] Error saving subdivision:', error);
+        logger.error('academic/timetables', 'Error saving subdivision', error);
         toast.error('Failed to save subdivision. Please try again.');
       }
     },
@@ -875,7 +818,7 @@ export default function TimetableDetailPage({
       // Fixed: 2025-10-27 - Check for period_id instead of id
       // Slots don't have an 'id' field, they have 'period_id', 'timetable_id', and 'day_of_week'/'slot_date'
       if (!slotData || !slotData.period_id) {
-        console.error('[academic/timetables] Invalid slot data for deletion:', slotData);
+        logger.error('academic/timetables', 'Invalid slot data for deletion', { slotData });
         toast.error('No slot selected for deletion');
         return;
       }
@@ -885,17 +828,10 @@ export default function TimetableDetailPage({
       const periodId = slotData.period_id;
 
       if (!day || !periodId) {
-        console.error('[academic/timetables] Missing day or period ID:', { day, periodId, slotData });
+        logger.error('academic/timetables', 'Missing day or period ID', { day, periodId });
         toast.error('Invalid slot data');
         return;
       }
-
-      console.log('[academic/timetables] Deleting slot:', {
-        timetableId,
-        day,
-        periodId,
-        format: timetableFormat
-      });
 
       await TimetableService.deleteTimetableSlot(
         timetableId,
@@ -909,7 +845,7 @@ export default function TimetableDetailPage({
       deleteDialog.clearSlot();
       toast.success('Slot deleted successfully');
     } catch (error) {
-      console.error('[academic/timetables] Error deleting slot:', error);
+      logger.error('academic/timetables', 'Error deleting slot', error);
       toast.error('Failed to delete slot. Please try again.');
     }
   }, [timetableId, timetableFormat, deleteDialog, fetchTimetableData]);
@@ -1105,7 +1041,7 @@ export default function TimetableDetailPage({
       await exportTimetableToPDF(timetable, timetableFormat, timetableGridRef);
       toast.success('Timetable exported successfully');
     } catch (error) {
-      console.error('[academic/timetables] Error exporting PDF:', error);
+      logger.error('academic/timetables', 'Error exporting PDF', error);
       toast.error('Failed to export timetable');
     }
   }, [timetable, timetableFormat]);
@@ -1392,17 +1328,11 @@ export default function TimetableDetailPage({
             savingPeriods={savingPeriods}
             onDragEnd={handleDragEnd}
             onRemovePeriod={(periodId: string) => {
-              // Updated: 2025-10-27 - Added validation and error handling
-              console.log('[academic/timetables] onRemovePeriod called with ID:', periodId);
               const period = selectedPeriods.find(p => p.id === periodId);
               if (period) {
-                console.log('[academic/timetables] Found period to remove:', period.period_name);
                 removePeriod(period);
               } else {
-                console.error('[academic/timetables] Period not found in selectedPeriods!', {
-                  searchingFor: periodId,
-                  availableIds: selectedPeriods.map(p => ({ id: p.id, name: p.period_name }))
-                });
+                logger.error('academic/timetables', 'Period not found in selectedPeriods', { periodId });
                 toast.error('Unable to remove period. Please try again.');
               }
             }}

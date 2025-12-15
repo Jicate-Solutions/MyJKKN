@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { randomUUID } from 'crypto';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   Timetable,
   CreateTimetableDto,
@@ -30,7 +31,7 @@ export class TimetableService {
         .eq('timetable_id', timetableId);
 
       if (error) {
-        console.error('Error checking attendance:', error);
+        logger.error('academic/timetables', 'Error checking attendance', error);
         return { hasAttendance: false, attendanceCount: 0, markedPeriods: [] };
       }
 
@@ -58,7 +59,7 @@ export class TimetableService {
         markedPeriods: Array.from(markedPeriods)
       };
     } catch (error) {
-      console.error('Error in hasAttendanceMarked:', error);
+      logger.error('academic/timetables', 'Error in hasAttendanceMarked', error);
       return { hasAttendance: false, attendanceCount: 0, markedPeriods: [] };
     }
   }
@@ -88,18 +89,14 @@ export class TimetableService {
         if (isValidDate) {
           attendanceQuery = attendanceQuery.eq('attendance_date', day);
         } else {
-          console.warn(
-            'isPeriodSlotLocked: Batch mode but invalid/missing date:',
-            day
-          );
-          // Don't add date filter if format is invalid
+          logger.warn('academic/timetables', 'isPeriodSlotLocked: Batch mode but invalid/missing date', { day });
         }
       }
 
       const { data: attendanceCheck, error } = await attendanceQuery;
 
       if (error) {
-        console.error('Error checking period lock status:', error);
+        logger.error('academic/timetables', 'Error checking period lock status', error);
         return { isLocked: false, attendanceCount: 0 };
       }
 
@@ -140,7 +137,7 @@ export class TimetableService {
         attendanceDate: attendanceDate || undefined
       };
     } catch (error) {
-      console.error('Error checking period slot lock:', error);
+      logger.error('academic/timetables', 'Error checking period slot lock', error);
       return { isLocked: false, attendanceCount: 0 };
     }
   }
@@ -233,7 +230,7 @@ Please select a different date period that doesn't overlap.`
 
       return { exists: false };
     } catch (error) {
-      console.error('Error checking existing timetable:', error);
+      logger.error('academic/timetables', 'Error checking existing timetable', error);
       throw error;
     }
   }
@@ -342,7 +339,7 @@ Please select a different date period that doesn't overlap.`
         .single();
 
       if (error) {
-        console.error('Error creating timetable:', error);
+        logger.error('academic/timetables', 'Error creating timetable', error);
         if (error.code === '23505') {
           toast.error(
             '⚠️ This timetable configuration already exists. Please check your semester and section selection.',
@@ -362,7 +359,7 @@ Please select a different date period that doesn't overlap.`
 
       return timetable;
     } catch (error) {
-      console.error('Error in createTimetable service:', error);
+      logger.error('academic/timetables', 'Error in createTimetable service', error);
       throw error;
     }
   }
@@ -408,10 +405,7 @@ Please select a different date period that doesn't overlap.`
           .limit(1);
 
       if (attendanceCheckError) {
-        console.error(
-          'Error checking attendance records:',
-          attendanceCheckError
-        );
+        logger.error('academic/timetables', 'Error checking attendance records', attendanceCheckError);
         throw attendanceCheckError;
       }
 
@@ -493,7 +487,7 @@ Please select a different date period that doesn't overlap.`
             );
           }
         } catch (conflictError) {
-          console.error('Error during conflict checking:', conflictError);
+          logger.error('academic/timetables', 'Error during conflict checking', conflictError);
           throw conflictError;
         }
       }
@@ -536,32 +530,12 @@ Please select a different date period that doesn't overlap.`
         }
       }
 
-      // DEBUGGING: Log what we're sending to the database
-      console.log('[TimetableService.updateTimetable] Incoming data:', {
-        id,
-        dataKeys: Object.keys(data),
-        periodsInData: data.periods,
-        periodsType: Array.isArray(data.periods) ? 'array' : typeof data.periods,
-        periodsLength: Array.isArray(data.periods) ? data.periods.length : 'N/A'
-      });
-      console.log('[TimetableService.updateTimetable] Final updateData to be sent to DB:', {
-        updateDataKeys: Object.keys(updateData),
-        periodsInUpdateData: updateData.periods,
-        fullUpdateData: updateData
-      });
-
       const { data: timetable, error } = await this.supabase
         .from('timetables')
         .update(updateData)
         .eq('id', id)
         .select()
         .single();
-
-      console.log('[TimetableService.updateTimetable] Database response:', {
-        success: !error,
-        returnedPeriods: timetable?.periods,
-        error: error?.message
-      });
 
       if (error) {
         if (error.code === '23505') {
@@ -598,7 +572,7 @@ Please select a different date period that doesn't overlap.`
       });
       return timetable;
     } catch (error) {
-      console.error('Error updating timetable:', error);
+      logger.error('academic/timetables', 'Error updating timetable', error);
       throw error;
     }
   }
@@ -614,10 +588,7 @@ Please select a different date period that doesn't overlap.`
           .limit(1);
 
       if (attendanceCheckError) {
-        console.error(
-          'Error checking attendance records:',
-          attendanceCheckError
-        );
+        logger.error('academic/timetables', 'Error checking attendance records', attendanceCheckError);
         throw attendanceCheckError;
       }
 
@@ -656,7 +627,7 @@ Please select a different date period that doesn't overlap.`
         toast.success('Timetable deleted successfully');
       }
     } catch (error) {
-      console.error('Error deleting timetable:', error);
+      logger.error('academic/timetables', 'Error deleting timetable', error);
       throw error;
     }
   }
@@ -675,7 +646,7 @@ Please select a different date period that doesn't overlap.`
         await this.deleteTimetable(id, false); // Pass false to suppress individual toasts
         success.push(id);
       } catch (error) {
-        console.error(`Error deleting timetable ${id}:`, error);
+        logger.error('academic/timetables', `Error deleting timetable ${id}`, error);
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown error';
 
@@ -754,7 +725,7 @@ Please select a different date period that doesn't overlap.`
         });
 
       if (error) {
-        console.error('Error fetching available semesters:', error);
+        logger.error('academic/timetables', 'Error fetching available semesters', error);
         return [];
       }
 
@@ -768,7 +739,7 @@ Please select a different date period that doesn't overlap.`
 
       return filteredData;
     } catch (error) {
-      console.error('Error in getAvailableSemesters:', error);
+      logger.error('academic/timetables', 'Error in getAvailableSemesters', error);
       return [];
     }
   }
@@ -823,13 +794,13 @@ Please select a different date period that doesn't overlap.`
       });
 
       if (error) {
-        console.error('Error fetching available sections:', error);
+        logger.error('academic/timetables', 'Error fetching available sections', error);
         return [];
       }
 
       return data || [];
     } catch (error) {
-      console.error('Error in getAvailableSections:', error);
+      logger.error('academic/timetables', 'Error in getAvailableSections', error);
       return [];
     }
   }
@@ -845,12 +816,12 @@ Please select a different date period that doesn't overlap.`
       } = await this.supabase.auth.getUser();
 
       if (authError) {
-        console.error('Authentication error:', authError);
+        logger.error('academic/timetables', 'Authentication error', authError);
         throw new Error(`Authentication error: ${authError.message}`);
       }
 
       if (!user) {
-        console.error('No authenticated user found');
+        logger.error('academic/timetables', 'No authenticated user found');
         throw new Error('User not authenticated');
       }
 
@@ -918,7 +889,7 @@ Please select a different date period that doesn't overlap.`
             query = query.eq('id', '00000000-0000-0000-0000-000000000000');
           }
         } catch (sectionError) {
-          console.error('Error fetching section IDs for filter:', sectionError);
+          logger.error('academic/timetables', 'Error fetching section IDs for filter', sectionError);
           // On error, don't apply the filter to avoid breaking the query
         }
       }
@@ -948,13 +919,7 @@ Please select a different date period that doesn't overlap.`
       const { data, error, count } = await query;
 
       if (error) {
-        console.error('Database query error:', error);
-        console.error('Error details:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        });
+        logger.error('academic/timetables', 'Database query error', { error, message: error.message, details: error.details, hint: error.hint, code: error.code });
 
         throw new Error(
           `Database error: ${error.message}${
@@ -975,7 +940,7 @@ Please select a different date period that doesn't overlap.`
 
       return result;
     } catch (error) {
-      console.error('Error fetching timetables:', error);
+      logger.error('academic/timetables', 'Error fetching timetables', error);
       throw error;
     }
   }
@@ -1028,7 +993,7 @@ Please select a different date period that doesn't overlap.`
 
       return timetable;
     } catch (error) {
-      console.error('Error fetching timetable:', error);
+      logger.error('academic/timetables', 'Error fetching timetable', error);
       throw error;
     }
   }
@@ -1095,8 +1060,7 @@ Please select a different date period that doesn't overlap.`
           .eq('institution_id', timetable.institution_id);
 
         if (coursesError) {
-          console.error('Error fetching courses:', coursesError);
-          console.error('Course IDs that failed:', courseIdsArray);
+          logger.error('academic/timetables', 'Error fetching courses', { error: coursesError, courseIdsArray });
         } else if (courses) {
           courses.forEach((course) => coursesMap.set(course.id, course));
         }
@@ -1118,15 +1082,13 @@ Please select a different date period that doesn't overlap.`
           .eq('institution_id', timetable.institution_id);
 
         if (staffError) {
-          console.error('Error fetching staff:', staffError);
-          console.error('Staff IDs that failed:', staffIdsArray);
-          console.error('Institution ID:', timetable.institution_id);
+          logger.error('academic/timetables', 'Error fetching staff', { error: staffError, staffIdsArray, institutionId: timetable.institution_id });
         } else if (staff) {
           staff.forEach((staffMember) =>
             staffMap.set(staffMember.id, staffMember)
           );
         } else {
-          console.warn('No staff data returned for IDs:', staffIdsArray);
+          logger.warn('academic/timetables', 'No staff data returned for IDs', { staffIdsArray });
         }
       }
 
@@ -1228,23 +1190,13 @@ Please select a different date period that doesn't overlap.`
                   // Enrich course
                   if (subSlot.course_id && coursesMap.has(subSlot.course_id)) {
                     subSlot.course = coursesMap.get(subSlot.course_id);
-                  } else {
-                    console.warn(`Sub-slot ${index} missing course - course_id: ${subSlot.course_id}, in map: ${coursesMap.has(subSlot.course_id)}`);
                   }
 
                   // Enrich staff
                   if (subSlot.staff_ids && Array.isArray(subSlot.staff_ids)) {
                     subSlot.staff_members = subSlot.staff_ids
-                      .map((staffId: string) => {
-                        const staffMember = staffMap.get(staffId);
-                        if (!staffMember) {
-                          console.warn(`Sub-slot ${index} staff not found in map: ${staffId}`);
-                        }
-                        return staffMember;
-                      })
+                      .map((staffId: string) => staffMap.get(staffId))
                       .filter(Boolean);
-                  } else {
-                    console.warn(`Sub-slot ${index} has no staff_ids`);
                   }
 
                   return subSlot;
@@ -1268,7 +1220,6 @@ Please select a different date period that doesn't overlap.`
         );
 
         if (hasIndividualDates) {
-          console.log('[TimetableService] Converting individual date slots to range-based structure');
           const regroupedData: any = {};
 
           // For each range marker in selected_dates
@@ -1308,7 +1259,6 @@ Please select a different date period that doesn't overlap.`
 
                         if (currentStaffCount > existingStaffCount) {
                           // Current slot has more staff - prefer it
-                          console.log(`[TimetableService] Merge: Using slot from ${date} with ${currentStaffCount} staff instead of slot with ${existingStaffCount} staff`);
                           mergedSlots[periodId] = currentSlot;
                         }
                         // Also check updated_at if staff counts are equal - prefer newer
@@ -1340,8 +1290,6 @@ Please select a different date period that doesn't overlap.`
             delete enrichedTimetableData[key];
           });
           Object.assign(enrichedTimetableData, regroupedData);
-
-          console.log('[TimetableService] Regrouped data keys:', Object.keys(enrichedTimetableData));
         }
       }
 
@@ -1378,7 +1326,7 @@ Please select a different date period that doesn't overlap.`
         slots: slots
       };
     } catch (error) {
-      console.error('Error enriching timetable with details:', error);
+      logger.error('academic/timetables', 'Error enriching timetable with details', error);
       return timetable;
     }
   }
@@ -1400,7 +1348,7 @@ Please select a different date period that doesn't overlap.`
         );
 
         if (error) {
-          console.error('Error in getTimetableSlots:', error);
+          logger.error('academic/timetables', 'Error in getTimetableSlots', error);
           throw error;
         }
 
@@ -1415,13 +1363,13 @@ Please select a different date period that doesn't overlap.`
         );
 
         if (error) {
-          console.error('Error in getTimetableSlots (all):', error);
+          logger.error('academic/timetables', 'Error in getTimetableSlots (all)', error);
           throw error;
         }
         return data.map((item: any) => item.slot);
       }
     } catch (error) {
-      console.error('Error fetching timetable slots:', error);
+      logger.error('academic/timetables', 'Error fetching timetable slots', error);
       throw error;
     }
   }
@@ -1439,13 +1387,13 @@ Please select a different date period that doesn't overlap.`
       });
 
       if (error) {
-        console.error('Error fetching timetable by date:', error);
+        logger.error('academic/timetables', 'Error fetching timetable by date', error);
         throw error;
       }
 
       return data;
     } catch (error) {
-      console.error('Error in getTimetableByDate:', error);
+      logger.error('academic/timetables', 'Error in getTimetableByDate', error);
       throw error;
     }
   }
@@ -1521,7 +1469,7 @@ Please select a different date period that doesn't overlap.`
         if (isValidDate) {
           attendanceQuery = attendanceQuery.eq('attendance_date', day);
         } else {
-          console.warn('Batch mode but invalid date format:', day);
+          logger.warn('academic/timetables', 'Batch mode but invalid date format', { day });
         }
       }
 
@@ -1529,7 +1477,7 @@ Please select a different date period that doesn't overlap.`
         await attendanceQuery;
 
       if (checkError) {
-        console.error('Error checking attendance for slot:', checkError);
+        logger.error('academic/timetables', 'Error checking attendance for slot', checkError);
       }
 
       // Check if this specific period/slot has attendance marked
@@ -1598,35 +1546,13 @@ Please select a different date period that doesn't overlap.`
         p_is_batch: isBatch
       };
 
-      // Updated: 2025-12-01 - Add debug logging for slot update troubleshooting
-      console.log('[TimetableService.updateTimetableSlot] BEFORE RPC call:', {
-        timetableId,
-        day,
-        periodId,
-        isBatch,
-        staff_ids_being_saved: processedSlotData.staff_ids,
-        staff_ids_count: processedSlotData.staff_ids?.length || 0,
-        course_id: processedSlotData.course_id,
-        slot_date: processedSlotData.slot_date,
-        full_payload: JSON.stringify(payload, null, 2)
-      });
-
       const { data, error } = await this.supabase.rpc(
         'update_timetable_slot',
         payload
       );
 
-      // Updated: 2025-12-01 - Log RPC response
-      console.log('[TimetableService.updateTimetableSlot] AFTER RPC call:', {
-        success: !error,
-        error: error ? JSON.stringify(error) : null,
-        response_data: data,
-        response_success: data?.success,
-        response_message: data?.message
-      });
-
       if (error) {
-        console.error('Error updating timetable slot:', error);
+        logger.error('academic/timetables', 'Error updating timetable slot', error);
         if (!suppressToast) {
           toast.error('Failed to update timetable slot.');
         }
@@ -1635,7 +1561,7 @@ Please select a different date period that doesn't overlap.`
 
       // Check if RPC returned success: false
       if (data && data.success === false) {
-        console.error('[TimetableService.updateTimetableSlot] RPC returned failure:', data);
+        logger.error('academic/timetables', 'RPC returned failure', data);
         if (!suppressToast) {
           toast.error(data.message || 'Failed to update timetable slot.');
         }
@@ -1647,7 +1573,7 @@ Please select a different date period that doesn't overlap.`
       }
       return data;
     } catch (error) {
-      console.error('Error in updateTimetableSlot:', error);
+      logger.error('academic/timetables', 'Error in updateTimetableSlot', error);
       throw error;
     }
   }
@@ -1679,12 +1605,6 @@ Please select a different date period that doesn't overlap.`
     message: string;
   }> {
     try {
-      console.log(`[TimetableService] Batch update for ${dates.length} dates`, {
-        timetableId,
-        periodId,
-        dateRange: `${dates[0]} to ${dates[dates.length - 1]}`
-      });
-
       // Call the new batch RPC function
       const { data, error } = await this.supabase.rpc(
         'update_timetable_slots_batch',
@@ -1697,14 +1617,12 @@ Please select a different date period that doesn't overlap.`
       );
 
       if (error) {
-        console.error('[TimetableService] Batch update error:', error);
+        logger.error('academic/timetables', 'Batch update error', error);
         if (!suppressToast) {
           toast.error('Failed to update timetable slots in batch.');
         }
         throw error;
       }
-
-      console.log('[TimetableService] Batch update result:', data);
 
       if (!suppressToast && data?.success) {
         toast.success(
@@ -1722,7 +1640,7 @@ Please select a different date period that doesn't overlap.`
 
       return data;
     } catch (error) {
-      console.error('Error in updateTimetableSlotsBatch:', error);
+      logger.error('academic/timetables', 'Error in updateTimetableSlotsBatch', error);
       throw error;
     }
   }
@@ -1745,8 +1663,6 @@ Please select a different date period that doesn't overlap.`
           const startDate = parts[1];
           const endDate = parts[2];
 
-          console.log('[TimetableService] Deleting slots for date range:', { startDate, endDate, periodId });
-
           // Generate all dates in the range
           const dates: string[] = [];
           const current = new Date(startDate);
@@ -1765,7 +1681,7 @@ Please select a different date period that doesn't overlap.`
             .in('attendance_date', dates);
 
           if (checkError) {
-            console.error('Error checking attendance for range deletion:', checkError);
+            logger.error('academic/timetables', 'Error checking attendance for range deletion', checkError);
           }
 
           // Check if any date in the range has attendance marked
@@ -1818,22 +1734,20 @@ Please select a different date period that doesn't overlap.`
               });
 
               if (error) {
-                console.error(`Failed to delete slot for ${date}:`, error);
+                logger.error('academic/timetables', `Failed to delete slot for ${date}`, error);
                 failedCount++;
               } else {
                 deletedCount++;
               }
             } catch (err) {
-              console.error(`Error deleting slot for ${date}:`, err);
+              logger.error('academic/timetables', `Error deleting slot for ${date}`, err);
               failedCount++;
             }
           }
 
           if (failedCount > 0) {
-            console.error(`[TimetableService] ${failedCount} slot deletions failed out of ${dates.length}`);
+            logger.error('academic/timetables', `${failedCount} slot deletions failed out of ${dates.length}`);
           }
-
-          console.log('[TimetableService] Deleted slots for', deletedCount, 'of', dates.length, 'dates');
 
           if (!suppressToast) {
             toast.success('Timetable slot deleted successfully!');
@@ -1857,7 +1771,7 @@ Please select a different date period that doesn't overlap.`
         if (isValidDate) {
           attendanceQuery = attendanceQuery.eq('attendance_date', day);
         } else {
-          console.warn('Delete: Batch mode but invalid date format:', day);
+          logger.warn('academic/timetables', 'Delete: Batch mode but invalid date format', { day });
         }
       }
 
@@ -1865,10 +1779,7 @@ Please select a different date period that doesn't overlap.`
         await attendanceQuery;
 
       if (checkError) {
-        console.error(
-          'Error checking attendance for slot deletion:',
-          checkError
-        );
+        logger.error('academic/timetables', 'Error checking attendance for slot deletion', checkError);
       }
 
       // Check if this specific period/slot has attendance marked
@@ -1933,7 +1844,7 @@ Please select a different date period that doesn't overlap.`
       });
 
       if (error) {
-        console.error('Error deleting timetable slot:', error);
+        logger.error('academic/timetables', 'Error deleting timetable slot', error);
         if (!suppressToast) {
           toast.error('Failed to delete timetable slot.');
         }
@@ -1944,7 +1855,7 @@ Please select a different date period that doesn't overlap.`
         toast.success('Timetable slot deleted successfully!');
       }
     } catch (error) {
-      console.error('Error in deleteTimetableSlot:', error);
+      logger.error('academic/timetables', 'Error in deleteTimetableSlot', error);
       throw error;
     }
   }
@@ -1979,7 +1890,7 @@ Please select a different date period that doesn't overlap.`
       // Execute all deletions (ignoring failures for non-existent slots)
       await Promise.allSettled(deletePromises);
     } catch (error) {
-      console.error('Error in deleteSlotsForDateRange:', error);
+      logger.error('academic/timetables', 'Error in deleteSlotsForDateRange', error);
       throw error;
     }
   }
@@ -2004,7 +1915,7 @@ Please select a different date period that doesn't overlap.`
       // Execute all deletions (ignoring failures for non-existent slots)
       await Promise.allSettled(deletePromises);
     } catch (error) {
-      console.error('Error in deleteSlotsForRemovedDates:', error);
+      logger.error('academic/timetables', 'Error in deleteSlotsForRemovedDates', error);
       throw error;
     }
   }
@@ -2021,7 +1932,7 @@ Please select a different date period that doesn't overlap.`
         .in('id', periodIds);
 
       if (periodsError) {
-        console.error('Error fetching period data:', periodsError);
+        logger.error('academic/timetables', 'Error fetching period data', periodsError);
         throw periodsError;
       }
 
@@ -2051,11 +1962,11 @@ Please select a different date period that doesn't overlap.`
         .eq('id', timetableId);
 
       if (error) {
-        console.error('Error saving timetable periods:', error);
+        logger.error('academic/timetables', 'Error saving timetable periods', error);
         throw error;
       }
     } catch (error) {
-      console.error('Error in saveTimetablePeriods:', error);
+      logger.error('academic/timetables', 'Error in saveTimetablePeriods', error);
       throw error;
     }
   }
@@ -2080,7 +1991,7 @@ Please select a different date period that doesn't overlap.`
 
       return (data as any)?.institution?.timetable_type || 'week_order';
     } catch (error) {
-      console.error('Error fetching institution timetable type:', error);
+      logger.error('academic/timetables', 'Error fetching institution timetable type', error);
       return 'week_order'; // Default fallback
     }
   }
@@ -2123,7 +2034,7 @@ Please select a different date period that doesn't overlap.`
         }
       });
     } catch (error) {
-      console.error('Error saving timetable as template:', error);
+      logger.error('academic/timetables', 'Error saving timetable as template', error);
       toast.error('Failed to save as template. Please try again.', {
         duration: 4000,
         position: 'top-center'
@@ -2211,7 +2122,7 @@ Please select a different date period that doesn't overlap.`
         .single();
 
       if (createError) {
-        console.error('Error creating timetable from template:', createError);
+        logger.error('academic/timetables', 'Error creating timetable from template', createError);
         if (createError.code === '23505') {
           toast.error(
             '⚠️ This timetable configuration already exists. Please check your semester and section selection.',
@@ -2256,7 +2167,7 @@ Please select a different date period that doesn't overlap.`
 
       return newTimetable;
     } catch (error) {
-      console.error('Error creating timetable from template:', error);
+      logger.error('academic/timetables', 'Error creating timetable from template', error);
       throw error;
     }
   }
@@ -2350,7 +2261,7 @@ Please select a different date period that doesn't overlap.`
         }
       };
     } catch (error) {
-      console.error('Error fetching templates:', error);
+      logger.error('academic/timetables', 'Error fetching templates', error);
       throw error;
     }
   }
@@ -2388,7 +2299,7 @@ Please select a different date period that doesn't overlap.`
         }
       );
     } catch (error) {
-      console.error('Error deleting template:', error);
+      logger.error('academic/timetables', 'Error deleting template', error);
       toast.error('Failed to delete template. Please try again.', {
         duration: 4000,
         position: 'top-center'
@@ -2422,7 +2333,7 @@ Please select a different date period that doesn't overlap.`
 
       return data;
     } catch (error) {
-      console.error('Error fetching template:', error);
+      logger.error('academic/timetables', 'Error fetching template', error);
       throw error;
     }
   }
@@ -2481,7 +2392,7 @@ Please select a different date period that doesn't overlap.`
 
       return template;
     } catch (error) {
-      console.error('Error saving template:', error);
+      logger.error('academic/timetables', 'Error saving template', error);
       throw error;
     }
   }
@@ -2520,7 +2431,7 @@ Please select a different date period that doesn't overlap.`
 
       return template;
     } catch (error) {
-      console.error('Error updating template:', error);
+      logger.error('academic/timetables', 'Error updating template', error);
       throw error;
     }
   }
@@ -2572,7 +2483,7 @@ Please select a different date period that doesn't overlap.`
 
       return template;
     } catch (error) {
-      console.error('Error duplicating template:', error);
+      logger.error('academic/timetables', 'Error duplicating template', error);
       throw error;
     }
   }

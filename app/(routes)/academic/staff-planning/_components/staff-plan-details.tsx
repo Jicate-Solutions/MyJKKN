@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 import { Edit } from 'lucide-react';
 import { StaffPlan, StaffPlanCourse } from '@/types/staff-planning';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { Button } from '@/components/ui/button';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -69,22 +70,19 @@ export function StaffPlanDetailsPage({
             // Use consolidated data if available
             setStaffPlan(consolidatedData);
             setCourses(consolidatedData.all_courses);
-          } catch (consolidatedError) {
-            console.log(
-              'Consolidated view not available, using individual plan'
-            );
+          } catch {
             // Fallback to individual course data
             const coursesData = await StaffPlanService.getStaffPlanCourses(id);
             setCourses(coursesData);
           }
         } catch (planError) {
-          console.error('Error loading staff plan:', planError);
+          logger.error('academic/staff-planning', 'Error loading staff plan', planError);
           setError('Failed to load staff plan details');
           setLoading(false);
           return;
         }
       } catch (error) {
-        console.error('Error loading staff plan:', error);
+        logger.error('academic/staff-planning', 'Error loading staff plan', error);
         setError('Failed to load staff plan details');
       } finally {
         setLoading(false);

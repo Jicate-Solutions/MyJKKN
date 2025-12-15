@@ -2,6 +2,7 @@ import { Period } from '@/types/academics';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 /**
  * Sort periods by name naturally (Period 1, Period 2, etc.)
@@ -208,7 +209,7 @@ export async function exportTimetableToPDF(
     pdf.addPage();
     pdf.addImage(imgData, 'PNG', 14, 14, imgWidth, imgHeight);
   } catch (error) {
-    console.error('Error capturing timetable grid:', error);
+    logger.error('academic/timetables', 'Error capturing timetable grid', error);
     throw new Error('Failed to capture timetable grid');
   }
 

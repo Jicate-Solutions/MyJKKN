@@ -26,6 +26,7 @@ import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { Timetable } from '@/types/academics';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -69,8 +70,8 @@ export function DataTableRowActions<TData>({
       // Refresh the page to update the data table
       window.location.reload();
     } catch (error) {
-      console.error('Error deleting timetable:', error);
-      
+      logger.error('academic/timetables', 'Error deleting timetable', error);
+
       // Check if it's an attendance-related error
       const errorMessage = error instanceof Error ? error.message : 'Failed to delete timetable';
       const isAttendanceError = errorMessage.includes('attendance records');

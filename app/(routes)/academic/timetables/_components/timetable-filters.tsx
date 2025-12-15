@@ -20,6 +20,7 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { TimetablesSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface TimetableFiltersProps {
   searchParams: TimetablesSearchParams;
@@ -89,7 +90,7 @@ export function TimetableFilters({
         const data = await OrganizationService.getInstitutionNames(true);
         setInstitutions(data);
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        logger.error('academic/timetables', 'Error loading institutions', error);
       } finally {
         setLoading(false);
       }
@@ -124,7 +125,7 @@ export function TimetableFilters({
           );
           setDegrees(data);
         } catch (error) {
-          console.error('Error loading degrees:', error);
+          logger.error('academic/timetables', 'Error loading degrees', error);
         }
       } else {
         setDegrees([]);
@@ -142,7 +143,7 @@ export function TimetableFilters({
           );
           setDepartments(data);
         } catch (error) {
-          console.error('Error loading departments:', error);
+          logger.error('academic/timetables', 'Error loading departments', error);
         }
       } else {
         setDepartments([]);
@@ -160,7 +161,7 @@ export function TimetableFilters({
           );
           setPrograms(data);
         } catch (error) {
-          console.error('Error loading programs:', error);
+          logger.error('academic/timetables', 'Error loading programs', error);
         }
       } else {
         setPrograms([]);
@@ -178,7 +179,7 @@ export function TimetableFilters({
           );
           setSemesters(data);
         } catch (error) {
-          console.error('Error loading semesters:', error);
+          logger.error('academic/timetables', 'Error loading semesters', error);
         }
       } else {
         setSemesters([]);
@@ -203,7 +204,7 @@ export function TimetableFilters({
           const response = await SectionService.getSections(filters);
           setSections(response.data);
         } catch (error) {
-          console.error('Error loading sections:', error);
+          logger.error('academic/timetables', 'Error loading sections', error);
         }
       } else {
         setSections([]);
@@ -227,7 +228,7 @@ export function TimetableFilters({
           );
           setAcademicYears(data);
         } catch (error) {
-          console.error('Error loading academic years:', error);
+          logger.error('academic/timetables', 'Error loading academic years', error);
         }
       } else {
         setAcademicYears([]);
