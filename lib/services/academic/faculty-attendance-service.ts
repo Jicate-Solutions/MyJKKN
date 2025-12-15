@@ -2,6 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { format } from 'date-fns';
 import { AttendanceService } from './attendance-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export class FacultyAttendanceService {
   private static supabase = createClientSupabaseClient();
@@ -44,7 +45,7 @@ export class FacultyAttendanceService {
       if (error) {
         // Only log actual errors, not "no rows" cases
         if (error.code !== 'PGRST116') {
-          console.error('Error fetching staff by email:', error);
+          logger.error('academic/faculty-attendance', 'Error fetching staff by email', error);
         }
         return null;
       }
@@ -57,7 +58,7 @@ export class FacultyAttendanceService {
 
       return data.id;
     } catch (error) {
-      console.error('Error fetching staff by email:', error);
+      logger.error('academic/faculty-attendance', 'Error fetching staff by email', error);
       return null;
     }
   }
@@ -78,12 +79,6 @@ export class FacultyAttendanceService {
       const targetDate = date || format(new Date(), 'yyyy-MM-dd');
       const dayOfWeek = this.getDayOfWeekFromDate(targetDate).toUpperCase();
 
-      console.log('[faculty-attendance] Fetching faculty periods (optimized):', {
-        staffId,
-        targetDate,
-        dayOfWeek
-      });
-
       // First get the staff member's details
       const { data: staffData, error: staffError } = await this.supabase
         .from('staff')
@@ -92,7 +87,7 @@ export class FacultyAttendanceService {
         .single();
 
       if (staffError || !staffData) {
-        console.error('[faculty-attendance] Staff not found:', staffError);
+        logger.error('academic/faculty-attendance', 'Staff not found', staffError);
         return { periods: [], searchContext: {} };
       }
 
@@ -106,7 +101,7 @@ export class FacultyAttendanceService {
         .limit(1);
 
       if (yearError || !academicYears || academicYears.length === 0) {
-        console.error('[faculty-attendance] No active academic year found:', yearError);
+        logger.error('academic/faculty-attendance', 'No active academic year found', yearError);
         return { periods: [], searchContext: {} };
       }
 
@@ -136,11 +131,8 @@ export class FacultyAttendanceService {
         .eq('is_active', true);
 
       if (timetableError || !timetables || timetables.length === 0) {
-        console.log('[faculty-attendance] No active timetables found');
         return { periods: [], searchContext: {} };
       }
-
-      console.log(`[faculty-attendance] Found ${timetables.length} timetables, extracting staff-assigned periods`);
 
       // OPTIMIZATION: Extract all unique course IDs first, then batch fetch
       const courseIds = new Set<string>();
@@ -156,29 +148,10 @@ export class FacultyAttendanceService {
           timetable.selected_dates
         );
 
-        console.log('[faculty-attendance] Date validation:', {
-          timetable_id: timetable.id,
-          section: (timetable.sections as any)?.section_name,
-          format: timetable.timetable_format,
-          start_date: timetable.start_date,
-          end_date: timetable.end_date,
-          selected_dates_count: timetable.selected_dates?.length || 0,
-          target_date: targetDate,
-          is_valid: isDateValid
-        });
-
         if (!isDateValid) continue;
 
         const timetableData = timetable.timetable_data;
         const periodsDefinition = timetable.periods;
-
-        console.log('[faculty-attendance] Checking day data:', {
-          timetable_id: timetable.id,
-          day_of_week: dayOfWeek,
-          has_timetable_data: !!timetableData,
-          has_day_data: !!(timetableData && timetableData[dayOfWeek]),
-          available_days: timetableData ? Object.keys(timetableData) : []
-        });
 
         if (!timetableData || !timetableData[dayOfWeek]) continue;
 
@@ -309,17 +282,12 @@ export class FacultyAttendanceService {
         return timeA - timeB;
       });
 
-      console.log(`[faculty-attendance] ===== SUMMARY =====`);
-      console.log(`[faculty-attendance] Target Date: ${targetDate} (${dayOfWeek})`);
-      console.log(`[faculty-attendance] Total Timetables Found: ${timetables.length}`);
-      console.log(`[faculty-attendance] Faculty Periods Found: ${facultyPeriods.length}`);
-
       if (facultyPeriods.length === 0) {
-        console.warn(`[faculty-attendance] ⚠️ No periods found! Common reasons:`);
-        console.warn(`  1. Date might be outside timetable date range`);
-        console.warn(`  2. No classes scheduled for ${dayOfWeek}`);
-        console.warn(`  3. Faculty not assigned to any periods on this day`);
-        console.warn(`  Check the logs above for date validation and day data`);
+        logger.warn('academic/faculty-attendance', 'No periods found for faculty', {
+          targetDate,
+          dayOfWeek,
+          timetablesCount: timetables.length
+        });
       }
 
       // Create search context
@@ -339,7 +307,7 @@ export class FacultyAttendanceService {
         searchContext
       };
     } catch (error) {
-      console.error('[faculty-attendance] Error fetching faculty periods:', error);
+      logger.error('academic/faculty-attendance', 'Error fetching faculty periods', error);
       return { periods: [], searchContext: {} };
     }
   }
@@ -412,7 +380,7 @@ export class FacultyAttendanceService {
 
     // Unknown format - log warning and return false for safety
     if (format !== 'date-range' && format !== 'regular' && format !== 'specific-dates' && format !== 'batch') {
-      console.warn(`[faculty-attendance] Unknown timetable format: '${format}'`);
+      logger.warn('academic/faculty-attendance', 'Unknown timetable format', { format });
     }
 
     return false;
@@ -554,7 +522,7 @@ export class FacultyAttendanceService {
                           courseDetailsMap.set(slot.course_id, courseDetails);
                         }
                       } catch (error) {
-                        console.error('Error fetching course details:', error);
+                        logger.error('academic/faculty-attendance', 'Error fetching course details', error);
                       }
                     }
                   }
@@ -635,10 +603,7 @@ export class FacultyAttendanceService {
             semesterId = semesterData.id;
           }
         } catch (error) {
-          console.error(
-            'Error resolving semester name to ID for searchContext:',
-            error
-          );
+          logger.error('academic/faculty-attendance', 'Error resolving semester name to ID for searchContext', error);
         }
       }
 
@@ -651,7 +616,7 @@ export class FacultyAttendanceService {
         }
       };
     } catch (error) {
-      console.error('Error fetching all faculty periods:', error);
+      logger.error('academic/faculty-attendance', 'Error fetching all faculty periods', error);
       return { periodsByDay: {}, searchContext: {} };
     }
   }

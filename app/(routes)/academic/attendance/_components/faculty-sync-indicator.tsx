@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { AttendanceFacultySync } from '@/lib/services/academic/attendance-faculty-sync';
 import { toast } from 'sonner';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface FacultySyncIndicatorProps {
   attendanceId: string;
@@ -55,7 +56,7 @@ export function FacultySyncIndicator({
         setNewFaculty(result.newFaculty);
       }
     } catch (error) {
-      console.error('Error checking faculty changes:', error);
+      logger.error('academic/attendance', 'Error checking faculty changes', error);
     } finally {
       setChecking(false);
     }
@@ -86,7 +87,7 @@ export function FacultySyncIndicator({
         toast.error('Failed to sync faculty assignments');
       }
     } catch (error) {
-      console.error('Error syncing faculty:', error);
+      logger.error('academic/attendance', 'Error syncing faculty', error);
       toast.error('An error occurred while syncing');
     } finally {
       setSyncing(false);
@@ -210,7 +211,7 @@ export function BatchFacultySync({
         toast.error('Batch sync failed');
       }
     } catch (error) {
-      console.error('Batch sync error:', error);
+      logger.error('academic/attendance', 'Batch sync error', error);
       toast.error('An error occurred during batch sync');
     } finally {
       setSyncing(false);

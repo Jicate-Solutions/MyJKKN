@@ -22,6 +22,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import toast from 'react-hot-toast';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface TimetablesDataTableProps {
   search: TimetablesSearchParams;
@@ -58,7 +59,7 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
     if (permissionsLoading) {
       const timeoutId = setTimeout(() => {
         setLoadingTimeout(true);
-        console.error('[academic/timetables] Permissions loading timeout');
+        logger.error('academic/timetables', 'Permissions loading timeout');
       }, 10000); // 10 seconds
 
       return () => clearTimeout(timeoutId);
@@ -82,9 +83,8 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
     refreshIntervalRef.current = setInterval(() => {
       setLastRefresh(new Date());
       if (dataTableRefreshRef.current) {
-        console.log('[academic/timetables] Auto-refreshing timetable data...');
         dataTableRefreshRef.current();
-        toast.success('🔄 Timetable data refreshed', { duration: 2000 });
+        toast.success('Timetable data refreshed', { duration: 2000 });
       }
     }, 120000); // 2 minutes
 
@@ -147,14 +147,6 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
 
       const { data, metadata } = await TimetableService.getTimetables(filters);
 
-      // Debug logging - remove this after fixing
-      console.log('🔍 TimetableService.getTimetables returned:', {
-        dataCount: data?.length || 0,
-        firstItem: data?.[0] || null,
-        hasSemstersOnFirst: data?.[0]?.semesters || 'no semesters property',
-        hasSectionsOnFirst: data?.[0]?.sections || 'no sections property'
-      });
-
       return {
         success: true,
         data: data || [],
@@ -166,7 +158,7 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
         }
       };
     } catch (error) {
-      console.error('Error fetching timetables:', error);
+      logger.error('academic/timetables', 'Error fetching timetables', error);
       throw error;
     }
   };
@@ -226,7 +218,7 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
 
       // The DataTable will automatically refetch data after this
     } catch (error) {
-      console.error('Error deleting timetables:', error);
+      logger.error('academic/timetables', 'Error deleting timetables', error);
       toast.error('Failed to delete timetables');
     } finally {
       setIsDeleting(false);

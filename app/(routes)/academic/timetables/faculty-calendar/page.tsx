@@ -369,12 +369,10 @@ function FacultyCalendarContainer({
   );
 
   const handleSlotClick = (slot: FacultySlot) => {
-    console.log('Slot clicked:', slot);
     // Handle slot click - could open edit dialog, navigate to details, etc.
   };
 
   const handleDateClick = (date: Date) => {
-    console.log('Date clicked:', date);
     // Handle date click - could open create dialog for new slot
   };
 

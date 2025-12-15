@@ -22,6 +22,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { usePermissions } from '@/hooks/use-permissions';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface AcademicYearDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -48,7 +49,7 @@ export default function AcademicYearDetailsPage({
         const data = await AcademicYearService.getAcademicYear(id);
         setAcademicYear(data);
       } catch (err) {
-        console.error('Error fetching academic year:', err);
+        logger.error('academic/academic-years', 'Error fetching academic year', err);
         setError(
           err instanceof Error ? err.message : 'Failed to fetch academic year'
         );

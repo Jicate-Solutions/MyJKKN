@@ -186,7 +186,7 @@ export default function AttendanceReportsPage() {
 
       setStatistics(data);
     } catch (error) {
-      console.error('Error fetching statistics:', error);
+      // Error fetching statistics - silently fail and show empty state
     } finally {
       setLoadingStats(false);
     }

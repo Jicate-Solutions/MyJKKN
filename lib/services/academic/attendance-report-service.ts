@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export interface AttendanceReportFilters {
   institution_id?: string;
@@ -88,17 +89,14 @@ export class AttendanceReportService {
 
         // Allow full access if user is super admin or admin
         if (profileData?.is_super_admin || profileData?.role === 'admin') {
-          console.log(
-            'Access granted: Super admin or admin role for reports list'
-          );
+          // Super admin or admin - full access
         } else if (profileData?.role === 'hod') {
           // HOD users see all attendance reports from their department
-          console.log('HOD user - filtering by department:', profileData.department_id);
           if (profileData.department_id) {
             // Add department filter for HOD users
             filters.department_id = profileData.department_id;
           } else {
-            console.warn('HOD user has no department_id assigned');
+            logger.warn('academic/attendance-reports', 'HOD user has no department_id assigned', { userId });
             return { data: [], count: 0, error: 'Department not assigned to HOD user' };
           }
         } else {
@@ -110,13 +108,12 @@ export class AttendanceReportService {
             .single();
 
           if (!staffData) {
-            console.error('Staff record not found for faculty user:', userId);
+            logger.error('academic/attendance-reports', 'Staff record not found for faculty user', { userId });
             // Return empty result for faculty without staff record
             return { data: [], count: 0, error: 'Staff record not found' };
           }
 
           staffId = staffData.id;
-          console.log('Faculty staff ID for filtering:', staffId);
 
           // Use RPC function for faculty filtering - much more efficient
           return await this.getFacultyAttendanceReports(
@@ -174,7 +171,7 @@ export class AttendanceReportService {
       const { data, error, count } = await query;
 
       if (error) {
-        console.error('Error fetching reports:', error);
+        logger.error('academic/attendance-reports', 'Error fetching reports', error);
         return { data: [], count: 0, error: error.message };
       }
 
@@ -363,7 +360,7 @@ export class AttendanceReportService {
         error: null
       };
     } catch (error) {
-      console.error('Error in getAttendanceReports:', error);
+      logger.error('academic/attendance-reports', 'Error in getAttendanceReports', error);
       return { data: [], count: 0, error: 'Failed to fetch reports' };
     }
   }
@@ -378,13 +375,6 @@ export class AttendanceReportService {
     limit: number = 50
   ) {
     try {
-      console.log(
-        'Using RPC function for faculty filtering - scalable for large datasets'
-      );
-      console.log('Faculty staff ID:', staffId);
-      console.log('Filters:', filters);
-      console.log('Page:', page, 'Limit:', limit);
-
       // Calculate offset for pagination
       const offset = (page - 1) * limit;
 
@@ -408,21 +398,7 @@ export class AttendanceReportService {
       );
 
       if (error) {
-        console.error('Error in faculty RPC call:', error);
-        console.error('RPC call details:', {
-          faculty_staff_id: staffId,
-          filter_institution_id: filters.institution_id || null,
-          filter_academic_year_id: filters.academic_year_id || null,
-          filter_degree_id: filters.degree_id || null,
-          filter_department_id: filters.department_id || null,
-          filter_program_id: filters.program_id || null,
-          filter_semester_id: filters.semester_id || null,
-          filter_section_id: filters.section_id || null,
-          filter_date_from: filters.date_range?.from || null,
-          filter_date_to: filters.date_range?.to || null,
-          page_offset: offset,
-          page_limit: limit
-        });
+        logger.error('academic/attendance-reports', 'Error in faculty RPC call', error);
         return { data: [], count: 0, error: error.message };
       }
 
@@ -434,9 +410,6 @@ export class AttendanceReportService {
       const totalCount = rpcData[0]?.total_count || 0;
 
       // Process the data similar to regular processing but without client-side filtering
-      console.log(
-        `RPC returned ${rpcData.length} records with total count: ${rpcData[0]?.total_count}`
-      );
       const processedReports = await this.processAttendanceReports(rpcData);
 
       return {
@@ -445,7 +418,7 @@ export class AttendanceReportService {
         error: null
       };
     } catch (error) {
-      console.error('Error in getFacultyAttendanceReports:', error);
+      logger.error('academic/attendance-reports', 'Error in getFacultyAttendanceReports', error);
       return { data: [], count: 0, error: 'Failed to fetch faculty reports' };
     }
   }
@@ -484,7 +457,7 @@ export class AttendanceReportService {
               .in('id', sectionIds)
               .then((result) => {
                 if (result.error)
-                  console.error('Error fetching sections:', result.error);
+                  logger.error('academic/attendance-reports', 'Error fetching sections', result.error);
                 return result;
               })
           : Promise.resolve({ data: [] }),
@@ -495,7 +468,7 @@ export class AttendanceReportService {
               .in('id', semesterIds)
               .then((result) => {
                 if (result.error)
-                  console.error('Error fetching semesters:', result.error);
+                  logger.error('academic/attendance-reports', 'Error fetching semesters', result.error);
                 return result;
               })
           : Promise.resolve({ data: [] }),
@@ -506,7 +479,7 @@ export class AttendanceReportService {
               .in('id', programIds)
               .then((result) => {
                 if (result.error)
-                  console.error('Error fetching programs:', result.error);
+                  logger.error('academic/attendance-reports', 'Error fetching programs', result.error);
                 return result;
               })
           : Promise.resolve({ data: [] }),
@@ -517,7 +490,7 @@ export class AttendanceReportService {
               .in('id', departmentIds)
               .then((result) => {
                 if (result.error)
-                  console.error('Error fetching departments:', result.error);
+                  logger.error('academic/attendance-reports', 'Error fetching departments', result.error);
                 return result;
               })
           : Promise.resolve({ data: [] }),
@@ -528,7 +501,7 @@ export class AttendanceReportService {
               .in('id', degreeIds)
               .then((result) => {
                 if (result.error)
-                  console.error('Error fetching degrees:', result.error);
+                  logger.error('academic/attendance-reports', 'Error fetching degrees', result.error);
                 return result;
               })
           : Promise.resolve({ data: [] }),
@@ -539,7 +512,7 @@ export class AttendanceReportService {
               .in('id', institutionIds)
               .then((result) => {
                 if (result.error)
-                  console.error('Error fetching institutions:', result.error);
+                  logger.error('academic/attendance-reports', 'Error fetching institutions', result.error);
                 return result;
               })
           : Promise.resolve({ data: [] })
@@ -667,7 +640,7 @@ export class AttendanceReportService {
         .single();
 
       if (error) {
-        console.error('Error fetching report details:', error);
+        logger.error('academic/attendance-reports', 'Error fetching report details', error);
         return { data: null, error: error.message };
       }
 
@@ -686,7 +659,7 @@ export class AttendanceReportService {
 
         // Allow access if user is super admin or admin
         if (profileData?.is_super_admin || profileData?.role === 'admin') {
-          console.log('Access granted: Super admin or admin role');
+          // Super admin or admin - full access
         } else {
           // For regular faculty, check staff assignment
           const { data: staffData } = await this.supabase
@@ -696,10 +669,7 @@ export class AttendanceReportService {
             .single();
 
           if (!staffData) {
-            console.warn(
-              'Faculty profile not found in staff table for user:',
-              userId
-            );
+            logger.warn('academic/attendance-reports', 'Faculty profile not found in staff table', { userId });
             // Don't block access - allow faculty to view reports even without staff record
             // This handles cases where faculty users don't have corresponding staff records
           } else {
@@ -708,46 +678,15 @@ export class AttendanceReportService {
             // attendance_data is an object with timetable_slot_id as keys and period data as values
             const periods = Object.values(attendanceData || {});
 
-            console.log('Debugging faculty access validation:', {
-              staffId: staffData.id,
-              totalPeriods: periods.length,
-              attendanceData: JSON.stringify(attendanceData, null, 2)
-            });
-
             const isAssigned = periods.some((period: any) => {
               const facultyMatch = Array.isArray(period.assigned_faculty)
-                ? period.assigned_faculty.some((f: any) => {
-                    console.log(
-                      'Checking array faculty:',
-                      f.faculty_id,
-                      'vs staff:',
-                      staffData.id,
-                      'match:',
-                      f.faculty_id === staffData.id
-                    );
-                    return f.faculty_id === staffData.id;
-                  })
-                : (() => {
-                    const match =
-                      period.assigned_faculty?.faculty_id === staffData.id;
-                    console.log(
-                      'Checking single faculty:',
-                      period.assigned_faculty?.faculty_id,
-                      'vs staff:',
-                      staffData.id,
-                      'match:',
-                      match
-                    );
-                    return match;
-                  })();
-
+                ? period.assigned_faculty.some((f: any) => f.faculty_id === staffData.id)
+                : period.assigned_faculty?.faculty_id === staffData.id;
               return facultyMatch;
             });
 
-            console.log('Final assignment result:', isAssigned);
-
             if (!isAssigned) {
-              console.error('Faculty not assigned to this report:', {
+              logger.error('academic/attendance-reports', 'Faculty not assigned to this report', {
                 userId,
                 staffId: staffData.id,
                 reportId: data.id
@@ -792,13 +731,8 @@ export class AttendanceReportService {
 
           if (staffData) {
             facultyStaffId = staffData.id;
-            console.log(
-              'Filtering periods for faculty staff ID:',
-              facultyStaffId
-            );
 
             // Filter periods to only include those assigned to this faculty
-            const originalPeriodsCount = periods.length;
             periods = periods.filter((period: any) => {
               if (Array.isArray(period.assigned_faculty)) {
                 return period.assigned_faculty.some(
@@ -808,12 +742,8 @@ export class AttendanceReportService {
               return period.assigned_faculty?.faculty_id === facultyStaffId;
             });
 
-            console.log(
-              `Faculty period filtering: ${originalPeriodsCount} periods filtered to ${periods.length}`
-            );
-
             if (periods.length === 0) {
-              console.warn('No periods found for this faculty in the report');
+              logger.warn('academic/attendance-reports', 'No periods found for this faculty in the report', { facultyStaffId });
             }
           }
         }
@@ -1156,7 +1086,7 @@ export class AttendanceReportService {
         error: null
       };
     } catch (error) {
-      console.error('Error in getReportDetails:', error);
+      logger.error('academic/attendance-reports', 'Error in getReportDetails', error);
       return { data: null, error: 'Failed to fetch report details' };
     }
   }
@@ -1181,10 +1111,6 @@ export class AttendanceReportService {
 
       // For faculty users, use the same RPC function as the table to ensure consistency
       if (level === 'faculty' && facultyStaffId) {
-        console.log(
-          '🔄 Using RPC function for faculty statistics to match table data'
-        );
-
         const { data: rpcData, error } = await this.supabase.rpc(
           'get_faculty_attendance_reports',
           {
@@ -1204,16 +1130,12 @@ export class AttendanceReportService {
         );
 
         if (error) {
-          console.error('Error in faculty statistics RPC:', error);
+          logger.error('academic/attendance-reports', 'Error in faculty statistics RPC', error);
           return { data: null, error: error.message };
         }
 
         data = rpcData || [];
         count = data.length > 0 ? data[0]?.total_count || data.length : 0;
-
-        console.log(
-          `📊 Faculty statistics: Found ${data.length} records (total count: ${count})`
-        );
       } else {
         // Build base query for non-faculty users
         let query = this.supabase
@@ -1423,7 +1345,7 @@ export class AttendanceReportService {
 
       return { data: statistics, error: null };
     } catch (error) {
-      console.error('Error calculating statistics:', error);
+      logger.error('academic/attendance-reports', 'Error calculating statistics', error);
       return { data: null, error: 'Failed to calculate statistics' };
     }
   }

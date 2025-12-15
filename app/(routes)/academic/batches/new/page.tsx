@@ -20,6 +20,7 @@ import { BatchForm } from '../_components/batch-form';
 import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
 import { CreateBatchDto } from '@/types/academics';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export default function NewBatchPage() {
   const router = useRouter();
@@ -85,7 +86,7 @@ export default function NewBatchPage() {
       toast.success('Batch created successfully!');
 
     } catch (error: any) {
-      console.error('Error creating batch:', error);
+      logger.error('academic/batches', 'Error creating batch', error);
 
       if (error?.code === '23505' || error?.message?.includes('duplicate')) {
         hotToast.error(

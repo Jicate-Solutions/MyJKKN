@@ -170,7 +170,7 @@ export function StaffSearchSelector({
           setStaffList(data);
         }
       } catch (error) {
-        console.error('[StaffSearchSelector] Failed to fetch staff:', error);
+        // Failed to fetch staff - show empty list
         if (!cancelled && mountedRef.current) {
           setStaffList([]);
         }

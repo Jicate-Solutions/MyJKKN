@@ -13,6 +13,7 @@ import { RotateCcw } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { PeriodsSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface PeriodFiltersProps {
   searchParams: PeriodsSearchParams;
@@ -38,7 +39,7 @@ export function PeriodFilters({
         const data = await OrganizationService.getInstitutionNames(true);
         setInstitutions(data);
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        logger.error('academic/periods', 'Error loading institutions', error);
       } finally {
         setLoading(false);
       }

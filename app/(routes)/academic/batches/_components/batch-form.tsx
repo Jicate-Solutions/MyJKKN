@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format } from 'date-fns';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { CalendarIcon } from 'lucide-react';
 import {
   Form,
@@ -103,7 +104,7 @@ export function BatchForm({
         const data = await OrganizationService.getInstitutionNames(true);
         setInstitutions(data);
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        logger.error('academic/batches', 'Error loading institutions', error);
       } finally {
         setInstitutionsLoading(false);
       }
@@ -120,7 +121,7 @@ export function BatchForm({
           const inst = data.find((i) => i.id === userProfile.institution_id);
           if (inst) setInstitutionName(inst.name);
         } catch (err) {
-          console.error('Failed loading institution name', err);
+          logger.error('academic/batches', 'Failed loading institution name', err);
         }
       }
     };

@@ -36,6 +36,7 @@ import {
 } from './_components/dashboard-filters';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { format } from 'date-fns';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface Institution {
   id: string;
@@ -128,12 +129,12 @@ function AttendanceDashboardContent() {
           .order('name');
 
         if (error) {
-          console.error('Error fetching institutions:', error);
+          logger.error('academic/attendance-dashboard', 'Error fetching institutions', error);
         } else {
           setInstitutions(data || []);
         }
       } catch (error) {
-        console.error('Error fetching institutions:', error);
+        logger.error('academic/attendance-dashboard', 'Error fetching institutions', error);
       } finally {
         setLoading(false);
       }
@@ -145,7 +146,6 @@ function AttendanceDashboardContent() {
   // Handle filter changes
   const handleFiltersChange = useCallback(
     (newFilters: DashboardFilterState) => {
-      console.log('🔄 Dashboard filters updated:', newFilters);
       setFilters(newFilters);
     },
     []
@@ -153,13 +153,11 @@ function AttendanceDashboardContent() {
 
   // Handle refresh
   const handleRefresh = useCallback(() => {
-    console.log('🔄 Refreshing dashboard data...');
     setRefreshTrigger((prev) => prev + 1);
   }, []);
 
   // Handle pending filters change
   const handlePendingFiltersChange = useCallback((newFilters: any) => {
-    console.log('🔄 Pending filters updated:', newFilters);
     setPendingFilters((prev) => ({ ...prev, ...newFilters }));
   }, []);
 

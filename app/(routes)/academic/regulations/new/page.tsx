@@ -20,6 +20,7 @@ import { RegulationForm } from '../_components/regulation-form';
 import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
 import { CreateRegulationDto } from '@/types/academics';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 
 export default function NewRegulationPage() {
@@ -87,7 +88,7 @@ export default function NewRegulationPage() {
       toast.success('Regulation created successfully!');
 
     } catch (error: any) {
-      console.error('Error creating regulation:', error);
+      logger.error('academic/regulations', 'Error creating regulation', error);
 
       if (error?.code === '23505' || error?.message?.includes('duplicate')) {
         hotToast.error(

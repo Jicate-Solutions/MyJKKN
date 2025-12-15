@@ -51,16 +51,6 @@ export default function TemplatePage() {
 
   const { data: template, isLoading, error } = useTemplate(templateId);
 
-  // Debug logging
-  console.log('Template Page Debug:', {
-    templateId,
-    isSuperAdmin,
-    isLoading,
-    hasError: !!error,
-    hasTemplate: !!template,
-    errorMessage: (error as any)?.message || String(error || '')
-  });
-
   const canEdit = isSuperAdmin || canAccess('academic.timetables', 'edit');
   const canCreate = isSuperAdmin || canAccess('academic.timetables', 'create');
 
@@ -80,7 +70,6 @@ export default function TemplatePage() {
 
   const handleExport = () => {
     // TODO: Implement template export functionality
-    console.log('Export template:', templateId);
   };
 
   if (isLoading) {

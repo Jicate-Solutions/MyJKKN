@@ -27,6 +27,7 @@ import { Period } from '@/types/academics';
 import { Card, CardContent } from '@/components/ui/card';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 // Custom TimeSelector component for 12-hour format
 interface TimeSelectorProps {
@@ -71,7 +72,6 @@ function TimeSelector({ value, onChange, placeholder }: TimeSelectorProps) {
     newAmpm: string
   ) => {
     const time24 = convertTo24Hour(newHour, newMinute, newAmpm);
-    console.log('TimeSelector:', { newHour, newMinute, newAmpm, time24 }); // Debug log
     onChange(time24);
   };
 
@@ -236,7 +236,7 @@ export function PeriodForm({
         const data = await OrganizationService.getInstitutionNames(true);
         setInstitutions(data);
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        logger.error('academic/periods', 'Error loading institutions', error);
       } finally {
         setInstitutionsLoading(false);
       }
@@ -253,7 +253,7 @@ export function PeriodForm({
           const inst = data.find((i) => i.id === userProfile.institution_id);
           if (inst) setInstitutionName(inst.name);
         } catch (err) {
-          console.error('Failed loading institution name', err);
+          logger.error('academic/periods', 'Failed loading institution name', err);
         }
       }
     };

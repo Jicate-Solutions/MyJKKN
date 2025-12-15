@@ -58,6 +58,7 @@ import { cn } from '@/lib/utils';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { useTemplates, useCreateFromTemplate } from '@/hooks/use-templates';
 import toast from 'react-hot-toast';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 // Define the schema for timetable creation
 // Updated: 2025-10-08 - Added timetable_type and made section_id optional
@@ -212,39 +213,6 @@ export default function NewTimetablePage() {
   const loadingSemesters = semestersQuery.isLoading;
   const fetchSemesters = semestersQuery.refetch;
 
-  // Debug query errors
-  console.log('🔍 Query Status:', {
-    Institutions: {
-      loading: loadingInstitutions,
-      dataLength: institutions.length
-    },
-    AcademicYears: {
-      loading: loadingYears,
-      dataLength: academicYears.length,
-      selectedInstitution: watchInstitutionId
-    },
-    Degrees: {
-      loading: loadingDegrees,
-      error: degreesQuery.error,
-      dataLength: allDegrees.length
-    },
-    Departments: {
-      loading: loadingDepartments,
-      error: departmentsQuery.error,
-      dataLength: allDepartments.length
-    },
-    Programs: {
-      loading: loadingPrograms,
-      error: programsQuery.error,
-      dataLength: allPrograms.length
-    },
-    Semesters: {
-      loading: loadingSemesters,
-      error: semestersQuery.error,
-      dataLength: allSemesters.length
-    }
-  });
-
   const [loading, setLoading] = useState(false);
   const [existingTimetableCheck, setExistingTimetableCheck] = useState<{
     checking: boolean;
@@ -266,19 +234,6 @@ export default function NewTimetablePage() {
     [templatesQuery.data?.data]
   );
   const loadingTemplates = templatesQuery.isLoading;
-
-  // Debug semester data
-  console.log('📚 Semester Data Debug:', {
-    totalSemesters: allSemesters.length,
-    semesterNames: allSemesters.map((s) => s.semester_name),
-    semesterIds: allSemesters.map((s) => s.id),
-    duplicateNames: allSemesters
-      .filter(
-        (s, i, arr) =>
-          arr.findIndex((item) => item.semester_name === s.semester_name) !== i
-      )
-      .map((s) => ({ id: s.id, name: s.semester_name }))
-  });
 
   // Since watchSemesterId now contains the actual UUID, use it directly
   const selectedSemesterId = watchSemesterId || undefined;
@@ -432,7 +387,7 @@ export default function NewTimetablePage() {
         form.clearErrors('end_date');
       }
     } catch (error) {
-      console.error('Error checking existing timetable:', error);
+      logger.error('academic/timetables', 'Error checking existing timetable', error);
       setExistingTimetableCheck({ checking: false, exists: false });
     }
   }, [form]);
@@ -507,7 +462,7 @@ export default function NewTimetablePage() {
         toast.error('Failed to create timetable. Please try again.');
       }
     } catch (error) {
-      console.error('Error creating timetable:', error);
+      logger.error('academic/timetables', 'Error creating timetable', error);
 
       // Handle duplicate timetable error specifically
       if (error instanceof Error) {

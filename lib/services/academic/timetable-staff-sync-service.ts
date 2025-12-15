@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export interface StaffPlanningChange {
   course_id: string;
@@ -53,7 +54,7 @@ export class TimetableStaffSyncService {
       );
 
       if (error) {
-        console.error('Error checking staff planning impact:', error);
+        logger.error('academic/timetables', 'Error checking staff planning impact', error);
         return null;
       }
 
@@ -96,7 +97,7 @@ export class TimetableStaffSyncService {
         }))
       };
     } catch (error) {
-      console.error('Error in checkStaffPlanningImpact:', error);
+      logger.error('academic/timetables', 'Error in checkStaffPlanningImpact', error);
       return null;
     }
   }
@@ -114,7 +115,7 @@ export class TimetableStaffSyncService {
 
       return conflicts || [];
     } catch (error) {
-      console.error('Error getting timetable staff conflicts:', error);
+      logger.error('academic/timetables', 'Error getting timetable staff conflicts', error);
       return [];
     }
   }
@@ -231,7 +232,7 @@ Would you like to update the affected timetables automatically?`;
         );
       }
     } catch (error) {
-      console.error('Error handling staff planning change:', error);
+      logger.error('academic/timetables', 'Error handling staff planning change', error);
       toast.error('Failed to process staff planning change. Please check manually.');
     }
   }

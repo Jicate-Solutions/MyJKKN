@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { FacultyAttendanceService } from '@/lib/services/academic/faculty-attendance-service';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { cn } from '@/lib/utils';
 
@@ -72,13 +73,10 @@ export function FacultyQuickAttendance({
 
             // Skip periods without valid section_id
             if (!sectionId || sectionId.trim() === '') {
-              console.warn(
-                'Period missing section_id, skipping attendance check:',
-                {
-                  timetable_slot_id: period.timetable_slot_id,
-                  period_name: period.period_name
-                }
-              );
+              logger.warn('academic/attendance', 'Period missing section_id, skipping attendance check', {
+                timetable_slot_id: period.timetable_slot_id,
+                period_name: period.period_name
+              });
               return null;
             }
 
@@ -114,13 +112,13 @@ export function FacultyQuickAttendance({
             setMarkedPeriods(marked);
             setPeriodRecordIds(recordIds);
           } catch (error) {
-            console.error('Error checking existing attendance:', error);
+            logger.error('academic/attendance', 'Error checking existing attendance', error);
             // Continue without marking any periods as completed
           }
         }
       }
     } catch (error) {
-      console.error('Error fetching faculty periods:', error);
+      logger.error('academic/attendance', 'Error fetching faculty periods', error);
     } finally {
       setLoading(false);
     }

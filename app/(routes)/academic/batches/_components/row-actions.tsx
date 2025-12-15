@@ -27,6 +27,7 @@ import {
 import { Batch } from '@/types/academics';
 import { BatchService } from '@/lib/services/academic/batch-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -56,7 +57,7 @@ export function DataTableRowActions<TData>({
       await BatchService.deleteBatch(batch.id);
             router.refresh();
     } catch (error) {
-      console.error('Delete batch error:', error);
+      logger.error('academic/batches', 'Failed to delete batch', error);
       toast.error('Failed to delete batch');
     } finally {
       setIsDeleting(false);

@@ -5,6 +5,7 @@ import type {
   AttendanceReport,
   DetailedAttendanceReport
 } from '@/types/attendance-reports';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export class AttendanceExportService {
   /**
@@ -55,7 +56,7 @@ export class AttendanceExportService {
 
       return { success: true, error: null };
     } catch (error) {
-      console.error('Error exporting to Excel:', error);
+      logger.error('academic/attendance', 'Error exporting to Excel', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -217,7 +218,7 @@ export class AttendanceExportService {
 
       return { success: true, error: null };
     } catch (error) {
-      console.error('Error exporting detailed report to Excel:', error);
+      logger.error('academic/attendance', 'Error exporting detailed report to Excel', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -287,7 +288,7 @@ export class AttendanceExportService {
 
       return { success: true, error: null };
     } catch (error) {
-      console.error('Error exporting to PDF:', error);
+      logger.error('academic/attendance', 'Error exporting to PDF', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -668,7 +669,7 @@ export class AttendanceExportService {
 
       return { success: true, error: null };
     } catch (error) {
-      console.error('Error exporting detailed report to PDF:', error);
+      logger.error('academic/attendance', 'Error exporting detailed report to PDF', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -737,7 +738,7 @@ export class AttendanceExportService {
 
       return { success: true, error: null };
     } catch (error) {
-      console.error('Error exporting to CSV:', error);
+      logger.error('academic/attendance', 'Error exporting to CSV', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'

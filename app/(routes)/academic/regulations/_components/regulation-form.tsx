@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { logger } from '@/lib/utils/enhanced-logger';
 import {
   Form,
   FormControl,
@@ -72,7 +73,7 @@ export function RegulationForm({
         const data = await OrganizationService.getInstitutionNames(true);
         setInstitutions(data);
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        logger.error('academic/regulations', 'Error loading institutions', error);
       } finally {
         setInstitutionsLoading(false);
       }
@@ -89,7 +90,7 @@ export function RegulationForm({
           const inst = data.find((i) => i.id === userProfile.institution_id);
           if (inst) setInstitutionName(inst.name);
         } catch (err) {
-          console.error('Failed loading institution name', err);
+          logger.error('academic/regulations', 'Failed loading institution name', err);
         }
       }
     };

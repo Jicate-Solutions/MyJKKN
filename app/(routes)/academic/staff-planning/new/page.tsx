@@ -34,15 +34,6 @@ export default function NewStaffPlanPage() {
 
   useEffect(() => {
     if (!permissionsLoading) {
-      console.log('Can create staff plans:', canCreateStaffPlans);
-      console.log('Permissions check:', {
-        isSuperAdmin,
-        'academic.staff.planning.create': canAccess(
-          'academic.staff.planning',
-          'create'
-        )
-      });
-
       if (!canCreateStaffPlans) {
         toast({
           title: 'Access Denied',

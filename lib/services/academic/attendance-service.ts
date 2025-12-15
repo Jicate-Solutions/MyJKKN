@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import toast from 'react-hot-toast';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   StudentAttendance,
   // CreateStudentAttendanceDto,
@@ -69,7 +70,6 @@ export class AttendanceService {
         .maybeSingle();
 
       if (superAdminCheck) {
-        console.log('✅ Super admin access granted for user:', markedBy);
         return { isAuthorized: true, reason: 'Super admin access' };
       }
 
@@ -84,7 +84,6 @@ export class AttendanceService {
         .maybeSingle();
 
       if (adminCheck) {
-        console.log('✅ Admin access granted for user:', markedBy);
         return { isAuthorized: true, reason: 'Admin access' };
       }
 
@@ -104,10 +103,6 @@ export class AttendanceService {
 
       // STEP 4: Check if user is marked as super admin in profiles table
       if (profileData.is_super_admin) {
-        console.log(
-          '✅ Profile super admin access granted for user:',
-          markedBy
-        );
         return { isAuthorized: true, reason: 'Profile super admin access' };
       }
 
@@ -122,13 +117,6 @@ export class AttendanceService {
         .maybeSingle();
 
       const userStaffId = staffRecord?.id;
-
-      console.log('🔍 Staff record lookup:', {
-        markedBy,
-        profileEmail: profileData.email,
-        staffId: userStaffId,
-        found: !!staffRecord
-      });
 
       // STEP 6: Get timetable data to extract staff assignments
       const { data: timetableData, error: timetableError } = await this.supabase
@@ -217,29 +205,14 @@ export class AttendanceService {
         ? allAssignedIds.has(userStaffId)
         : false;
 
-      console.log('🔐 Authorization check:', {
-        markedBy,
-        userStaffId,
-        allAssignedIds: Array.from(allAssignedIds),
-        isAuthorizedByProfile,
-        isAuthorizedByStaff,
-        totalAssignedIds: allAssignedIds.size
-      });
-
       if (isAuthorizedByProfile || isAuthorizedByStaff) {
         const authType = isAuthorizedByProfile ? 'profile' : 'staff';
-        console.log(
-          `✅ Authorized by ${authType} assignment for user:`,
-          markedBy
-        );
         return { isAuthorized: true, reason: `Assigned ${authType} member` };
       }
 
       // STEP 9: For development/testing - if no assignments found, allow with warning
       if (allAssignedIds.size === 0) {
-        console.warn(
-          '⚠️ No staff/profile assignments found in timetable - allowing access for testing'
-        );
+        logger.warn('academic/attendance', 'No staff/profile assignments found in timetable - allowing access for testing');
         return { isAuthorized: true, reason: 'No restrictions (testing mode)' };
       }
 
@@ -257,21 +230,13 @@ export class AttendanceService {
           )
         );
 
-      console.log('❌ Authorization failed:', {
-        userProfile: markedBy,
-        userEmail: profileData.email,
-        userStaffId: userStaffId,
-        assignedIds: Array.from(allAssignedIds),
-        assignedStaff: assignedStaff
-      });
-
       return {
         isAuthorized: false,
         reason: `User ${profileData.email} is not authorized to mark attendance for this timetable`,
         assignedStaff: assignedStaff || undefined
       };
     } catch (error) {
-      console.error('Error validating staff assignment:', error);
+      logger.error('academic/attendance', 'Error validating staff assignment', error);
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown validation error';
       return {
@@ -326,7 +291,7 @@ export class AttendanceService {
           !firstPeriod.section_id ||
           !firstPeriod.attendance_date
         ) {
-          console.error('Invalid parameters for attendance check:', {
+          logger.error('academic/attendance', 'Invalid parameters for attendance check', {
             timetable_id: firstPeriod.timetable_id,
             section_id: firstPeriod.section_id,
             attendance_date: firstPeriod.attendance_date
@@ -353,13 +318,6 @@ export class AttendanceService {
           .eq('attendance_date', firstPeriod.attendance_date)
           .maybeSingle();
 
-        console.log('🔍 First check (exact section_id):', {
-          timetable_id: firstPeriod.timetable_id,
-          section_id: firstPeriod.section_id,
-          found: !!data,
-          recordId: data?.id
-        });
-
         // If not found by section_id, try finding by section_ids array containment
         if (!data && firstPeriod.section_id) {
           const { data: arrayData, error: arrayError } = await this.supabase
@@ -370,13 +328,6 @@ export class AttendanceService {
             .contains('section_ids', [firstPeriod.section_id])
             .maybeSingle();
 
-          console.log('🔍 Second check (section_ids array):', {
-            timetable_id: firstPeriod.timetable_id,
-            section_id: firstPeriod.section_id,
-            found: !!arrayData,
-            recordId: arrayData?.id
-          });
-
           if (arrayData) {
             data = arrayData;
             error = arrayError;
@@ -384,14 +335,7 @@ export class AttendanceService {
         }
 
         if (error) {
-          console.error('Error checking existing attendance:', {
-            error,
-            parameters: {
-              timetable_id: firstPeriod.timetable_id,
-              section_id: firstPeriod.section_id,
-              attendance_date: firstPeriod.attendance_date
-            }
-          });
+          logger.error('academic/attendance', 'Error checking existing attendance', error);
           // Mark all periods in this group as not marked on error
           groupPeriods.forEach((period) => {
             attendanceMap.set(period.timetable_slot_id, { isMarked: false });
@@ -410,16 +354,8 @@ export class AttendanceService {
             const slotData = data.attendance_data[period.timetable_slot_id];
             if (slotData && slotData.students && slotData.students.length > 0) {
               isMarked = true;
-              console.log(
-                `✅ Slot ${period.timetable_slot_id} has direct data`
-              );
             }
           }
-
-          console.log(`📝 Setting map for slot ${period.timetable_slot_id}:`, {
-            isMarked,
-            recordId: isMarked ? data?.id : undefined
-          });
 
           attendanceMap.set(period.timetable_slot_id, {
             isMarked,
@@ -428,7 +364,7 @@ export class AttendanceService {
         });
       }
     } catch (error) {
-      console.error('Error in checkExistingAttendanceForPeriods:', error);
+      logger.error('academic/attendance', 'Error in checkExistingAttendanceForPeriods', error);
       // On error, mark all periods as not marked
       periods.forEach((period) => {
         attendanceMap.set(period.timetable_slot_id, { isMarked: false });
@@ -457,10 +393,7 @@ export class AttendanceService {
         .single();
 
       if (timetableError || !timetableData) {
-        console.error(
-          `Error fetching timetable ${timetable_id} to resolve section name`,
-          timetableError
-        );
+        logger.error('academic/attendance', `Error fetching timetable ${timetable_id} to resolve section name`, timetableError);
         return null;
       }
 
@@ -473,10 +406,7 @@ export class AttendanceService {
         .single();
 
       if (sectionError || !sectionData) {
-        console.error(
-          `Could not resolve section name "${resolvedSectionId}" to an ID for program ${timetableData.program_id}`,
-          sectionError
-        );
+        logger.error('academic/attendance', `Could not resolve section name "${resolvedSectionId}" to an ID`, sectionError);
         return null; // Return null to avoid crash
       }
 
@@ -506,21 +436,12 @@ export class AttendanceService {
       .eq('attendance_date', attendance_date)
       .maybeSingle();
 
-    // Debugging logs to understand what's being passed
-    console.log('Fetching consolidated attendance with:', {
-      timetable_id,
-      section_id: resolvedSectionId,
-      attendance_date
-    });
-
     if (error) {
-      console.error('Error fetching consolidated attendance:', error);
+      logger.error('academic/attendance', 'Error fetching consolidated attendance', error);
       throw error;
     }
 
     if (data) {
-      console.log('Found consolidated attendance:', data);
-
       // If period_id is provided, check if this specific period has already been marked
       if (period_id && data.attendance_data) {
         // First check if period_id matches a slot key directly
@@ -530,9 +451,6 @@ export class AttendanceService {
           periodData.students &&
           periodData.students.length > 0
         ) {
-          console.log(
-            `Period ${period_id} has already been marked in this record (direct match)`
-          );
           return {
             ...data,
             marked_by: '', // Add missing required property
@@ -547,9 +465,6 @@ export class AttendanceService {
             (slotData as any).students &&
             (slotData as any).students.length > 0
           ) {
-            console.log(
-              `Period ${period_id} has already been marked in this record (found by period_id in slot ${slotId})`
-            );
             return {
               ...data,
               marked_by: '', // Add missing required property
@@ -558,21 +473,15 @@ export class AttendanceService {
           }
         }
 
-        console.log(
-          `Period ${period_id} has not been marked yet, but attendance exists for other periods`
-        );
         // Return null to allow marking attendance for this specific period
         // Even though other periods may have been marked on the same date
         return null;
       }
-    } else {
-      console.log('No consolidated attendance found.');
     }
 
     // If no period_id is provided, return the record as-is (for general attendance checking)
     // If period_id is provided and we reach here, it means no data was found for that specific period
     if (period_id) {
-      console.log(`No attendance data found for period ${period_id}`);
       return null;
     }
 
@@ -609,7 +518,7 @@ export class AttendanceService {
         .eq('attendance_date', attendance_date);
 
       if (error) {
-        console.error('Error fetching attendance by date and section:', error);
+        logger.error('academic/attendance', 'Error fetching attendance by date and section', error);
         return [];
       }
 
@@ -623,10 +532,7 @@ export class AttendanceService {
         marked_by_profile: undefined
       })) as unknown as ConsolidatedStudentAttendance[];
     } catch (error) {
-      console.error(
-        'Error fetching consolidated attendance by date and section:',
-        error
-      );
+      logger.error('academic/attendance', 'Error fetching consolidated attendance by date and section', error);
       return [];
     }
   }
@@ -691,7 +597,7 @@ export class AttendanceService {
         }))
       };
     } catch (error) {
-      console.error('Error getting slot version info:', error);
+      logger.error('academic/attendance', 'Error getting slot version info', error);
       return {
         hasVersions: false,
         currentVersion: 1,
@@ -740,10 +646,7 @@ export class AttendanceService {
           .single();
 
         if (sectionError || !sectionData) {
-          console.error(
-            `Could not resolve section name "${resolvedSectionId}" to an ID for program ${timetableData.program_id}`,
-            sectionError
-          );
+          logger.error('academic/attendance', `Could not resolve section name "${resolvedSectionId}"`, sectionError);
           return []; // Return empty to avoid crash
         }
         resolvedSectionId = sectionData.id;
@@ -752,8 +655,6 @@ export class AttendanceService {
       if (!resolvedSectionId) {
         return [];
       }
-
-      console.log('Checking for slot versions with slot_id:', slot_id);
 
       // Check if this slot has versions by querying the continuity table directly
       // Since the RPC function has a bug, we'll implement the logic here
@@ -779,13 +680,11 @@ export class AttendanceService {
         }
       }
 
-      console.log('Slot has versions:', hasVersions);
-
       if (hasVersions) {
         // Logic for versioned slots - get timetable_id from slot
         const timetableId = await this.getTimetableIdFromSlot(slot_id);
         if (!timetableId) {
-          console.error('Could not get timetable_id for slot:', slot_id);
+          logger.error('academic/attendance', 'Could not get timetable_id for slot', { slot_id });
           return this.getSlotAttendanceDirectly(
             slot_id,
             resolvedSectionId,
@@ -804,7 +703,7 @@ export class AttendanceService {
           .order('attendance_date', { ascending: false });
 
         if (error) {
-          console.error('Error fetching attendance with versions:', error);
+          logger.error('academic/attendance', 'Error fetching attendance with versions', error);
           throw error;
         }
         return data || [];
@@ -818,7 +717,7 @@ export class AttendanceService {
         end_date
       );
     } catch (error) {
-      console.error('Error in getSlotAttendanceWithHistory:', error);
+      logger.error('academic/attendance', 'Error in getSlotAttendanceWithHistory', error);
       return [];
     }
   }
@@ -831,13 +730,6 @@ export class AttendanceService {
     end_date?: string
   ): Promise<any[]> {
     try {
-      console.log('getSlotAttendanceDirectly called with:', {
-        slot_id,
-        section_id,
-        start_date,
-        end_date
-      });
-
       let query = this.supabase
         .from('student_attendance')
         .select(
@@ -902,7 +794,7 @@ export class AttendanceService {
           new Date(a.attendance_date).getTime()
       );
     } catch (error) {
-      console.error('Error in direct slot attendance fetch:', error);
+      logger.error('academic/attendance', 'Error in direct slot attendance fetch', error);
       return [];
     }
   }
@@ -922,11 +814,9 @@ export class AttendanceService {
 
       if (!validationResult.isAuthorized) {
         const errorMessage = `Attendance marking not authorized: ${validationResult.reason}`;
-        console.error(errorMessage, {
+        logger.error('academic/attendance', errorMessage, {
           timetable_id: data.timetable_id,
-          marked_by: data.marked_by,
-          institution_id: data.institution_id,
-          assignedStaff: validationResult.assignedStaff
+          marked_by: data.marked_by
         });
         toast.error(
           'You are not authorized to mark attendance for this period. Only assigned staff can mark attendance.'
@@ -934,10 +824,6 @@ export class AttendanceService {
         throw new Error(errorMessage);
       }
 
-      console.log(
-        '✅ Staff assignment validation passed:',
-        validationResult.reason
-      );
       // Validate section_id is a valid UUID
       const uuidRegex =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -946,10 +832,6 @@ export class AttendanceService {
 
       // If section_id is not a valid UUID, try to resolve it
       if (resolvedSectionId && !uuidRegex.test(resolvedSectionId)) {
-        console.error(
-          `Invalid section_id provided: "${resolvedSectionId}". Section ID must be a valid UUID.`
-        );
-
         // Try to resolve section name to UUID
         const { data: timetableData } = await this.supabase
           .from('timetables')
@@ -970,36 +852,26 @@ export class AttendanceService {
             .maybeSingle();
 
           if (sectionData) {
-            console.log(
-              `Resolved section name "${resolvedSectionId}" to UUID: ${sectionData.id}`
-            );
             resolvedSectionId = sectionData.id;
           } else {
             const errorMessage = `Cannot resolve section name "${resolvedSectionId}" to a valid UUID`;
-            console.error(errorMessage);
+            logger.error('academic/attendance', errorMessage);
             throw new Error(errorMessage);
           }
         } else {
           const errorMessage = 'Cannot resolve section without timetable data';
-          console.error(errorMessage);
+          logger.error('academic/attendance', errorMessage);
           throw new Error(errorMessage);
         }
       }
 
       if (!resolvedSectionId) {
         const errorMessage = 'Section ID is required for attendance';
-        console.error(errorMessage);
+        logger.error('academic/attendance', errorMessage);
         throw new Error(errorMessage);
       }
 
       // First, try to find existing consolidated record
-      console.log('🔍 Checking for existing attendance record with key:', {
-        institution_id: data.institution_id,
-        timetable_id: data.timetable_id,
-        section_id: resolvedSectionId,
-        attendance_date: data.attendance_date
-      });
-
       const { data: existingRecord, error: findError } = await this.supabase
         .from('student_attendance')
         .select('id, timetable_id')
@@ -1010,16 +882,9 @@ export class AttendanceService {
         .maybeSingle();
 
       if (findError) {
-        console.error('Error finding existing attendance record:', findError);
+        logger.error('academic/attendance', 'Error finding existing attendance record', findError);
         throw findError;
       }
-
-      console.log('📊 Attendance record lookup result:', {
-        found: !!existingRecord,
-        action: existingRecord ? 'UPDATE_EXISTING' : 'CREATE_NEW',
-        existing_record_id: existingRecord?.id,
-        existing_timetable_id: existingRecord?.timetable_id
-      });
 
       let result;
       if (existingRecord) {
@@ -1031,7 +896,7 @@ export class AttendanceService {
           .single();
 
         if (fetchError) {
-          console.error('Error fetching existing attendance data:', fetchError);
+          logger.error('academic/attendance', 'Error fetching existing attendance data', fetchError);
           throw fetchError;
         }
 
@@ -1042,12 +907,6 @@ export class AttendanceService {
           ...existingAttendanceData, // Keep existing periods
           ...data.attendance_data // Add/update new periods
         };
-
-        console.log('Merging attendance data:', {
-          existing: existingAttendanceData,
-          new: data.attendance_data,
-          merged: mergedAttendanceData
-        });
 
         // Updated: 2025-10-09 - Update section_ids array for multi-section support
         const { data: updateResult, error: updateError } = await this.supabase
@@ -1132,24 +991,14 @@ export class AttendanceService {
           validationErrors.push('department_id is null or undefined');
 
         if (validationErrors.length > 0) {
-          console.error('❌ ATTENDANCE VALIDATION FAILED:', {
+          logger.error('academic/attendance', 'Attendance validation failed', {
             errors: validationErrors,
-            timetable_id: data.timetable_id,
-            section_id: resolvedSectionId,
-            attendance_date: data.attendance_date,
-            academicFields
+            timetable_id: data.timetable_id
           });
           throw new Error(
             `Attendance validation failed: ${validationErrors.join(', ')}`
           );
         }
-
-        console.log('✅ Attendance validation passed, inserting record:', {
-          timetable_id: data.timetable_id,
-          section_id: resolvedSectionId,
-          attendance_date: data.attendance_date,
-          academicFields
-        });
 
         // Updated: 2025-10-09 - Add section_ids array for multi-section support
         const { data: insertResult, error: insertError } = await this.supabase
@@ -1188,7 +1037,7 @@ export class AttendanceService {
 
       return result as ConsolidatedStudentAttendance;
     } catch (error) {
-      console.error('Error upserting consolidated attendance:', error);
+      logger.error('academic/attendance', 'Error upserting consolidated attendance', error);
       throw error;
     }
   }
@@ -1376,7 +1225,7 @@ export class AttendanceService {
         consolidated_record: consolidatedRecord || undefined
       };
     } catch (error) {
-      console.error('Error fetching consolidated attendance roster:', error);
+      logger.error('academic/attendance', 'Error fetching consolidated attendance roster', error);
       throw error;
     }
   }
@@ -1410,7 +1259,7 @@ export class AttendanceService {
 
       toast.success('Attendance saved successfully');
     } catch (error) {
-      console.error('Error batch updating consolidated attendance:', error);
+      logger.error('academic/attendance', 'Error batch updating consolidated attendance', error);
       toast.error('Failed to save attendance');
       throw error;
     }
@@ -1486,7 +1335,7 @@ export class AttendanceService {
         attendance_percentage: Math.round(attendancePercentage * 100) / 100
       };
     } catch (error) {
-      console.error('Error fetching attendance summary:', error);
+      logger.error('academic/attendance', 'Error fetching attendance summary', error);
       throw error;
     }
   }
@@ -1501,7 +1350,7 @@ export class AttendanceService {
         .not('timetable_data', 'is', null);
 
       if (error) {
-        console.error('Error getting timetable ID from slot:', error);
+        logger.error('academic/attendance', 'Error getting timetable ID from slot', error);
         return null;
       }
 
@@ -1529,7 +1378,7 @@ export class AttendanceService {
 
       return null;
     } catch (error) {
-      console.error('Error getting timetable ID from slot:', error);
+      logger.error('academic/attendance', 'Error getting timetable ID from slot', error);
       return null;
     }
   }
@@ -1537,12 +1386,10 @@ export class AttendanceService {
   // Get slot details from JSON-based timetable structure
   static async getSlotDetails(slotId: string): Promise<any> {
     try {
-      console.log('getSlotDetails called with slotId:', slotId);
-
       // Find the timetable containing this slot
       const timetableId = await this.getTimetableIdFromSlot(slotId);
       if (!timetableId) {
-        console.error('Could not find timetable for slot:', slotId);
+        logger.warn('academic/attendance', 'Could not find timetable for slot', { slotId });
         return null;
       }
 
@@ -1554,7 +1401,7 @@ export class AttendanceService {
         .single();
 
       if (timetableError || !timetableData?.timetable_data) {
-        console.error('Error fetching timetable data:', timetableError);
+        logger.error('academic/attendance', 'Error fetching timetable data', timetableError);
         return null;
       }
 
@@ -1592,7 +1439,7 @@ export class AttendanceService {
 
       return null;
     } catch (error) {
-      console.error('Error getting slot details:', error);
+      logger.error('academic/attendance', 'Error getting slot details', error);
       return null;
     }
   }
@@ -1607,13 +1454,13 @@ export class AttendanceService {
         .single();
 
       if (error) {
-        console.error('Error fetching course details:', error);
+        logger.error('academic/attendance', 'Error fetching course details', error);
         return null;
       }
 
       return data;
     } catch (error) {
-      console.error('Error in getCourseDetails:', error);
+      logger.error('academic/attendance', 'Error in getCourseDetails', error);
       return null;
     }
   }
@@ -1628,13 +1475,13 @@ export class AttendanceService {
         .single();
 
       if (error) {
-        console.error('Error fetching period details:', error);
+        logger.error('academic/attendance', 'Error fetching period details', error);
         return null;
       }
 
       return data;
     } catch (error) {
-      console.error('Error in getPeriodDetails:', error);
+      logger.error('academic/attendance', 'Error in getPeriodDetails', error);
       return null;
     }
   }
@@ -1655,22 +1502,15 @@ export class AttendanceService {
     section_ids?: string[]; // Multiple sections (new feature)
   }): Promise<AttendanceStudent[]> {
     try {
-      console.log('🎯 getStudentsForAttendance called with filters:', filters);
-
       // First, check current user authentication and profile
       const {
         data: { user },
         error: authError
       } = await this.supabase.auth.getUser();
       if (authError || !user) {
-        console.error(
-          '❌ Authentication error in getStudentsForAttendance:',
-          authError
-        );
+        logger.error('academic/attendance', 'Authentication error in getStudentsForAttendance', authError);
         throw new Error('User not authenticated');
       }
-
-      console.log('✅ User authenticated:', user.id);
 
       // Get current user's profile to understand RLS context
       const { data: profileData, error: profileError } = await this.supabase
@@ -1682,17 +1522,9 @@ export class AttendanceService {
         .single();
 
       if (profileError) {
-        console.error('❌ Error fetching user profile:', profileError);
+        logger.error('academic/attendance', 'Error fetching user profile', profileError);
         throw new Error('Failed to fetch user profile');
       }
-
-      console.log('📋 User profile:', {
-        id: profileData.id,
-        role: profileData.role,
-        institution_id: profileData.institution_id,
-        department_id: profileData.department_id,
-        is_super_admin: profileData.is_super_admin
-      });
 
       // Check if user meets RLS policy requirements
       const hasInstitutionAccess =
@@ -1703,18 +1535,6 @@ export class AttendanceService {
       const isPrivilegedRole = ['admission', 'administrator'].includes(
         profileData.role
       );
-
-      console.log('🔐 RLS Policy Check:', {
-        hasInstitutionAccess,
-        hasDepartmentAccess,
-        isSuperAdmin,
-        isPrivilegedRole,
-        userRole: profileData.role,
-        canAccess:
-          isSuperAdmin ||
-          isPrivilegedRole ||
-          (hasInstitutionAccess && hasDepartmentAccess)
-      });
 
       let query = this.supabase
         .from('students')
@@ -1750,14 +1570,6 @@ export class AttendanceService {
       // Only apply department filter for super admin and privileged roles
       if (filters.department_id && (isSuperAdmin || isPrivilegedRole)) {
         query = query.eq('department_id', filters.department_id);
-        console.log(
-          '🔐 Applied department_id filter (admin/privileged role):',
-          filters.department_id
-        );
-      } else if (filters.department_id && profileData.role === 'faculty') {
-        console.log(
-          '⚠️ Skipping department_id filter for faculty user - allowing cross-department teaching'
-        );
       }
 
       if (filters.semester_id) {
@@ -1778,38 +1590,15 @@ export class AttendanceService {
         .order('section_id', { ascending: true })
         .order('roll_number', { ascending: true });
 
-      console.log('🔍 Executing students query with filters:', filters);
       const { data, error } = await query;
 
       if (error) {
-        console.error('❌ Supabase query error:', error);
-        console.error('❌ Error details:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        });
+        logger.error('academic/attendance', 'Supabase query error in getStudentsForAttendance', error);
         throw error;
       }
 
-      console.log(
-        '✅ Query executed successfully, found students:',
-        data?.length || 0
-      );
-
       if (!data || data.length === 0) {
-        console.warn('⚠️ No students found. This could be due to:');
-        console.warn(
-          '  1. RLS policy blocking access (check institution_id and department_id match)'
-        );
-        console.warn('  2. No students exist with the given filters');
-        console.warn('  3. All students are inactive');
-        console.warn('Current filter values:', filters);
-        console.warn('User profile values:', {
-          institution_id: profileData.institution_id,
-          department_id: profileData.department_id,
-          role: profileData.role
-        });
+        logger.warn('academic/attendance', 'No students found for attendance', { filters });
       }
 
       // Transform the data to include student_name constructed from first_name and last_name
@@ -1820,18 +1609,9 @@ export class AttendanceService {
           'Unknown Student'
       })) as AttendanceStudent[];
 
-      console.log(
-        '📊 Returning transformed student data:',
-        transformedData.length,
-        'students'
-      );
       return transformedData;
     } catch (error) {
-      console.error('💥 Error in getStudentsForAttendance:', error);
-      console.error(
-        'Error stack:',
-        error instanceof Error ? error.stack : 'No stack trace'
-      );
+      logger.error('academic/attendance', 'Error in getStudentsForAttendance', error);
       throw error;
     }
   }
@@ -1853,16 +1633,6 @@ export class AttendanceService {
       // Now using semester_id directly - no conversion needed
 
       // First, find the active timetable for the given filters that includes the selected date
-      console.log('Searching for timetable with date:', date);
-      console.log('Filters:', {
-        institution_id: filters.institution_id,
-        academic_year_id: filters.academic_year_id,
-        degree_id: filters.degree_id,
-        program_id: filters.program_id,
-        department_id: filters.department_id,
-        semester_id: filters.semester
-      });
-
       const timetableQuery = this.supabase
         .from('timetables')
         .select('id, start_date, end_date, timetable_name')
@@ -1881,37 +1651,12 @@ export class AttendanceService {
       const { data: timetables, error: timetableError } = await timetableQuery;
 
       if (timetableError) {
-        console.error('Timetable query error:', timetableError);
+        logger.error('academic/attendance', 'Timetable query error', timetableError);
         throw timetableError;
       }
 
-      console.log('Found timetables:', timetables?.length || 0);
-      if (timetables && timetables.length > 0) {
-        console.log('Timetable date range:', {
-          start_date: timetables[0].start_date,
-          end_date: timetables[0].end_date,
-          selected_date: date
-        });
-      }
-
       if (!timetables || timetables.length === 0) {
-        console.log('No active timetable found for date:', date);
-
-        // Debug: Check all timetables for this configuration
-        const { data: allTimetables, error: allError } = await this.supabase
-          .from('timetables')
-          .select('id, start_date, end_date, timetable_name, is_active')
-          .eq('institution_id', filters.institution_id)
-          .eq('academic_year_id', filters.academic_year_id)
-          .eq('degree_id', filters.degree_id)
-          .eq('program_id', filters.program_id)
-          .eq('department_id', filters.department_id)
-          .eq('semester_id', filters.semester);
-
-        if (!allError && allTimetables) {
-          console.log('All timetables for this configuration:', allTimetables);
-        }
-
+        logger.warn('academic/attendance', 'No active timetable found for date', { date });
         return [];
       }
 
@@ -1919,7 +1664,6 @@ export class AttendanceService {
 
       // Determine day of week from date
       const dayOfWeek = this.getDayOfWeekFromDate(date);
-      console.log('Day of week for date', date, 'is:', dayOfWeek);
 
       // Get timetable data and extract slots for the specific day
       const { data: timetableData, error: timetableDataError } =
@@ -1930,7 +1674,7 @@ export class AttendanceService {
           .single();
 
       if (timetableDataError) {
-        console.error('Timetable data query error:', timetableDataError);
+        logger.error('academic/attendance', 'Timetable data query error', timetableDataError);
         throw timetableDataError;
       }
 
@@ -1955,9 +1699,6 @@ export class AttendanceService {
         (slot: any) => !slot.is_break_slot
       );
 
-      console.log('Found slots before filtering:', slots?.length || 0);
-      console.log('Class slots (non-break):', classSlots?.length || 0);
-
       // Filter slots based on section if specified
       let filteredSlots = classSlots || [];
 
@@ -1974,7 +1715,6 @@ export class AttendanceService {
 
       // Staff assignments are now included in the JSON structure
       // No need for separate queries as staff_ids are in the slot data
-      console.log('Using staff assignments from JSON timetable structure');
 
       // Sort by period start time
       filteredSlots.sort((a: any, b: any) => {
@@ -1983,13 +1723,9 @@ export class AttendanceService {
         return timeA.localeCompare(timeB);
       });
 
-      console.log(
-        `Found ${filteredSlots.length} periods for ${date} (${dayOfWeek})`
-      );
-
       return filteredSlots as unknown as any[];
     } catch (error) {
-      console.error('Error fetching timetable slots for date:', error);
+      logger.error('academic/attendance', 'Error fetching timetable slots for date', error);
       throw error;
     }
   }
@@ -2003,12 +1739,9 @@ export class AttendanceService {
     try {
       // Since we moved to consolidated attendance, individual records no longer exist
       // Return empty array to indicate no existing attendance in old format
-      console.log(
-        'getAttendanceRecords called - returning empty array (consolidated approach active)'
-      );
       return [];
     } catch (error) {
-      console.error('Error fetching attendance records:', error);
+      logger.error('academic/attendance', 'Error fetching attendance records', error);
       throw error;
     }
   }
@@ -2046,10 +1779,7 @@ export class AttendanceService {
           .single();
 
         if (sectionError || !sectionData) {
-          console.error(
-            `Could not resolve section name "${resolvedSectionId}" to an ID for program ${studentFilters.program_id}`,
-            sectionError
-          );
+          logger.error('academic/attendance', `Could not resolve section name "${resolvedSectionId}"`, sectionError);
           // Proceed with original (likely incorrect) ID, or could throw error
         } else {
           resolvedSectionId = sectionData.id;
@@ -2067,10 +1797,7 @@ export class AttendanceService {
       const sectionIds = slot.section_ids || [];
 
       if (sectionIds.length === 0) {
-        console.warn(
-          'No sections assigned to timetable slot:',
-          timetable_slot_id
-        );
+        logger.warn('academic/attendance', 'No sections assigned to timetable slot', { timetable_slot_id });
         return {
           students: [],
           timetable_slot:
@@ -2172,7 +1899,7 @@ export class AttendanceService {
         attendance_date
       };
     } catch (error) {
-      console.error('Error fetching attendance roster:', error);
+      logger.error('academic/attendance', 'Error fetching attendance roster', error);
       throw error;
     }
   }
@@ -2195,45 +1922,12 @@ export class AttendanceService {
     } = {}
   ): Promise<AttendancePeriodOption[]> {
     try {
-      console.log('🔍 ==== getAvailablePeriodsForDate CALLED ====');
-      console.log('📅 Date:', date);
-      console.log('🏫 Filters:', {
-        institution_id: filters.institution_id || 'MISSING ❌',
-        academic_year_id: filters.academic_year_id || 'MISSING ❌',
-        degree_id: filters.degree_id || 'MISSING ❌',
-        program_id: filters.program_id || 'MISSING ❌',
-        department_id: filters.department_id || 'MISSING ❌',
-        semester: filters.semester || 'MISSING ❌',
-        section: filters.section || 'NOT PROVIDED (optional)'
-      });
-      console.log('⚙️ Options:', {
-        filterByStaffAssignment: options.filterByStaffAssignment ?? 'default',
-        isSuperAdmin: options.isSuperAdmin ?? 'default'
-      });
-
       // Add warning if multiple programs might conflict
-      if (filters.program_id && filters.department_id) {
-        console.log(
-          '✅ Program filtering active - this should prevent cross-program conflicts:',
-          {
-            program_id: filters.program_id,
-            department_id: filters.department_id
-          }
-        );
-      } else {
-        console.warn(
-          '⚠️  Missing program/department filters - this might cause cross-program conflicts!'
-        );
+      if (!filters.program_id || !filters.department_id) {
+        logger.warn('academic/attendance', 'Missing program/department filters - this might cause cross-program conflicts');
       }
 
       const dayOfWeek = this.getDayOfWeekFromDate(date);
-      console.log('Day of week for date:', dayOfWeek);
-
-      // Note: Database expects UUIDs directly, no name resolution needed
-      console.log('Using semester UUID directly:', filters.semester);
-      if (filters.section) {
-        console.log('Using section UUID directly:', filters.section);
-      }
 
       // Fetch all active timetables for the given context (both regular and batch)
       // Updated: 2025-10-09 - Added timetable_type to query for section-level filtering
@@ -2256,21 +1950,6 @@ export class AttendanceService {
 
       // Use the semester_id column for comparison (timetables table stores semester_id as UUID)
       timetableQuery = timetableQuery.eq('semester_id', filters.semester);
-      console.log('Querying with semester_id:', filters.semester);
-
-      // Updated: 2025-10-09 - Handle section filtering for both semester-level and section-level timetables
-      // For semester-level timetables: Filter by slot section_ids (combined classes support)
-      // For section-level timetables: Filter by timetable section_id (old architecture)
-      if (filters.section) {
-        console.log('Section filter specified:', filters.section);
-        console.log(
-          'Note: Will filter by BOTH timetable section_id (for section-level) AND slot section_ids (for semester-level)'
-        );
-      } else {
-        console.log(
-          'No section filter specified - getting all timetables regardless of section'
-        );
-      }
 
       let timetables;
       let timetableError;
@@ -2280,14 +1959,7 @@ export class AttendanceService {
         timetables = result.data;
         timetableError = result.error;
       } catch (networkError) {
-        console.error('❌ Network error fetching timetables:', networkError);
-        console.error('Network error details:', {
-          message:
-            networkError instanceof Error
-              ? networkError.message
-              : 'Unknown error',
-          stack: networkError instanceof Error ? networkError.stack : undefined
-        });
+        logger.error('academic/attendance', 'Network error fetching timetables', networkError);
         throw new Error(
           `Failed to fetch timetables: ${
             networkError instanceof Error
@@ -2297,14 +1969,8 @@ export class AttendanceService {
         );
       }
 
-      console.log('Timetables query result:', {
-        timetables,
-        timetablesCount: timetables?.length || 0,
-        error: timetableError
-      });
-
       if (timetableError) {
-        console.error('❌ Database error fetching timetables:', timetableError);
+        logger.error('academic/attendance', 'Database error fetching timetables', timetableError);
         throw new Error(
           `Database error: ${
             timetableError.message || 'Unknown database error'
@@ -2313,17 +1979,9 @@ export class AttendanceService {
       }
 
       if (!timetables || timetables.length === 0) {
-        console.warn('⚠️ No active timetables found for the given criteria.');
-        console.warn('Search criteria used:', {
-          institution_id: filters.institution_id,
-          academic_year_id: filters.academic_year_id,
-          degree_id: filters.degree_id,
-          program_id: filters.program_id,
-          department_id: filters.department_id,
+        logger.warn('academic/attendance', 'No active timetables found for the given criteria', {
           semester_id: filters.semester,
-          section_id: filters.section || 'ANY',
-          date: date,
-          dayOfWeek: dayOfWeek
+          section_id: filters.section
         });
         return [];
       }
@@ -2332,53 +1990,17 @@ export class AttendanceService {
       // For section-level timetables, we need to filter by the timetable's section_id
       // For semester-level timetables, we'll filter by slot section_ids later
       if (filters.section) {
-        console.log('🔍 Filtering timetables by section...');
-        console.log('Before section filter:', {
-          total: timetables.length,
-          timetables: timetables.map((t: any) => ({
-            id: t.id,
-            type: t.timetable_type,
-            section_id: t.section_id,
-            section_name: t.sections?.section_name
-          }))
-        });
-
-        const originalCount = timetables.length;
         timetables = timetables.filter((t: any) => {
           // For semester-level timetables, keep them (we'll filter by slot section_ids later)
           if (t.timetable_type === 'semester') {
-            console.log(
-              `✅ Keeping semester-level timetable ${t.id} - will filter slots by section_ids`
-            );
             return true;
           }
-
           // For section-level timetables, only keep if section_id matches
-          if (t.section_id === filters.section) {
-            console.log(
-              `✅ Keeping section-level timetable ${t.id} - section_id matches ${filters.section}`
-            );
-            return true;
-          }
-
-          console.log(
-            `❌ Filtering out section-level timetable ${t.id} - section_id ${t.section_id} doesn't match ${filters.section}`
-          );
-          return false;
-        });
-
-        console.log('After section filter:', {
-          originalCount,
-          filteredCount: timetables.length,
-          filtered: timetables.map((t: any) => ({
-            id: t.id,
-            type: t.timetable_type,
-            section_id: t.section_id
-          }))
+          return t.section_id === filters.section;
         });
 
         if (timetables.length === 0) {
-          console.warn('⚠️ No timetables found after section filtering');
+          logger.warn('academic/attendance', 'No timetables found after section filtering', { section: filters.section });
           return [];
         }
       }
@@ -2387,35 +2009,14 @@ export class AttendanceService {
       const allSlots: any[] = [];
 
       for (const timetable of timetables) {
-        console.log('Processing timetable:', {
-          id: timetable.id,
-          format: timetable.timetable_format,
-          start_date: timetable.start_date,
-          end_date: timetable.end_date,
-          selected_dates: timetable.selected_dates
-        });
-
         // Check date range for ALL timetable formats (both regular and batch)
         if (timetable.start_date && timetable.end_date) {
           const searchDate = new Date(date);
           const startDate = new Date(timetable.start_date);
           const endDate = new Date(timetable.end_date);
 
-          console.log(
-            'Checking date range for',
-            timetable.timetable_format,
-            'timetable:',
-            {
-              searchDate: searchDate.toISOString(),
-              startDate: startDate.toISOString(),
-              endDate: endDate.toISOString(),
-              isWithinRange: searchDate >= startDate && searchDate <= endDate
-            }
-          );
-
           // Skip this timetable if the date is outside its range
           if (searchDate < startDate || searchDate > endDate) {
-            console.log('Date is outside timetable range, skipping');
             continue;
           }
         }
@@ -2427,8 +2028,6 @@ export class AttendanceService {
             let dateIsInRange = false;
             const dateStr = date;
 
-            console.log('Checking selected_dates for date:', dateStr);
-
             // Check if date is covered by any of the date ranges
             for (const item of timetable.selected_dates) {
               if (typeof item === 'string' && item.startsWith('RANGE:')) {
@@ -2437,14 +2036,6 @@ export class AttendanceService {
                   const rangeStart = new Date(parts[1]);
                   const rangeEnd = new Date(parts[2]);
                   const checkDate = new Date(dateStr);
-
-                  console.log('Checking range:', {
-                    range: item,
-                    rangeStart: rangeStart.toISOString(),
-                    rangeEnd: rangeEnd.toISOString(),
-                    checkDate: checkDate.toISOString(),
-                    isInRange: checkDate >= rangeStart && checkDate <= rangeEnd
-                  });
 
                   if (checkDate >= rangeStart && checkDate <= rangeEnd) {
                     dateIsInRange = true;
@@ -2455,7 +2046,6 @@ export class AttendanceService {
             }
 
             if (!dateIsInRange) {
-              console.log('Date is not in any selected_dates range, skipping');
               continue;
             }
           }
@@ -2468,27 +2058,13 @@ export class AttendanceService {
           if (timetableData && typeof timetableData === 'object') {
             if (timetable.timetable_format === 'batch') {
               if (!date) {
-                console.error('Date is required for batch timetables');
+                logger.error('academic/attendance', 'Date is required for batch timetables');
                 continue;
               }
-
-              console.log('Processing batch timetable for date:', date);
-              console.log(
-                'Timetable selected_dates:',
-                timetable.selected_dates
-              );
-              console.log(
-                '🔍 Full timetable_data structure:',
-                JSON.stringify(timetableData, null, 2)
-              );
 
               // For batch timetables, extract slots for the specific date
               // Strategy: Find the date range that contains the query date, then look for slots
               // from dates in that range and apply the pattern to the query date
-
-              console.log(
-                '🔍 Strategy: Find slots from same date range and apply pattern to query date'
-              );
 
               // Step 1: Find which date range contains the query date
               let matchingRangeStart = null;
@@ -2513,10 +2089,6 @@ export class AttendanceService {
                       if (queryDate >= rangeStart && queryDate <= rangeEnd) {
                         matchingRangeStart = parts[1];
                         matchingRangeEnd = parts[2];
-                        console.log('✅ Query date falls in range:', {
-                          range: `${parts[1]} to ${parts[2]}`,
-                          query_date: date
-                        });
                         break;
                       }
                     }
@@ -2524,13 +2096,7 @@ export class AttendanceService {
                 }
               }
 
-              if (!matchingRangeStart || !matchingRangeEnd) {
-                console.log('❌ No matching date range found for query date');
-              } else {
-                console.log('🔍 Looking for slots with dates in range:', {
-                  rangeStart: matchingRangeStart,
-                  rangeEnd: matchingRangeEnd
-                });
+              if (matchingRangeStart && matchingRangeEnd) {
 
                 // Step 2: Find ONE representative slot per period from this date range
                 // Use a Map to track which periods we've already found slots for
@@ -2570,17 +2136,6 @@ export class AttendanceService {
                                 queryDate >= slotRangeStart &&
                                 queryDate <= slotRangeEnd;
 
-                              if (shouldIncludeSlot) {
-                                console.log(
-                                  '✅ Found slot with range-format slot_date:',
-                                  {
-                                    slot_date: slotData.slot_date,
-                                    period_id: periodId,
-                                    query_date: date,
-                                    course_id: slotData.course_id
-                                  }
-                                );
-                              }
                             }
                           } else {
                             // slot_date is a specific date (e.g., "2025-11-27") - use existing comparison logic
@@ -2591,16 +2146,6 @@ export class AttendanceService {
                               shouldIncludeSlot =
                                 slotDate >= rangeStart && slotDate <= rangeEnd;
 
-                              if (shouldIncludeSlot) {
-                                console.log(
-                                  '✅ Found slot with date-format slot_date:',
-                                  {
-                                    slot_date: slotData.slot_date,
-                                    period_id: periodId,
-                                    course_id: slotData.course_id
-                                  }
-                                );
-                              }
                             }
                           }
                         }
@@ -2624,43 +2169,16 @@ export class AttendanceService {
                               staffCount: currentStaffCount,
                               isFromRange
                             });
-                            console.log('✅ First slot for period:', {
-                              period_id: periodId,
-                              staff_count: currentStaffCount,
-                              slot_date: slotData.slot_date,
-                              is_range: isFromRange
-                            });
                           } else if (isFromRange && !existingIsFromRange) {
                             // Current is RANGE, existing is individual → prefer RANGE for consistency
-                            console.log('🔄 Replacing individual slot with RANGE slot:', {
-                              period_id: periodId,
-                              old_staff_count: existingSlot.staffCount,
-                              new_staff_count: currentStaffCount,
-                              old_date: existingSlot.slotData.slot_date,
-                              new_date: slotData.slot_date
-                            });
                             periodSlotMap.set(periodId, {
                               slotData,
                               day,
                               staffCount: currentStaffCount,
                               isFromRange
                             });
-                          } else if (!isFromRange && existingIsFromRange) {
-                            // Current is individual, existing is RANGE → keep RANGE (do nothing)
-                            console.log('⏭️ Keeping RANGE slot, ignoring individual slot:', {
-                              period_id: periodId,
-                              range_staff_count: existingSlot.staffCount,
-                              individual_staff_count: currentStaffCount
-                            });
-                          } else if (currentStaffCount > existingSlot.staffCount) {
-                            // Both same type - use "prefer more staff" as tiebreaker
-                            console.log('🔄 Replacing slot with one having more staff:', {
-                              period_id: periodId,
-                              old_staff_count: existingSlot.staffCount,
-                              new_staff_count: currentStaffCount,
-                              old_date: existingSlot.slotData.slot_date,
-                              new_date: slotData.slot_date
-                            });
+                          } else if (currentStaffCount > existingSlot.staffCount && !(!isFromRange && existingIsFromRange)) {
+                            // Both same type and current has more staff - use as tiebreaker
                             periodSlotMap.set(periodId, {
                               slotData,
                               day,
@@ -2669,6 +2187,7 @@ export class AttendanceService {
                             });
                           }
                           // If current has fewer or equal staff and same type, keep existing
+                          // If current is individual and existing is RANGE → keep RANGE
                         }
                       }
                     });
@@ -2686,16 +2205,8 @@ export class AttendanceService {
                     slot_date: date,
                     _original_slot_date: slotData.slot_date // Keep original for reference
                   });
-                  console.log('✅ Slot applied to query date:', {
-                    query_date: date,
-                    staff_count: slotData.staff_ids?.length || 0
-                  });
                 });
               }
-
-              console.log(
-                `Extracted ${slots.length} slots for date ${date} from batch timetable`
-              );
             } else {
               // For regular timetables, extract slots for the specific day
               const daySlots = timetableData[dayOfWeek];
@@ -2714,14 +2225,6 @@ export class AttendanceService {
               }
             }
           }
-
-          console.log('Extracted slots from timetable_data:', {
-            timetable_id: timetable.id,
-            format: timetable.timetable_format,
-            queryDate:
-              timetable.timetable_format === 'batch' ? date : dayOfWeek,
-            slotsCount: slots?.length || 0
-          });
 
           // Fetch related data for slots
           if (slots.length > 0) {
@@ -2763,7 +2266,7 @@ export class AttendanceService {
                   .in('id', uniqueCourseIds);
                 courses?.forEach((course) => coursesMap.set(course.id, course));
               } catch (error) {
-                console.error('Error fetching courses:', error);
+                logger.error('academic/attendance', 'Error fetching courses', error);
               }
             }
 
@@ -2777,7 +2280,7 @@ export class AttendanceService {
                   .in('id', uniqueStaffIds);
                 staff?.forEach((s) => staffMap.set(s.id, s));
               } catch (error) {
-                console.error('Error fetching staff:', error);
+                logger.error('academic/attendance', 'Error fetching staff', error);
               }
             }
 
@@ -2793,7 +2296,7 @@ export class AttendanceService {
                   sectionsMap.set(section.id, section)
                 );
               } catch (error) {
-                console.error('Error fetching sections:', error);
+                logger.error('academic/attendance', 'Error fetching sections', error);
               }
             }
 
@@ -2847,7 +2350,7 @@ export class AttendanceService {
             });
           }
         } catch (error) {
-          console.error('Error extracting slots from timetable_data:', error);
+          logger.error('academic/attendance', 'Error extracting slots from timetable_data', error);
           continue;
         }
 
@@ -2856,7 +2359,6 @@ export class AttendanceService {
         let isHODUser = false;
 
         if (options.filterByStaffAssignment && !options.isSuperAdmin) {
-          console.log('Filtering required for non-admin user');
           staffIdForFiltering = await this.getCurrentUserStaffId();
 
           if (!staffIdForFiltering) {
@@ -2873,64 +2375,20 @@ export class AttendanceService {
                 profile?.role === 'hod' &&
                 profile.department_id === filters.department_id
               ) {
-                console.log(
-                  'User is HOD for this department - allowing access to periods'
-                );
                 isHODUser = true;
               } else {
-                console.log(
-                  'No staff ID found for current user - skipping timetable'
-                );
                 continue; // Skip this timetable if user has no staff access and is not HOD
               }
             } else {
-              console.log('No authenticated user found - skipping timetable');
               continue;
             }
-          } else {
-            console.log(
-              'Will filter periods for staff ID:',
-              staffIdForFiltering
-            );
           }
-        } else {
-          console.log(
-            'No filtering needed - user is super admin or filtering disabled'
-          );
         }
 
-        console.log('Fetched slots for timetable:', {
-          timetable_id: timetable.id,
-          format: timetable.timetable_format,
-          queryDate: timetable.timetable_format === 'batch' ? date : dayOfWeek,
-          slotsCount: slots?.length || 0
-        });
-
         if (slots && slots.length > 0) {
-          console.log('Found slots:', slots.length);
-
-          // Debug: Log the first slot structure to understand staff assignments
-          if (slots.length > 0) {
-            console.log('Sample slot structure:', {
-              slot_id: slots[0].id,
-              has_staff_members: !!slots[0].staff_members,
-              staff_members_count: slots[0].staff_members?.length || 0,
-              staff_ids: slots[0].staff_ids || [],
-              staff_member_ids:
-                slots[0].staff_members?.map((sm: any) => sm.id) || [],
-              has_sub_slots: !!slots[0].sub_slots,
-              sub_slots_count: slots[0].sub_slots?.length || 0
-            });
-          }
-
           // Filter slots by staff assignment if needed (but not for super admin or HOD users)
           let filteredSlots = slots;
-          if (isHODUser) {
-            console.log(
-              'HOD user detected - showing all periods from department without staff filtering'
-            );
-          } else if (staffIdForFiltering && !options.isSuperAdmin) {
-            console.log(`Filtering slots for staff ID: ${staffIdForFiltering}`);
+          if (staffIdForFiltering && !options.isSuperAdmin && !isHODUser) {
 
             filteredSlots = slots.filter((slot: any) => {
               // Check if staff is assigned to the main slot
@@ -2973,24 +2431,13 @@ export class AttendanceService {
               return false;
             });
 
-            console.log(`Filtered slots by staff ${staffIdForFiltering}:`, {
-              original: slots.length,
-              filtered: filteredSlots.length
-            });
-
             // Warning: If all slots were filtered out, this may indicate a duplicate staff record issue
-            // Added: 2025-12-01 - Enhanced logging for staff ID mismatch debugging
             if (slots.length > 0 && filteredSlots.length === 0) {
-              console.warn(
-                `[attendance] WARNING: All ${slots.length} slots filtered out for staff ${staffIdForFiltering}.`,
-                `This may indicate the user's staff record is different from the staff assigned to timetable.`,
-                `Check for duplicate staff records with different IDs but same name.`,
-                {
-                  userStaffId: staffIdForFiltering,
-                  sampleSlotStaffIds: slots[0]?.staff_ids || [],
-                  timetableId: timetable.id
-                }
-              );
+              logger.warn('academic/attendance', 'All slots filtered out for staff - possible duplicate staff record', {
+                userStaffId: staffIdForFiltering,
+                sampleSlotStaffIds: slots[0]?.staff_ids || [],
+                timetableId: timetable.id
+              });
             }
           }
 
@@ -3004,28 +2451,18 @@ export class AttendanceService {
             _is_super_admin: options.isSuperAdmin // Track if user is super admin
           }));
           allSlots.push(...slotsWithTimetableId);
-        } else {
-          console.log('No slots found for this timetable');
         }
       }
 
       // If no slots found from any timetable
       if (allSlots.length === 0) {
-        console.log('No slots found from any timetable');
         return [];
       }
-
-      console.log(
-        'Total slots collected from all timetables:',
-        allSlots.length
-      );
 
       // Get period details for all unique period IDs found in slots
       const uniquePeriodIds = [
         ...new Set(allSlots.map((slot: any) => slot.period_id).filter(Boolean))
       ];
-
-      console.log('Unique period IDs found in slots:', uniquePeriodIds);
 
       let periodsData: any[] = [];
       if (uniquePeriodIds.length > 0) {
@@ -3036,27 +2473,12 @@ export class AttendanceService {
             .in('id', uniquePeriodIds);
 
           if (periodsError) {
-            console.error('Error fetching periods:', periodsError);
+            logger.error('academic/attendance', 'Error fetching periods', periodsError);
           } else {
             periodsData = periods || [];
-            console.log('[academic/attendance] Fetched periods:', periodsData.length);
-
-            // Enhanced logging for break periods
-            const breakPeriods = periodsData.filter(p => p.is_break);
-            if (breakPeriods.length > 0) {
-              console.warn('[academic/attendance] ⚠️ Break periods detected (will be filtered out):', {
-                count: breakPeriods.length,
-                periods: breakPeriods.map(p => ({
-                  name: p.period_name,
-                  id: p.id,
-                  is_break: p.is_break,
-                  time: `${p.start_time} - ${p.end_time}`
-                }))
-              });
-            }
           }
         } catch (error) {
-          console.error('Error fetching periods data:', error);
+          logger.error('academic/attendance', 'Error fetching periods data', error);
         }
       }
 
@@ -3066,7 +2488,6 @@ export class AttendanceService {
         .filter((slot: any) => {
           // Ensure slot has required fields
           if (!slot || !slot.period_id) {
-            console.warn('[academic/attendance] Invalid slot found, skipping:', slot);
             return false;
           }
 
@@ -3074,13 +2495,6 @@ export class AttendanceService {
           const periodData = periodsData.find((p) => p.id === slot.period_id);
           if (periodData?.is_break) {
             filteredOutBreakCount++;
-            console.warn('[academic/attendance] ✅ Filtering out break period from attendance:', {
-              period_name: periodData.period_name,
-              period_id: slot.period_id,
-              time: `${periodData.start_time} - ${periodData.end_time}`,
-              course: slot.course?.course_name || 'No course',
-              staff: slot.staff_members?.map((s: any) => s.full_name || s.name).join(', ') || 'No staff'
-            });
             return false;
           }
 
@@ -3159,10 +2573,6 @@ export class AttendanceService {
           Array.isArray(period.sub_slots) &&
           period.sub_slots.length > 0
         ) {
-          console.log(
-            `[attendance-service] Expanding subdivided slot into ${period.sub_slots.length} separate period entries`
-          );
-
           // Filter sub-slots by staff assignment if needed
           let subSlotsToExpand = period.sub_slots;
 
@@ -3177,34 +2587,12 @@ export class AttendanceService {
                 subSlot.staff_ids &&
                 Array.isArray(subSlot.staff_ids) &&
                 subSlot.staff_ids.includes(period._staff_filter_id);
-
-              if (isAssignedToSubSlot) {
-                console.log(
-                  `[attendance-service] Staff ${period._staff_filter_id} is assigned to ${subSlot.group_name}`
-                );
-              } else {
-                console.log(
-                  `[attendance-service] Staff ${period._staff_filter_id} is NOT assigned to ${subSlot.group_name} - filtering out`
-                );
-              }
-
               return isAssignedToSubSlot;
             });
-
-            console.log(
-              `[attendance-service] Staff filtering: ${subSlotsToExpand.length} of ${period.sub_slots.length} groups visible to this staff member`
-            );
-          } else {
-            console.log(
-              `[attendance-service] No staff filtering applied (super admin or HOD user)`
-            );
           }
 
           // If no sub-slots remain after filtering, return empty array (hide this period)
           if (subSlotsToExpand.length === 0) {
-            console.log(
-              `[attendance-service] No sub-slots visible to this user - hiding period`
-            );
             return [];
           }
 
@@ -3250,30 +2638,12 @@ export class AttendanceService {
               _expanded_from_slot_id: period.timetable_slot_id // Track original slot
             };
 
-            console.log(`[attendance-service] Created group period:`, {
-              group_name: groupPeriod.subdivision_group.group_name,
-              slot_id: groupPeriod.timetable_slot_id,
-              student_count:
-                groupPeriod.subdivision_group.student_ids?.length || 0,
-              staff_ids_in_group: groupPeriod.subdivision_group.staff_ids,
-              staff_members_count: groupPeriod.staff_members?.length || 0,
-              staff_ids_count:
-                groupPeriod.subdivision_group.staff_ids?.length || 0
-            });
-
             return groupPeriod;
           });
         }
 
         // Not a subdivided slot, return as-is
         return [period];
-      });
-
-      console.log(`[attendance-service] Period expansion complete:`, {
-        original_count: availablePeriods.length,
-        expanded_count: expandedPeriods.length,
-        subdivided_slots_expanded:
-          expandedPeriods.length - availablePeriods.length
       });
 
       // Updated: 2025-10-09 - Remove duplicates based on timetable_slot_id (not period id)
@@ -3305,19 +2675,10 @@ export class AttendanceService {
         return cleanPeriod;
       });
 
-      // Final summary log
-      console.log('[academic/attendance] 📊 Final Period Filtering Summary:', {
-        total_slots_found: allSlots.length,
-        break_periods_filtered_out: filteredOutBreakCount,
-        periods_after_filtering: availablePeriods.length,
-        periods_after_expansion: expandedPeriods.length,
-        final_periods_returned: cleanedPeriods.length
-      });
-
       // Final validation to ensure we always return an array
       return Array.isArray(cleanedPeriods) ? cleanedPeriods : [];
     } catch (error) {
-      console.error('Error in getAvailablePeriodsForDate:', error);
+      logger.error('academic/attendance', 'Error in getAvailablePeriodsForDate', error);
       return [];
     }
   }
@@ -3335,7 +2696,7 @@ export class AttendanceService {
       if (isManualEntry) {
         // For manual entries, save to a manual attendance table or with special handling
         // For now, we'll skip saving manual entries to preserve data integrity
-        console.warn('Manual attendance entries are not saved to database yet');
+        logger.warn('academic/attendance', 'Manual attendance entries are not saved to database yet');
         toast.success('Manual attendance marked (not saved to database)');
         return;
       }
@@ -3351,7 +2712,7 @@ export class AttendanceService {
 
       toast.success('Attendance saved successfully');
     } catch (error) {
-      console.error('Error batch updating attendance:', error);
+      logger.error('academic/attendance', 'Error batch updating attendance', error);
       toast.error('Failed to save attendance');
       throw error;
     }
@@ -3389,7 +2750,7 @@ export class AttendanceService {
       const authEmail = userData.user.email?.trim().toLowerCase();
 
       if (!profileEmail && !authEmail) {
-        console.warn('[attendance] No email found for user:', userData.user.id);
+        logger.warn('academic/attendance', 'No email found for user', { userId: userData.user.id });
         return null;
       }
 
@@ -3404,12 +2765,6 @@ export class AttendanceService {
           .maybeSingle();
 
         if (staff) {
-          console.log('[attendance] Staff found via institution_email:', {
-            staffId: staff.id,
-            staffName: `${staff.first_name} ${staff.last_name}`,
-            staffNumber: staff.staff_id,
-            email: staff.institution_email
-          });
           return staff.id;
         }
 
@@ -3422,7 +2777,6 @@ export class AttendanceService {
           .maybeSingle();
 
         if (staffByPersonalEmail) {
-          console.log('[attendance] Staff found via personal email:', staffByPersonalEmail.id);
           return staffByPersonalEmail.id;
         }
       }
@@ -3437,22 +2791,16 @@ export class AttendanceService {
           .maybeSingle();
 
         if (staffByAuthEmail) {
-          console.log('[attendance] Staff found via auth email:', staffByAuthEmail.id);
           return staffByAuthEmail.id;
         }
       }
 
-      // No staff record found - log for debugging
-      console.warn('[attendance] No staff record found for user:', {
-        userId: userData.user.id,
-        profileEmail,
-        authEmail,
-        role: profile.role
-      });
+      // No staff record found
+      logger.warn('academic/attendance', 'No staff record found for user', { userId: userData.user.id });
 
       return null;
     } catch (error) {
-      console.error('[attendance] Error getting current user staff ID:', error);
+      logger.error('academic/attendance', 'Error getting current user staff ID', error);
       return null;
     }
   }
@@ -3472,15 +2820,6 @@ export class AttendanceService {
     semester_id: string
   ): Promise<'semester' | 'section' | null> {
     try {
-      console.log('🔍 Checking timetable type for semester:', {
-        institution_id,
-        academic_year_id,
-        degree_id,
-        program_id,
-        department_id,
-        semester_id
-      });
-
       const { data, error } = await this.supabase
         .from('timetables')
         .select('timetable_type')
@@ -3495,21 +2834,19 @@ export class AttendanceService {
         .maybeSingle();
 
       if (error) {
-        console.error('Error checking timetable type:', error);
+        logger.error('academic/attendance', 'Error checking timetable type', error);
         return null;
       }
 
       if (!data) {
-        console.warn('No timetables found for this semester');
+        logger.warn('academic/attendance', 'No timetables found for this semester');
         return null;
       }
 
       const timetableType = data.timetable_type as 'semester' | 'section';
-      console.log('✅ Timetable type detected:', timetableType);
-
       return timetableType;
     } catch (error) {
-      console.error('Error in getTimetableTypeForSemester:', error);
+      logger.error('academic/attendance', 'Error in getTimetableTypeForSemester', error);
       return null;
     }
   }
@@ -3524,7 +2861,6 @@ export class AttendanceService {
       // First, find the timetable containing this slot
       const timetableId = await this.getTimetableIdFromSlot(timetableSlotId);
       if (!timetableId) {
-        console.log('Could not find timetable for slot:', timetableSlotId);
         return false;
       }
 
@@ -3536,10 +2872,7 @@ export class AttendanceService {
         .single();
 
       if (slotsError || !timetableData?.timetable_data) {
-        console.error(
-          'Error fetching timetable data for staff assignment check:',
-          slotsError
-        );
+        logger.error('academic/attendance', 'Error fetching timetable data for staff assignment check', slotsError);
         return false;
       }
 
@@ -3591,14 +2924,9 @@ export class AttendanceService {
         }
       }
 
-      // Legacy table support removed - using JSON-based structure only
-      console.log(
-        'Staff assignment check completed using JSON-based timetable structure'
-      );
-
       return false;
     } catch (error) {
-      console.error('Error checking staff assignment to slot:', error);
+      logger.error('academic/attendance', 'Error checking staff assignment to slot', error);
       return false;
     }
   }
@@ -3623,7 +2951,6 @@ export class AttendanceService {
       const staffId = await this.getCurrentUserStaffId();
 
       if (!staffId) {
-        console.log('User is not a staff member');
         return false;
       }
 
@@ -3634,7 +2961,6 @@ export class AttendanceService {
       );
 
       if (isAssigned) {
-        console.log(`Staff ${staffId} is assigned to slot ${timetableSlotId}`);
         return true;
       }
 
@@ -3642,9 +2968,6 @@ export class AttendanceService {
       const hasHODAccess = await this.checkHODDepartmentAccess(timetableSlotId);
 
       if (hasHODAccess) {
-        console.log(
-          `User is HOD with department access to slot ${timetableSlotId}`
-        );
         return true;
       }
 
@@ -3653,18 +2976,12 @@ export class AttendanceService {
       const hasRolePermission = await this.checkFacultyAttendancePermission();
 
       if (hasRolePermission) {
-        console.log(
-          `Staff ${staffId} has faculty role permissions to mark attendance for any slot`
-        );
         return true;
       }
 
-      console.log(
-        `Staff ${staffId} is not assigned to slot ${timetableSlotId} and lacks sufficient permissions`
-      );
       return false;
     } catch (error) {
-      console.error('Error checking attendance permission for slot:', error);
+      logger.error('academic/attendance', 'Error checking attendance permission for slot', error);
       return false;
     }
   }
@@ -3705,7 +3022,7 @@ export class AttendanceService {
       const permissions = roleData.permissions as any;
       return permissions && permissions['academic.attendance.mark'] === true;
     } catch (error) {
-      console.error('Error checking faculty attendance permission:', error);
+      logger.error('academic/attendance', 'Error checking faculty attendance permission', error);
       return false;
     }
   }
@@ -3740,7 +3057,6 @@ export class AttendanceService {
 
       // HOD must have a department assigned
       if (!profile.department_id) {
-        console.log('HOD user has no department assigned');
         return false;
       }
 
@@ -3752,13 +3068,7 @@ export class AttendanceService {
         .single();
 
       if (timetableError) {
-        // If direct lookup fails, it might be we need to get timetable info differently
-        // Let's try to get it from the timetable structure
-        console.log(
-          'Could not find timetable by direct ID, checking timetable data...'
-        );
-
-        // Alternative approach: Search through timetables for this slot
+        // If direct lookup fails, search through timetables for this slot
         const { data: allTimetables, error: allTimetablesError } =
           await this.supabase
             .from('timetables')
@@ -3767,7 +3077,6 @@ export class AttendanceService {
             .eq('is_active', true);
 
         if (allTimetablesError || !allTimetables) {
-          console.log('Could not fetch department timetables');
           return false;
         }
 
@@ -3798,16 +3107,9 @@ export class AttendanceService {
       const belongsToHODDepartment =
         timetableData.department_id === profile.department_id;
 
-      if (belongsToHODDepartment) {
-        console.log(
-          `Timetable slot belongs to HOD's department: ${profile.department_id}`
-        );
-        return true;
-      }
-
-      return false;
+      return belongsToHODDepartment;
     } catch (error) {
-      console.error('Error checking HOD department access:', error);
+      logger.error('academic/attendance', 'Error checking HOD department access', error);
       return false;
     }
   }
@@ -3899,7 +3201,7 @@ export class AttendanceService {
         `✅ Manual attendance saved for ${attendanceData.student_records.length} students`
       );
     } catch (error) {
-      console.error('Error saving manual attendance:', error);
+      logger.error('academic/attendance', 'Error saving manual attendance', error);
       const errorMessage =
         error instanceof Error
           ? error.message
@@ -3929,7 +3231,7 @@ export class AttendanceService {
 
       return updatedRecord;
     } catch (error) {
-      console.error('Error updating attendance:', error);
+      logger.error('academic/attendance', 'Error updating attendance', error);
       throw error;
     }
   }
@@ -3941,9 +3243,6 @@ export class AttendanceService {
   ): Promise<AttendanceListResponse> {
     try {
       // Since we moved to consolidated attendance, return empty result
-      console.log(
-        'getAttendance called - returning empty result (consolidated approach active)'
-      );
       return {
         data: [],
         metadata: {
@@ -3954,7 +3253,7 @@ export class AttendanceService {
         }
       };
     } catch (error) {
-      console.error('Error fetching attendance:', error);
+      logger.error('academic/attendance', 'Error fetching attendance', error);
       throw error;
     }
   }
@@ -4005,7 +3304,7 @@ export class AttendanceService {
 
       return days[dateObj.getDay()];
     } catch (error) {
-      console.error('Error parsing date:', error);
+      logger.error('academic/attendance', 'Error parsing date', error);
       const errorMessage =
         error instanceof Error
           ? error.message
@@ -4168,14 +3467,6 @@ export class AttendanceService {
           }
         }
 
-        // Summary
-        console.log('🔍 ATTENDANCE RECORD DEBUG:', {
-          record_id: record.id,
-          attendance_date: record.attendance_date,
-          issues: issues.length,
-          suggestions: suggestions.length,
-          null_fields: nullFields.length
-        });
       }
 
       return {
@@ -4186,7 +3477,7 @@ export class AttendanceService {
         semesterInfo
       };
     } catch (error) {
-      console.error('Error debugging attendance record:', error);
+      logger.error('academic/attendance', 'Error debugging attendance record', error);
       issues.push(
         `Debug error: ${
           error instanceof Error ? error.message : 'Unknown error'
@@ -4215,12 +3506,6 @@ export class AttendanceService {
     let fixedCount = 0;
 
     try {
-      console.log('🔧 Starting attendance records fix...', {
-        dryRun,
-        dateRange,
-        limit
-      });
-
       // Find records with null semester_id
       let query = this.supabase
         .from('student_attendance')
@@ -4242,7 +3527,6 @@ export class AttendanceService {
       }
 
       const totalFound = recordsToFix?.length || 0;
-      console.log(`📊 Found ${totalFound} records with null semester_id`);
 
       if (!recordsToFix || recordsToFix.length === 0) {
         return { totalFound: 0, fixedCount: 0, errors, summary };
@@ -4299,16 +3583,9 @@ export class AttendanceService {
         }
       }
 
-      console.log('🎯 Fix operation completed:', {
-        totalFound,
-        fixedCount: dryRun ? 0 : fixedCount,
-        errors: errors.length,
-        dryRun
-      });
-
       return { totalFound, fixedCount, errors, summary };
     } catch (error) {
-      console.error('Error in fixAttendanceRecords:', error);
+      logger.error('academic/attendance', 'Error in fixAttendanceRecords', error);
       errors.push(
         `Fix operation error: ${
           error instanceof Error ? error.message : 'Unknown error'
@@ -4344,8 +3621,6 @@ export class AttendanceService {
     try {
       const { timetable_id, period_slot_id, batch_id, date } = params;
 
-      console.log('[academic/attendance] Checking practical conflict:', params);
-
       // Query student_attendance for this timetable, date, and period
       const { data: existingAttendance, error } = await this.supabase
         .from('student_attendance')
@@ -4355,7 +3630,7 @@ export class AttendanceService {
         .eq('period_slot_id', period_slot_id);
 
       if (error) {
-        console.error('[academic/attendance] Error checking conflict:', error);
+        logger.error('academic/attendance', 'Error checking conflict', error);
         throw error;
       }
 
@@ -4388,10 +3663,7 @@ export class AttendanceService {
         hasConflict: false
       };
     } catch (error) {
-      console.error(
-        '[academic/attendance] Error in checkPracticalConflict:',
-        error
-      );
+      logger.error('academic/attendance', 'Error in checkPracticalConflict', error);
       throw error;
     }
   }
@@ -4411,10 +3683,7 @@ export class AttendanceService {
         .single();
 
       if (error || !timetableData) {
-        console.error(
-          '[academic/attendance] Error fetching timetable data:',
-          error
-        );
+        logger.error('academic/attendance', 'Error fetching timetable data', error);
         return null;
       }
 
@@ -4433,10 +3702,7 @@ export class AttendanceService {
 
       return null;
     } catch (error) {
-      console.error(
-        '[academic/attendance] Error in getPracticalPeriodConfig:',
-        error
-      );
+      logger.error('academic/attendance', 'Error in getPracticalPeriodConfig', error);
       return null;
     }
   }

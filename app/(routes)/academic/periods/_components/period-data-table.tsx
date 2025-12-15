@@ -3,6 +3,7 @@
 import { DataTable } from '@/components/data-table/data-table';
 import { getColumns } from './columns';
 import type { PeriodsSearchParams } from './data-table-schema';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -82,7 +83,7 @@ export function PeriodsDataTable({ search }: PeriodsDataTableProps) {
         }
       };
     } catch (error) {
-      console.error('Error fetching periods:', error);
+      logger.error('academic/periods', 'Error fetching periods', error);
       throw error;
     }
   };
@@ -113,7 +114,7 @@ export function PeriodsDataTable({ search }: PeriodsDataTableProps) {
       resetSelection();
       // The DataTable will automatically refetch data after this
     } catch (error) {
-      console.error('Error deleting periods:', error);
+      logger.error('academic/periods', 'Error deleting periods', error);
     }
   };
 

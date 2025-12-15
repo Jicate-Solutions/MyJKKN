@@ -14,6 +14,7 @@ import type {
 } from '@/types/attendance-dashboard';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { format } from 'date-fns';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface PendingAttendanceDataTableProps {
   userInstitutionId?: string;
@@ -50,7 +51,6 @@ export function PendingAttendanceDataTable({
     sort_order: string;
   }) => {
     try {
-      console.log('🔍 Fetching pending attendance with params:', params);
 
       // Map DataTable parameters to our service parameters
       const attendanceDate = pendingFilters?.attendanceDate || new Date().toISOString().split('T')[0];
@@ -88,7 +88,7 @@ export function PendingAttendanceDataTable({
         }
       };
     } catch (error) {
-      console.error('Error fetching pending attendance:', error);
+      logger.error('academic/attendance-dashboard', 'Error fetching pending attendance', error);
       throw error;
     }
   };
@@ -105,12 +105,6 @@ export function PendingAttendanceDataTable({
   const handleMarkAttendance = useCallback(
     async (period: PendingAttendancePeriod) => {
       try {
-        // First, check if attendance is already marked
-        console.log('🔍 Checking if attendance is already marked for:', {
-          date: period.attendance_date,
-          timetableId: period.timetable_id,
-          periodId: period.period_id
-        });
 
         // Quick check using the same logic as the service
         const { data: existingAttendance } = await createClientSupabaseClient()
@@ -152,7 +146,7 @@ export function PendingAttendanceDataTable({
           `Navigating to mark attendance for ${period.period_name}`
         );
       } catch (error) {
-        console.error('Error checking/navigating to mark attendance:', error);
+        logger.error('academic/attendance-dashboard', 'Error navigating to mark attendance', error);
         // Still navigate even if the check fails
         const params = new URLSearchParams({
           timetableId: period.timetable_id,

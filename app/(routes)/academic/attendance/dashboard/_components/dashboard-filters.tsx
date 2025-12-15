@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { logger } from '@/lib/utils/enhanced-logger';
 import {
   Calendar,
   Filter,
@@ -102,13 +103,13 @@ export function DashboardFilters({
         const { data, error } = await query;
 
         if (error) {
-          console.error('Error fetching academic years:', error);
+          logger.error('academic/attendance-dashboard', 'Error fetching academic years', error);
           setAcademicYears([]);
         } else {
           setAcademicYears(data || []);
         }
       } catch (error) {
-        console.error('Unexpected error fetching academic years:', error);
+        logger.error('academic/attendance-dashboard', 'Unexpected error fetching academic years', error);
         setAcademicYears([]);
       } finally {
         setLoadingAcademicYears(false);

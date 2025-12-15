@@ -116,15 +116,6 @@ export function StatisticsCards({
     filters?.institutionId ||
     (canViewAllInstitutions ? undefined : userInstitutionId);
 
-  console.log('📊 StatisticsCards - Query params:', {
-    queryInstitutionId,
-    canViewAllInstitutions,
-    selectedDate: selectedDate?.toISOString().split('T')[0],
-    refreshTrigger,
-    filtersInstitution: filters?.institutionId,
-    userInstitution: userInstitutionId
-  });
-
   const { stats, isLoading, error, refetch } = useAttendanceStats(
     queryInstitutionId,
     canViewAllInstitutions,

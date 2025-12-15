@@ -30,6 +30,7 @@ import {
 import { Period } from '@/types/academics';
 import { PeriodService } from '@/lib/services/academic/period-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -59,7 +60,7 @@ export function DataTableRowActions<TData>({
       setShowDeleteAlert(false);
     },
     onError: (error) => {
-      console.error('Delete period error:', error);
+      logger.error('academic/periods', 'Failed to delete period', error);
       toast.error('Failed to delete period');
     }
   });

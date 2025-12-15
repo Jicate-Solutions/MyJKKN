@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { PeriodService } from '@/lib/services/academic/period-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { Timetable, Period, DayOfWeek } from '@/types/academics';
 import toast from 'react-hot-toast';
 
@@ -107,10 +108,6 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
    * Now uses a ref pattern to access current selectedDates value
    */
   const fetchTimetableData = useCallback(async (preserveUnsavedDates: boolean = false) => {
-    console.log(
-      '[useTimetableDetail] Starting fetch, preserveUnsavedDates:',
-      preserveUnsavedDates
-    );
 
     try {
       setLoading(true);
@@ -127,16 +124,6 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
 
       // Fetch timetable data
       const timetableData = await TimetableService.getTimetable(timetableId);
-      console.log(
-        '[useTimetableDetail] Fetched timetable data:',
-        {
-          slotsCount: timetableData.slots?.length,
-          timetableFormat: timetableData.timetable_format,
-          selectedDatesCount: timetableData.selected_dates?.length,
-          timetableDataKeys: Object.keys(timetableData.timetable_data || {}),
-          sampleSlot: timetableData.slots?.[0]
-        }
-      );
 
       setTimetable(timetableData);
 
@@ -164,7 +151,6 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
           // Fixed: 2025-12-04 - This fixes batch mode showing "No dates selected" when data exists
           const recoveredDates = recoverDatesFromTimetableData(timetableData.timetable_data);
           if (recoveredDates.length > 0) {
-            console.log('[useTimetableDetail] Auto-recovered dates from timetable_data:', recoveredDates);
             setSelectedDates(recoveredDates);
           } else {
             setSelectedDates([]);
@@ -197,30 +183,13 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
         setMarkedPeriods(attendanceStatus.markedPeriods);
         setPeriods(periodsResponse.data || []);
       } catch (error) {
-        console.error('[useTimetableDetail] Error fetching parallel data:', error);
+        logger.error('academic/timetables', 'Error fetching parallel data', error);
       }
 
       // Set slots (use enriched slots from timetable data)
       setSlots(timetableData.slots || []);
-      console.log(
-        '[useTimetableDetail] Set slots state, new slots count:',
-        timetableData.slots?.length
-      );
-
-      // Debug: Log sample subdivided slot (only in development)
-      if (process.env.NODE_ENV === 'development' && timetableData.slots && timetableData.slots.length > 0) {
-        const sampleSlot = timetableData.slots.find((s: any) => s.is_subdivided);
-        if (sampleSlot) {
-          console.log('[useTimetableDetail] Sample subdivided slot:', {
-            slot_date: sampleSlot.slot_date,
-            period_id: sampleSlot.period_id,
-            is_subdivided: sampleSlot.is_subdivided,
-            sub_slots_count: sampleSlot.sub_slots?.length
-          });
-        }
-      }
     } catch (err) {
-      console.error('[useTimetableDetail] Error fetching timetable data:', err);
+      logger.error('academic/timetables', 'Error fetching timetable data', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
       toast.error('Failed to load timetable data');
     } finally {

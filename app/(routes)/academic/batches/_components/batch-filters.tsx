@@ -13,6 +13,7 @@ import { RotateCcw } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { BatchesSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface BatchFiltersProps {
   searchParams: BatchesSearchParams;
@@ -38,7 +39,7 @@ export function BatchFilters({
         const data = await OrganizationService.getInstitutionNames(true);
         setInstitutions(data);
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        logger.error('academic/batches', 'Error loading institutions', error);
       } finally {
         setLoading(false);
       }

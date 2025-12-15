@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { ArrowLeft } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -43,7 +44,7 @@ export default function EditRegulationPage({ params }: EditRegulationPageProps) 
         setRegulation(data);
         setError(null);
       } catch (err) {
-        console.error('Error fetching regulation:', err);
+        logger.error('academic/regulations', 'Error fetching regulation', err);
         setError('Failed to load regulation data. Please try again.');
       } finally {
         setLoading(false);
@@ -60,7 +61,7 @@ export default function EditRegulationPage({ params }: EditRegulationPageProps) 
       toast.success('Regulation updated successfully!');
       router.push('/academic/regulations');
     } catch (err: any) {
-      console.error('Error updating regulation:', err);
+      logger.error('academic/regulations', 'Error updating regulation', err);
 
       if (err?.code === '23505' || err?.message?.includes('duplicate')) {
         toast.error(

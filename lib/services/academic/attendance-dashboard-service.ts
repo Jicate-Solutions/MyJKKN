@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { cache } from 'react';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   AttendanceStats,
   PendingAttendancePeriod,
@@ -25,24 +26,11 @@ export class AttendanceDashboardService {
       try {
         const today = dateString || new Date().toISOString().split('T')[0];
 
-        console.log('📊 Fetching attendance stats:', {
-          today,
-          userInstitutionId,
-          canViewAllInstitutions,
-          academicYearId,
-          mode:
-            canViewAllInstitutions && !userInstitutionId
-              ? 'ALL_INSTITUTIONS'
-              : 'SPECIFIC_INSTITUTION'
-        });
-
         // Build the query for getting attendance data with pagination
         let attendanceData: any[] = [];
         const ATTENDANCE_BATCH_SIZE = 1000;
         let attendanceFrom = 0;
         let fetchMoreAttendance = true;
-
-        console.log('🔄 Starting paginated attendance fetch...');
 
         while (fetchMoreAttendance) {
           let query = this.supabase
@@ -69,45 +57,26 @@ export class AttendanceDashboardService {
           // - Regular users: always filter by their institution (userInstitutionId)
           if (userInstitutionId) {
             query = query.eq('institution_id', userInstitutionId);
-            if (attendanceFrom === 0) {
-              console.log('🏢 Filtering by institution:', userInstitutionId);
-            }
           } else if (!canViewAllInstitutions) {
             // If no institution provided and user can't view all, return empty result
-            console.warn(
-              '❌ No institution ID provided and user cannot view all institutions'
-            );
+            logger.warn('academic/attendance-dashboard', 'No institution ID provided and user cannot view all institutions');
             return [];
-          } else {
-            if (attendanceFrom === 0) {
-              console.log('🌐 Fetching data for all institutions');
-            }
           }
 
           // Apply academic year filter if provided
           if (academicYearId) {
             query = query.eq('academic_year_id', academicYearId);
-            if (attendanceFrom === 0) {
-              console.log('🎓 Filtering by academic year:', academicYearId);
-            }
           }
 
           const { data: batchAttendance, error } = await query;
 
           if (error) {
-            console.error('Error fetching attendance data batch:', error);
+            logger.error('academic/attendance-dashboard', 'Error fetching attendance data batch', error);
             throw error;
           }
 
           if (batchAttendance && batchAttendance.length > 0) {
             attendanceData = attendanceData.concat(batchAttendance);
-            console.log(
-              `📦 Fetched attendance batch ${
-                Math.floor(attendanceFrom / ATTENDANCE_BATCH_SIZE) + 1
-              }: ${batchAttendance.length} records (Total: ${
-                attendanceData.length
-              })`
-            );
 
             // If we got less than BATCH_SIZE, we've reached the end
             if (batchAttendance.length < ATTENDANCE_BATCH_SIZE) {
@@ -120,29 +89,14 @@ export class AttendanceDashboardService {
           }
         }
 
-        if (!attendanceData || attendanceData.length === 0) {
-          console.log('📋 No attendance data found for today:', today);
-          console.log(
-            '📊 Will show student counts with 0% attendance for all institutions'
-          );
-          // Don't return empty - we still want to show student counts even without attendance data
-        }
-
-        console.log(
-          `📊 Found ${attendanceData.length} attendance records for processing`
-        );
-
         if (attendanceData && attendanceData.length >= 50000) {
-          console.warn(
-            '⚠️ Attendance query hit the 50,000 limit - there may be more attendance records not fetched'
-          );
+          logger.warn('academic/attendance-dashboard', 'Attendance query hit the 50,000 limit - there may be more records not fetched');
         }
 
-        // Log unique institutions found in data
+        // Get unique institutions found in data
         const foundInstitutions = [
           ...new Set(attendanceData.map((r) => r.institution_id))
         ];
-        console.log('🏢 Institutions in data:', foundInstitutions);
 
         // Get related data in separate queries
         const institutionIds =
@@ -169,20 +123,11 @@ export class AttendanceDashboardService {
         let allSemesterIds: string[] = [];
         let allSectionIds: string[] = [];
 
-        console.log(
-          '📊 Fetching students. Institution ID:',
-          userInstitutionId,
-          'Can view all:',
-          canViewAllInstitutions
-        );
-
         try {
           // Implement pagination to fetch all student records
           const BATCH_SIZE = 1000;
           let from = 0;
           let fetchMore = true;
-
-          console.log('🔄 Starting paginated student fetch...');
 
           while (fetchMore) {
             let query = this.supabase
@@ -207,46 +152,27 @@ export class AttendanceDashboardService {
             // Apply institution filter based on access level
             if (userInstitutionId) {
               query = query.eq('institution_id', userInstitutionId);
-              if (from === 0) {
-                console.log(
-                  '🔍 Querying specific institution:',
-                  userInstitutionId
-                );
-              }
             } else if (canViewAllInstitutions) {
-              if (from === 0) {
-                console.log('🔍 Querying all institutions for super admin');
-              }
+              // Super admin - query all institutions
             } else {
-              console.log('⚠️ No institution access - returning empty results');
+              logger.warn('academic/attendance-dashboard', 'No institution access - returning empty results');
               return [];
             }
 
             // Apply academic year filter if provided
             if (academicYearId) {
               query = query.eq('academic_year_id', academicYearId);
-              if (from === 0) {
-                console.log(
-                  '🎓 Filtering students by academic year:',
-                  academicYearId
-                );
-              }
             }
 
             const { data: batchStudents, error: studentsError } = await query;
 
             if (studentsError) {
-              console.error('Error fetching students batch:', studentsError);
+              logger.error('academic/attendance-dashboard', 'Error fetching students batch', studentsError);
               return [];
             }
 
             if (batchStudents && batchStudents.length > 0) {
               studentsData = studentsData.concat(batchStudents);
-              console.log(
-                `📦 Fetched batch ${Math.floor(from / BATCH_SIZE) + 1}: ${
-                  batchStudents.length
-                } students (Total: ${studentsData.length})`
-              );
 
               // If we got less than BATCH_SIZE, we've reached the end
               if (batchStudents.length < BATCH_SIZE) {
@@ -259,15 +185,8 @@ export class AttendanceDashboardService {
             }
           }
 
-          // Final logging and processing
+          // Final processing
           if (studentsData.length > 0) {
-            const institutionCount = userInstitutionId
-              ? 1
-              : new Set(studentsData.map((s) => s.institution_id)).size;
-            console.log(
-              `✅ Found ${studentsData.length} active students across ${institutionCount} institution(s)`
-            );
-
             // Extract all unique IDs for fetching related data
             allInstitutionIds = [
               ...new Set(studentsData.map((s) => s.institution_id))
@@ -283,11 +202,9 @@ export class AttendanceDashboardService {
             allSectionIds = [
               ...new Set(studentsData.map((s) => s.section_id).filter(Boolean))
             ];
-          } else {
-            console.log('📊 No active students found');
           }
         } catch (error) {
-          console.error('Unexpected error fetching students:', error);
+          logger.error('academic/attendance-dashboard', 'Unexpected error fetching students', error);
           return [];
         }
 
@@ -309,12 +226,6 @@ export class AttendanceDashboardService {
           }
           return acc;
         }, {} as Record<string, number>);
-
-        console.log(
-          '📊 Students by section count:',
-          Object.keys(studentsBySection).length,
-          'sections'
-        );
 
         // Build institution hierarchy from student data
         const institutionStats = new Map<string, any>();
@@ -394,15 +305,8 @@ export class AttendanceDashboardService {
           institution.total_students += 1;
         });
 
-        console.log(
-          '📊 Built hierarchy from students:',
-          institutionStats.size,
-          'institutions'
-        );
-
         // Now process attendance data if it exists
         if (attendanceData && attendanceData.length > 0) {
-          console.log('📊 Processing attendance data...');
           attendanceData.forEach((record) => {
             const institutionId = record.institution_id;
             const departmentId = record.department_id;
@@ -412,33 +316,25 @@ export class AttendanceDashboardService {
             // Get the existing hierarchy (should exist from student data)
             const institution = institutionStats.get(institutionId);
             if (!institution) {
-              console.warn(
-                `Institution ${institutionId} not found in student data - skipping attendance record`
-              );
+              logger.warn('academic/attendance-dashboard', 'Institution not found in student data - skipping attendance record', { institutionId });
               return;
             }
 
             const department = institution.departments.get(departmentId);
             if (!department) {
-              console.warn(
-                `Department ${departmentId} not found in student data - skipping attendance record`
-              );
+              logger.warn('academic/attendance-dashboard', 'Department not found in student data - skipping attendance record', { departmentId });
               return;
             }
 
             const semester = department.semesters.get(semesterId);
             if (!semester) {
-              console.warn(
-                `Semester ${semesterId} not found in student data - skipping attendance record`
-              );
+              logger.warn('academic/attendance-dashboard', 'Semester not found in student data - skipping attendance record', { semesterId });
               return;
             }
 
             const section = semester.sections.get(sectionId);
             if (!section) {
-              console.warn(
-                `Section ${sectionId} not found in student data - skipping attendance record`
-              );
+              logger.warn('academic/attendance-dashboard', 'Section not found in student data - skipping attendance record', { sectionId });
               return;
             }
 
@@ -493,10 +389,6 @@ export class AttendanceDashboardService {
             institution.total_present += sectionPresent;
             institution.total_absent += sectionAbsent;
           });
-        } else {
-          console.log(
-            '📊 No attendance data - showing student counts with 0% attendance'
-          );
         }
 
         // Calculate percentages and convert Maps to arrays
@@ -540,18 +432,9 @@ export class AttendanceDashboardService {
           result.push(institution);
         });
 
-        console.log(
-          `✅ Processed statistics for ${result.length} institution(s):`
-        );
-        result.forEach((i) => {
-          console.log(
-            `🏢 ${i.institution_name}: ${i.total_students} students, ${i.attendance_percentage}% attendance (${i.total_present} present, ${i.total_absent} absent)`
-          );
-        });
-
         return result;
       } catch (error) {
-        console.error('Error in getTodayAttendanceStats:', error);
+        logger.error('academic/attendance-dashboard', 'Error in getTodayAttendanceStats', error);
         throw error;
       }
     }
@@ -588,13 +471,6 @@ export class AttendanceDashboardService {
       const today = new Date().toISOString().split('T')[0];
       const queryStartDate = startDate || today;
       const queryEndDate = endDate || today;
-
-      console.log('🔍 Enhanced Pending Attendance Query:', {
-        queryStartDate,
-        queryEndDate,
-        userInstitutionId,
-        filters
-      });
 
       // Generate date range
       const dates = [];
@@ -670,27 +546,8 @@ export class AttendanceDashboardService {
       const { data: timetables, error: timetableError } = await timetableQuery;
 
       if (timetableError) {
-        console.error('Error fetching timetables:', timetableError);
+        logger.error('academic/attendance-dashboard', 'Error fetching timetables', timetableError);
         throw timetableError;
-      }
-
-      console.log(`📅 Found ${timetables?.length || 0} active timetables`);
-      console.log(`📊 Date range: ${queryStartDate} to ${queryEndDate}`);
-      console.log(`📊 Querying for dates:`, dates);
-
-      // Debug: Check the structure of the first timetable
-      if (timetables && timetables.length > 0) {
-        console.log('🔍 Sample timetable structure:', {
-          id: timetables[0].id,
-          institution_id: timetables[0].institution_id,
-          institution: timetables[0].institution,
-          degree: timetables[0].degree,
-          department: timetables[0].department,
-          program: timetables[0].program,
-          semester: timetables[0].semester,
-          section: timetables[0].section,
-          academic_year: timetables[0].academic_year
-        });
       }
 
       // Step 2: Get courses and staff data for enrichment
@@ -794,13 +651,6 @@ export class AttendanceDashboardService {
                     const actualPeriodId = slot.slot_id || periodId;
                     const periodKey = `${date}_${timetable.id}_${actualPeriodId}`;
 
-                    // Debug logging for period ID mapping
-                    if (slot.slot_id && slot.slot_id !== periodId) {
-                      console.log(
-                        `🔄 Period ID mapping: ${periodId} -> ${slot.slot_id} for ${periodInfo.period_name}`
-                      );
-                    }
-
                     // Apply staff filter if provided
                     if (
                       staffId &&
@@ -865,38 +715,12 @@ export class AttendanceDashboardService {
                     };
 
                     allScheduledPeriods.set(periodKey, pendingPeriod);
-                    console.log(
-                      `📋 Scheduled period key: ${periodKey} for date ${date}, timetable ${timetable.id}`
-                    );
                   }
                 }
               }
             );
           }
         });
-      });
-
-      console.log(
-        `📋 Found ${allScheduledPeriods.size} scheduled periods across date range`
-      );
-      console.log(
-        `📋 Sample scheduled periods:`,
-        Array.from(allScheduledPeriods.keys()).slice(0, 5)
-      );
-
-      // Debug: Log first few scheduled periods
-      let count = 0;
-      allScheduledPeriods.forEach((period, key) => {
-        if (count < 3) {
-          console.log(`📋 Sample period ${count + 1}:`, {
-            key,
-            timetable: period.timetable_name,
-            period: period.period_name,
-            date: period.attendance_date,
-            course: period.course_name
-          });
-          count++;
-        }
       });
 
       // Step 4: Find marked attendance for the date range
@@ -918,7 +742,7 @@ export class AttendanceDashboardService {
         await attendanceQuery;
 
       if (attendanceError) {
-        console.error('Error fetching marked attendance:', attendanceError);
+        logger.error('academic/attendance-dashboard', 'Error fetching marked attendance', attendanceError);
         throw attendanceError;
       }
 
@@ -947,43 +771,12 @@ export class AttendanceDashboardService {
                 studentsCount: periodData.students.length,
                 updatedAt: record.updated_at
               });
-              console.log(
-                `✅ Marked period key: ${periodKey} for date ${record.attendance_date} (${periodData.students.length} students, updated: ${record.updated_at})`
-              );
             } else {
-              console.warn(
-                `⚠️ Period ${periodId} exists but has no valid student data for timetable ${record.timetable_id} on ${record.attendance_date}`
-              );
+              logger.warn('academic/attendance-dashboard', 'Period exists but has no valid student data', { periodId, timetableId: record.timetable_id, attendanceDate: record.attendance_date });
             }
           });
         }
       });
-
-      console.log(
-        `✅ Found ${markedPeriods.size} marked periods with valid attendance data`
-      );
-      console.log(
-        `✅ Sample marked periods:`,
-        Array.from(markedPeriods).slice(0, 5)
-      );
-
-      // Enhanced debugging - show most recent marked periods
-      const recentMarked = Array.from(markedPeriodsDetails.entries())
-        .sort(
-          (a, b) =>
-            new Date(b[1].updatedAt).getTime() -
-            new Date(a[1].updatedAt).getTime()
-        )
-        .slice(0, 3);
-      console.log(
-        `📋 Most recent marked periods:`,
-        recentMarked.map(([key, details]) => ({
-          key,
-          date: details.date,
-          students: details.studentsCount,
-          updated: details.updatedAt
-        }))
-      );
 
       // Step 5: Find pending periods (scheduled but not marked)
       const pendingPeriods: PendingAttendancePeriod[] = [];
@@ -993,25 +786,8 @@ export class AttendanceDashboardService {
       allScheduledPeriods.forEach((period, periodKey) => {
         const isMarked = markedPeriods.has(periodKey);
 
-        if (!isMarked) {
-          debugPendingPeriods.push(periodKey);
-          if (debugPendingPeriods.length <= 5) {
-            // Only log first 5 to avoid spam
-            console.log(
-              `🔍 Processing pending period: ${periodKey} (not marked) - ${period.period_name} ${period.course_name}`
-            );
-          }
-        } else {
+        if (isMarked) {
           skippedMarkedCount.count++;
-          const markedDetails = markedPeriodsDetails.get(periodKey);
-          if (skippedMarkedCount.count <= 3) {
-            // Only log first 3 to avoid spam
-            console.log(
-              `⏭️ Skipping marked period: ${periodKey} (${
-                markedDetails?.studentsCount || 0
-              } students marked)`
-            );
-          }
         }
 
         if (!isMarked) {
@@ -1040,19 +816,6 @@ export class AttendanceDashboardService {
             pendingPeriods.push(period);
           }
         }
-      });
-
-      console.log(
-        `⏳ Found ${pendingPeriods.length} pending periods (${skippedMarkedCount.count} periods already marked)`
-      );
-
-      // Final summary for debugging
-      console.log(`📊 ATTENDANCE SUMMARY:`, {
-        totalScheduledPeriods: allScheduledPeriods.size,
-        totalMarkedPeriods: markedPeriods.size,
-        totalPendingPeriods: pendingPeriods.length,
-        skippedMarkedPeriods: skippedMarkedCount.count,
-        dateRange: `${queryStartDate} to ${queryEndDate}`
       });
 
       // Step 6: Apply sorting
@@ -1103,12 +866,6 @@ export class AttendanceDashboardService {
       const totalCount = sortedPeriods.length;
       const paginatedPeriods = sortedPeriods.slice(offset, offset + limit);
 
-      console.log(
-        `📄 Returning ${
-          paginatedPeriods.length
-        } periods (page ${page}/${Math.ceil(totalCount / limit)})`
-      );
-
       return {
         data: paginatedPeriods,
         metadata: {
@@ -1119,7 +876,7 @@ export class AttendanceDashboardService {
         }
       };
     } catch (error) {
-      console.error('Error in enhanced getTodayPendingAttendance:', error);
+      logger.error('academic/attendance-dashboard', 'Error in getTodayPendingAttendance', error);
       throw error;
     }
   }
@@ -1197,7 +954,7 @@ export class AttendanceDashboardService {
 
       return dailyStats;
     } catch (error) {
-      console.error('Error in getAttendanceTrend:', error);
+      logger.error('academic/attendance-dashboard', 'Error in getAttendanceTrend', error);
       throw error;
     }
   }

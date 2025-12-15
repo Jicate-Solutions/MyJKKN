@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -89,7 +90,7 @@ export default function TimetableConflictsPage() {
       setConflicts(conflictData || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load conflicts');
-      console.error('Error loading conflicts:', err);
+      logger.error('academic/timetables', 'Error loading conflicts', err);
     } finally {
       setLoading(false);
     }
@@ -111,15 +112,6 @@ export default function TimetableConflictsPage() {
         setSyncingTimetable(conflict.timetable_id);
       }
 
-      // Debug: Log sync parameters
-      console.log('Syncing timetable with parameters:', {
-        timetable_id: conflict.timetable_id,
-        course_id: conflict.course_id,
-        old_staff_id: conflict.timetable_staff_id,
-        new_staff_id: conflict.planned_staff_id,
-        timetable_name: conflict.timetable_name
-      });
-
       // Call the sync function directly
       const { data: syncResult, error: syncError } = await supabase.rpc(
         'sync_timetable_staff_assignment' as any,
@@ -131,10 +123,8 @@ export default function TimetableConflictsPage() {
         } as any
       );
 
-      console.log('Sync result:', { syncResult, syncError });
-
       if (syncError) {
-        console.error('Sync error details:', syncError);
+        logger.error('academic/timetables', 'Sync error', syncError);
         throw new Error(syncError.message || 'Database sync function failed');
       }
 
@@ -155,7 +145,7 @@ export default function TimetableConflictsPage() {
         return { success: false, error: errorMsg };
       }
     } catch (error) {
-      console.error('Sync error:', error);
+      logger.error('academic/timetables', 'Sync error', error);
       const errorMessage =
         error instanceof Error
           ? error.message
@@ -325,14 +315,14 @@ export default function TimetableConflictsPage() {
         );
       } else if (successCount > 0 && failureCount > 0) {
         toast.success(
-          `✅ ${successCount} synced, ❌ ${failureCount} failed. Check console for details.`
+          `✅ ${successCount} synced, ❌ ${failureCount} failed.`
         );
-        console.error('Bulk sync errors:', errors);
+        logger.error('academic/timetables', 'Bulk sync partial failure', { errors, successCount, failureCount });
       } else {
         toast.error(
-          `❌ All ${failureCount} sync operations failed. Check console for details.`
+          `❌ All ${failureCount} sync operations failed.`
         );
-        console.error('Bulk sync errors:', errors);
+        logger.error('academic/timetables', 'Bulk sync complete failure', { errors, failureCount });
       }
 
       // Clear selections and reload conflicts with delay to ensure DB changes are committed
@@ -344,7 +334,7 @@ export default function TimetableConflictsPage() {
       }, 500);
     } catch (error) {
       toast.dismiss('bulk-sync');
-      console.error('Bulk sync error:', error);
+      logger.error('academic/timetables', 'Bulk sync error', error);
       toast.error('Bulk sync operation failed.');
     } finally {
       setBulkSyncing(false);

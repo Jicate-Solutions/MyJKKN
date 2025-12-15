@@ -38,15 +38,6 @@ export default function EditStaffPlanPage({ params }: EditStaffPlanPageProps) {
 
   useEffect(() => {
     if (!permissionsLoading) {
-      console.log('Can edit staff plans:', canEditStaffPlans);
-      console.log('Permissions check:', {
-        isSuperAdmin,
-        'academic.staff.planning.edit': canAccess(
-          'academic.staff.planning',
-          'edit'
-        )
-      });
-
       if (!canEditStaffPlans) {
         toast({
           title: 'Access Denied',

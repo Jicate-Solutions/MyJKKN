@@ -74,8 +74,6 @@ export function SubdivisionConfigDialog({
     if (isOpen) {
       if (existingConfig && !hasLoadedExistingConfig) {
         // Load existing configuration ONCE
-        console.log('[subdivision-config-dialog] Loading existingConfig:', existingConfig);
-        console.log('[subdivision-config-dialog] Groups to load:', existingConfig.groups);
         setGroups(existingConfig.groups);
         setGroupCount(existingConfig.group_count);
         setHasLoadedExistingConfig(true);
@@ -93,7 +91,6 @@ export function SubdivisionConfigDialog({
       } else if (!existingConfig && !hasLoadedExistingConfig) {
         // Manual mode: Create empty groups (only if no existing config was loaded)
         // Updated: 2025-10-13 - Fixed to not overwrite loaded groups
-        console.log('[subdivision-config-dialog] Creating new empty groups (no existing config)');
         const emptyGroups: SubdivisionGroup[] = Array.from({ length: groupCount }, (_, i) => ({
           group_order: i + 1,
           group_name: `Group ${String.fromCharCode(65 + i)} - ${subdivisionType.charAt(0).toUpperCase() + subdivisionType.slice(1)} ${i + 1}`,
@@ -104,10 +101,8 @@ export function SubdivisionConfigDialog({
           max_capacity: undefined
         }));
         setGroups(emptyGroups);
-      } else if (hasLoadedExistingConfig) {
-        // Config already loaded, skip re-initialization
-        console.log('[subdivision-config-dialog] Skipping initialization - existing config already loaded, groups count:', groups.length);
       }
+      // If hasLoadedExistingConfig is true, skip re-initialization
     }
   }, [isOpen, groupCount, subdivisionMode, existingConfig, allStudents, subdivisionType, hasLoadedExistingConfig, groups.length]);
 
