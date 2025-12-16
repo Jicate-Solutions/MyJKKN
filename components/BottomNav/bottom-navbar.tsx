@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useLayoutEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useBottomNav } from '@/hooks/use-bottom-nav';
+import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
 import { GetRoleBasedPages } from '@/lib/sidebarMenuLink';
 import { AuthService } from '@/lib/auth/auth-service';
 import { RoleService } from '@/lib/services/roles/role-service';
@@ -122,6 +122,8 @@ export function BottomNavbar() {
   const isMobile = useIsMobile();
   const [userRole, setUserRole] = useState<CustomRole | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const hasInitialized = useRef(false);
+  const hasHydrated = useBottomNavHydration();
 
   const {
     activeNavId,
@@ -242,12 +244,22 @@ export function BottomNavbar() {
     return currentActiveGroup?.menus || [];
   }, [effectiveActiveNavId, allNavGroups, currentActiveGroup]);
 
-  // Update active page when pathname changes
-  useEffect(() => {
+  // Update active page IMMEDIATELY when currentActivePage changes (before paint)
+  // This ensures the minimized navbar shows correctly on first load
+  useLayoutEffect(() => {
     if (currentActivePage) {
       setActivePage(currentActivePage);
+
+      // On first initialization after loading completes, ensure we're in minimized state
+      if (!hasInitialized.current && !isLoading) {
+        hasInitialized.current = true;
+        // Only set minimized if user hasn't manually expanded
+        if (!isExpanded && !isMoreMenuOpen) {
+          setMinimized(true);
+        }
+      }
     }
-  }, [currentActivePage, setActivePage]);
+  }, [currentActivePage, setActivePage, isLoading, isExpanded, isMoreMenuOpen, setMinimized]);
 
   // Sync activeNavId with pathname when it changes (but not while user is browsing)
   useEffect(() => {
@@ -323,11 +335,37 @@ export function BottomNavbar() {
     }
   }, [isExpanded, setExpanded]);
 
-  // Don't render on desktop or while loading
-  if (!isMobile || isLoading) return null;
+  // Wait for Zustand store to hydrate before rendering
+  // This prevents flash of incorrect state
+  if (!hasHydrated) {
+    return null;
+  }
+
+  // While loading role data, show minimized view on mobile if we have persisted active page
+  // This provides instant feedback while role data loads
+  if (isLoading) {
+    // Show minimized navbar during loading if we have persisted data
+    if (isMobile && isMinimized && activePage) {
+      return (
+        <BottomNavMinimized
+          activePage={activePage}
+          onExpand={() => {}} // Disabled during loading
+        />
+      );
+    }
+    // On first load without persisted data, return null but will show after loading
+    return null;
+  }
 
   // Don't render if no groups available
   if (primaryNavGroups.length === 0) return null;
+
+  // On desktop, always show full navbar (never minimized)
+  // On mobile, respect the isMinimized state
+  // IMPORTANT: Use currentActivePage for immediate display after loading,
+  // with activePage as fallback from localStorage
+  const effectiveActivePage = currentActivePage || activePage;
+  const shouldShowMinimized = isMobile && isMinimized && effectiveActivePage;
 
   return (
     <>
@@ -339,7 +377,7 @@ export function BottomNavbar() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.12, ease: 'easeOut' }}
-            className="fixed inset-0 bg-background/60 backdrop-blur-sm z-[75] md:hidden"
+            className="fixed inset-0 bg-background/60 backdrop-blur-sm z-[75] lg:hidden"
             onClick={() => {
               setExpanded(false);
             }}
@@ -348,11 +386,11 @@ export function BottomNavbar() {
       </AnimatePresence>
 
       <AnimatePresence mode="wait">
-        {isMinimized && activePage ? (
-          /* Minimized state - shows only active page */
+        {shouldShowMinimized ? (
+          /* Minimized state - shows only active page (mobile only) */
           <BottomNavMinimized
             key="minimized"
-            activePage={activePage}
+            activePage={effectiveActivePage!}
             onExpand={handleExpandFromMinimized}
           />
         ) : (
@@ -370,7 +408,9 @@ export function BottomNavbar() {
               mass: 0.8
             }}
             className={cn(
-              'fixed bottom-0 left-0 right-0 z-[80] md:hidden',
+              'fixed bottom-0 left-0 right-0 z-[80]',
+              // Hide on desktop when sidebar is visible (lg+)
+              'lg:hidden',
               'bg-background border-t border-border',
               'shadow-[0_-4px_20px_rgba(0,0,0,0.1)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)]'
             )}

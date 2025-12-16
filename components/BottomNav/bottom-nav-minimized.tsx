@@ -1,12 +1,43 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { X } from 'lucide-react';
+import {
+  X,
+  Home,
+  Users,
+  TabletSmartphone,
+  Building,
+  GraduationCap,
+  CalendarClock,
+  Package,
+  ClipboardCheck,
+  FileText,
+  Bell,
+  Settings,
+  LucideIcon
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ActivePageInfo } from './types';
 
+// Icon mapping for menu groups (same as in bottom-navbar.tsx)
+const GROUP_ICONS: Record<string, LucideIcon> = {
+  'Overview': Home,
+  'User Management': Users,
+  'Applications': TabletSmartphone,
+  'Application Management': TabletSmartphone,
+  'Organization Management': Building,
+  'Learners Management': GraduationCap,
+  'Facilitators Management': Users,
+  'Academic Management': CalendarClock,
+  'Resource Management': Package,
+  'Admissions Management': ClipboardCheck,
+  'Billing Management': FileText,
+  'Administration': Bell,
+  'System': Settings
+};
+
 interface BottomNavMinimizedProps {
-  activePage: ActivePageInfo;
+  activePage: ActivePageInfo | { href: string; label: string; groupLabel: string };
   onExpand: () => void;
 }
 
@@ -29,7 +60,10 @@ export function BottomNavMinimized({
   activePage,
   onExpand
 }: BottomNavMinimizedProps) {
-  const Icon = activePage.icon;
+  // Get icon from activePage or look up from GROUP_ICONS using groupLabel
+  const Icon = ('icon' in activePage && typeof activePage.icon === 'function')
+    ? activePage.icon
+    : GROUP_ICONS[activePage.groupLabel] || Home;
 
   return (
     <motion.div
@@ -38,7 +72,7 @@ export function BottomNavMinimized({
       exit={{ y: 80, opacity: 0 }}
       transition={springConfig}
       className={cn(
-        'fixed bottom-4 left-4 right-4 z-[80] md:hidden'
+        'fixed bottom-4 left-4 right-4 z-[80] lg:hidden'
       )}
       style={{
         paddingBottom: 'env(safe-area-inset-bottom, 0px)'

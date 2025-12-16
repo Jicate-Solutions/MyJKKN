@@ -96,24 +96,24 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-primary/10 rounded-lg">
-            <Sparkles className="h-5 w-5 text-primary" />
+      {/* Header - Responsive */}
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="p-1.5 sm:p-2 bg-primary/10 rounded-lg flex-shrink-0">
+            <Sparkles className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
           </div>
-          <div>
-            <h1 className="text-lg font-semibold">AI Assistant</h1>
-            <p className="text-xs text-muted-foreground">
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-lg font-semibold truncate">AI Assistant</h1>
+            <p className="text-[10px] sm:text-xs text-muted-foreground hidden sm:block">
               Ask questions about learners, learning participation, billing, and more
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
           {rateLimit && (
-            <Badge variant="outline" className="text-xs">
+            <Badge variant="outline" className="text-[10px] sm:text-xs px-1.5 sm:px-2 hidden sm:flex">
               <Clock className="h-3 w-3 mr-1" />
-              {rateLimit.remaining} queries left
+              {rateLimit.remaining} left
             </Badge>
           )}
           <Button
@@ -121,9 +121,10 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
             size="sm"
             onClick={clearMessages}
             disabled={messages.length === 0}
+            className="h-8 px-2 sm:px-3"
           >
-            <RefreshCw className="h-4 w-4 mr-1" />
-            Clear
+            <RefreshCw className="h-4 w-4" />
+            <span className="hidden sm:inline ml-1">Clear</span>
           </Button>
           {/* Super Admin Only - AI Query Tools Link */}
           {isSuperAdmin && (
@@ -134,11 +135,11 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
                     variant="outline"
                     size="sm"
                     asChild
-                    className="gap-1.5"
+                    className="gap-1 h-8 px-2 sm:px-3"
                   >
                     <Link href="/admin/ai-query-tools">
                       <Settings2 className="h-4 w-4" />
-                      <span className="hidden sm:inline">Tools Registry</span>
+                      <span className="hidden md:inline">Tools</span>
                     </Link>
                   </Button>
                 </TooltipTrigger>
@@ -151,17 +152,16 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
         </div>
       </div>
 
-      {/* Messages Area */}
-      <ScrollArea ref={scrollAreaRef} className="flex-1 p-4">
+      {/* Messages Area - Responsive padding */}
+      <ScrollArea ref={scrollAreaRef} className="flex-1 px-3 sm:px-4 py-3 sm:py-4">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
-            <div className="p-4 bg-primary/5 rounded-full mb-4">
-              <Bot className="h-12 w-12 text-primary/60" />
+          <div className="flex flex-col items-center justify-center h-full min-h-[300px] sm:min-h-[400px] text-center px-2">
+            <div className="p-3 sm:p-4 bg-primary/5 rounded-full mb-3 sm:mb-4">
+              <Bot className="h-8 w-8 sm:h-12 sm:w-12 text-primary/60" />
             </div>
-            <h2 className="text-xl font-semibold mb-2">How can I help you today?</h2>
-            <p className="text-muted-foreground mb-6 max-w-md">
+            <h2 className="text-lg sm:text-xl font-semibold mb-2">How can I help you today?</h2>
+            <p className="text-sm sm:text-base text-muted-foreground mb-4 sm:mb-6 max-w-md">
               Ask me about learners, learning participation, billing, team members, or any other data in the system.
-              I can help you find information, generate reports, and take actions.
             </p>
 
             {/* Suggested Queries */}
@@ -172,7 +172,7 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
             />
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             {messages.map((message) => (
               <MessageBubble
                 key={message.id}
@@ -194,8 +194,8 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
         </div>
       )}
 
-      {/* Input Area */}
-      <div className="p-4 border-t bg-background">
+      {/* Input Area - Responsive */}
+      <div className="p-3 sm:p-4 border-t bg-background">
         <form onSubmit={handleSubmit} className="flex gap-2">
           <Input
             ref={inputRef}
@@ -203,9 +203,13 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="Ask a question..."
             disabled={isLoading}
-            className="flex-1"
+            className="flex-1 h-10 sm:h-10 text-sm"
           />
-          <Button type="submit" disabled={isLoading || !inputValue.trim()}>
+          <Button
+            type="submit"
+            disabled={isLoading || !inputValue.trim()}
+            className="h-10 w-10 sm:w-auto sm:px-4 p-0 sm:p-2"
+          >
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -214,9 +218,9 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
           </Button>
         </form>
 
-        {/* Quick Suggestions when typing */}
+        {/* Quick Suggestions when typing - scrollable on mobile */}
         {messages.length > 0 && suggestions.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-3">
+          <div className="flex gap-2 mt-2 sm:mt-3 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
             {suggestions.slice(0, 3).map((suggestion, index) => (
               <Button
                 key={index}
@@ -224,7 +228,7 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
                 size="sm"
                 onClick={() => handleSuggestionClick(suggestion.text)}
                 disabled={isLoading}
-                className="text-xs"
+                className="text-xs whitespace-nowrap flex-shrink-0"
               >
                 {suggestion.text}
               </Button>
