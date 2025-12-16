@@ -38,19 +38,32 @@ export interface BottomNavMoreMenuProps {
   onItemClick: (href: string) => void;
 }
 
+// Active page info for minimized state
+export interface ActivePageInfo {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  groupLabel: string;
+}
+
 export interface BottomNavState {
   activeNavId: string | null;
   isExpanded: boolean;
   isMoreMenuOpen: boolean;
+  isMinimized: boolean;  // New: controls minimized vs full navbar
+  activePage: ActivePageInfo | null;  // New: current active page info
   selectedSubItem: {
     href: string;
     label: string;
   } | null;
   setActiveNav: (id: string | null) => void;
+  switchToNav: (id: string) => void;
   toggleExpanded: () => void;
   setExpanded: (expanded: boolean) => void;
   toggleMoreMenu: () => void;
   setMoreMenuOpen: (open: boolean) => void;
   setSelectedSubItem: (item: BottomNavState['selectedSubItem']) => void;
+  setMinimized: (minimized: boolean) => void;  // New
+  setActivePage: (page: ActivePageInfo | null) => void;  // New
   resetState: () => void;
 }

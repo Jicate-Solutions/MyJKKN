@@ -12,16 +12,10 @@ import {
   Users,
   Building,
   ClipboardCheck,
-  BarChart,
   Package,
   Bell,
   Settings,
-  Shield,
   TabletSmartphone,
-  MessageCircle,
-  Key,
-  History,
-  Sparkles,
   LucideIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -34,7 +28,8 @@ import { CustomRole } from '@/types/auth';
 import { BottomNavItem } from './bottom-nav-item';
 import { BottomNavSubmenu } from './bottom-nav-submenu';
 import { BottomNavMoreMenu } from './bottom-nav-more-menu';
-import { BottomNavGroup, FlatMenuItem } from './types';
+import { BottomNavMinimized } from './bottom-nav-minimized';
+import { BottomNavGroup, FlatMenuItem, ActivePageInfo } from './types';
 
 // Icon mapping for menu groups
 const GROUP_ICONS: Record<string, LucideIcon> = {
@@ -54,9 +49,8 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
 };
 
 // Routes that are parent-only (no actual page, only submenus)
-// These will be skipped when flattening - only submenu items will be shown
 const PARENT_ONLY_ROUTES = new Set([
-  '/billing/categories'  // No page exists - only show sub-category pages
+  '/billing/categories'
 ]);
 
 // Routes that should redirect to dashboard
@@ -78,12 +72,9 @@ function flattenMenuItems(
 
   return menus.flatMap((menu) => {
     const items: FlatMenuItem[] = [];
-
-    // Apply redirect if needed
     const parentHref = REDIRECT_ROUTES[menu.href] || menu.href;
 
     if (menu.submenus.length === 0) {
-      // No submenus - include the menu item directly
       if (!seenHrefs.has(parentHref)) {
         seenHrefs.add(parentHref);
         items.push({
@@ -94,10 +85,7 @@ function flattenMenuItems(
         });
       }
     } else {
-      // Has submenus - only include submenu items (skip parent if it's parent-only)
-      // Skip parent route if it's a parent-only container
       if (!PARENT_ONLY_ROUTES.has(menu.href) && !seenHrefs.has(parentHref)) {
-        // Check if parent href is different from all submenus
         const parentIsDifferent = !menu.submenus.some(sub => sub.href === parentHref);
         if (parentIsDifferent) {
           seenHrefs.add(parentHref);
@@ -110,7 +98,6 @@ function flattenMenuItems(
         }
       }
 
-      // Add all submenu items
       menu.submenus.forEach((sub) => {
         const subHref = REDIRECT_ROUTES[sub.href] || sub.href;
         if (!seenHrefs.has(subHref)) {
@@ -140,9 +127,14 @@ export function BottomNavbar() {
     activeNavId,
     isExpanded,
     isMoreMenuOpen,
+    isMinimized,
+    activePage,
     setActiveNav,
+    switchToNav,
     setExpanded,
-    setMoreMenuOpen
+    setMoreMenuOpen,
+    setMinimized,
+    setActivePage
   } = useBottomNav();
 
   // Fetch user role on mount
@@ -191,66 +183,130 @@ export function BottomNavbar() {
     return allNavGroups.slice(4);
   }, [allNavGroups]);
 
-  // Current active submenu items
-  const activeSubmenus = useMemo(() => {
-    if (!activeNavId) return [];
-    const group = primaryNavGroups.find((g) => g.id === activeNavId);
-    return group?.menus || [];
-  }, [activeNavId, primaryNavGroups]);
-
-  // Detect which group contains the current pathname
-  useEffect(() => {
-    const activeGroup = primaryNavGroups.find((group) =>
-      group.menus.some(
-        (menu) =>
-          pathname === menu.href || pathname.startsWith(menu.href + '/')
-      )
-    );
-
-    if (activeGroup && activeNavId !== activeGroup.id) {
-      setActiveNav(activeGroup.id);
-      setExpanded(false);
+  // Find the group that contains the current pathname
+  const currentActiveGroup = useMemo(() => {
+    // Search all groups for a matching menu item
+    for (const group of allNavGroups) {
+      for (const menu of group.menus) {
+        // Exact match or starts with (for nested routes)
+        if (pathname === menu.href || pathname.startsWith(menu.href + '/')) {
+          return group;
+        }
+      }
     }
-  }, [pathname, primaryNavGroups, activeNavId, setActiveNav, setExpanded]);
+    // Default to first group if no match found
+    return allNavGroups[0] || null;
+  }, [pathname, allNavGroups]);
 
-  // Handle nav item click
+  // Find the active page info based on current pathname
+  const currentActivePage = useMemo((): ActivePageInfo | null => {
+    if (!currentActiveGroup) return null;
+
+    for (const menu of currentActiveGroup.menus) {
+      if (pathname === menu.href || pathname.startsWith(menu.href + '/')) {
+        return {
+          href: menu.href,
+          label: menu.label,
+          icon: menu.icon,
+          groupLabel: currentActiveGroup.groupLabel
+        };
+      }
+    }
+    return null;
+  }, [pathname, currentActiveGroup]);
+
+  // Determine the effective active nav ID
+  const effectiveActiveNavId = useMemo(() => {
+    // When submenu is expanded, respect user's manual selection
+    // This allows clicking different groups to show their submenus
+    if (isExpanded && activeNavId) {
+      return activeNavId;
+    }
+    // When collapsed (or no selection), use pathname-based detection
+    if (currentActiveGroup) {
+      return currentActiveGroup.id;
+    }
+    // Fallback to stored activeNavId
+    return activeNavId;
+  }, [currentActiveGroup, activeNavId, isExpanded]);
+
+  // Current active submenu items - based on effective active nav
+  const activeSubmenus = useMemo(() => {
+    if (effectiveActiveNavId) {
+      const selectedGroup = allNavGroups.find((g) => g.id === effectiveActiveNavId);
+      if (selectedGroup) {
+        return selectedGroup.menus;
+      }
+    }
+    // Fallback to current pathname's group
+    return currentActiveGroup?.menus || [];
+  }, [effectiveActiveNavId, allNavGroups, currentActiveGroup]);
+
+  // Update active page when pathname changes
+  useEffect(() => {
+    if (currentActivePage) {
+      setActivePage(currentActivePage);
+    }
+  }, [currentActivePage, setActivePage]);
+
+  // Sync activeNavId with pathname when it changes (but not while user is browsing)
+  useEffect(() => {
+    // Only sync when not expanded - don't override user's manual selection while browsing
+    if (!isExpanded && currentActiveGroup && currentActiveGroup.id !== activeNavId) {
+      setActiveNav(currentActiveGroup.id);
+    }
+  }, [currentActiveGroup, activeNavId, setActiveNav, isExpanded]);
+
+  // Handle nav item click - simplified toggle logic with atomic state update
   const handleNavClick = useCallback(
     (groupId: string) => {
-      if (activeNavId === groupId) {
-        // Toggle expand if clicking the same item
-        setExpanded(!isExpanded);
+      // If submenu is open and showing THIS group's items, close it
+      if (isExpanded && activeNavId === groupId) {
+        setExpanded(false);
+        setMoreMenuOpen(false);
       } else {
-        // Select new item and expand
-        setActiveNav(groupId);
-        setExpanded(true);
+        // Otherwise, switch to this group's submenu (atomic update)
+        switchToNav(groupId);
       }
     },
-    [activeNavId, isExpanded, setActiveNav, setExpanded]
+    [activeNavId, isExpanded, switchToNav, setExpanded, setMoreMenuOpen]
   );
 
-  // Handle submenu item click
+  // Handle submenu item click - navigate and minimize
   const handleSubmenuClick = useCallback(
     (href: string) => {
       router.push(href);
       setExpanded(false);
+      setMinimized(true); // Minimize after navigation
     },
-    [router, setExpanded]
+    [router, setExpanded, setMinimized]
   );
 
-  // Handle "More" menu
+  // Handle "More" menu open - close submenu first
   const handleMoreClick = useCallback(() => {
-    setMoreMenuOpen(true);
-    setExpanded(false);
-  }, [setMoreMenuOpen, setExpanded]);
+    setExpanded(false); // Close any open submenu first
+    setMoreMenuOpen(!isMoreMenuOpen); // Toggle More menu
+  }, [setMoreMenuOpen, setExpanded, isMoreMenuOpen]);
 
-  // Handle click on More menu item
+  // Handle click on More menu item - navigate and minimize
   const handleMoreItemClick = useCallback(
     (href: string) => {
       router.push(href);
       setMoreMenuOpen(false);
+      setMinimized(true); // Minimize after navigation
     },
-    [router, setMoreMenuOpen]
+    [router, setMoreMenuOpen, setMinimized]
   );
+
+  // Handle expand from minimized state
+  const handleExpandFromMinimized = useCallback(() => {
+    // Set the active nav to the current group based on pathname
+    if (currentActiveGroup) {
+      setActiveNav(currentActiveGroup.id);
+    }
+    setMinimized(false);
+    setExpanded(false);
+  }, [setMinimized, setExpanded, setActiveNav, currentActiveGroup]);
 
   // Close submenu when clicking outside
   useEffect(() => {
@@ -275,69 +331,90 @@ export function BottomNavbar() {
 
   return (
     <>
-      {/* Backdrop when expanded */}
+      {/* Backdrop when submenu expanded - only for submenu, not More menu */}
       <AnimatePresence>
-        {isExpanded && (
+        {isExpanded && !isMinimized && !isMoreMenuOpen && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-background/60 backdrop-blur-sm z-40 md:hidden"
-            onClick={() => setExpanded(false)}
+            transition={{ duration: 0.12, ease: 'easeOut' }}
+            className="fixed inset-0 bg-background/60 backdrop-blur-sm z-[75] md:hidden"
+            onClick={() => {
+              setExpanded(false);
+            }}
           />
         )}
       </AnimatePresence>
 
-      {/* Bottom Navigation */}
-      <motion.nav
-        data-bottom-nav
-        initial={{ y: 100, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-        className={cn(
-          'fixed bottom-0 left-0 right-0 z-50 md:hidden',
-          'bg-background/95 backdrop-blur-lg border-t border-border',
-          'shadow-lg shadow-background/20'
+      <AnimatePresence mode="wait">
+        {isMinimized && activePage ? (
+          /* Minimized state - shows only active page */
+          <BottomNavMinimized
+            key="minimized"
+            activePage={activePage}
+            onExpand={handleExpandFromMinimized}
+          />
+        ) : (
+          /* Full bottom navigation - fast spring animation */
+          <motion.nav
+            key="full"
+            data-bottom-nav
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            transition={{
+              type: 'spring',
+              stiffness: 500,
+              damping: 35,
+              mass: 0.8
+            }}
+            className={cn(
+              'fixed bottom-0 left-0 right-0 z-[80] md:hidden',
+              'bg-background border-t border-border',
+              'shadow-[0_-4px_20px_rgba(0,0,0,0.1)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)]'
+            )}
+            style={{
+              paddingBottom: 'env(safe-area-inset-bottom, 0px)'
+            }}
+          >
+            {/* Expanded submenu */}
+            <BottomNavSubmenu
+              items={activeSubmenus}
+              isOpen={isExpanded}
+              onItemClick={handleSubmenuClick}
+            />
+
+            {/* Nav items */}
+            <div className="flex items-center justify-around">
+              {primaryNavGroups.map((group) => (
+                <BottomNavItem
+                  key={group.id}
+                  id={group.id}
+                  icon={group.icon}
+                  label={group.groupLabel}
+                  isActive={effectiveActiveNavId === group.id}
+                  hasSubmenu={group.menus.length > 1}
+                  onClick={() => handleNavClick(group.id)}
+                />
+              ))}
+
+              {/* More button if there are additional groups */}
+              {moreNavGroups.length > 0 && (
+                <BottomNavItem
+                  id="more"
+                  icon={MoreHorizontal}
+                  label="More"
+                  isActive={isMoreMenuOpen}
+                  hasSubmenu={true}
+                  badgeCount={moreNavGroups.length}
+                  onClick={handleMoreClick}
+                />
+              )}
+            </div>
+          </motion.nav>
         )}
-        style={{
-          paddingBottom: 'env(safe-area-inset-bottom, 0px)'
-        }}
-      >
-        {/* Expanded submenu */}
-        <BottomNavSubmenu
-          items={activeSubmenus}
-          isOpen={isExpanded}
-          onItemClick={handleSubmenuClick}
-        />
-
-        {/* Nav items */}
-        <div className="flex items-center justify-around">
-          {primaryNavGroups.map((group) => (
-            <BottomNavItem
-              key={group.id}
-              id={group.id}
-              icon={group.icon}
-              label={group.groupLabel}
-              isActive={activeNavId === group.id}
-              hasSubmenu={group.menus.length > 1}
-              onClick={() => handleNavClick(group.id)}
-            />
-          ))}
-
-          {/* More button if there are additional groups */}
-          {moreNavGroups.length > 0 && (
-            <BottomNavItem
-              id="more"
-              icon={MoreHorizontal}
-              label="More"
-              isActive={isMoreMenuOpen}
-              hasSubmenu={true}
-              badgeCount={moreNavGroups.length}
-              onClick={handleMoreClick}
-            />
-          )}
-        </div>
-      </motion.nav>
+      </AnimatePresence>
 
       {/* More menu sheet */}
       <BottomNavMoreMenu
