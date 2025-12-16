@@ -526,11 +526,6 @@ export function BugReporterWidget() {
     setIsCapturingScreenshot(true);
 
     try {
-      console.log('Starting html2canvas screenshot capture...', {
-        currentUrl: window.location.href,
-        timestamp: new Date().toISOString()
-      });
-
       // Force a small delay to ensure page is fully rendered
       await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -542,16 +537,12 @@ export function BugReporterWidget() {
       }
 
       setCapturedScreenshot(screenshot);
-      console.log('Screenshot captured successfully', {
-        screenshotLength: screenshot.length,
-        timestamp: new Date().toISOString()
-      });
 
       setIsOpen(true);
 
       toast.success('Bug Report Ready');
     } catch (error: any) {
-      console.error('Failed to capture screenshot:', error);
+      logger.error('bug-reports', 'Failed to capture screenshot', error);
       setCapturedScreenshot(''); // Ensure no stale screenshot
       setIsOpen(true);
       toast.error(error instanceof Error ? error.message : 'Unknown error');
@@ -606,7 +597,7 @@ export function BugReporterWidget() {
         toast.error('Manual Screenshot Not Available');
       }
     } catch (error: any) {
-      console.error('Manual screenshot failed:', error);
+      logger.error('bug-reports', 'Manual screenshot failed', error);
       toast.error(error instanceof Error ? error.message : 'Unknown error');
     } finally {
       setIsCapturingScreenshot(false);
@@ -622,8 +613,6 @@ export function BugReporterWidget() {
     setIsSubmitting(true);
 
     try {
-      console.log('Starting bug report submission...');
-
       // Get structured logs from enhanced logger
       const logManager = getLogManager();
       const structuredLogs = logManager.getStructuredLogs();
@@ -640,10 +629,6 @@ export function BugReporterWidget() {
       }));
 
       const safeLogs = serializeConsoleArgs(simplifiedLogs);
-      console.log('Console logs serialized:', {
-        uniqueEntries: structuredLogs.summary.totalUniqueEntries,
-        totalOccurrences: structuredLogs.summary.totalOccurrences
-      });
 
       const payload = {
         page_url: window.location.href,
@@ -673,23 +658,13 @@ export function BugReporterWidget() {
       const payloadSizeKB = payloadString.length / 1024;
       const payloadSizeMB = payloadSizeKB / 1024;
 
-      console.log('Payload prepared:', {
-        page_url: payload.page_url,
-        description_length: payload.description.length,
-        screenshot_size: `${(payload.screenshot_data_url.length / 1024).toFixed(0)}KB`,
-        console_logs_count: payload.console_logs.length,
-        total_payload_size: `${payloadSizeKB.toFixed(0)}KB (${payloadSizeMB.toFixed(2)}MB)`
-      });
-
       // Warn if payload is approaching limit (4MB warning threshold)
       if (payloadSizeMB > 4) {
-        console.warn('[BugReporter] Payload is very large, may fail:', `${payloadSizeMB.toFixed(2)}MB`);
+        logger.warn('bug-reports', 'Payload is very large, may fail', { sizeMB: payloadSizeMB.toFixed(2) });
         // Try to compress screenshot further if it's too large
         if (payload.screenshot_data_url.length > 1.5 * 1024 * 1024) {
-          console.log('[BugReporter] Re-compressing screenshot to reduce payload size...');
           const recompressed = await compressScreenshot(payload.screenshot_data_url, 1 * 1024 * 1024);
           payload.screenshot_data_url = recompressed;
-          console.log('[BugReporter] Screenshot re-compressed to:', `${(recompressed.length / 1024).toFixed(0)}KB`);
         }
       }
 
@@ -712,7 +687,7 @@ export function BugReporterWidget() {
           } else {
             // Response is not JSON (e.g., plain text error from infrastructure)
             const textResponse = await response.text();
-            console.error('Non-JSON error response:', textResponse);
+            logger.error('bug-reports', 'Non-JSON error response', { response: textResponse });
 
             // Handle common HTTP errors
             if (response.status === 413 || textResponse.includes('Request Entity Too Large')) {
@@ -729,7 +704,7 @@ export function BugReporterWidget() {
           }
         } catch (parseError) {
           // If parsing fails, check if it's an infrastructure error
-          console.error('Error parsing response:', parseError);
+          logger.error('bug-reports', 'Error parsing response', parseError);
 
           if (parseError instanceof Error && parseError.message.includes('Screenshot is too large')) {
             throw parseError;
@@ -739,7 +714,7 @@ export function BugReporterWidget() {
           throw new Error('Server error. Please try again or remove the screenshot if the issue persists.');
         }
 
-        console.error('Server error:', errorData);
+        logger.error('bug-reports', 'Server error', errorData);
 
         // Store full error details for debugging
         if (debugMode) {
@@ -811,7 +786,6 @@ export function BugReporterWidget() {
       }
 
       const result = await response.json();
-      console.log('Bug report created successfully:', result);
 
       // Handle the new API response structure
       const successMessage =
@@ -837,11 +811,10 @@ export function BugReporterWidget() {
 
         // All users now go to admin bug reports since learner module is removed
 
-        console.log('Redirecting to:', redirectPath, 'from:', currentPath);
         router.push(redirectPath);
       }, 1500); // Small delay to let the user see the success message
     } catch (error: any) {
-      console.error('Bug report submission failed:', error);
+      logger.error('bug-reports', 'Bug report submission failed', error);
       toast.error(
         error instanceof Error ? error.message : 'An unexpected error occurred.'
       );

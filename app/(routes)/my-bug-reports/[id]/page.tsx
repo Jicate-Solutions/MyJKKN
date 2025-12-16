@@ -137,8 +137,6 @@ export default function BugReportDetailPage() {
           filter: `id=eq.${reportId}`
         },
         (payload) => {
-          console.log('Bug report detail change detected:', payload);
-
           if (payload.eventType === 'DELETE') {
             // If the bug report was deleted, redirect back to list
             window.location.href = '/my-bug-reports';

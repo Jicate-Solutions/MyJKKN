@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 // Helper to get ISO date string for the beginning of the current week (Monday 00:00 UTC)
 function getWeekStart(): string {
@@ -40,10 +41,7 @@ export async function GET(request: Request) {
       .not('reporter_user_id', 'is', null);
 
     if (usersError) {
-      console.error(
-        '[BUG_REPORTS_LEADERBOARD_GET_API] Users fetch error:',
-        usersError
-      );
+      logger.error('bug-reports/api', 'Users fetch error', usersError);
       throw usersError;
     }
 
@@ -64,11 +62,7 @@ export async function GET(request: Request) {
           .single();
 
         if (profileError) {
-          console.error(
-            'Error fetching profile for user:',
-            userId,
-            profileError
-          );
+          logger.error('bug-reports/api', `Error fetching profile for user: ${userId}`, profileError);
           return null;
         }
 
@@ -98,10 +92,7 @@ export async function GET(request: Request) {
         );
 
         if (totalError || resolvedError) {
-          console.error('Error fetching bug counts for user:', userId, {
-            totalError,
-            resolvedError
-          });
+          logger.error('bug-reports/api', `Error fetching bug counts for user: ${userId}`, { totalError, resolvedError });
           return null;
         }
 
@@ -135,7 +126,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(validData);
   } catch (error) {
-    console.error('[BUG_REPORTS_LEADERBOARD_GET_API]', error);
+    logger.error('bug-reports/api', 'Failed to fetch leaderboard', error);
     return NextResponse.json(
       { error: 'Failed to fetch the leaderboard.' },
       { status: 500 }

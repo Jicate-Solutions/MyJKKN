@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
 import { BugReportStatus } from '@/types/bugs';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 const bulkUpdateStatusSchema = z.object({
   reportIds: z.array(z.string()).min(1, 'At least one report ID is required'),
@@ -70,13 +71,6 @@ export async function POST(request: Request) {
       throw updateError;
     }
 
-    console.log(
-      '[BUG_REPORTS_BULK_UPDATE_STATUS] Bug reports status updated successfully:',
-      reportIds.length,
-      'reports to status:',
-      status
-    );
-
     return NextResponse.json({
       success: true,
       message: `${
@@ -89,7 +83,7 @@ export async function POST(request: Request) {
       status
     });
   } catch (error) {
-    console.error('[BUG_REPORTS_BULK_UPDATE_STATUS]', error);
+    logger.error('bug-reports/api', 'Bulk update status failed', error);
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

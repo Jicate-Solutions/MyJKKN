@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 const sendMessageSchema = z.object({
   message_text: z.string().min(1, 'Message cannot be empty'),
@@ -55,10 +56,7 @@ export async function GET(
 
     return NextResponse.json(messages || []);
   } catch (error) {
-    console.error(
-      `[BUG_REPORT_MESSAGES_GET] Error fetching messages for report ${reportId}:`,
-      error
-    );
+    logger.error('bug-reports/api', `Error fetching messages for report ${reportId}`, error);
     return NextResponse.json(
       { error: 'Failed to fetch messages' },
       { status: 500 }
@@ -102,10 +100,7 @@ export async function POST(
       .maybeSingle();
 
     if (bugReportError) {
-      console.error(
-        `[BUG_REPORT_MESSAGES_POST] Error checking bug report ${reportId}:`,
-        bugReportError
-      );
+      logger.error('bug-reports/api', `Error checking bug report ${reportId}`, bugReportError);
       return NextResponse.json(
         { error: 'Failed to verify bug report access' },
         { status: 500 }
@@ -176,7 +171,7 @@ export async function POST(
         });
       }
     } catch (participantError) {
-      console.warn('Could not add participant:', participantError);
+      logger.warn('bug-reports/api', 'Could not add participant', participantError);
       // Don't fail the message send if participant addition fails
     }
 
@@ -189,10 +184,7 @@ export async function POST(
       );
     }
 
-    console.error(
-      `[BUG_REPORT_MESSAGES_POST] Error sending message for report ${reportId}:`,
-      error
-    );
+    logger.error('bug-reports/api', `Error sending message for report ${reportId}`, error);
     return NextResponse.json(
       { error: 'Failed to send message' },
       { status: 500 }

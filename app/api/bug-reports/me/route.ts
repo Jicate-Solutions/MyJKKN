@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function GET() {
   try {
@@ -35,13 +36,13 @@ export async function GET() {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('[BUG_REPORTS_ME_GET_API] Database error:', error);
+      logger.error('bug-reports/api', 'Database error fetching user reports', error);
       throw error;
     }
 
     return NextResponse.json(myReports || []);
   } catch (error) {
-    console.error('[BUG_REPORTS_ME_GET_API]', error);
+    logger.error('bug-reports/api', 'Failed to fetch user bug reports', error);
     return NextResponse.json(
       { error: 'Failed to fetch your bug reports.' },
       { status: 500 }

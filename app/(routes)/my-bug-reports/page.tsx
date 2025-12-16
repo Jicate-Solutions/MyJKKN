@@ -127,8 +127,6 @@ export default function MyBugReportsPage() {
             filter: `reporter_user_id=eq.${user.id}`
           },
           (payload) => {
-            console.log('Bug report change detected:', payload);
-
             // Show notification based on event type
             if (payload.eventType === 'DELETE') {
               toast.success('Bug Report Deleted');

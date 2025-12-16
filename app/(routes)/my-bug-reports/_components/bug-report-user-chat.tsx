@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface BugReportUserChatProps {
   reportId: string;
@@ -246,8 +247,6 @@ export function BugReportUserChat({
           filter: `bug_report_id=eq.${reportId}`
         },
         (payload) => {
-          console.log('New message received:', payload);
-
           // Force immediate refetch for real-time updates
           refetchMessages();
           refetchUnreadCount();
@@ -319,7 +318,7 @@ export function BugReportUserChat({
       try {
         await markMessageAsRead(messageId);
       } catch (error) {
-        console.error('Failed to mark message as read:', error);
+        logger.error('bug-reports', 'Failed to mark message as read', error);
       }
     },
     [markMessageAsRead]

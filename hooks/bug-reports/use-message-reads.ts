@@ -4,6 +4,7 @@ import { useEffect, useCallback } from 'react';
 import { BugReportService } from '@/lib/services/bug-reports/bug-report-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export interface MessageReadStatus {
   messageId: string;
@@ -91,7 +92,6 @@ export function useMessageReads(reportId: string) {
           filter: `message_id=in.(SELECT id FROM bug_report_messages WHERE bug_report_id = '${reportId}')`
         },
         (payload) => {
-          console.log('New message read:', payload);
           // Invalidate read status queries
           queryClient.invalidateQueries({ queryKey: ['bug-report-unread-count', reportId] });
         }

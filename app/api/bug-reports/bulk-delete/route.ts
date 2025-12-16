@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 const bulkDeleteSchema = z.object({
   reportIds: z.array(z.string()).min(1, 'At least one report ID is required')
@@ -52,10 +53,7 @@ export async function POST(request: Request) {
       .in('id', reportIds);
 
     if (fetchError) {
-      console.error(
-        '[BUG_REPORTS_BULK_DELETE] Error fetching reports:',
-        fetchError
-      );
+      logger.error('bug-reports/api', 'Error fetching reports', fetchError);
       throw fetchError;
     }
 
@@ -70,10 +68,7 @@ export async function POST(request: Request) {
             screenshotsToDelete.push(urlParts[1]);
           }
         } catch (error) {
-          console.error(
-            '[BUG_REPORTS_BULK_DELETE] Error parsing screenshot URL:',
-            error
-          );
+          logger.error('bug-reports/api', 'Error parsing screenshot URL', error);
         }
       }
     }
@@ -85,16 +80,8 @@ export async function POST(request: Request) {
         .remove(screenshotsToDelete);
 
       if (storageError) {
-        console.error(
-          '[BUG_REPORTS_BULK_DELETE] Storage deletion error:',
-          storageError
-        );
+        logger.error('bug-reports/api', 'Storage deletion error', storageError);
         // Continue with database deletion even if storage deletion fails
-      } else {
-        console.log(
-          '[BUG_REPORTS_BULK_DELETE] Screenshots deleted successfully:',
-          screenshotsToDelete.length
-        );
       }
     }
 
@@ -109,18 +96,13 @@ export async function POST(request: Request) {
       throw deleteError;
     }
 
-    console.log(
-      '[BUG_REPORTS_BULK_DELETE] Bug reports deleted successfully:',
-      reportIds.length
-    );
-
     return NextResponse.json({
       success: true,
       message: `${reportIds.length} bug report(s) deleted successfully`,
       deletedCount: reportIds.length
     });
   } catch (error) {
-    console.error('[BUG_REPORTS_BULK_DELETE]', error);
+    logger.error('bug-reports/api', 'Bulk delete failed', error);
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

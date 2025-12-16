@@ -164,8 +164,6 @@ export default function BugReportDetailsPage() {
           filter: `id=eq.${id}`
         },
         (payload) => {
-          console.log('Admin: Bug report change detected:', payload);
-
           if (payload.eventType === 'DELETE') {
             // If the bug report was deleted, redirect back to list
             toast.error('Bug Report Deleted');

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 // Send notification for new bug report message
 export async function POST(
@@ -158,10 +159,7 @@ export async function POST(
       .insert(userNotifications);
 
     if (userNotificationsError) {
-      console.error(
-        'Failed to create user notifications:',
-        userNotificationsError
-      );
+      logger.error('bug-reports/api', 'Failed to create user notifications', userNotificationsError);
       return NextResponse.json(
         { success: false, error: 'Failed to send notifications' },
         { status: 500 }
@@ -174,7 +172,7 @@ export async function POST(
       notificationId: notification.id
     });
   } catch (error) {
-    console.error('Error sending bug report message notification:', error);
+    logger.error('bug-reports/api', 'Error sending bug report message notification', error);
     return NextResponse.json(
       {
         success: false,
