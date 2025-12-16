@@ -147,7 +147,8 @@
       "Bash(/c/Users/Admin/.bun/bin/bun:*)",
       "Bash(source ~/.zshrc)",
       "Bash(node_modules/.bin/tsc:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "WebFetch(domain:api.github.com)"
     ],
     "deny": [],
     "ask": []
