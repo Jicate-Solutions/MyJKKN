@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function GET() {
   try {
@@ -11,7 +12,7 @@ export async function GET() {
       .select('status');
 
     if (countError) {
-      console.error('[BUG_REPORTS_STATS_API] Error fetching stats:', countError);
+      logger.error('bug-reports/api', 'Error fetching stats', countError);
       throw countError;
     }
 
@@ -36,7 +37,7 @@ export async function GET() {
       .gte('created_at', previous7Days.toISOString());
 
     if (recentError) {
-      console.error('[BUG_REPORTS_STATS_API] Error fetching recent stats:', recentError);
+      logger.error('bug-reports/api', 'Error fetching recent stats', recentError);
     }
 
     const recentReports = recentData?.filter(
@@ -70,7 +71,7 @@ export async function GET() {
       }
     });
   } catch (error) {
-    console.error('[BUG_REPORTS_STATS_API] Unexpected error:', error);
+    logger.error('bug-reports/api', 'Unexpected error fetching stats', error);
     return NextResponse.json(
       { error: 'Failed to fetch bug report statistics.' },
       { status: 500 }

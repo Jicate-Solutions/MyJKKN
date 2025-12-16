@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 /**
  * POST /api/bug-reports/[id]/reopen
@@ -50,7 +51,7 @@ export async function POST(
       .single();
 
     if (fetchError || !bugReport) {
-      console.error('[bug-reports/reopen] Bug report not found:', fetchError);
+      logger.error('bug-reports/api', 'Bug report not found', fetchError);
       return NextResponse.json(
         { error: 'Bug report not found' },
         { status: 404 }
@@ -85,7 +86,7 @@ export async function POST(
       .single();
 
     if (updateError || !updatedBug) {
-      console.error('[bug-reports/reopen] Failed to reopen bug:', updateError);
+      logger.error('bug-reports/api', 'Failed to reopen bug', updateError);
       return NextResponse.json(
         { error: 'Failed to reopen bug report' },
         { status: 500 }
@@ -103,10 +104,7 @@ export async function POST(
       });
 
     if (messageError) {
-      console.warn(
-        '[bug-reports/reopen] Failed to create reopen message:',
-        messageError
-      );
+      logger.warn('bug-reports/api', 'Failed to create reopen message', messageError);
       // Don't fail the request if message creation fails
     }
 
@@ -119,7 +117,7 @@ export async function POST(
       { status: 200 }
     );
   } catch (error) {
-    console.error('[bug-reports/reopen] Unexpected error:', error);
+    logger.error('bug-reports/api', 'Unexpected error in reopen', error);
     return NextResponse.json(
       { error: 'Failed to reopen bug report' },
       { status: 500 }

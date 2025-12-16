@@ -408,7 +408,7 @@ export async function GET(request: Request) {
       }
     });
   } catch (error) {
-    console.error('[BUG_REPORTS_GET_API]', error);
+    logger.error('bug-reports/api', 'Failed to fetch bug reports', error);
     return NextResponse.json(
       { error: 'Failed to fetch bug reports.' },
       { status: 500 }

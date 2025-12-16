@@ -231,8 +231,6 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
           filter: `bug_report_id=eq.${reportId}`
         },
         (payload) => {
-          console.log('New message received:', payload);
-
           // Force immediate refetch for real-time updates
           refetchMessages();
           refetchUnreadCount();

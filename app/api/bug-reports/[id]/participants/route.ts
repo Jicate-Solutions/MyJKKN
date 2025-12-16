@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function GET(
   request: Request,
@@ -31,10 +32,7 @@ export async function GET(
 
     return NextResponse.json(participants || []);
   } catch (error) {
-    console.error(
-      `[BUG_REPORT_PARTICIPANTS_GET] Error fetching participants for report ${reportId}:`,
-      error
-    );
+    logger.error('bug-reports/api', `Error fetching participants for report ${reportId}`, error);
     return NextResponse.json(
       { error: 'Failed to fetch participants' },
       { status: 500 }
