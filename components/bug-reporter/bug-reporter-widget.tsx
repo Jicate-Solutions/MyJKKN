@@ -36,7 +36,8 @@ import html2canvas from 'html2canvas';
 import { useRouter } from 'next/navigation';
 import {
   getLogManager,
-  initializeLogCapture
+  initializeLogCapture,
+  logger
 } from '@/lib/utils/enhanced-logger';
 import toast from 'react-hot-toast';
 
@@ -170,7 +171,6 @@ async function compressScreenshot(dataUrl: string, maxSizeBytes: number = MAX_SC
         while (result.length > maxSizeBytes && quality > 0.3) {
           quality -= 0.1;
           result = canvas.toDataURL('image/jpeg', quality);
-          console.log(`[BugReporter] Compressing screenshot: quality=${quality.toFixed(1)}, size=${(result.length / 1024).toFixed(0)}KB`);
         }
 
         // If still too large, reduce dimensions further
@@ -180,10 +180,8 @@ async function compressScreenshot(dataUrl: string, maxSizeBytes: number = MAX_SC
           canvas.height = Math.round(height * scaleFactor);
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           result = canvas.toDataURL('image/jpeg', 0.5);
-          console.log(`[BugReporter] Further compressed: ${canvas.width}x${canvas.height}, size=${(result.length / 1024).toFixed(0)}KB`);
         }
 
-        console.log(`[BugReporter] Final screenshot: ${canvas.width}x${canvas.height}, size=${(result.length / 1024).toFixed(0)}KB, quality=${quality.toFixed(1)}`);
         resolve(result);
       } catch (error) {
         reject(error);
@@ -197,12 +195,6 @@ async function compressScreenshot(dataUrl: string, maxSizeBytes: number = MAX_SC
 
 // High-quality screenshot capture using html2canvas with best practices
 async function captureScreenshotWithHtml2Canvas(): Promise<string> {
-  console.log('Starting html2canvas high-quality screenshot capture...', {
-    url: window.location.href,
-    timestamp: new Date().toISOString(),
-    title: document.title
-  });
-
   const isMobile = isMobileDevice();
 
   // Store current scroll position to restore later
@@ -225,15 +217,6 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
       document.documentElement.offsetHeight,
       document.documentElement.clientHeight
     );
-
-    console.log('Capturing full page screenshot:', {
-      fullPageWidth,
-      fullPageHeight,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
-      documentHeight: document.body.scrollHeight,
-      originalScrollPosition: { x: originalScrollX, y: originalScrollY }
-    });
 
     // Force reflow to ensure all dynamic content is rendered
     void document.body.offsetHeight;
@@ -346,7 +329,7 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
             const elements = clonedDoc.querySelectorAll(selector);
             elements.forEach((el) => el.remove());
           } catch (e) {
-            console.warn('Failed to remove overlay elements:', e);
+            logger.warn('bug-reports', 'Failed to remove overlay elements', e);
           }
         });
 
@@ -391,7 +374,7 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
             );
           }
         } catch (e) {
-          console.warn('Failed to add quality styles:', e);
+          logger.warn('bug-reports', 'Failed to add quality styles', e);
         }
 
         // Add timestamp to help with debugging (with safe body access)
@@ -406,23 +389,10 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
             clonedDoc.body.appendChild(timestamp);
           }
         } catch (e) {
-          console.warn('Failed to add timestamp:', e);
+          logger.warn('bug-reports', 'Failed to add timestamp', e);
         }
       }
     };
-
-    console.log('Capturing with html2canvas options (FULL PAGE):', {
-      scale: options.scale,
-      backgroundColor: options.backgroundColor,
-      fullPageSize: `${options.windowWidth}x${options.windowHeight}`,
-      captureSize: `${options.width}x${options.height}`,
-      viewportSize: `${window.innerWidth}x${window.innerHeight}`,
-      captureMode: 'FULL PAGE (from top)',
-      scrollPosition: `${options.scrollX},${options.scrollY}`,
-      originalUserScroll: `${originalScrollX},${originalScrollY}`,
-      mobile: isMobile,
-      targetElement: 'document.body'
-    });
 
     // Wait longer to ensure all content is loaded
     await new Promise((resolve) => setTimeout(resolve, 800));
@@ -445,31 +415,15 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
     // FIX 2025-12-05: Use JPEG format to reduce file size
     const rawDataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
 
-    console.log('html2canvas raw screenshot captured:', {
-      rawSize: `${(rawDataUrl.length / 1024).toFixed(0)}KB`,
-      canvasSize: `${canvas.width}x${canvas.height}`,
-      fullPageWidth,
-      fullPageHeight,
-      captureMode: 'FULL PAGE'
-    });
-
     // Compress the screenshot to ensure it's within size limits
     const compressedDataUrl = await compressScreenshot(rawDataUrl);
 
-    console.log('html2canvas FULL PAGE screenshot compressed successfully:', {
-      originalSize: `${(rawDataUrl.length / 1024).toFixed(0)}KB`,
-      compressedSize: `${(compressedDataUrl.length / 1024).toFixed(0)}KB`,
-      reduction: `${(100 - (compressedDataUrl.length / rawDataUrl.length) * 100).toFixed(0)}%`,
-      timestamp: new Date().toISOString()
-    });
-
     return compressedDataUrl;
   } catch (error) {
-    console.error('html2canvas capture failed:', error);
+    logger.error('bug-reports', 'html2canvas capture failed', error);
 
     // Fallback with simplified but reliable options
     try {
-      console.log('Trying html2canvas fallback capture (FULL PAGE)...');
 
       // Calculate full page dimensions for fallback too
       const fallbackFullWidth = Math.max(
@@ -516,15 +470,9 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
       const rawFallbackDataUrl = fallbackCanvas.toDataURL('image/jpeg', JPEG_QUALITY);
       const compressedFallbackDataUrl = await compressScreenshot(rawFallbackDataUrl);
 
-      console.log('Fallback html2canvas FULL PAGE capture successful:', {
-        originalSize: `${(rawFallbackDataUrl.length / 1024).toFixed(0)}KB`,
-        compressedSize: `${(compressedFallbackDataUrl.length / 1024).toFixed(0)}KB`,
-        canvasSize: `${fallbackCanvas.width}x${fallbackCanvas.height}`,
-        captureMode: 'FULL PAGE (fallback)'
-      });
       return compressedFallbackDataUrl;
     } catch (fallbackError) {
-      console.error('Fallback html2canvas also failed:', fallbackError);
+      logger.error('bug-reports', 'Fallback html2canvas also failed', fallbackError);
       throw new Error('Screenshot capture failed');
     }
   }
@@ -533,7 +481,6 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
 // Try clipboard first, then fallback to html2canvas
 async function capturePageScreenshot(): Promise<string> {
   // Always use html2canvas for automatic captures to ensure we get the current page
-  console.log('Using html2canvas for automatic page capture');
   return await captureScreenshotWithHtml2Canvas();
 }
 
@@ -556,16 +503,14 @@ export function BugReporterWidget() {
 
   const runTest = async () => {
     try {
-      console.log('Running bug report test...');
       const response = await fetch('/api/bug-reports/test');
       const result = await response.json();
 
-      console.log('Test result:', result);
       setTestResults(JSON.stringify(result, null, 2));
 
       toast.success(result.success ? 'Test Passed' : 'Test Failed');
     } catch (error: any) {
-      console.error('Test failed:', error);
+      logger.error('bug-reports', 'Test failed', error);
       setTestResults(
         `Test failed: ${
           error instanceof Error ? error.message : 'Unknown error'

@@ -9,6 +9,7 @@ import {
   BugReportFilters
 } from '@/types/bugs';
 import { dataURLtoFile } from '@/lib/utils/file-converters'; // Assuming this utility is created
+import { logger } from '@/lib/utils/enhanced-logger';
 
 const BUG_REPORTS_BUCKET = 'bug-reports';
 
@@ -28,14 +29,6 @@ export class BugReportService {
   static async createBugReport(
     payload: CreateBugReportPayload
   ): Promise<BugReport> {
-    console.log('[BUG_REPORT_SERVICE] Creating bug report with payload:', {
-      page_url: payload.page_url,
-      description: payload.description?.substring(0, 100) + '...',
-      has_screenshot: !!payload.screenshot_data_url,
-      console_logs_count: payload.console_logs?.length || 0,
-      metadata: payload.metadata
-    });
-
     const supabase = this.getSupabase();
 
     try {
@@ -46,16 +39,14 @@ export class BugReportService {
       } = await supabase.auth.getUser();
 
       if (authError) {
-        console.error('[BUG_REPORT_SERVICE] Auth error:', authError);
+        logger.error('bug-reports', 'Auth error', authError);
         throw new Error(`Authentication failed: ${authError.message}`);
       }
 
       if (!user) {
-        console.error('[BUG_REPORT_SERVICE] No authenticated user found');
+        logger.error('bug-reports', 'No authenticated user found');
         throw new Error('User must be authenticated to create a bug report.');
       }
-
-      console.log('[BUG_REPORT_SERVICE] Authenticated user:', user.id);
 
       // 1. Insert initial report data to get an ID
       const initialReport: Omit<
@@ -69,11 +60,6 @@ export class BugReportService {
         metadata: payload.metadata
       };
 
-      console.log(
-        '[BUG_REPORT_SERVICE] Inserting initial report:',
-        initialReport
-      );
-
       const { data: newReport, error: insertError } = await supabase
         .from('bug_reports')
         .insert(initialReport)
@@ -81,32 +67,23 @@ export class BugReportService {
         .single();
 
       if (insertError) {
-        console.error('[BUG_REPORT_SERVICE] Insert error:', insertError);
+        logger.error('bug-reports', 'Insert error', insertError);
         throw new Error(`Failed to insert bug report: ${insertError.message}`);
       }
 
       if (!newReport) {
-        console.error('[BUG_REPORT_SERVICE] No report returned from insert');
+        logger.error('bug-reports', 'No report returned from insert');
         throw new Error('Failed to create bug report - no data returned.');
       }
 
-      console.log('[BUG_REPORT_SERVICE] Report created with ID:', newReport.id);
-
       // 2. If a screenshot is provided, upload it and update the report
       if (payload.screenshot_data_url) {
-        console.log('[BUG_REPORT_SERVICE] Processing screenshot upload');
-
         try {
           const screenshotFile = dataURLtoFile(
             payload.screenshot_data_url,
             'screenshot.png'
           );
           const filePath = `${newReport.id}/screenshot.png`;
-
-          console.log(
-            '[BUG_REPORT_SERVICE] Uploading screenshot to:',
-            filePath
-          );
 
           const { error: uploadError } = await supabase.storage
             .from(BUG_REPORTS_BUCKET)
@@ -116,25 +93,13 @@ export class BugReportService {
             });
 
           if (uploadError) {
-            console.error(
-              '[BUG_REPORT_SERVICE] Screenshot upload error:',
-              uploadError
-            );
+            logger.error('bug-reports', 'Screenshot upload error', uploadError);
             // Don't fail the whole operation, just log the error
-            console.warn('[BUG_REPORT_SERVICE] Continuing without screenshot');
+            logger.warn('bug-reports', 'Continuing without screenshot');
           } else {
-            console.log(
-              '[BUG_REPORT_SERVICE] Screenshot uploaded successfully'
-            );
-
             const { data: urlData } = supabase.storage
               .from(BUG_REPORTS_BUCKET)
               .getPublicUrl(filePath);
-
-            console.log(
-              '[BUG_REPORT_SERVICE] Screenshot URL:',
-              urlData.publicUrl
-            );
 
             const { data: updatedReport, error: updateError } = await supabase
               .from('bug_reports')
@@ -144,31 +109,22 @@ export class BugReportService {
               .single();
 
             if (updateError) {
-              console.error('[BUG_REPORT_SERVICE] Update error:', updateError);
+              logger.error('bug-reports', 'Update error', updateError);
               // Don't fail the whole operation, return the original report
-              console.warn(
-                '[BUG_REPORT_SERVICE] Returning report without screenshot URL'
-              );
+              logger.warn('bug-reports', 'Returning report without screenshot URL');
             } else {
-              console.log(
-                '[BUG_REPORT_SERVICE] Report updated with screenshot URL'
-              );
               return updatedReport;
             }
           }
         } catch (screenshotError) {
-          console.error(
-            '[BUG_REPORT_SERVICE] Screenshot processing error:',
-            screenshotError
-          );
+          logger.error('bug-reports', 'Screenshot processing error', screenshotError);
           // Continue without screenshot
         }
       }
 
-      console.log('[BUG_REPORT_SERVICE] Returning final report:', newReport.id);
       return newReport;
     } catch (error) {
-      console.error('[BUG_REPORT_SERVICE] Error creating bug report:', error);
+      logger.error('bug-reports', 'Error creating bug report', error);
       throw error;
     }
   }
@@ -203,7 +159,7 @@ export class BugReportService {
 
       return null;
     } catch (error) {
-      console.error(`Error fetching bug report by ID ${reportId}:`, error);
+      logger.error('bug-reports', `Error fetching bug report by ID ${reportId}`, error);
       throw error;
     }
   }
@@ -225,7 +181,7 @@ export class BugReportService {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error('Error fetching user bug reports:', error);
+      logger.error('bug-reports', 'Error fetching user bug reports', error);
       throw error;
     }
   }
@@ -263,7 +219,7 @@ export class BugReportService {
 
       return { data: data || [], count: count || 0 };
     } catch (error) {
-      console.error('Error fetching bug reports:', error);
+      logger.error('bug-reports', 'Error fetching bug reports', error);
       throw error;
     }
   }
@@ -289,7 +245,7 @@ export class BugReportService {
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('Error updating bug report status:', error);
+      logger.error('bug-reports', 'Error updating bug report status', error);
       throw error;
     }
   }
@@ -305,7 +261,7 @@ export class BugReportService {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error('Error fetching leaderboard:', error);
+      logger.error('bug-reports', 'Error fetching leaderboard', error);
       throw error;
     }
   }
@@ -336,7 +292,7 @@ export class BugReportService {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error('Error fetching bug report messages:', error);
+      logger.error('bug-reports', 'Error fetching bug report messages', error);
       throw error;
     }
   }
@@ -394,13 +350,13 @@ export class BugReportService {
           })
         });
       } catch (notificationError) {
-        console.error('Failed to send notification:', notificationError);
+        logger.error('bug-reports', 'Failed to send notification', notificationError);
         // Don't fail the message sending if notification fails
       }
 
       return data;
     } catch (error) {
-      console.error('Error sending bug report message:', error);
+      logger.error('bug-reports', 'Error sending bug report message', error);
       throw error;
     }
   }
@@ -429,7 +385,7 @@ export class BugReportService {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error('Error fetching bug report participants:', error);
+      logger.error('bug-reports', 'Error fetching bug report participants', error);
       throw error;
     }
   }
@@ -464,7 +420,7 @@ export class BugReportService {
         if (error) throw error;
       }
     } catch (error) {
-      console.error('Error adding bug report participant:', error);
+      logger.error('bug-reports', 'Error adding bug report participant', error);
       // Don't throw error as this is not critical
     }
   }
@@ -480,7 +436,7 @@ export class BugReportService {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error('Error fetching institutions:', error);
+      logger.error('bug-reports', 'Error fetching institutions', error);
       throw error;
     }
   }
@@ -504,7 +460,7 @@ export class BugReportService {
       if (error) throw error;
       return data.map((d) => ({ id: d.id, name: d.department_name })) || [];
     } catch (error) {
-      console.error('Error fetching departments:', error);
+      logger.error('bug-reports', 'Error fetching departments', error);
       throw error;
     }
   }
@@ -539,7 +495,7 @@ export class BugReportService {
         markedCount: data.markedCount || 0
       };
     } catch (error) {
-      console.error('Error marking messages as read:', error);
+      logger.error('bug-reports', 'Error marking messages as read', error);
       throw error;
     }
   }
@@ -560,7 +516,7 @@ export class BugReportService {
         const errorMessage = errorData.error || `HTTP ${response.status}`;
 
         if (response.status === 403) {
-          console.warn('Access denied to bug report read status:', errorMessage);
+          logger.warn('bug-reports', 'Access denied to bug report read status', { errorMessage });
           // Return default values instead of throwing
           return messageId ? [] : { unreadCount: 0 };
         }
@@ -571,7 +527,7 @@ export class BugReportService {
       const data = await response.json();
       return messageId ? data.readBy : { unreadCount: data.unreadCount };
     } catch (error) {
-      console.error('Error getting message read status:', error);
+      logger.error('bug-reports', 'Error getting message read status', error);
 
       // If it's a network error or 403, return safe defaults
       if (error instanceof Error && (
@@ -590,7 +546,7 @@ export class BugReportService {
       const result = await this.getMessageReadStatus(reportId);
       return result.unreadCount || 0;
     } catch (error) {
-      console.error('Error getting unread count:', error);
+      logger.error('bug-reports', 'Error getting unread count', error);
       // If it's a 403 error (access denied), return 0 instead of throwing
       if (error instanceof Error && error.message.includes('403')) {
         return 0;

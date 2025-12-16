@@ -1,21 +1,19 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function GET() {
-  console.log('[BUG_REPORTS_TEST] Test endpoint called');
-
   try {
     const supabase = await createServerSupabaseClient();
 
     // Test 1: Check authentication
-    console.log('[BUG_REPORTS_TEST] Checking authentication');
     const {
       data: { user },
       error: authError
     } = await supabase.auth.getUser();
 
     if (authError) {
-      console.error('[BUG_REPORTS_TEST] Auth error:', authError);
+      logger.error('bug-reports', 'Auth error', authError);
       return NextResponse.json({
         success: false,
         error: 'Authentication failed',
@@ -24,7 +22,7 @@ export async function GET() {
     }
 
     if (!user) {
-      console.log('[BUG_REPORTS_TEST] No authenticated user');
+      logger.warn('bug-reports', 'No authenticated user');
       return NextResponse.json({
         success: false,
         error: 'Authentication failed',
@@ -32,17 +30,14 @@ export async function GET() {
       });
     }
 
-    console.log('[BUG_REPORTS_TEST] User authenticated:', user.id);
-
     // Test 2: Check bug_reports table exists
-    console.log('[BUG_REPORTS_TEST] Testing bug_reports table');
     const { data: tableTest, error: tableError } = await supabase
       .from('bug_reports')
       .select('id')
       .limit(1);
 
     if (tableError) {
-      console.error('[BUG_REPORTS_TEST] Table error:', tableError);
+      logger.error('bug-reports', 'Table error', tableError);
       return NextResponse.json({
         success: false,
         error: 'Database table access failed',
@@ -50,16 +45,13 @@ export async function GET() {
       });
     }
 
-    console.log('[BUG_REPORTS_TEST] Table accessible');
-
     // Test 3: Check storage bucket exists
-    console.log('[BUG_REPORTS_TEST] Testing bug-reports storage bucket');
     const { data: bucketTest, error: bucketError } = await supabase.storage
       .from('bug-reports')
       .list('', { limit: 1 });
 
     if (bucketError) {
-      console.error('[BUG_REPORTS_TEST] Bucket error:', bucketError);
+      logger.error('bug-reports/api', 'Storage bucket access failed', bucketError);
       return NextResponse.json({
         success: false,
         error: 'Storage bucket access failed',
@@ -67,10 +59,7 @@ export async function GET() {
       });
     }
 
-    console.log('[BUG_REPORTS_TEST] Storage bucket accessible');
-
     // Test 4: Check if user can insert (dry run)
-    console.log('[BUG_REPORTS_TEST] Testing insert permissions');
     const testReport = {
       reporter_user_id: user.id,
       page_url: 'https://example.com/test',
@@ -86,7 +75,6 @@ export async function GET() {
 
     // If we get here, the insert would work, but let's clean up
     if (!insertTestError) {
-      console.log('[BUG_REPORTS_TEST] Insert test successful, cleaning up');
       // Delete the test record
       await supabase
         .from('bug_reports')
@@ -94,15 +82,13 @@ export async function GET() {
         .eq('reporter_user_id', user.id)
         .eq('page_url', 'https://example.com/test');
     } else {
-      console.error('[BUG_REPORTS_TEST] Insert test failed:', insertTestError);
+      logger.error('bug-reports/api', 'Database insert test failed', insertTestError);
       return NextResponse.json({
         success: false,
         error: 'Database insert failed',
         details: insertTestError.message
       });
     }
-
-    console.log('[BUG_REPORTS_TEST] All tests passed');
     return NextResponse.json({
       success: true,
       message: 'All systems operational',
@@ -115,7 +101,7 @@ export async function GET() {
       ]
     });
   } catch (error) {
-    console.error('[BUG_REPORTS_TEST] Unexpected error:', error);
+    logger.error('bug-reports/api', 'System test failed with unexpected error', error);
     return NextResponse.json({
       success: false,
       error: 'System test failed',

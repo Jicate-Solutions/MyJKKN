@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 // Mark messages as read
 export async function POST(
@@ -45,8 +46,6 @@ export async function POST(
       canViewInternal = initialParticipant.can_view_internal;
     } else {
       // User is not a participant, try alternative access verification
-      console.log('User is not a participant, checking alternative access permissions');
-
       // First get user profile to check their role and permissions
       const { data: userProfile } = await supabase
         .from('profiles')
@@ -73,7 +72,7 @@ export async function POST(
           .maybeSingle() as { data: { id: string; reporter_user_id: string } | null; error: unknown }; // Use maybeSingle to avoid error on no rows
 
         if (accessError) {
-          console.error('Bug report access check failed:', accessError);
+          logger.error('bug-reports', 'Bug report access check failed', accessError);
           return NextResponse.json(
             { success: false, error: 'Database error during access check' },
             { status: 500 }
@@ -104,18 +103,16 @@ export async function POST(
 
           if (!insertError && insertedParticipant) {
             participant = insertedParticipant;
-            console.log(`Auto-created ${participantRole} participant record`);
           } else {
             // Create a virtual participant object for this request
             participant = {
               id: 'virtual',
               can_view_internal: canViewInternal
             };
-            console.log('Using virtual participant (insert failed):', insertError);
+            logger.warn('bug-reports/api', 'Using virtual participant (insert failed)', insertError);
           }
         } else {
           // User doesn't have access to this bug report
-          console.log('User does not have access to this bug report');
           return NextResponse.json(
             { success: false, error: 'Bug report not found or access denied' },
             { status: 404 }
@@ -123,7 +120,7 @@ export async function POST(
         }
       } else {
         // Could not get user profile
-        console.error('Could not get user profile');
+        logger.error('bug-reports/api', 'Could not get user profile');
         return NextResponse.json(
           { success: false, error: 'User profile not found' },
           { status: 404 }
@@ -229,12 +226,12 @@ export async function POST(
               .eq('user_id', user.id);
 
             if (updateError) {
-              console.warn('Failed to update participant last read info:', updateError);
+              logger.warn('bug-reports/api', 'Failed to update participant last read info', updateError);
               // Don't fail the entire operation for this
             }
           }
         } catch (updateError) {
-          console.warn('Error updating participant read status:', updateError);
+          logger.warn('bug-reports/api', 'Error updating participant read status', updateError);
           // Don't fail the entire operation for this
         }
       }
@@ -248,7 +245,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('Error marking messages as read:', error);
+    logger.error('bug-reports/api', 'Error marking messages as read', error);
     return NextResponse.json(
       {
         success: false,
@@ -331,8 +328,6 @@ export async function GET(
         canViewInternal = initialParticipant.can_view_internal;
       } else {
         // User is not a participant, try alternative access verification
-        console.log('User is not a participant, checking alternative access permissions');
-
         // First get user profile to check their role and permissions
         const { data: userProfile } = await supabase
           .from('profiles')
@@ -359,7 +354,7 @@ export async function GET(
             .maybeSingle() as { data: { id: string; reporter_user_id: string } | null; error: unknown }; // Use maybeSingle to avoid error on no rows
 
           if (accessError) {
-            console.error('Bug report access check failed:', accessError);
+            logger.error('bug-reports/api', 'Bug report access check failed', accessError);
             return NextResponse.json(
               { success: false, error: 'Database error during access check' },
               { status: 500 }
@@ -390,18 +385,16 @@ export async function GET(
 
             if (!insertError && insertedParticipant) {
               participant = insertedParticipant;
-              console.log(`Auto-created ${participantRole} participant record`);
             } else {
               // Create a virtual participant object for this request
               participant = {
                 can_view_internal: canViewInternal,
                 last_read_message_id: null
               };
-              console.log('Using virtual participant (insert failed):', insertError);
+              logger.warn('bug-reports/api', 'Using virtual participant (insert failed)', insertError);
             }
           } else {
             // User doesn't have access to this bug report
-            console.log('User does not have access to this bug report');
             return NextResponse.json(
               { success: false, error: 'Bug report not found or access denied' },
               { status: 404 }
@@ -409,7 +402,7 @@ export async function GET(
           }
         } else {
           // Could not get user profile
-          console.error('Could not get user profile');
+          logger.error('bug-reports/api', 'Could not get user profile');
           return NextResponse.json(
             { success: false, error: 'User profile not found' },
             { status: 404 }
@@ -466,7 +459,7 @@ export async function GET(
     }
 
   } catch (error) {
-    console.error('Error getting message read status:', error);
+    logger.error('bug-reports/api', 'Error getting message read status', error);
     return NextResponse.json(
       {
         success: false,

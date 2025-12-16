@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 const updateStatusSchema = z.object({
   status: z.enum(['new', 'seen', 'in_progress', 'resolved', 'wont_fix'])
@@ -36,10 +37,7 @@ export async function GET(
       .maybeSingle(); // Use maybeSingle to handle RLS filtering gracefully
 
     if (reportError) {
-      console.error(
-        `[BUG_REPORTS_GET_BY_ID_API] Supabase error fetching report ${reportId}:`,
-        reportError
-      );
+      logger.error('bug-reports', `Supabase error fetching report ${reportId}`, reportError);
       return NextResponse.json(
         { error: 'Database error while fetching report' },
         { status: 500 }
@@ -69,10 +67,7 @@ export async function GET(
 
     return NextResponse.json(detailedReport);
   } catch (error) {
-    console.error(
-      `[BUG_REPORTS_GET_BY_ID_API] Error fetching report ${reportId}:`,
-      error
-    );
+    logger.error('bug-reports', `Error fetching report ${reportId}`, error);
     return NextResponse.json(
       { error: 'Failed to fetch bug report.' },
       { status: 500 }
@@ -145,10 +140,7 @@ export async function PATCH(
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.errors }, { status: 400 });
     }
-    console.error(
-      `[BUG_REPORTS_PATCH_API] Error updating report ${reportId}:`,
-      error
-    );
+    logger.error('bug-reports/api', `Error updating report ${reportId}`, error);
     return NextResponse.json(
       { error: 'Failed to update bug report status.' },
       { status: 500 }
@@ -223,23 +215,12 @@ export async function DELETE(
             .remove([filePath]);
 
           if (storageError) {
-            console.error(
-              '[BUG_REPORTS_DELETE] Storage deletion error:',
-              storageError
-            );
+            logger.error('bug-reports/api', 'Storage deletion error', storageError);
             // Continue with database deletion even if storage deletion fails
-          } else {
-            console.log(
-              '[BUG_REPORTS_DELETE] Screenshot deleted successfully:',
-              filePath
-            );
           }
         }
       } catch (error) {
-        console.error(
-          '[BUG_REPORTS_DELETE] Error parsing screenshot URL:',
-          error
-        );
+        logger.error('bug-reports/api', 'Error parsing screenshot URL', error);
         // Continue with database deletion
       }
     }
@@ -255,17 +236,12 @@ export async function DELETE(
       throw deleteError;
     }
 
-    console.log(
-      '[BUG_REPORTS_DELETE] Bug report deleted successfully:',
-      reportId
-    );
-
     return NextResponse.json({
       success: true,
       message: 'Bug report deleted successfully'
     });
   } catch (error) {
-    console.error('[BUG_REPORTS_DELETE]', error);
+    logger.error('bug-reports/api', 'Failed to delete bug report', error);
     return NextResponse.json(
       { error: 'Failed to delete bug report' },
       { status: 500 }
