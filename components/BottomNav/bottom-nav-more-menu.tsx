@@ -10,7 +10,6 @@ import {
   SheetHeader,
   SheetTitle
 } from '@/components/ui/sheet';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Accordion,
   AccordionContent,
@@ -33,13 +32,29 @@ export function BottomNavMoreMenu({
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="bottom" className="h-[70vh] rounded-t-3xl">
-        <SheetHeader className="pb-2">
+      <SheetContent
+        side="bottom"
+        className="h-[80vh] rounded-t-3xl flex flex-col z-[90]"
+      >
+        <SheetHeader className="pb-2 flex-shrink-0">
           <SheetTitle className="text-lg font-semibold">All Menus</SheetTitle>
         </SheetHeader>
 
-        <ScrollArea className="h-full pb-8">
-          <Accordion type="multiple" className="w-full">
+        {/* Custom scrollable area with hidden scrollbar */}
+        <div
+          className="flex-1 overflow-y-auto pb-8"
+          style={{
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none'
+          }}
+        >
+          <style jsx>{`
+            div::-webkit-scrollbar {
+              display: none;
+            }
+          `}</style>
+
+          <Accordion type="multiple" className="w-full" defaultValue={groups.map(g => g.id)}>
             {groups.map((group) => {
               const GroupIcon = group.icon;
               const hasActiveItem = group.menus.some(
@@ -51,7 +66,7 @@ export function BottomNavMoreMenu({
                 <AccordionItem
                   key={group.id}
                   value={group.id}
-                  className="border-b border-border/50"
+                  className="border-b border-border/30"
                 >
                   <AccordionTrigger
                     className={cn(
@@ -75,6 +90,9 @@ export function BottomNavMoreMenu({
                       </div>
                       <span className="font-medium text-sm">
                         {group.groupLabel}
+                      </span>
+                      <span className="text-xs text-muted-foreground ml-auto mr-2">
+                        {group.menus.length}
                       </span>
                     </div>
                   </AccordionTrigger>
@@ -101,10 +119,10 @@ export function BottomNavMoreMenu({
                             className={cn(
                               'flex flex-col items-center justify-center p-3 rounded-lg',
                               'transition-colors duration-200',
-                              'hover:bg-accent',
+                              'active:bg-accent',
                               isActive
-                                ? 'bg-primary/10 text-primary'
-                                : 'text-muted-foreground'
+                                ? 'bg-primary/10 text-primary ring-1 ring-primary/20'
+                                : 'text-muted-foreground bg-muted/30'
                             )}
                           >
                             <Icon
@@ -128,7 +146,7 @@ export function BottomNavMoreMenu({
               );
             })}
           </Accordion>
-        </ScrollArea>
+        </div>
       </SheetContent>
     </Sheet>
   );

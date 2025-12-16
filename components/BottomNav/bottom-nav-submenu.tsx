@@ -5,6 +5,21 @@ import { cn } from '@/lib/utils';
 import { BottomNavSubmenuProps } from './types';
 import { usePathname } from 'next/navigation';
 
+// Fast spring for container
+const containerSpring = {
+  type: 'spring' as const,
+  stiffness: 500,
+  damping: 35,
+  mass: 0.8
+};
+
+// Quick exit transition
+const exitTransition = {
+  type: 'tween' as const,
+  duration: 0.15,
+  ease: [0.4, 0, 1, 1] as const
+};
+
 export function BottomNavSubmenu({
   items,
   isOpen,
@@ -13,31 +28,32 @@ export function BottomNavSubmenu({
   const pathname = usePathname();
 
   return (
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       {isOpen && (
         <motion.div
           initial={{ height: 0, opacity: 0 }}
           animate={{
             height: 'auto',
-            opacity: 1,
-            transition: {
-              height: { type: 'spring', stiffness: 300, damping: 30 },
-              opacity: { duration: 0.2, delay: 0.1 }
-            }
+            opacity: 1
           }}
           exit={{
             height: 0,
-            opacity: 0,
-            transition: {
-              height: { type: 'spring', stiffness: 300, damping: 30 },
-              opacity: { duration: 0.15 }
-            }
+            opacity: 0
           }}
-          className="overflow-hidden border-t border-border bg-background/95"
+          transition={{
+            height: containerSpring,
+            opacity: { duration: 0.12 }
+          }}
+          className="overflow-hidden border-t border-border bg-background"
         >
           <motion.div
-            initial={{ y: -10 }}
-            animate={{ y: 0 }}
+            initial={{ y: -8, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -8, opacity: 0 }}
+            transition={{
+              y: { type: 'spring', stiffness: 500, damping: 30 },
+              opacity: { duration: 0.1 }
+            }}
             className="p-3 max-h-[50vh] overflow-y-auto"
           >
             <div className="grid grid-cols-3 gap-2">
@@ -48,27 +64,41 @@ export function BottomNavSubmenu({
                 return (
                   <motion.button
                     key={item.href}
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={{ opacity: 0, scale: 0.9, y: 8 }}
                     animate={{
                       opacity: 1,
-                      y: 0,
-                      transition: { delay: index * 0.03 }
+                      scale: 1,
+                      y: 0
+                    }}
+                    transition={{
+                      type: 'spring',
+                      stiffness: 500,
+                      damping: 25,
+                      delay: index * 0.02 // Faster stagger
                     }}
                     whileTap={{ scale: 0.95 }}
+                    whileHover={{ scale: 1.02, backgroundColor: 'var(--accent)' }}
                     onClick={() => onItemClick(item.href)}
                     className={cn(
-                      'flex flex-col items-center justify-center p-3 rounded-lg',
-                      'transition-colors duration-200',
-                      'hover:bg-accent',
+                      'flex flex-col items-center justify-center p-3 rounded-xl',
+                      'transition-colors duration-100',
                       isActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground'
+                        ? 'bg-primary/15 text-primary'
+                        : 'text-muted-foreground hover:bg-accent'
                     )}
                   >
-                    <Icon
-                      className="h-5 w-5 mb-1"
-                      strokeWidth={isActive ? 2.5 : 2}
-                    />
+                    <motion.div
+                      animate={{
+                        scale: isActive ? 1.1 : 1,
+                        rotate: isActive ? [0, -3, 3, 0] : 0
+                      }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <Icon
+                        className="h-5 w-5 mb-1"
+                        strokeWidth={isActive ? 2.5 : 2}
+                      />
+                    </motion.div>
                     <span
                       className={cn(
                         'text-[10px] text-center leading-tight line-clamp-2',
