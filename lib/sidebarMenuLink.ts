@@ -44,6 +44,7 @@ import {
   Clock,
   RefreshCw,
   Bug,
+  CalendarX2,
   UserCheck,
   Package,
   Bookmark,
@@ -147,6 +148,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Academic Management
   '/academic/years': 'academic.years.view',
+  '/academic/leave-calendar': 'academic.leaves.view',
+  '/academic/leaves': 'academic.leaves.view',
+  '/academic/leaves/new': 'academic.leaves.create',
+  '/academic/leaves/[id]': 'academic.leaves.view',
+  '/academic/leaves/[id]/edit': 'academic.leaves.edit',
+  '/academic/leaves/settings': 'academic.leaves.manage',
+  '/academic/leaves/settings/types': 'academic.leaves.manage',
+  '/academic/leaves/settings/workflows': 'academic.leaves.manage',
   '/academic/staff-planning': 'academic.staff.planning.view',
   '/academic/timetables': 'academic.timetables.view',
   '/academic/timetables/templates': 'academic.timetables.view',
@@ -519,7 +528,36 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Clock,
           submenus: []
         },
-       
+        {
+          href: '/academic/leave-calendar',
+          label: 'Leave Calendar',
+          active: pathname === '/academic/leave-calendar',
+          icon: Calendar,
+          submenus: []
+        },
+        {
+          href: '/academic/leaves',
+          label: 'Leave Management',
+          active: pathname.startsWith('/academic/leaves'),
+          icon: CalendarX2,
+          submenus: [
+            {
+              href: '/academic/leaves',
+              label: 'All Leaves',
+              active: pathname === '/academic/leaves'
+            },
+            {
+              href: '/academic/leaves/settings/types',
+              label: 'Leave Types',
+              active: pathname === '/academic/leaves/settings/types'
+            },
+            {
+              href: '/academic/leaves/settings/workflows',
+              label: 'Approval Workflows',
+              active: pathname === '/academic/leaves/settings/workflows'
+            }
+          ]
+        },
         {
           href: '/academic/staff-planning',
           label: 'Staff Planning',
