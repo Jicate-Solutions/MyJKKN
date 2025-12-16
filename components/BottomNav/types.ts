@@ -46,6 +46,13 @@ export interface ActivePageInfo {
   groupLabel: string;
 }
 
+// Serializable version for localStorage (without icon component)
+export interface SerializableActivePageInfo {
+  href: string;
+  label: string;
+  groupLabel: string;
+}
+
 export interface BottomNavState {
   activeNavId: string | null;
   isExpanded: boolean;

@@ -13,7 +13,8 @@ export const metadata: Metadata = {
 
 export default function AIQueryPage() {
   return (
-    <div className="h-[calc(100vh-4rem)]">
+    // Account for header (4rem) on all screens and bottom navbar on mobile/tablet (5rem)
+    <div className="h-[calc(100vh-4rem)] lg:h-[calc(100vh-4rem)] pb-20 lg:pb-0">
       <AIQueryContainer className="h-full" />
     </div>
   );

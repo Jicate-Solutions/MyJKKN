@@ -60,11 +60,11 @@ export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
         )}
       </div>
 
-      {/* Message Content */}
+      {/* Message Content - Responsive width */}
       <div
         className={cn(
-          'flex flex-col',
-          isUser ? 'items-end max-w-[80%]' : 'items-start max-w-[90%]'
+          'flex flex-col min-w-0',
+          isUser ? 'items-end max-w-[85%] sm:max-w-[80%]' : 'items-start max-w-[95%] sm:max-w-[90%]'
         )}
       >
         <div
@@ -76,20 +76,20 @@ export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
           )}
         >
           {isStreaming ? (
-            <div className="flex items-center gap-3 px-4 py-3">
-              <div className="relative">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                <div className="absolute inset-0 h-5 w-5 animate-ping opacity-20 rounded-full bg-primary" />
+            <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3">
+              <div className="relative flex-shrink-0">
+                <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 animate-spin text-primary" />
+                <div className="absolute inset-0 h-4 w-4 sm:h-5 sm:w-5 animate-ping opacity-20 rounded-full bg-primary" />
               </div>
-              <div className="flex flex-col">
-                <span className="text-sm font-medium">Analyzing your request...</span>
-                <span className="text-xs text-muted-foreground">Fetching data from the system</span>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs sm:text-sm font-medium">Analyzing your request...</span>
+                <span className="text-[10px] sm:text-xs text-muted-foreground">Fetching data from the system</span>
               </div>
             </div>
           ) : isUser ? (
-            <div className="text-sm">{message.content}</div>
+            <div className="text-xs sm:text-sm">{message.content}</div>
           ) : (
-            <div className="ai-response-content p-4">
+            <div className="ai-response-content p-2 sm:p-4">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
@@ -114,12 +114,14 @@ export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
                       {children}
                     </h3>
                   ),
-                  // Enhanced table styling - Analytics Dashboard Style
+                  // Enhanced table styling - Analytics Dashboard Style (Mobile Scrollable)
                   table: ({ children }) => (
-                    <div className="my-4 rounded-lg border border-border/60 overflow-hidden shadow-sm">
-                      <table className="w-full text-sm">
-                        {children}
-                      </table>
+                    <div className="my-3 sm:my-4 rounded-lg border border-border/60 overflow-hidden shadow-sm">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs sm:text-sm min-w-[400px]">
+                          {children}
+                        </table>
+                      </div>
                     </div>
                   ),
                   thead: ({ children }) => (
@@ -128,7 +130,7 @@ export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
                     </thead>
                   ),
                   th: ({ children }) => (
-                    <th className="px-4 py-3 text-left font-semibold text-xs uppercase tracking-wider text-muted-foreground border-b border-border/50">
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left font-semibold text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground border-b border-border/50 whitespace-nowrap">
                       {children}
                     </th>
                   ),
@@ -151,7 +153,7 @@ export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
 
                     return (
                       <td className={cn(
-                        "px-4 py-3",
+                        "px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm",
                         isNumeric && "font-mono font-semibold",
                         isNumeric && isHighValue && "text-primary",
                         isPercentage && "text-emerald-600 dark:text-emerald-400"

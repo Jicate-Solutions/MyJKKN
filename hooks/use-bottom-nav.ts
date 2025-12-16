@@ -2,7 +2,13 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { BottomNavState, ActivePageInfo } from '@/components/BottomNav/types';
 
-export const useBottomNav = create<BottomNavState>()(
+// Extended state type to include hydration tracking
+interface BottomNavStateExtended extends BottomNavState {
+  _hasHydrated: boolean;
+  setHasHydrated: (state: boolean) => void;
+}
+
+export const useBottomNav = create<BottomNavStateExtended>()(
   persist(
     (set) => ({
       activeNavId: null,
@@ -11,6 +17,9 @@ export const useBottomNav = create<BottomNavState>()(
       isMinimized: true,  // Start minimized - shows active page only
       activePage: null,
       selectedSubItem: null,
+      _hasHydrated: false,  // Track hydration status
+
+      setHasHydrated: (state) => set({ _hasHydrated: state }),
 
       setActiveNav: (id) =>
         set({
@@ -79,8 +88,24 @@ export const useBottomNav = create<BottomNavState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         selectedSubItem: state.selectedSubItem,
-        isMinimized: state.isMinimized
-      })
+        isMinimized: state.isMinimized,
+        // Only persist serializable parts of activePage (icon is a component, not serializable)
+        activePage: state.activePage ? {
+          href: state.activePage.href,
+          label: state.activePage.label,
+          groupLabel: state.activePage.groupLabel
+        } : null
+      }),
+      // Track when hydration completes
+      onRehydrateStorage: () => (state) => {
+        // Set hydration complete flag
+        state?.setHasHydrated(true);
+      }
     }
   )
 );
+
+// Helper hook to wait for hydration
+export const useBottomNavHydration = () => {
+  return useBottomNav((state) => state._hasHydrated);
+};
