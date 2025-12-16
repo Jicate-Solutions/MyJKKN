@@ -13,7 +13,8 @@ import {
 export function SheetMenu() {
   return (
     <Sheet>
-      <SheetTrigger className='lg:hidden' asChild>
+      {/* Hidden on mobile (bottom nav used), visible on md to lg (tablet) */}
+      <SheetTrigger className='hidden md:flex lg:hidden' asChild>
         <Button className='h-8' variant='outline' size='icon'>
           <MenuIcon size={20} />
         </Button>

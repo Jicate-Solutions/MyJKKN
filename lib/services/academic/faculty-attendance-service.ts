@@ -153,10 +153,114 @@ export class FacultyAttendanceService {
         const timetableData = timetable.timetable_data;
         const periodsDefinition = timetable.periods;
 
-        if (!timetableData || !timetableData[dayOfWeek]) continue;
+        if (!timetableData) continue;
+
+        // FIX: 2025-12-16 - Handle batch format timetables (CRRI clinical postings)
+        // Batch timetables use DATE keys (e.g., "2025-12-05") not day-of-week keys (e.g., "MONDAY")
+        let dayData: Record<string, any> | null = null;
+
+        if (timetable.timetable_format === 'batch') {
+          // For batch timetables, find a representative slot from the matching date range
+          // Step 1: Find which date range contains the target date
+          let matchingRangeStart: string | null = null;
+          let matchingRangeEnd: string | null = null;
+
+          if (timetable.selected_dates && Array.isArray(timetable.selected_dates)) {
+            const queryDate = new Date(targetDate);
+
+            for (const dateItem of timetable.selected_dates) {
+              if (typeof dateItem === 'string' && dateItem.startsWith('RANGE:')) {
+                const parts = dateItem.split(':');
+                if (parts.length === 3) {
+                  const rangeStart = new Date(parts[1]);
+                  const rangeEnd = new Date(parts[2]);
+
+                  if (queryDate >= rangeStart && queryDate <= rangeEnd) {
+                    matchingRangeStart = parts[1];
+                    matchingRangeEnd = parts[2];
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          if (!matchingRangeStart || !matchingRangeEnd) {
+            // Target date doesn't fall within any batch range
+            continue;
+          }
+
+          // Step 2: Find slots from this date range - prioritize slots with RANGE key or slots with more staff
+          const periodSlotMap = new Map<string, { slotData: any; staffCount: number; isFromRange?: boolean }>();
+
+          Object.keys(timetableData).forEach((dateKey) => {
+            const dateSlotsForKey = timetableData[dateKey];
+            if (dateSlotsForKey && typeof dateSlotsForKey === 'object') {
+              Object.keys(dateSlotsForKey).forEach((periodId) => {
+                const slotData = dateSlotsForKey[periodId];
+
+                // Skip break slots
+                if (slotData && slotData.is_break_slot) {
+                  return;
+                }
+
+                if (slotData && slotData.slot_date) {
+                  let shouldIncludeSlot = false;
+
+                  if (typeof slotData.slot_date === 'string' && slotData.slot_date.startsWith('RANGE:')) {
+                    // slot_date is a range marker
+                    const parts = slotData.slot_date.split(':');
+                    if (parts.length === 3) {
+                      const slotRangeStart = new Date(parts[1]);
+                      const slotRangeEnd = new Date(parts[2]);
+                      const queryDateObj = new Date(targetDate);
+                      shouldIncludeSlot = queryDateObj >= slotRangeStart && queryDateObj <= slotRangeEnd;
+                    }
+                  } else {
+                    // slot_date is a specific date
+                    const slotDate = new Date(slotData.slot_date);
+                    if (!isNaN(slotDate.getTime())) {
+                      const rangeStart = new Date(matchingRangeStart);
+                      const rangeEnd = new Date(matchingRangeEnd);
+                      shouldIncludeSlot = slotDate >= rangeStart && slotDate <= rangeEnd;
+                    }
+                  }
+
+                  if (shouldIncludeSlot) {
+                    const currentStaffCount = slotData.staff_ids?.length || 0;
+                    const existingSlot = periodSlotMap.get(periodId);
+                    const isFromRange = slotData.slot_date?.startsWith('RANGE:');
+
+                    if (!existingSlot) {
+                      periodSlotMap.set(periodId, { slotData, staffCount: currentStaffCount, isFromRange });
+                    } else if (isFromRange && !existingSlot.isFromRange) {
+                      // Prefer RANGE slots for consistency
+                      periodSlotMap.set(periodId, { slotData, staffCount: currentStaffCount, isFromRange });
+                    } else if (currentStaffCount > existingSlot.staffCount && !(!isFromRange && existingSlot.isFromRange)) {
+                      periodSlotMap.set(periodId, { slotData, staffCount: currentStaffCount, isFromRange });
+                    }
+                  }
+                }
+              });
+            }
+          });
+
+          // Build dayData from the collected slots
+          if (periodSlotMap.size > 0) {
+            dayData = {};
+            periodSlotMap.forEach(({ slotData }, periodId) => {
+              dayData![periodId] = slotData;
+            });
+          }
+        } else {
+          // Regular timetables use day-of-week keys
+          if (!timetableData[dayOfWeek]) continue;
+          dayData = timetableData[dayOfWeek];
+        }
+
+        if (!dayData) continue;
 
         // Extract periods for this day where staff is assigned
-        const dayData = timetableData[dayOfWeek];
 
         for (const [periodId, slotData] of Object.entries(dayData)) {
           const slot = slotData as any;
