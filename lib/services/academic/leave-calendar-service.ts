@@ -236,7 +236,7 @@ export class LeaveCalendarService {
     sectionId?: string
   ): Promise<CalendarLeave[]> {
     try {
-      let query = this.supabase
+      const query = this.supabase
         .from('institution_leaves')
         .select(
           `
@@ -452,7 +452,7 @@ export class LeaveCalendarService {
           error_message: error.message,
           error_details: error.details,
           error_hint: error.hint,
-          params: { institution_id, date, department_id, semester_id, section_id }
+          params
         });
         throw error;
       }
@@ -529,7 +529,7 @@ export class LeaveCalendarService {
       logger.error('academic/leaves', 'Exception in checkLeaveBlockForAttendance', {
         error_message: error instanceof Error ? error.message : 'Unknown error',
         error_stack: error instanceof Error ? error.stack : undefined,
-        params: { institution_id, date, department_id, semester_id, section_id }
+        params
       });
       // On error, allow attendance marking (fail open for availability)
       // But log the error for investigation

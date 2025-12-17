@@ -252,7 +252,7 @@ export default function LeaveDetailPage() {
                             </p>
                             {approval.comments && (
                               <p className='text-muted-foreground mt-1'>
-                                "{approval.comments}"
+                                &quot;{approval.comments}&quot;
                               </p>
                             )}
                           </div>

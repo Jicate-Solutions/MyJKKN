@@ -149,7 +149,8 @@
       "Bash(node_modules/.bin/tsc:*)",
       "Bash(xargs:*)",
       "WebFetch(domain:api.github.com)",
-      "Bash(timeout 10 npm run typecheck:*)"
+      "Bash(timeout 10 npm run typecheck:*)",
+      "Bash(bun run build:*)"
     ],
     "deny": [],
     "ask": []

@@ -179,7 +179,7 @@ export function LeaveRowActions({ leave }: LeaveRowActionsProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Leave</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{leave.leave_name}"? This action
+              Are you sure you want to delete &quot;{leave.leave_name}&quot;? This action
               cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -202,7 +202,7 @@ export function LeaveRowActions({ leave }: LeaveRowActionsProps) {
           <DialogHeader>
             <DialogTitle>Approve Leave</DialogTitle>
             <DialogDescription>
-              Approve "{leave.leave_name}" from{' '}
+              Approve &quot;{leave.leave_name}&quot; from{' '}
               {new Date(leave.start_date).toLocaleDateString()} to{' '}
               {new Date(leave.end_date).toLocaleDateString()}
             </DialogDescription>
@@ -242,7 +242,7 @@ export function LeaveRowActions({ leave }: LeaveRowActionsProps) {
           <DialogHeader>
             <DialogTitle>Reject Leave</DialogTitle>
             <DialogDescription>
-              Reject "{leave.leave_name}". Please provide a reason.
+              Reject &quot;{leave.leave_name}&quot;. Please provide a reason.
             </DialogDescription>
           </DialogHeader>
           <div className='space-y-4'>
