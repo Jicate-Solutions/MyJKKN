@@ -109,13 +109,12 @@ const courseSelectionSchema = z.object({
   rollNumber: z.string().optional(),
   collegeEmail: z
     .string()
+    .min(1, 'College email is required')
     .email('Invalid college email')
     .refine(
-      (val) => !val || val.toLowerCase().endsWith('@jkkn.ac.in'),
+      (val) => val.toLowerCase().endsWith('@jkkn.ac.in'),
       'College email must use @jkkn.ac.in domain'
-    )
-    .optional()
-    .or(z.literal('')),
+    ),
   registerNumber: z.string().optional(),
   regulationId: z.string().optional(),
   batchId: z.string().optional()

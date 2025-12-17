@@ -56,7 +56,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import BulkUploadAdmissions from './bulk-upload-admissions';
-import DownloadTemplateButton from './download-template-button';
 
 const getStatusColor = (status: string) => {
   switch (status?.toLowerCase()) {
@@ -400,7 +399,6 @@ export function AdmissionDataTable({
   // Table tools for the toolbar
   const tableTools = (
     <div className='flex items-center gap-2'>
-      <DownloadTemplateButton />
       {canCreate && <BulkUploadAdmissions onSuccess={onRefresh} />}
       {canCreate && (
         <Button onClick={() => router.push('/admissions/new')}>

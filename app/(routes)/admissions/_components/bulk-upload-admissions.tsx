@@ -33,76 +33,261 @@ const lookupInstitutionId = async (institutionName: string): Promise<string | nu
   if (!institutionName?.trim()) return null;
 
   const supabase = createClientSupabaseClient();
+  const trimmedName = institutionName.trim();
+
   const { data, error } = await supabase
     .from('institutions')
-    .select('id')
-    .ilike('name', institutionName.trim())
+    .select('id, name')
+    .ilike('name', trimmedName)
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) {
-    console.error('Institution lookup error:', error);
+  if (error) {
+    console.error('[admission/bulk-upload] Institution lookup error:', {
+      searchTerm: trimmedName,
+      error
+    });
     return null;
   }
 
-  return (data as { id: string }).id;
+  if (!data) {
+    console.warn('[admission/bulk-upload] Institution not found:', trimmedName);
+    return null;
+  }
+
+  return data.id;
 };
 
 const lookupProgramId = async (programName: string): Promise<string | null> => {
   if (!programName?.trim()) return null;
 
   const supabase = createClientSupabaseClient();
+  const trimmedName = programName.trim();
+
   const { data, error } = await supabase
     .from('programs')
-    .select('id')
-    .ilike('program_name', programName.trim())
+    .select('id, program_name')
+    .ilike('program_name', trimmedName)
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) {
-    console.error('Program lookup error:', error);
+  if (error) {
+    console.error('[admission/bulk-upload] Program lookup error:', {
+      searchTerm: trimmedName,
+      error
+    });
     return null;
   }
 
-  return (data as { id: string }).id;
+  if (!data) {
+    console.warn('[admission/bulk-upload] Program not found:', trimmedName);
+    return null;
+  }
+
+  return data.id;
 };
 
 const lookupDegreeId = async (degreeName: string): Promise<string | null> => {
   if (!degreeName?.trim()) return null;
 
   const supabase = createClientSupabaseClient();
+  const trimmedName = degreeName.trim();
+
   const { data, error } = await supabase
     .from('degrees')
-    .select('id')
-    .ilike('degree_name', degreeName.trim())
+    .select('id, degree_name')
+    .ilike('degree_name', trimmedName)
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) {
-    console.error('Degree lookup error:', error);
+  if (error) {
+    console.error('[admission/bulk-upload] Degree lookup error:', {
+      searchTerm: trimmedName,
+      error
+    });
     return null;
   }
 
-  return (data as { id: string }).id;
+  if (!data) {
+    console.warn('[admission/bulk-upload] Degree not found:', trimmedName);
+    return null;
+  }
+
+  return data.id;
 };
 
 const lookupDepartmentId = async (departmentName: string): Promise<string | null> => {
   if (!departmentName?.trim()) return null;
 
   const supabase = createClientSupabaseClient();
+  const trimmedName = departmentName.trim();
+
   const { data, error } = await supabase
     .from('departments')
-    .select('id')
-    .ilike('department_name', departmentName.trim())
+    .select('id, department_name')
+    .ilike('department_name', trimmedName)
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) {
-    console.error('Department lookup error:', error);
+  if (error) {
+    console.error('[admission/bulk-upload] Department lookup error:', {
+      searchTerm: trimmedName,
+      error
+    });
     return null;
   }
 
-  return (data as { id: string }).id;
+  if (!data) {
+    console.warn('[admission/bulk-upload] Department not found:', trimmedName);
+    return null;
+  }
+
+  return data.id;
+};
+
+const lookupAcademicYearId = async (academicYearName: string): Promise<string | null> => {
+  if (!academicYearName?.trim()) return null;
+
+  const supabase = createClientSupabaseClient();
+  const trimmedName = academicYearName.trim();
+
+  const { data, error } = await supabase
+    .from('academic_years')
+    .select('id, academic_year_name')
+    .ilike('academic_year_name', trimmedName)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[admission/bulk-upload] Academic Year lookup error:', {
+      searchTerm: trimmedName,
+      error
+    });
+    return null;
+  }
+
+  if (!data) {
+    console.warn('[admission/bulk-upload] Academic Year not found:', trimmedName);
+    return null;
+  }
+
+  return data.id;
+};
+
+const lookupSemesterId = async (semesterName: string): Promise<string | null> => {
+  if (!semesterName?.trim()) return null;
+
+  const supabase = createClientSupabaseClient();
+  const trimmedName = semesterName.trim();
+
+  const { data, error } = await supabase
+    .from('semesters')
+    .select('id, semester_name')
+    .ilike('semester_name', trimmedName)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[admission/bulk-upload] Semester lookup error:', {
+      searchTerm: trimmedName,
+      error
+    });
+    return null;
+  }
+
+  if (!data) {
+    console.warn('[admission/bulk-upload] Semester not found:', trimmedName);
+    return null;
+  }
+
+  return data.id;
+};
+
+const lookupSectionId = async (sectionName: string): Promise<string | null> => {
+  if (!sectionName?.trim()) return null;
+
+  const supabase = createClientSupabaseClient();
+  const trimmedName = sectionName.trim();
+
+  const { data, error } = await supabase
+    .from('sections')
+    .select('id, section_name')
+    .ilike('section_name', trimmedName)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[admission/bulk-upload] Section lookup error:', {
+      searchTerm: trimmedName,
+      error
+    });
+    return null;
+  }
+
+  if (!data) {
+    console.warn('[admission/bulk-upload] Section not found:', trimmedName);
+    return null;
+  }
+
+  return data.id;
+};
+
+const lookupRegulationId = async (regulationName: string): Promise<string | null> => {
+  if (!regulationName?.trim()) return null;
+
+  const supabase = createClientSupabaseClient();
+  const trimmedName = regulationName.trim();
+
+  const { data, error } = await supabase
+    .from('regulations')
+    .select('id, regulation_code')
+    .ilike('regulation_code', trimmedName)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[admission/bulk-upload] Regulation lookup error:', {
+      searchTerm: trimmedName,
+      error
+    });
+    return null;
+  }
+
+  if (!data) {
+    console.warn('[admission/bulk-upload] Regulation not found:', trimmedName);
+    return null;
+  }
+
+  return data.id;
+};
+
+const lookupBatchId = async (batchName: string): Promise<string | null> => {
+  if (!batchName?.trim()) return null;
+
+  const supabase = createClientSupabaseClient();
+  const trimmedName = batchName.trim();
+
+  const { data, error } = await supabase
+    .from('batches')
+    .select('id, batch_name')
+    .ilike('batch_name', trimmedName)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[admission/bulk-upload] Batch lookup error:', {
+      searchTerm: trimmedName,
+      error
+    });
+    return null;
+  }
+
+  if (!data) {
+    console.warn('[admission/bulk-upload] Batch not found:', trimmedName);
+    return null;
+  }
+
+  return data.id;
 };
 
 export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => void }) {
@@ -146,11 +331,13 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
     'twelfth_obtained_marks': ['12th Obtained Marks', '12th Marks', 'twelfth_obtained_marks', '12obtained'],
     'twelfth_percentage': ['12th Percentage', 'twelfth_percentage', '12percentage', '12%'],
     'neet_roll_number': ['NEET Roll Number', 'neetrollnumber', 'neet_roll_number', 'neet'],
+    'neet_score': ['NEET Score', 'neetscore', 'neet_score'],
     'medical_cutoff_marks': ['Medical Cutoff Marks', 'medicalcutoffmarks', 'medical_cutoff_marks'],
     'engineering_cutoff_marks': ['Engineering Cutoff Marks', 'engineeringcutoffmarks', 'engineering_cutoff_marks'],
     'counseling_applied': ['Counseling Applied', 'counselingapplied', 'counseling_applied'],
     'counseling_number': ['Counseling Number', 'counselingnumber', 'counseling_number'],
     'first_graduate': ['First Graduate', 'firstgraduate', 'first_graduate'],
+    'aadhar_number': ['Aadhar Number', 'aadharnumber', 'aadhar_number', 'aadhaar'],
 
     // Course Selection
     'quota': ['Quota'],
@@ -160,6 +347,13 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
     'department': ['Department'],
     'program': ['Program', '* Program', 'course'],
     'entry_type': ['Entry Type', '* Entry Type', 'entrytype', 'entry_type'],
+    'academic_year': ['Academic Year', 'academicyear', 'academic_year', 'year'],
+    'semester': ['Semester', 'sem'],
+    'section': ['Section', 'sec'],
+    'regulation': ['Regulation', 'reg'],
+    'batch': ['Batch'],
+    'roll_number': ['Roll Number', 'rollnumber', 'roll_number', 'roll'],
+    'register_number': ['Register Number', 'registernumber', 'register_number', 'regno'],
 
     // Contact Details
     'permanent_address_street': ['Permanent Address Street', '* Permanent Address Street', 'address', 'street', 'permanent_address'],
@@ -168,11 +362,13 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
     'permanent_address_pin_code': ['Permanent Address Pin Code', '* Permanent Address Pin Code', 'pincode', 'pin', 'postal_code'],
     'permanent_address_state': ['Permanent Address State', '* Permanent Address State', 'state'],
     'student_mobile': ['Student Mobile', '* Student Mobile', 'studentmobile', 'student_mobile', 'mobile', 'phone'],
-    'student_email': ['Student Email', '* Student Email', 'studentemail', 'student_email', 'email'],
+    'student_email': ['Student Email', '* Student Email', 'studentemail', 'student_email', 'email', 'personal_email'],
+    'college_email': ['College Email', '* College Email', 'collegeemail', 'college_email', 'institutional_email', 'institute_email'],
 
     // Accommodation
     'accommodation_type': ['Accommodation Type', '* Accommodation Type', 'accommodationtype', 'accommodation_type'],
     'hostel_type': ['Hostel Type', 'hosteltype', 'hostel_type'],
+    'food_type': ['Food Type', 'foodtype', 'food_type'],
     'bus_required': ['Bus Required', 'busrequired', 'bus_required'],
     'bus_route': ['Bus Route', 'busroute', 'bus_route'],
     'bus_pickup_location': ['Bus Pickup Location', 'buspickuplocation', 'bus_pickup_location'],
@@ -222,7 +418,15 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
     if (!row.student_email?.trim()) {
       errors.push('Student Email is required');
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.student_email)) {
-      errors.push('Invalid email format');
+      errors.push('Invalid Student Email format');
+    }
+
+    if (!row.college_email?.trim()) {
+      errors.push('College Email is required');
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.college_email)) {
+      errors.push('Invalid College Email format');
+    } else if (!row.college_email.toLowerCase().endsWith('@jkkn.ac.in')) {
+      errors.push('College Email must use @jkkn.ac.in domain');
     }
 
     // Academic Information - Optional (last_school and board_of_study are optional to match form behavior)
@@ -247,12 +451,24 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
     }
 
     // Course Selection - Required
-    if (!row.institution_id?.trim()) {
-      errors.push('Institution not found - check if institution name exists in admin panel');
+    if (!row.institution_id) {
+      const institutionName = row.institution || 'N/A';
+      errors.push(`Institution "${institutionName}" not found in database. Please check spelling and ensure it exists in Organization > Institutions.`);
     }
 
-    if (!row.program_id?.trim()) {
-      errors.push('Program not found - check if program name exists in admin panel');
+    if (!row.program_id) {
+      const programName = row.program || 'N/A';
+      errors.push(`Program "${programName}" not found in database. Please check spelling and ensure it exists in Organization > Programs.`);
+    }
+
+    if (!row.degree_id && row.degree?.trim()) {
+      const degreeName = row.degree;
+      errors.push(`Degree "${degreeName}" not found in database. Please check spelling and ensure it exists in Organization > Degrees.`);
+    }
+
+    if (!row.department_id && row.department?.trim()) {
+      const departmentName = row.department;
+      errors.push(`Department "${departmentName}" not found in database. Please check spelling and ensure it exists in Organization > Departments.`);
     }
 
     if (!row.entry_type?.trim()) {
@@ -354,6 +570,11 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
     const programId = await lookupProgramId(mappedData.program);
     const degreeId = await lookupDegreeId(mappedData.degree);
     const departmentId = await lookupDepartmentId(mappedData.department);
+    const academicYearId = await lookupAcademicYearId(mappedData.academic_year);
+    const semesterId = await lookupSemesterId(mappedData.semester);
+    const sectionId = await lookupSectionId(mappedData.section);
+    const regulationId = await lookupRegulationId(mappedData.regulation);
+    const batchId = await lookupBatchId(mappedData.batch);
 
     // Log lookup results for debugging
     console.log('Name-to-ID lookups:', {
@@ -396,9 +617,11 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
       medical_cutoff_marks: mappedData.medical_cutoff_marks?.toString() || '',
       engineering_cutoff_marks: mappedData.engineering_cutoff_marks?.toString() || '',
       neet_roll_number: mappedData.neet_roll_number?.toString() || '',
+      neet_score: mappedData.neet_score?.toString() || '',
       counseling_applied: Boolean(mappedData.counseling_applied),
       counseling_number: mappedData.counseling_number?.toString() || '',
       first_graduate: Boolean(mappedData.first_graduate),
+      aadhar_number: mappedData.aadhar_number?.toString() || '',
       quota: mappedData.quota?.toString().trim().toUpperCase() || '',
       category: mappedData.category?.toString().trim().toUpperCase() || '',
       entry_type: mappedData.entry_type?.toString().trim().toUpperCase() || '',
@@ -409,8 +632,10 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
       permanent_address_state: mappedData.permanent_address_state?.toString().trim().toUpperCase() || '',
       student_mobile: mappedData.student_mobile?.toString().replace(/\D/g, '') || '',
       student_email: mappedData.student_email?.toString().trim().toLowerCase() || '',
+      college_email: mappedData.college_email?.toString().trim().toLowerCase() || '',
       accommodation_type: mappedData.accommodation_type?.toString().trim().toUpperCase() || '',
       hostel_type: mappedData.hostel_type?.toString().trim().toUpperCase() || '',
+      food_type: mappedData.food_type?.toString().trim().toUpperCase() || '',
       bus_required: Boolean(mappedData.bus_required),
       bus_route: mappedData.bus_route?.toString().trim().toUpperCase() || '',
       bus_pickup_location: mappedData.bus_pickup_location?.toString().trim().toUpperCase() || '',
@@ -419,10 +644,26 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
       reference_contact: mappedData.reference_contact?.toString() || '',
 
       // Institution and Program mappings - Convert names to IDs
-      institution_id: institutionId || '',
-      degree_id: degreeId || '',
-      department_id: departmentId || '',
-      program_id: programId || '',
+      // Use null instead of empty string for failed lookups (PostgreSQL requires valid UUID or null, not empty string)
+      institution_id: institutionId || null,
+      degree_id: degreeId || null,
+      department_id: departmentId || null,
+      program_id: programId || null,
+      academic_year_id: academicYearId || null,
+      semester_id: semesterId || null,
+      section_id: sectionId || null,
+      regulation_id: regulationId || null,
+      batch_id: batchId || null,
+
+      // Additional text fields
+      roll_number: mappedData.roll_number?.toString().trim() || '',
+      register_number: mappedData.register_number?.toString().trim() || '',
+
+      // Store original names for validation error messages
+      institution: mappedData.institution?.toString().trim() || '',
+      degree: mappedData.degree?.toString().trim() || '',
+      department: mappedData.department?.toString().trim() || '',
+      program: mappedData.program?.toString().trim() || '',
 
       status: 'pending'
     };
@@ -517,8 +758,11 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
             continue;
           }
 
+          // Remove validation-only fields before sending to API
+          const { institution, degree, department, program, ...admissionData } = item.mappedData;
+
           // Try to create admission
-          await AdmissionService.createAdmission(item.mappedData);
+          await AdmissionService.createAdmission(admissionData);
 
           results.push({
             rowNumber: item.rowNumber,
@@ -597,11 +841,13 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
       '12th Obtained Marks': '',
       '12th Percentage': '',
       'NEET Roll Number': '',
+      'NEET Score': '',
       'Medical Cutoff Marks': '',
       'Engineering Cutoff Marks': '',
       'Counseling Applied': 'TRUE/FALSE',
       'Counseling Number': '',
       'First Graduate': 'TRUE/FALSE',
+      'Aadhar Number': '',
       'Quota': 'GOVERNMENT/MANAGEMENT/NRI',
       'Category': 'GENERAL/OBC/SC/ST/OTHER',
       'Institution': '',
@@ -609,6 +855,13 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
       'Department': '',
       'Program': '',
       'Entry Type': 'FIRST YEAR/LATERAL ENTRY',
+      'Academic Year': '',
+      'Semester': '',
+      'Section': '',
+      'Regulation': '',
+      'Batch': '',
+      'Roll Number': '',
+      'Register Number': '',
       'Permanent Address Street': '',
       'Permanent Address Taluk': '',
       'Permanent Address District': '',
@@ -616,8 +869,10 @@ export default function BulkUploadAdmissions({ onSuccess }: { onSuccess?: () => 
       'Permanent Address State': '',
       'Student Mobile': '',
       'Student Email': '',
+      'College Email': '',
       'Accommodation Type': 'DAY SCHOLAR/HOSTEL',
       'Hostel Type': '',
+      'Food Type': 'VEG/NON-VEG',
       'Bus Required': 'TRUE/FALSE',
       'Bus Route': '',
       'Bus Pickup Location': '',
