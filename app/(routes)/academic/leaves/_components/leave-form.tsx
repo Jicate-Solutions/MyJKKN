@@ -151,7 +151,7 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
         institution_id: institutionId!,
         start_date: format(data.start_date, 'yyyy-MM-dd'),
         end_date: format(data.end_date, 'yyyy-MM-dd'),
-        requested_by: userProfile?.id!
+        requested_by: userProfile?.id || ''
       };
 
       if (mode === 'create') {

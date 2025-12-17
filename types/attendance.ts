@@ -292,4 +292,9 @@ export interface AttendancePeriodOption {
   department_name?: string;
   semester_name?: string;
   section_name?: string;
+
+  // Updated: 2025-12-17 - Added for leave-attendance integration
+  institution_id?: string;
+  department_id?: string;
+  semester_id?: string;
 }
