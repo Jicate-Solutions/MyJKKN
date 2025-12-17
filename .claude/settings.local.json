@@ -148,7 +148,8 @@
       "Bash(source ~/.zshrc)",
       "Bash(node_modules/.bin/tsc:*)",
       "Bash(xargs:*)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "Bash(timeout 10 npm run typecheck:*)"
     ],
     "deny": [],
     "ask": []

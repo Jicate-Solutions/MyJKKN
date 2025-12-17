@@ -144,7 +144,12 @@ export class LeaveApprovalService {
     try {
       const { data, error } = await this.supabase
         .from('leave_approval_chains')
-        .select('*')
+        .select(
+          `
+          *,
+          leave_type:leave_types(id, leave_type_name, color_code)
+        `
+        )
         .eq('institution_id', institutionId)
         .eq('is_active', true)
         .or(`leave_type_id.eq.${leaveTypeId},leave_type_id.is.null`)
@@ -281,10 +286,15 @@ export class LeaveApprovalService {
 
       if (leavesError) throw leavesError;
 
-      // Get approval chains
+      // Get approval chains with leave_type information
       const { data: chains, error: chainsError } = await this.supabase
         .from('leave_approval_chains')
-        .select('*')
+        .select(
+          `
+          *,
+          leave_type:leave_types(id, leave_type_name, color_code)
+        `
+        )
         .eq('institution_id', institutionId)
         .eq('is_active', true)
         .order('chain_order', { ascending: true });

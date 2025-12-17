@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
+import { LeaveCalendarService } from '@/lib/services/academic/leave-calendar-service';
+import type { LeaveBlockInfo } from '@/types/leaves';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -44,6 +46,10 @@ export function AvailablePeriodsCards({
     new Map()
   );
   const [checkingAttendance, setCheckingAttendance] = useState(false);
+
+  // Updated: 2025-01-16 - Leave checking state
+  const [leaveInfo, setLeaveInfo] = useState<Map<string, LeaveBlockInfo | null>>(new Map());
+  const [checkingLeaves, setCheckingLeaves] = useState(false);
 
   const targetDate = selectedDate || format(new Date(), 'yyyy-MM-dd');
   const displayDate = format(
@@ -105,6 +111,64 @@ export function AvailablePeriodsCards({
     };
 
     checkExistingAttendance();
+  }, [periods, targetDate]);
+
+  // Updated: 2025-01-16 - Check for leave blocks on selected date
+  useEffect(() => {
+    const checkLeavesForDate = async () => {
+      if (!targetDate || periods.length === 0) {
+        setLeaveInfo(new Map());
+        return;
+      }
+
+      try {
+        setCheckingLeaves(true);
+        const leaveChecks = new Map<string, LeaveBlockInfo | null>();
+
+        // Check each period for leave blocks
+        for (const period of periods) {
+          try {
+            // Skip if missing required institution_id
+            if (!period.institution_id) {
+              logger.warn('academic/attendance', 'Skipping leave check - missing institution_id', {
+                period_id: period.timetable_slot_id
+              });
+              leaveChecks.set(period.timetable_slot_id, null);
+              continue;
+            }
+
+            const result = await LeaveCalendarService.checkLeaveBlockForAttendance({
+              institution_id: period.institution_id,
+              date: targetDate,
+              department_id: period.department_id || undefined,
+              semester_id: period.semester_id || undefined,
+              section_id: period.sections && period.sections.length > 0
+                ? period.sections[0].id
+                : undefined
+            });
+
+            // If not allowed (blocked by leave), store the leave info
+            leaveChecks.set(period.timetable_slot_id, result.leave || null);
+          } catch (error) {
+            logger.error('academic/attendance', 'Error checking leave for period', {
+              period_id: period.timetable_slot_id,
+              error
+            });
+            // On error, assume no block (fail open)
+            leaveChecks.set(period.timetable_slot_id, null);
+          }
+        }
+
+        setLeaveInfo(leaveChecks);
+      } catch (error) {
+        logger.error('academic/attendance', 'Error checking leaves for date', error);
+        setLeaveInfo(new Map());
+      } finally {
+        setCheckingLeaves(false);
+      }
+    };
+
+    checkLeavesForDate();
   }, [periods, targetDate]);
 
   const getTimeStatus = (startTime: string) => {
@@ -261,6 +325,24 @@ export function AvailablePeriodsCards({
                       </div>
                     </div>
 
+                    {/* Updated: 2025-01-16 - Leave Block Indicator */}
+                    {leaveInfo.get(period.timetable_slot_id) && (
+                      <Alert variant='destructive' className='mt-3'>
+                        <AlertTriangle className='h-4 w-4' />
+                        <AlertDescription>
+                          <strong>Holiday:</strong>{' '}
+                          {leaveInfo.get(period.timetable_slot_id)?.leave_name || 'Leave Day'}
+                          {leaveInfo.get(period.timetable_slot_id)?.leave_type_name && (
+                            <span className='ml-1'>
+                              ({leaveInfo.get(period.timetable_slot_id)?.leave_type_name})
+                            </span>
+                          )}
+                          <br />
+                          <span className='text-xs'>Attendance cannot be marked on this date.</span>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
                     {/* Course Info */}
                     {period.course && (
                       <div className='flex items-start gap-2 -mt-1'>
@@ -330,7 +412,7 @@ export function AvailablePeriodsCards({
                     <div className='pt-3 border-t border-border/50'>
                       <Button
                         onClick={() => handlePeriodClick(period)}
-                        disabled={false}
+                        disabled={leaveInfo.get(period.timetable_slot_id) !== null || checkingLeaves}
                         size='sm'
                         className={cn(
                           'w-full h-10 font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]',

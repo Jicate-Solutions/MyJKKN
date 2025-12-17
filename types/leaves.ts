@@ -267,6 +267,11 @@ export interface LeaveApprovalChain {
 
   // Relations
   leave_type?: LeaveType;
+  institution?: {
+    id: string;
+    name: string;
+    short_name?: string;
+  };
 }
 
 export interface CreateApprovalChainDto {

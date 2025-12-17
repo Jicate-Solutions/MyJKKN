@@ -21,10 +21,19 @@ export default function LeaveCalendarPage() {
   const { userProfile, isSuperAdmin } = usePermissions();
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
-  const [selectedInstitution, setSelectedInstitution] = useState<string | undefined>();
+  const [selectedInstitution, setSelectedInstitution] = useState<string | undefined>(
+    userProfile?.institution_id || undefined
+  );
   const [selectedDepartment, setSelectedDepartment] = useState<string | undefined>();
   const [selectedSemester, setSelectedSemester] = useState<string | undefined>();
   const [selectedSection, setSelectedSection] = useState<string | undefined>();
+
+  // Update selected institution when user profile loads
+  useEffect(() => {
+    if (userProfile?.institution_id && !selectedInstitution) {
+      setSelectedInstitution(userProfile.institution_id);
+    }
+  }, [userProfile?.institution_id, selectedInstitution]);
 
   // For non-super admins, use their own institution
   const effectiveInstitutionId = isSuperAdmin

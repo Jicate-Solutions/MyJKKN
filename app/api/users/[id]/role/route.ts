@@ -91,10 +91,10 @@ export async function PATCH(
       );
     }
 
-    // Verify the role exists in custom_roles table
+    // Verify the role exists in custom_roles table and get its ID
     const { data: validRole, error: validRoleError } = await supabase
       .from('custom_roles')
-      .select('role_key')
+      .select('id, role_key')
       .eq('role_key', role)
       .single();
 
@@ -162,6 +162,66 @@ export async function PATCH(
         },
         { status: 500 }
       );
+    }
+
+    // IMPORTANT: Also update the user_roles table for permissions to work correctly
+    // The user_roles table is the source of truth for permissions
+    try {
+      // Check if user has any existing role assignments
+      const { data: existingRoles, error: existingRolesError } = await (
+        serviceClient.from('user_roles') as any
+      )
+        .select('id, role_id, is_primary')
+        .eq('user_id', userId);
+
+      if (existingRolesError) {
+        console.error('Error checking existing roles:', existingRolesError);
+      }
+
+      if (existingRoles && existingRoles.length > 0) {
+        // User has existing roles - update the primary role to the new one
+        const primaryRole = existingRoles.find((r: any) => r.is_primary);
+
+        if (primaryRole) {
+          // Update the primary role entry to point to the new role
+          const { error: updateRoleError } = await (
+            serviceClient.from('user_roles') as any
+          )
+            .update({ role_id: validRole.id })
+            .eq('id', primaryRole.id);
+
+          if (updateRoleError) {
+            console.error('Error updating user_roles:', updateRoleError);
+          }
+        } else {
+          // No primary role found - update the first one and mark as primary
+          const { error: updateRoleError } = await (
+            serviceClient.from('user_roles') as any
+          )
+            .update({ role_id: validRole.id, is_primary: true })
+            .eq('id', existingRoles[0].id);
+
+          if (updateRoleError) {
+            console.error('Error updating user_roles:', updateRoleError);
+          }
+        }
+      } else {
+        // User has no role assignments - create one
+        const { error: insertRoleError } = await (
+          serviceClient.from('user_roles') as any
+        ).insert({
+          user_id: userId,
+          role_id: validRole.id,
+          is_primary: true
+        });
+
+        if (insertRoleError) {
+          console.error('Error inserting user_roles:', insertRoleError);
+        }
+      }
+    } catch (rolesSyncError) {
+      // Log but don't fail the request - profiles.role is already updated
+      console.error('Error syncing user_roles table:', rolesSyncError);
     }
 
     // Log the role change activity

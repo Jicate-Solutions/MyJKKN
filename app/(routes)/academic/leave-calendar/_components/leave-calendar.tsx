@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useLeaveCalendar } from '@/hooks/academic/use-leave-calendar';
 import { LeaveDayCell } from './leave-day-cell';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 
 interface LeaveCalendarProps {
   institutionId: string | null;
@@ -105,40 +106,69 @@ export function LeaveCalendar({
   return (
     <div className='space-y-4'>
       {/* Calendar Header */}
-      <div className='flex items-center justify-between'>
+      <div className='flex items-center justify-between p-4 bg-white rounded-lg border border-slate-200'>
         <div className='flex items-center gap-2'>
-          <Button variant='outline' size='icon' onClick={handlePrevMonth}>
+          <Button
+            variant='outline'
+            size='icon'
+            onClick={handlePrevMonth}
+            className='h-8 w-8'
+          >
             <ChevronLeft className='h-4 w-4' />
           </Button>
-          <Button variant='outline' size='icon' onClick={handleNextMonth}>
+          <Button
+            variant='outline'
+            size='icon'
+            onClick={handleNextMonth}
+            className='h-8 w-8'
+          >
             <ChevronRight className='h-4 w-4' />
           </Button>
-          <Button variant='outline' size='sm' onClick={handleToday}>
+          <Button
+            variant='default'
+            size='sm'
+            onClick={handleToday}
+            className='h-8 text-xs'
+          >
             Today
           </Button>
         </div>
-        <h2 className='text-lg font-semibold'>
-          {MONTH_NAMES[month - 1]} {year}
-        </h2>
-        <div className='text-sm text-muted-foreground'>
-          {loading ? (
-            <Skeleton className='h-4 w-32' />
-          ) : calendarData ? (
-            <>
-              {calendarData.total_working_days} working days, {calendarData.total_leave_days} leave days
-            </>
-          ) : null}
+        <div className='text-center'>
+          <h2 className='text-lg font-semibold text-slate-800'>
+            {MONTH_NAMES[month - 1]} {year}
+          </h2>
+          <div className='text-xs text-slate-500 mt-0.5'>
+            {loading ? (
+              <Skeleton className='h-3 w-40 inline-block' />
+            ) : calendarData ? (
+              <div className='flex items-center justify-center gap-2'>
+                <span className='text-green-600'>
+                  {calendarData.total_working_days} working
+                </span>
+                <span>•</span>
+                <span className='text-red-600'>
+                  {calendarData.total_leave_days} leaves
+                </span>
+              </div>
+            ) : null}
+          </div>
         </div>
+        <div className='w-32' /> {/* Spacer for balance */}
       </div>
 
       {/* Calendar Grid */}
-      <div className='border rounded-lg overflow-hidden'>
+      <div className='border border-slate-200 rounded-lg overflow-hidden shadow-sm bg-white'>
         {/* Days of week header */}
-        <div className='grid grid-cols-7 bg-muted'>
-          {DAYS_OF_WEEK.map((day) => (
+        <div className='grid grid-cols-7 bg-slate-50 border-b'>
+          {DAYS_OF_WEEK.map((day, index) => (
             <div
               key={day}
-              className='py-2 text-center text-sm font-medium border-b'
+              className={cn(
+                'py-2 text-center text-xs font-semibold border-r last:border-r-0',
+                index === 0
+                  ? 'text-red-600 bg-red-50/50' // Only Sunday is weekend
+                  : 'text-slate-600'
+              )}
             >
               {day}
             </div>
@@ -149,7 +179,7 @@ export function LeaveCalendar({
         {loading ? (
           <div className='grid grid-cols-7'>
             {Array.from({ length: 35 }).map((_, i) => (
-              <div key={i} className='h-24 p-1 border-b border-r'>
+              <div key={i} className='h-28 p-2 border-b border-r last:border-r-0'>
                 <Skeleton className='h-full w-full' />
               </div>
             ))}
@@ -157,13 +187,13 @@ export function LeaveCalendar({
         ) : (
           <div>
             {calendarGrid.map((week, weekIndex) => (
-              <div key={weekIndex} className='grid grid-cols-7'>
+              <div key={weekIndex} className='grid grid-cols-7 border-b last:border-b-0'>
                 {week.map((day, dayIndex) => {
                   if (day === null) {
                     return (
                       <div
                         key={dayIndex}
-                        className='h-24 p-1 border-b border-r bg-muted/30'
+                        className='h-28 p-1 border-r last:border-r-0 bg-slate-50/30'
                       />
                     );
                   }
@@ -172,15 +202,16 @@ export function LeaveCalendar({
                   const dayInfo = calendarData?.days.find((d) => d.date === dateStr);
 
                   return (
-                    <LeaveDayCell
-                      key={dayIndex}
-                      day={day}
-                      date={dateStr}
-                      dayInfo={dayInfo}
-                      isToday={
-                        new Date().toISOString().split('T')[0] === dateStr
-                      }
-                    />
+                    <div key={dayIndex} className='border-r last:border-r-0'>
+                      <LeaveDayCell
+                        day={day}
+                        date={dateStr}
+                        dayInfo={dayInfo}
+                        isToday={
+                          new Date().toISOString().split('T')[0] === dateStr
+                        }
+                      />
+                    </div>
                   );
                 })}
               </div>
