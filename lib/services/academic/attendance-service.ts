@@ -1,6 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import toast from 'react-hot-toast';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { LeaveCalendarService } from './leave-calendar-service';
 import type {
   StudentAttendance,
   // CreateStudentAttendanceDto,
@@ -868,6 +869,28 @@ export class AttendanceService {
       if (!resolvedSectionId) {
         const errorMessage = 'Section ID is required for attendance';
         logger.error('academic/attendance', errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      // Updated: 2025-01-16 - Check if date is blocked by approved leave
+      // This prevents attendance marking on dates with institution/department/semester/section leaves
+      const leaveCheck = await LeaveCalendarService.checkLeaveBlockForAttendance({
+        institution_id: data.institution_id,
+        date: data.attendance_date,
+        department_id: data.department_id,
+        semester_id: data.semester_id,
+        section_id: resolvedSectionId
+      });
+
+      if (!leaveCheck.allowed) {
+        const errorMessage = leaveCheck.reason || 'Cannot mark attendance on a holiday';
+        logger.error('academic/attendance', 'Attendance blocked by approved leave', {
+          date: data.attendance_date,
+          leave: leaveCheck.leave,
+          institution_id: data.institution_id,
+          section_id: resolvedSectionId
+        });
+        toast.error(errorMessage);
         throw new Error(errorMessage);
       }
 

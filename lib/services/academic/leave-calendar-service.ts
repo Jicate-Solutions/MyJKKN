@@ -10,7 +10,10 @@ import type {
   CalendarLeave,
   CalendarDayInfo,
   MonthlyCalendarData,
-  LeaveCalendarFilters
+  LeaveCalendarFilters,
+  AttendanceLeaveCheck,
+  AttendanceLeaveResult,
+  LeaveBlockInfo
 } from '@/types/leaves';
 
 export class LeaveCalendarService {
@@ -70,16 +73,19 @@ export class LeaveCalendarService {
       let totalLeaveDays = 0;
 
       for (let day = 1; day <= daysInMonth; day++) {
-        const date = new Date(filters.year, filters.month - 1, day);
-        const dateStr = date.toISOString().split('T')[0];
+        // Use local date construction to avoid timezone shifts
+        const dateStr = `${filters.year}-${String(filters.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const date = new Date(dateStr + 'T00:00:00');
         const dayOfWeek = date.getDay();
-        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const isWeekend = dayOfWeek === 0; // Only Sunday is weekend
 
         // Find leaves that include this day
         const dayLeaves = leaves.filter((leave) => {
-          const leaveStart = new Date(leave.start_date);
-          const leaveEnd = new Date(leave.end_date);
-          return date >= leaveStart && date <= leaveEnd;
+          // Normalize dates to compare only date parts (not time)
+          const leaveStart = new Date(leave.start_date + 'T00:00:00');
+          const leaveEnd = new Date(leave.end_date + 'T23:59:59');
+          const currentDate = new Date(dateStr + 'T12:00:00');
+          return currentDate >= leaveStart && currentDate <= leaveEnd;
         });
 
         // Check if day is blocked (has approved leave)
@@ -129,9 +135,6 @@ export class LeaveCalendarService {
     weekend_days: number;
   }> {
     try {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-
       let totalDays = 0;
       let weekendDays = 0;
       let leaveDays = 0;
@@ -148,19 +151,23 @@ export class LeaveCalendarService {
       if (error) throw error;
 
       // Calculate days
-      const current = new Date(start);
-      while (current <= end) {
+      const current = new Date(startDate + 'T00:00:00');
+      const endDateTime = new Date(endDate + 'T23:59:59');
+      while (current <= endDateTime) {
         totalDays++;
-        const dateStr = current.toISOString().split('T')[0];
+        const year = current.getFullYear();
+        const month = String(current.getMonth() + 1).padStart(2, '0');
+        const day = String(current.getDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
         const dayOfWeek = current.getDay();
 
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
+        if (dayOfWeek === 0) { // Only Sunday is weekend
           weekendDays++;
         } else {
           // Check if this day has an approved leave
           const hasLeave = (leaves || []).some((leave) => {
-            const leaveStart = new Date(leave.start_date);
-            const leaveEnd = new Date(leave.end_date);
+            const leaveStart = new Date(leave.start_date + 'T00:00:00');
+            const leaveEnd = new Date(leave.end_date + 'T23:59:59');
 
             if (current < leaveStart || current > leaveEnd) {
               return false;
@@ -303,12 +310,15 @@ export class LeaveCalendarService {
       const dateSet = new Set<string>();
 
       (leaves || []).forEach((leave: any) => {
-        const start = new Date(leave.start_date);
-        const end = new Date(leave.end_date);
+        const start = new Date(leave.start_date + 'T00:00:00');
+        const end = new Date(leave.end_date + 'T23:59:59');
         const current = new Date(start);
 
         while (current <= end) {
-          const dateStr = current.toISOString().split('T')[0];
+          const year = current.getFullYear();
+          const month = String(current.getMonth() + 1).padStart(2, '0');
+          const day = String(current.getDate()).padStart(2, '0');
+          const dateStr = `${year}-${month}-${day}`;
 
           if (
             !dateSet.has(dateStr) &&
@@ -395,6 +405,138 @@ export class LeaveCalendarService {
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching monthly summary', error);
       throw error;
+    }
+  }
+
+  /**
+   * Check if attendance marking is blocked by an approved leave
+   * Updated: 2025-01-16 - Added for leave-attendance integration
+   *
+   * Checks leave hierarchy in order:
+   * 1. Institution-wide leaves (applies to all)
+   * 2. Department-level leaves (applies to specific departments)
+   * 3. Semester-level leaves (applies to specific semesters)
+   * 4. Section-level leaves (applies to specific sections)
+   *
+   * @param params - Institution ID, date, and optional hierarchy filters
+   * @returns Promise<AttendanceLeaveResult> - Whether attendance is allowed and leave details
+   */
+  static async checkLeaveBlockForAttendance(
+    params: AttendanceLeaveCheck
+  ): Promise<AttendanceLeaveResult> {
+    try {
+      const { institution_id, date, department_id, semester_id, section_id } = params;
+
+      // Query approved leaves for the specific date
+      const { data: leaves, error } = await this.supabase
+        .from('institution_leaves')
+        .select(
+          `
+          id,
+          leave_name,
+          scope_level,
+          department_ids,
+          semester_ids,
+          section_ids,
+          leave_type:leave_types(leave_type_name, color_code)
+        `
+        )
+        .eq('institution_id', institution_id)
+        .eq('status', 'approved')
+        .lte('start_date', date)
+        .gte('end_date', date);
+
+      if (error) {
+        logger.error('academic/leaves', 'Error checking leave block for attendance', {
+          error_code: error.code,
+          error_message: error.message,
+          error_details: error.details,
+          error_hint: error.hint,
+          params: { institution_id, date, department_id, semester_id, section_id }
+        });
+        throw error;
+      }
+
+      // No approved leaves on this date
+      if (!leaves || leaves.length === 0) {
+        return {
+          allowed: true
+        };
+      }
+
+      // Check for blocking leave in hierarchy order
+      for (const leave of leaves) {
+        let isBlocked = false;
+
+        // Check scope level (priority order: institution > department > semester > section)
+        switch (leave.scope_level) {
+          case 'institution':
+            // Institution-wide leaves block ALL attendance
+            isBlocked = true;
+            break;
+
+          case 'department':
+            // Block if department matches
+            if (department_id && leave.department_ids?.includes(department_id)) {
+              isBlocked = true;
+            }
+            break;
+
+          case 'semester':
+            // Block if semester matches
+            if (semester_id && leave.semester_ids?.includes(semester_id)) {
+              isBlocked = true;
+            }
+            break;
+
+          case 'section':
+            // Block if section matches
+            if (section_id && leave.section_ids?.includes(section_id)) {
+              isBlocked = true;
+            }
+            break;
+
+          default:
+            logger.warn('academic/leaves', 'Unknown leave scope level', {
+              scope_level: leave.scope_level,
+              leave_id: leave.id
+            });
+        }
+
+        // If blocked, return leave details
+        if (isBlocked) {
+          const leaveInfo: LeaveBlockInfo = {
+            is_blocked: true,
+            leave_id: leave.id,
+            leave_name: leave.leave_name,
+            leave_type_name: leave.leave_type?.leave_type_name || 'Holiday',
+            color_code: leave.leave_type?.color_code || '#6B7280'
+          };
+
+          return {
+            allowed: false,
+            reason: `Cannot mark attendance: ${leave.leave_name} (${leaveInfo.leave_type_name})`,
+            leave: leaveInfo
+          };
+        }
+      }
+
+      // No blocking leave found for this specific scope
+      return {
+        allowed: true
+      };
+    } catch (error) {
+      logger.error('academic/leaves', 'Exception in checkLeaveBlockForAttendance', {
+        error_message: error instanceof Error ? error.message : 'Unknown error',
+        error_stack: error instanceof Error ? error.stack : undefined,
+        params: { institution_id, date, department_id, semester_id, section_id }
+      });
+      // On error, allow attendance marking (fail open for availability)
+      // But log the error for investigation
+      return {
+        allowed: true,
+        reason: 'Error checking leave status - allowing attendance'
+      };
     }
   }
 }

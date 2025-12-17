@@ -45,6 +45,8 @@ import {
   useConsolidatedAttendance
 } from '@/hooks/academic/use-attendance';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
+import { LeaveCalendarService } from '@/lib/services/academic/leave-calendar-service';
+import type { LeaveBlockInfo } from '@/types/leaves';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { AttendanceSummaryModal } from './components/attendance-summary-modal';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
@@ -110,6 +112,10 @@ export default function AttendanceMarkPage() {
     course_name: string;
     section_ids: string[];
   } | null>(null);
+
+  // Updated: 2025-01-16 - Leave block checking state
+  const [leaveBlockInfo, setLeaveBlockInfo] = useState<LeaveBlockInfo | null>(null);
+  const [checkingLeave, setCheckingLeave] = useState(false);
 
   const { saveConsolidatedAttendance } = useConsolidatedAttendance();
 
@@ -487,6 +493,52 @@ export default function AttendanceMarkPage() {
     isSuperAdmin,
     periodId
   ]);
+
+  // Updated: 2025-01-16 - Check for leave blocks on selected date
+  useEffect(() => {
+    const checkLeaveBlock = async () => {
+      if (!date || !contextData || !contextData.institution_id) {
+        setLeaveBlockInfo(null);
+        return;
+      }
+
+      try {
+        setCheckingLeave(true);
+
+        const result = await LeaveCalendarService.checkLeaveBlockForAttendance({
+          institution_id: contextData.institution_id,
+          date,
+          department_id: contextData.department_id || undefined,
+          semester_id: contextData.semester_id || undefined,
+          section_id: contextData.section_id || undefined
+        });
+
+        // If blocked, store the leave info
+        if (!result.allowed && result.leave) {
+          setLeaveBlockInfo(result.leave);
+          logger.warn('academic/attendance/mark', 'Date is blocked by approved leave', {
+            date,
+            leave: result.leave
+          });
+        } else {
+          setLeaveBlockInfo(null);
+        }
+      } catch (error) {
+        logger.error('academic/attendance/mark', 'Error checking leave block', {
+          error_message: error instanceof Error ? error.message : 'Unknown error',
+          date,
+          institution_id: contextData.institution_id,
+          section_id: contextData.section_id
+        });
+        // On error, don't block (fail open)
+        setLeaveBlockInfo(null);
+      } finally {
+        setCheckingLeave(false);
+      }
+    };
+
+    checkLeaveBlock();
+  }, [date, contextData]);
 
   // Load students using the resolved context
   useEffect(() => {
@@ -1329,6 +1381,29 @@ export default function AttendanceMarkPage() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
+
+        {/* Updated: 2025-01-16 - Leave Block Alert */}
+        {leaveBlockInfo && leaveBlockInfo.is_blocked && (
+          <Alert variant='destructive'>
+            <AlertTriangle className='h-5 w-5' />
+            <AlertDescription>
+              <div className='flex flex-col gap-2'>
+                <div className='font-semibold text-base'>
+                  🚫 Attendance Cannot Be Marked - Holiday
+                </div>
+                <div>
+                  <strong>{leaveBlockInfo.leave_name}</strong>
+                  {leaveBlockInfo.leave_type_name && (
+                    <span className='ml-1'>({leaveBlockInfo.leave_type_name})</span>
+                  )}
+                </div>
+                <div className='text-sm'>
+                  This date is blocked by an approved institution leave. Attendance marking is not allowed.
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Existing Attendance Alert */}
         {existingAttendance && (
@@ -2250,7 +2325,7 @@ export default function AttendanceMarkPage() {
                   </Button>
                   <Button
                     onClick={handleSaveAttendance}
-                    disabled={savingAttendance || students.length === 0}
+                    disabled={savingAttendance || students.length === 0 || leaveBlockInfo?.is_blocked === true}
                     className='flex-1 sm:flex-initial h-11 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-200 dark:shadow-blue-900/50'
                   >
                     {savingAttendance ? (

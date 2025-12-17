@@ -13,6 +13,7 @@ import type {
   CreateLeaveTypeDto,
   UpdateLeaveTypeDto
 } from '@/types/leaves';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export function useLeaveTypes(initialFilters: LeaveTypeFilters = {}) {
   const { isSuperAdmin, userProfile } = usePermissions();
@@ -221,6 +222,8 @@ export function useLeaveType(id: string | null) {
 
 /**
  * Hook for fetching active leave types (for dropdowns)
+ * Note: For super admins without institution_id, returns empty array
+ * Use the institutionId parameter explicitly or ensure user has institution_id set
  */
 export function useActiveLeaveTypes(institutionId: string | null | undefined) {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
@@ -229,6 +232,7 @@ export function useActiveLeaveTypes(institutionId: string | null | undefined) {
 
   const fetchActiveLeaveTypes = useCallback(async () => {
     if (!institutionId) {
+      logger.warn('academic/leaves', 'useActiveLeaveTypes called without institutionId', { institutionId });
       setLeaveTypes([]);
       return;
     }
@@ -239,7 +243,7 @@ export function useActiveLeaveTypes(institutionId: string | null | undefined) {
       const result = await LeaveTypeService.getActiveLeaveTypes(institutionId);
       setLeaveTypes(result);
     } catch (err) {
-      console.error('Error fetching active leave types:', err);
+      logger.error('academic/leaves', 'Error fetching active leave types', { error: err });
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -35,11 +35,13 @@ import { Loader2 } from 'lucide-react';
 import { LeaveApprovalService } from '@/lib/services/academic/leave-approval-service';
 import { useActiveLeaveTypes } from '@/hooks/academic/use-leave-types';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { toast } from 'react-hot-toast';
 import { LEAVE_SCOPE_OPTIONS } from '@/types/leaves';
 import type { LeaveApprovalChain, LeaveScopeLevel } from '@/types/leaves';
 
 const workflowFormSchema = z.object({
+  institution_id: z.string().optional(),
   scope_level: z.enum(['institution', 'department', 'semester', 'section'] as const),
   leave_type_id: z.string().optional(),
   chain_order: z.coerce.number().min(1, 'Order must be at least 1').max(10, 'Order must be at most 10'),
@@ -80,13 +82,14 @@ export function WorkflowFormDialog({
   mode,
   workflow
 }: WorkflowFormDialogProps) {
-  const { userProfile } = usePermissions();
-  const { leaveTypes } = useActiveLeaveTypes(userProfile?.institution_id);
+  const { userProfile, isSuperAdmin } = usePermissions();
+  const { institutions } = useInstitutionsWithAccess();
   const [loading, setLoading] = useState(false);
 
   const form = useForm<WorkflowFormValues>({
     resolver: zodResolver(workflowFormSchema),
     defaultValues: {
+      institution_id: userProfile?.institution_id || '',
       scope_level: 'institution',
       leave_type_id: ALL_LEAVE_TYPES_VALUE,
       chain_order: 1,
@@ -98,11 +101,22 @@ export function WorkflowFormDialog({
     }
   });
 
+  // Watch institution_id to load leave types for selected institution
+  const selectedInstitutionId = useWatch({
+    control: form.control,
+    name: 'institution_id'
+  });
+
+  // Use selected institution or user's institution for leave types
+  const effectiveInstitutionId = selectedInstitutionId || userProfile?.institution_id;
+  const { leaveTypes } = useActiveLeaveTypes(effectiveInstitutionId);
+
   // Reset form when dialog opens/closes or when editing different workflow
   useEffect(() => {
     if (open) {
       if (mode === 'edit' && workflow) {
         form.reset({
+          institution_id: workflow.institution_id || userProfile?.institution_id || '',
           scope_level: workflow.scope_level,
           leave_type_id: workflow.leave_type_id || ALL_LEAVE_TYPES_VALUE,
           chain_order: workflow.chain_order,
@@ -114,6 +128,7 @@ export function WorkflowFormDialog({
         });
       } else {
         form.reset({
+          institution_id: userProfile?.institution_id || '',
           scope_level: 'institution',
           leave_type_id: ALL_LEAVE_TYPES_VALUE,
           chain_order: 1,
@@ -125,7 +140,7 @@ export function WorkflowFormDialog({
         });
       }
     }
-  }, [open, mode, workflow, form]);
+  }, [open, mode, workflow, form, userProfile?.institution_id]);
 
   const onSubmit = async (data: WorkflowFormValues) => {
     try {
@@ -134,13 +149,16 @@ export function WorkflowFormDialog({
       // Convert special value back to undefined for database
       const leaveTypeId = data.leave_type_id === ALL_LEAVE_TYPES_VALUE ? undefined : data.leave_type_id;
 
+      // Use form's institution_id or fall back to user's institution
+      const institutionId = data.institution_id || userProfile?.institution_id;
+
       if (mode === 'create') {
-        if (!userProfile?.institution_id) {
-          toast.error('No institution selected');
+        if (!institutionId) {
+          toast.error('Please select an institution');
           return;
         }
         await LeaveApprovalService.createApprovalChain({
-          institution_id: userProfile.institution_id,
+          institution_id: institutionId,
           scope_level: data.scope_level as LeaveScopeLevel,
           leave_type_id: leaveTypeId,
           chain_order: data.chain_order,
@@ -194,6 +212,41 @@ export function WorkflowFormDialog({
         <ScrollArea className='max-h-[calc(90vh-120px)] px-4 sm:px-6'>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-4 pb-4'>
+              {/* Institution Selector - Only for Super Admin */}
+              {isSuperAdmin && (
+                <FormField
+                  control={form.control}
+                  name='institution_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Institution</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value || undefined}
+                        disabled={mode === 'edit'}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='Select institution' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {institutions.map((inst) => (
+                            <SelectItem key={inst.id} value={inst.id}>
+                              {inst.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Select the institution for this workflow
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
               <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
               {/* Scope Level */}
               <FormField
@@ -266,13 +319,13 @@ export function WorkflowFormDialog({
                     <SelectContent>
                       <SelectItem value={ALL_LEAVE_TYPES_VALUE}>All Leave Types</SelectItem>
                       {leaveTypes
-                        .filter((type) => type.id && type.id.trim() !== '')
+                        .filter((type) => type.id && typeof type.id === 'string' && type.id.trim() !== '')
                         .map((type) => (
                           <SelectItem key={type.id} value={type.id}>
                             <div className='flex items-center gap-2'>
                               <span
                                 className='w-3 h-3 rounded-full'
-                                style={{ backgroundColor: type.color_code }}
+                                style={{ backgroundColor: type.color_code || '#6B7280' }}
                               />
                               {type.leave_type_name}
                             </div>

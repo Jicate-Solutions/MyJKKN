@@ -137,6 +137,8 @@ export class LeaveService {
           `
           *,
           leave_type:leave_types(id, leave_type_name, leave_type_code, color_code, requires_approval),
+          requested_by_profile:profiles!requested_by(id, full_name, email),
+          approved_by_profile:profiles!approved_by(id, full_name, email),
           approvals:leave_approvals(
             id,
             action,
@@ -167,7 +169,8 @@ export class LeaveService {
       let query = this.supabase.from('institution_leaves').select(
         `
           *,
-          leave_type:leave_types(id, leave_type_name, leave_type_code, color_code)
+          leave_type:leave_types(id, leave_type_name, leave_type_code, color_code),
+          requested_by_profile:profiles!requested_by(id, full_name, email)
         `,
         { count: 'exact' }
       );
@@ -267,7 +270,8 @@ export class LeaveService {
       let query = this.supabase.from('institution_leaves').select(
         `
           *,
-          leave_type:leave_types(id, leave_type_name, leave_type_code, color_code)
+          leave_type:leave_types(id, leave_type_name, leave_type_code, color_code),
+          requested_by_profile:profiles!requested_by(id, full_name, email)
         `,
         { count: 'exact' }
       );
@@ -367,7 +371,12 @@ export class LeaveService {
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
-        .select()
+        .select(
+          `
+          *,
+          leave_type:leave_types(id, leave_type_name, leave_type_code, color_code)
+        `
+        )
         .single();
 
       if (error) throw error;
@@ -407,7 +416,12 @@ export class LeaveService {
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
-        .select()
+        .select(
+          `
+          *,
+          leave_type:leave_types(id, leave_type_name, leave_type_code, color_code)
+        `
+        )
         .single();
 
       if (error) throw error;
@@ -442,7 +456,12 @@ export class LeaveService {
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
-        .select()
+        .select(
+          `
+          *,
+          leave_type:leave_types(id, leave_type_name, leave_type_code, color_code)
+        `
+        )
         .single();
 
       if (error) throw error;

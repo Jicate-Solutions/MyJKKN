@@ -40,6 +40,7 @@ import { useDepartments } from '@/hooks/organization/use-departments';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { LeaveService } from '@/lib/services/academic/leave-service';
 import { LEAVE_SCOPE_OPTIONS } from '@/types/leaves';
 import type { InstitutionLeave } from '@/types/leaves';
@@ -71,7 +72,16 @@ interface LeaveFormProps {
 export function LeaveForm({ leave, mode }: LeaveFormProps) {
   const router = useRouter();
   const { userProfile, isSuperAdmin } = usePermissions();
-  const institutionId = userProfile?.institution_id ?? undefined;
+  const baseInstitutionId = userProfile?.institution_id ?? undefined;
+
+  // For super admins, allow selecting institution; for others, use their institution
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string | undefined>(
+    leave?.institution_id || baseInstitutionId
+  );
+
+  // Use selected institution for super admins, or user's institution for others
+  const institutionId = isSuperAdmin ? selectedInstitutionId : baseInstitutionId;
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>(
     leave?.department_ids || []
@@ -84,6 +94,7 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
   );
 
   const { leaveTypes } = useActiveLeaveTypes(institutionId);
+  const { institutions } = useInstitutionsWithAccess({ isActive: true });
   const departmentsQuery = useDepartments({ institution_id: institutionId });
   const semestersQuery = useSemesters({ institution_id: institutionId });
   const sectionsQuery = useSections({ institution_id: institutionId });
@@ -91,6 +102,9 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
   const departments = (departmentsQuery.data?.data || []) as Department[];
   const semesters = (semestersQuery.data?.data || []) as Semester[];
   const sections = (sectionsQuery.data?.data || []) as Section[];
+
+  // Get current institution name for display (for non-super admins)
+  const currentInstitution = institutions.find((i) => i.id === baseInstitutionId);
 
   const form = useForm<LeaveFormData>({
     resolver: zodResolver(leaveFormSchema),
@@ -191,6 +205,46 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+        {/* Institution Field - Always show */}
+        <div className='bg-blue-50 border border-blue-200 rounded-md p-4'>
+          <FormLabel>Institution</FormLabel>
+          {isSuperAdmin ? (
+            // Super Admin: Dropdown to select institution
+            <>
+              <Select
+                onValueChange={setSelectedInstitutionId}
+                value={selectedInstitutionId}
+              >
+                <SelectTrigger className='mt-2'>
+                  <SelectValue placeholder='Select institution' />
+                </SelectTrigger>
+                <SelectContent>
+                  {institutions.map((inst) => (
+                    <SelectItem key={inst.id} value={inst.id}>
+                      {inst.name} ({inst.counselling_code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className='text-sm text-muted-foreground mt-2'>
+                Select an institution to manage leaves
+              </p>
+            </>
+          ) : (
+            // Regular User: Display their institution (read-only)
+            <>
+              <div className='mt-2 p-3 bg-white border rounded-md text-sm font-medium'>
+                {currentInstitution
+                  ? `${currentInstitution.name} (${currentInstitution.counselling_code})`
+                  : 'Loading...'}
+              </div>
+              <p className='text-sm text-muted-foreground mt-2'>
+                Your institution (cannot be changed)
+              </p>
+            </>
+          )}
+        </div>
+
         <div className='grid gap-6 md:grid-cols-2'>
           {/* Leave Type */}
           <FormField
@@ -199,10 +253,14 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Leave Type</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
+                <Select
+                  onValueChange={field.onChange}
+                  value={field.value}
+                  disabled={!institutionId}
+                >
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder='Select leave type' />
+                      <SelectValue placeholder={!institutionId ? 'Select institution first' : 'Select leave type'} />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>

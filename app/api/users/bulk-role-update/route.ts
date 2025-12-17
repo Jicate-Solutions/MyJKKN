@@ -46,14 +46,14 @@ export async function PATCH(request: NextRequest) {
     const json = await request.json();
     const { userIds, role } = bulkRoleUpdateSchema.parse(json);
 
-    // Validate that the role exists
-    const { data: roleExists } = await supabase
+    // Validate that the role exists and get its ID
+    const { data: roleData } = await supabase
       .from('custom_roles')
-      .select('role_key')
+      .select('id, role_key')
       .eq('role_key', role)
       .single();
 
-    if (!roleExists) {
+    if (!roleData) {
       return NextResponse.json(
         { error: 'Invalid role specified' },
         { status: 400 }
@@ -90,7 +90,7 @@ export async function PATCH(request: NextRequest) {
           continue;
         }
 
-        // Update the user's role using service role client
+        // Update the user's role in profiles table using service role client
         const { error: updateError } = await (
           serviceClient.from('profiles') as any
         )
@@ -105,9 +105,43 @@ export async function PATCH(request: NextRequest) {
             userId: targetUser.id,
             error: updateError.message
           });
-        } else {
-          success.push(targetUser.id);
+          continue;
         }
+
+        // IMPORTANT: Also update user_roles table for permissions to work correctly
+        try {
+          const { data: existingRoles } = await (
+            serviceClient.from('user_roles') as any
+          )
+            .select('id, role_id, is_primary')
+            .eq('user_id', targetUser.id);
+
+          if (existingRoles && existingRoles.length > 0) {
+            const primaryRole = existingRoles.find((r: any) => r.is_primary);
+            if (primaryRole) {
+              await (serviceClient.from('user_roles') as any)
+                .update({ role_id: roleData.id })
+                .eq('id', primaryRole.id);
+            } else {
+              await (serviceClient.from('user_roles') as any)
+                .update({ role_id: roleData.id, is_primary: true })
+                .eq('id', existingRoles[0].id);
+            }
+          } else {
+            await (serviceClient.from('user_roles') as any).insert({
+              user_id: targetUser.id,
+              role_id: roleData.id,
+              is_primary: true
+            });
+          }
+        } catch (rolesSyncError) {
+          console.error(
+            `Error syncing user_roles for ${targetUser.id}:`,
+            rolesSyncError
+          );
+        }
+
+        success.push(targetUser.id);
       } catch (error) {
         failed.push({
           userId: targetUser.id,
