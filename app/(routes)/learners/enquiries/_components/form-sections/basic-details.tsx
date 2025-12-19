@@ -229,14 +229,14 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
 
       {/* Father's Information */}
       <div className="space-y-4 border-t pt-4">
-        <h3 className="text-lg font-semibold">Father's Information</h3>
+        <h3 className="text-lg font-semibold">Father&apos;s Information</h3>
         <div className="grid gap-4 md:grid-cols-3">
           <FormField
             control={form.control}
             name="father_name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Father's Name</FormLabel>
+                <FormLabel>Father&apos;s Name</FormLabel>
                 <FormControl>
                   <Input placeholder="Enter father's name" {...field} />
                 </FormControl>
@@ -250,7 +250,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
             name="father_occupation"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Father's Occupation</FormLabel>
+                <FormLabel>Father&apos;s Occupation</FormLabel>
                 <FormControl>
                   <Input placeholder="Enter occupation" {...field} />
                 </FormControl>
@@ -264,7 +264,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
             name="father_mobile"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Father's Mobile</FormLabel>
+                <FormLabel>Father&apos;s Mobile</FormLabel>
                 <FormControl>
                   <Input placeholder="Enter mobile number" {...field} />
                 </FormControl>
@@ -277,14 +277,14 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
 
       {/* Mother's Information */}
       <div className="space-y-4 border-t pt-4">
-        <h3 className="text-lg font-semibold">Mother's Information</h3>
+        <h3 className="text-lg font-semibold">Mother&apos;s Information</h3>
         <div className="grid gap-4 md:grid-cols-3">
           <FormField
             control={form.control}
             name="mother_name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Mother's Name</FormLabel>
+                <FormLabel>Mother&apos;s Name</FormLabel>
                 <FormControl>
                   <Input placeholder="Enter mother's name" {...field} />
                 </FormControl>
@@ -298,7 +298,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
             name="mother_occupation"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Mother's Occupation</FormLabel>
+                <FormLabel>Mother&apos;s Occupation</FormLabel>
                 <FormControl>
                   <Input placeholder="Enter occupation" {...field} />
                 </FormControl>
@@ -312,7 +312,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
             name="mother_mobile"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Mother's Mobile</FormLabel>
+                <FormLabel>Mother&apos;s Mobile</FormLabel>
                 <FormControl>
                   <Input placeholder="Enter mobile number" {...field} />
                 </FormControl>

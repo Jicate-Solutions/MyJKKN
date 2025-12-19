@@ -5,11 +5,8 @@ $ next build
      · cpus: 1
 
    Creating an optimized production build ...
-<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (129kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
- ✓ Compiled successfully in 79s
+ ✓ Compiled successfully in 67s
    Linting and checking validity of types ...
-
-Failed to compile.
 
 ./app/(routes)/academic/timetables/[id]/page.tsx
 310:9  Warning: The 'allCourses' logical expression could make the dependencies of useMemo Hook (at line 329) change on every render. Move it inside the useMemo callback. Alternatively, wrap the initialization of 'allCourses' in its own useMemo() Hook.  react-hooks/exhaustive-deps
@@ -36,16 +33,6 @@ Failed to compile.
 ./app/(routes)/billing/payment/success/page.tsx
 174:6  Warning: React Hook useEffect has missing dependencies: 'router' and 'transactionId'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
 
-./app/(routes)/learners/enquiries/_components/form-sections/basic-details.tsx
-232:53  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
-239:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
-253:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
-267:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
-280:53  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
-287:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
-301:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
-315:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
-
 ./app/(routes)/my-bug-reports/_components/bug-report-user-chat.tsx
 265:6  Warning: React Hook useEffect has an unnecessary dependency: 'toast'. Either exclude it or remove the dependency array. Outer scope values like 'toast' aren't valid dependencies because mutating them doesn't re-render the component.  react-hooks/exhaustive-deps
 
@@ -58,4 +45,351 @@ Failed to compile.
 64:6  Warning: React Hook useEffect has a missing dependency: 'applyHierarchicalFiltering'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
 
 info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
-error: script "build" exited with code 1
+   Collecting page data ...
+   Generating static pages (0/208) ...
+   Generating static pages (52/208) 
+   Generating static pages (104/208) 
+   Generating static pages (156/208) 
+ ✓ Generating static pages (208/208)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                                        Size  First Load JS
+┌ ○ /                                                           4.37 kB         174 kB
+├ ○ /_not-found                                                   458 B         103 kB
+├ ○ /academic/attendance                                        14.1 kB         348 kB
+├ ○ /academic/attendance/dashboard                              36.7 kB         645 kB
+├ ○ /academic/attendance/mark                                   16.7 kB         329 kB
+├ ○ /academic/attendance/reports                                20.8 kB         780 kB
+├ ƒ /academic/attendance/reports/[id]                           8.31 kB         597 kB
+├ ○ /academic/batches                                             10 kB         515 kB
+├ ƒ /academic/batches/[id]/edit                                 1.28 kB         325 kB
+├ ○ /academic/batches/new                                       1.94 kB         326 kB
+├ ○ /academic/leave-calendar                                    9.79 kB         307 kB
+├ ○ /academic/leaves                                            9.73 kB         325 kB
+├ ƒ /academic/leaves/[id]                                       4.27 kB         288 kB
+├ ƒ /academic/leaves/[id]/edit                                    857 B         333 kB
+├ ○ /academic/leaves/new                                        2.42 kB         332 kB
+├ ○ /academic/leaves/settings                                   2.31 kB         279 kB
+├ ○ /academic/leaves/settings/types                             11.2 kB         331 kB
+├ ○ /academic/leaves/settings/workflows                         11.4 kB         332 kB
+├ ○ /academic/periods                                           9.85 kB         515 kB
+├ ƒ /academic/periods/[id]/edit                                 1.35 kB         311 kB
+├ ○ /academic/periods/new                                       2.01 kB         311 kB
+├ ○ /academic/regulations                                         10 kB         515 kB
+├ ƒ /academic/regulations/[id]/edit                             1.23 kB         310 kB
+├ ○ /academic/regulations/new                                   1.86 kB         310 kB
+├ ○ /academic/staff-planning                                    16.9 kB         522 kB
+├ ƒ /academic/staff-planning/[id]                               5.58 kB         291 kB
+├ ƒ /academic/staff-planning/[id]/edit                            981 B         338 kB
+├ ○ /academic/staff-planning/new                                  946 B         338 kB
+├ ○ /academic/timetables                                        20.6 kB         651 kB
+├ ƒ /academic/timetables/[id]                                   48.3 kB         610 kB
+├ ƒ /academic/timetables/[id]/edit                              10.7 kB         466 kB
+├ ○ /academic/timetables/conflicts                              9.64 kB         287 kB
+├ ○ /academic/timetables/faculty-calendar                       2.58 kB         405 kB
+├ ○ /academic/timetables/faculty-calendar/admin                 3.48 kB         406 kB
+├ ○ /academic/timetables/new                                    10.6 kB         466 kB
+├ ○ /academic/timetables/templates                              17.5 kB         456 kB
+├ ƒ /academic/timetables/templates/[id]                         3.63 kB         421 kB
+├ ○ /academic/timetables/templates/analytics                    5.33 kB         413 kB
+├ ○ /academic/years                                             9.88 kB         515 kB
+├ ƒ /academic/years/[id]                                        1.96 kB         286 kB
+├ ƒ /academic/years/[id]/edit                                   1.12 kB         325 kB
+├ ○ /academic/years/new                                           661 B         324 kB
+├ ○ /admin/ai-query-tools                                       16.2 kB         300 kB
+├ ○ /admin/bug-reports                                          13.4 kB         317 kB
+├ ƒ /admin/bug-reports/[id]                                     15.7 kB         308 kB
+├ ○ /admin/notifications                                        5.58 kB         307 kB
+├ ƒ /admin/notifications/[id]                                    4.4 kB         285 kB
+├ ○ /admin/notifications/new                                      11 kB         318 kB
+├ ○ /admin/reset-driver-passwords                                2.2 kB         276 kB
+├ ○ /admin/students/sync-profiles                               6.71 kB         284 kB
+├ ○ /admissions                                                 19.7 kB         515 kB
+├ ƒ /admissions/[id]                                            7.91 kB         289 kB
+├ ƒ /admissions/[id]/edit                                       3.72 kB         373 kB
+├ ○ /admissions/analytics                                       23.9 kB         574 kB
+├ ○ /admissions/crm                                             15.2 kB         303 kB
+├ ○ /admissions/new                                             1.07 kB         371 kB
+├ ○ /ai-query                                                   51.7 kB         258 kB
+├ ƒ /api/activity                                                 458 B         103 kB
+├ ƒ /api/activity/export                                          458 B         103 kB
+├ ƒ /api/activity/metrics                                         458 B         103 kB
+├ ƒ /api/admin/fix-driver-auth                                    458 B         103 kB
+├ ƒ /api/admin/notifications                                      458 B         103 kB
+├ ƒ /api/admin/notifications/[id]                                 458 B         103 kB
+├ ƒ /api/admin/notifications/stats                                458 B         103 kB
+├ ƒ /api/admin/reset-driver-passwords                             458 B         103 kB
+├ ƒ /api/admissions/ai-insights                                   167 B         108 kB
+├ ƒ /api/ai-query                                                 458 B         103 kB
+├ ƒ /api/api-management/applications                              458 B         103 kB
+├ ƒ /api/api-management/applications/[id]                         458 B         103 kB
+├ ƒ /api/api-management/organizations/courses                     458 B         103 kB
+├ ƒ /api/api-management/organizations/courses/[id]                458 B         103 kB
+├ ƒ /api/api-management/organizations/degrees                     458 B         103 kB
+├ ƒ /api/api-management/organizations/degrees/[id]                458 B         103 kB
+├ ƒ /api/api-management/organizations/departments                 458 B         103 kB
+├ ƒ /api/api-management/organizations/departments/[id]            458 B         103 kB
+├ ƒ /api/api-management/organizations/departments/institutions    458 B         103 kB
+├ ƒ /api/api-management/organizations/institutions                458 B         103 kB
+├ ƒ /api/api-management/organizations/institutions/[id]           458 B         103 kB
+├ ƒ /api/api-management/organizations/institutions/names          458 B         103 kB
+├ ƒ /api/api-management/organizations/programs                    458 B         103 kB
+├ ƒ /api/api-management/organizations/programs/[id]               458 B         103 kB
+├ ƒ /api/api-management/organizations/sections                    458 B         103 kB
+├ ƒ /api/api-management/organizations/sections/[id]               458 B         103 kB
+├ ƒ /api/api-management/organizations/semesters                   458 B         103 kB
+├ ƒ /api/api-management/organizations/semesters/[id]              458 B         103 kB
+├ ƒ /api/api-management/staff                                     458 B         103 kB
+├ ƒ /api/api-management/staff/[id]                                458 B         103 kB
+├ ƒ /api/api-management/students                                  458 B         103 kB
+├ ƒ /api/api-management/students/[id]                             458 B         103 kB
+├ ƒ /api/applications                                             173 B         108 kB
+├ ƒ /api/applications/[id]                                        173 B         108 kB
+├ ƒ /api/audit-logs                                               458 B         103 kB
+├ ƒ /api/audit-logs/[id]                                          458 B         103 kB
+├ ƒ /api/auth/logout                                              458 B         103 kB
+├ ƒ /api/billing/categories/parent-categories                     458 B         103 kB
+├ ƒ /api/billing/categories/parent-categories/[id]                458 B         103 kB
+├ ƒ /api/billing/categories/sub-categories                        458 B         103 kB
+├ ƒ /api/billing/categories/sub-categories/[id]                   458 B         103 kB
+├ ƒ /api/billing/payment/callback                                 458 B         103 kB
+├ ƒ /api/billing/payment/initiate                                 458 B         103 kB
+├ ƒ /api/billing/payment/status/[transactionId]                   458 B         103 kB
+├ ƒ /api/billing/payment/webhook                                  458 B         103 kB
+├ ƒ /api/bug-reports                                              458 B         103 kB
+├ ƒ /api/bug-reports/[id]                                         458 B         103 kB
+├ ƒ /api/bug-reports/[id]/messages                                458 B         103 kB
+├ ƒ /api/bug-reports/[id]/messages/notifications                  458 B         103 kB
+├ ƒ /api/bug-reports/[id]/messages/read                           458 B         103 kB
+├ ƒ /api/bug-reports/[id]/participants                            458 B         103 kB
+├ ƒ /api/bug-reports/[id]/reopen                                  458 B         103 kB
+├ ƒ /api/bug-reports/bulk-delete                                  458 B         103 kB
+├ ƒ /api/bug-reports/bulk-update-status                           458 B         103 kB
+├ ƒ /api/bug-reports/leaderboard                                  458 B         103 kB
+├ ƒ /api/bug-reports/me                                           458 B         103 kB
+├ ƒ /api/bug-reports/stats                                        458 B         103 kB
+├ ƒ /api/bug-reports/test                                         458 B         103 kB
+├ ƒ /api/check-database-tables                                    458 B         103 kB
+├ ƒ /api/crm/api-key                                              458 B         103 kB
+├ ƒ /api/dashboard/configurations                                 458 B         103 kB
+├ ƒ /api/dashboard/metrics                                        458 B         103 kB
+├ ƒ /api/dashboard/widget-types                                   458 B         103 kB
+├ ƒ /api/dashboard/widgets                                        458 B         103 kB
+├ ƒ /api/debug/applications                                       458 B         103 kB
+├ ƒ /api/debug/auth-test                                          458 B         103 kB
+├ ƒ /api/debug/check-ip                                           458 B         103 kB
+├ ƒ /api/debug/env-check                                          458 B         103 kB
+├ ƒ /api/departments                                              458 B         103 kB
+├ ƒ /api/institutions                                             458 B         103 kB
+├ ƒ /api/notifications                                            458 B         103 kB
+├ ƒ /api/notifications/[id]                                       458 B         103 kB
+├ ƒ /api/notifications/read                                       458 B         103 kB
+├ ƒ /api/notifications/send                                       458 B         103 kB
+├ ƒ /api/notifications/subscribe                                  458 B         103 kB
+├ ƒ /api/organizations/courses/export                             458 B         103 kB
+├ ƒ /api/organizations/dashboard                                  166 B         108 kB
+├ ƒ /api/organizations/degrees/export                             458 B         103 kB
+├ ƒ /api/organizations/departments/export                         458 B         103 kB
+├ ƒ /api/organizations/institutions/export                        458 B         103 kB
+├ ƒ /api/organizations/programs/export                            458 B         103 kB
+├ ƒ /api/organizations/sections/export                            458 B         103 kB
+├ ƒ /api/organizations/semesters/export                           458 B         103 kB
+├ ƒ /api/profiles                                                 458 B         103 kB
+├ ƒ /api/proxy/crm                                                458 B         103 kB
+├ ƒ /api/roles                                                    458 B         103 kB
+├ ƒ /api/roles/[key]                                              458 B         103 kB
+├ ƒ /api/staff                                                    458 B         103 kB
+├ ƒ /api/staff/check-missing-profiles                             458 B         103 kB
+├ ƒ /api/staff/create-missing-profiles                            458 B         103 kB
+├ ƒ /api/staff/dashboard-stats                                    171 B         108 kB
+├ ƒ /api/staff/export                                             458 B         103 kB
+├ ƒ /api/staff/sync-institutions                                  171 B         108 kB
+├ ƒ /api/students/bulk-edit/apply                                 179 B         108 kB
+├ ƒ /api/students/bulk-edit/preview                               179 B         108 kB
+├ ƒ /api/students/bulk-update                                     179 B         108 kB
+├ ƒ /api/students/bulk-update/preview                             458 B         103 kB
+├ ƒ /api/students/check-missing-profiles                          458 B         103 kB
+├ ƒ /api/students/complete-onboarding                             458 B         103 kB
+├ ƒ /api/students/create-missing-profiles                         458 B         103 kB
+├ ƒ /api/students/dashboard-stats                                 179 B         108 kB
+├ ƒ /api/students/export                                          458 B         103 kB
+├ ƒ /api/students/export-for-update                               458 B         103 kB
+├ ƒ /api/students/export-learners                                 458 B         103 kB
+├ ƒ /api/students/semesters-by-program                            458 B         103 kB
+├ ƒ /api/system/api-keys                                          458 B         103 kB
+├ ƒ /api/system/api-keys/[id]                                     173 B         108 kB
+├ ƒ /api/system/api-keys/test                                     458 B         103 kB
+├ ƒ /api/test-env                                                 458 B         103 kB
+├ ƒ /api/upload                                                   458 B         103 kB
+├ ƒ /api/upload/resource-management                               458 B         103 kB
+├ ƒ /api/users                                                    458 B         103 kB
+├ ƒ /api/users/[id]                                               458 B         103 kB
+├ ƒ /api/users/[id]/deactivate                                    458 B         103 kB
+├ ƒ /api/users/[id]/role                                          458 B         103 kB
+├ ƒ /api/users/[id]/roles                                         458 B         103 kB
+├ ƒ /api/users/[id]/toggle-status                                 458 B         103 kB
+├ ƒ /api/users/bulk-role-update                                   458 B         103 kB
+├ ƒ /api/users/check-consistency                                  458 B         103 kB
+├ ƒ /api/users/check-email                                        458 B         103 kB
+├ ƒ /api/users/dashboard-stats                                    458 B         103 kB
+├ ƒ /api/users/manage-auth                                        458 B         103 kB
+├ ƒ /api/users/stats                                              458 B         103 kB
+├ ○ /application-hub                                            10.7 kB         339 kB
+├ ○ /application-hub/api-guidelines                             50.1 kB         678 kB
+├ ○ /application-hub/api-guidelines/endpoints                   2.07 kB         507 kB
+├ ○ /applications                                               8.63 kB         511 kB
+├ ƒ /applications/[id]                                          5.13 kB         287 kB
+├ ƒ /applications/[id]/edit                                      2.1 kB         316 kB
+├ ○ /applications/categories                                    9.57 kB         298 kB
+├ ○ /applications/new                                             624 B         315 kB
+├ ○ /audit-trail                                                6.77 kB         292 kB
+├ ƒ /auth/authorize                                               458 B         103 kB
+├ ƒ /auth/callback                                                458 B         103 kB
+├ ○ /auth/complete-profile                                         6 kB         203 kB
+├ ○ /auth/login                                                 8.87 kB         181 kB
+├ ○ /billing/categories/item-categories                         8.89 kB         303 kB
+├ ƒ /billing/categories/item-categories/[id]/edit               2.23 kB         310 kB
+├ ○ /billing/categories/item-categories/new                       539 B         309 kB
+├ ○ /billing/categories/parent-categories                       5.36 kB         301 kB
+├ ƒ /billing/categories/parent-categories/[id]/edit             2.21 kB         307 kB
+├ ○ /billing/categories/parent-categories/new                     531 B         306 kB
+├ ○ /billing/categories/sub-categories                          7.76 kB         306 kB
+├ ƒ /billing/categories/sub-categories/[id]/edit                2.22 kB         309 kB
+├ ○ /billing/categories/sub-categories/new                        531 B         307 kB
+├ ○ /billing/discounts                                          10.7 kB         302 kB
+├ ƒ /billing/discounts/[id]                                     8.39 kB         292 kB
+├ ƒ /billing/discounts/[id]/edit                                 6.3 kB         293 kB
+├ ○ /billing/discounts/new                                       5.2 kB         300 kB
+├ ○ /billing/invoices                                           14.3 kB         310 kB
+├ ƒ /billing/invoices/[id]                                      8.56 kB         295 kB
+├ ƒ /billing/invoices/[id]/edit                                 7.86 kB         309 kB
+├ ○ /billing/payment/failed                                     8.14 kB         174 kB
+├ ○ /billing/payment/success                                    8.16 kB         174 kB
+├ ○ /billing/receipts                                           11.7 kB         314 kB
+├ ƒ /billing/receipts/[id]                                      10.1 kB         307 kB
+├ ƒ /billing/receipts/[id]/edit                                 5.35 kB         312 kB
+├ ○ /billing/receipts/new                                        8.2 kB         306 kB
+├ ○ /billing/receipts/templates                                 3.29 kB         280 kB
+├ ○ /billing/refunds                                            9.78 kB         303 kB
+├ ƒ /billing/refunds/[id]                                       9.04 kB         295 kB
+├ ƒ /billing/refunds/[id]/edit                                  8.28 kB         296 kB
+├ ○ /billing/refunds/new                                        5.94 kB         306 kB
+├ ○ /billing/reports                                            16.7 kB         304 kB
+├ ○ /billing/schedule                                           28.3 kB         531 kB
+├ ƒ /billing/schedule/[id]                                      8.41 kB         292 kB
+├ ƒ /billing/schedule/[id]/edit                                 1.02 kB         335 kB
+├ ○ /billing/schedule/bulk-create                               8.11 kB         330 kB
+├ ○ /billing/schedule/new                                       1.05 kB         335 kB
+├ ○ /billing/schedule/students                                  16.4 kB         522 kB
+├ ƒ /billing/schedule/students/[id]                             19.1 kB         315 kB
+├ ƒ /billing/student-bills/[billId]                             6.17 kB         290 kB
+├ ○ /bug-leaderboard                                            10.1 kB         289 kB
+├ ○ /dashboard                                                  23.2 kB         345 kB
+├ ○ /driver                                                     5.96 kB         178 kB
+├ ○ /guest                                                      5.54 kB         183 kB
+├ ○ /learners                                                   2.03 kB         162 kB
+├ ○ /learners/enquiries                                         11.2 kB         514 kB
+├ ƒ /learners/enquiries/[id]                                    9.43 kB         293 kB
+├ ƒ /learners/enquiries/[id]/edit                               1.36 kB         342 kB
+├ ○ /learners/enquiries/new                                     1.04 kB         341 kB
+├ ○ /logout                                                     2.51 kB         169 kB
+├ ○ /my-bug-reports                                             8.43 kB         312 kB
+├ ƒ /my-bug-reports/[id]                                        4.92 kB         294 kB
+├ ○ /notifications                                              4.73 kB         286 kB
+├ ○ /notifications/settings                                     5.83 kB         280 kB
+├ ○ /offline                                                    2.92 kB         116 kB
+├ ○ /organizations/courses                                      13.8 kB         519 kB
+├ ƒ /organizations/courses/[id]                                 3.79 kB         281 kB
+├ ƒ /organizations/courses/[id]/edit                            1.09 kB         304 kB
+├ ○ /organizations/courses/mappings                             15.4 kB         521 kB
+├ ƒ /organizations/courses/mappings/[id]                        4.89 kB         282 kB
+├ ƒ /organizations/courses/mappings/[id]/edit                   1.11 kB         314 kB
+├ ○ /organizations/courses/mappings/new                           662 B         314 kB
+├ ○ /organizations/courses/new                                    633 B         304 kB
+├ ○ /organizations/dashboard                                    3.38 kB         294 kB
+├ ○ /organizations/degrees                                      11.7 kB         519 kB
+├ ƒ /organizations/degrees/[id]                                 3.48 kB         281 kB
+├ ƒ /organizations/degrees/[id]/edit                             1.1 kB         309 kB
+├ ○ /organizations/degrees/new                                    639 B         308 kB
+├ ○ /organizations/departments                                  12.6 kB         518 kB
+├ ƒ /organizations/departments/[id]                             3.52 kB         281 kB
+├ ƒ /organizations/departments/[id]/edit                        1.09 kB         305 kB
+├ ○ /organizations/departments/new                                641 B         304 kB
+├ ○ /organizations/institutions                                 11.2 kB         518 kB
+├ ƒ /organizations/institutions/[id]                            4.99 kB         290 kB
+├ ƒ /organizations/institutions/[id]/edit                       1.08 kB         316 kB
+├ ○ /organizations/institutions/new                               661 B         316 kB
+├ ○ /organizations/programs                                     13.5 kB         519 kB
+├ ƒ /organizations/programs/[id]                                3.46 kB         281 kB
+├ ƒ /organizations/programs/[id]/edit                           1.11 kB         305 kB
+├ ○ /organizations/programs/new                                   631 B         304 kB
+├ ○ /organizations/sections                                     17.8 kB         520 kB
+├ ƒ /organizations/sections/[id]                                3.73 kB         285 kB
+├ ƒ /organizations/sections/[id]/edit                           1.08 kB         311 kB
+├ ○ /organizations/sections/new                                 1.35 kB         311 kB
+├ ○ /organizations/semesters                                    14.8 kB         520 kB
+├ ƒ /organizations/semesters/[id]                               3.79 kB         281 kB
+├ ƒ /organizations/semesters/[id]/edit                          1.09 kB         306 kB
+├ ○ /organizations/semesters/new                                  622 B         305 kB
+├ ○ /profile                                                    10.8 kB         324 kB
+├ ○ /pwa-status                                                  3.7 kB         121 kB
+├ ○ /resource-management                                        1.66 kB         276 kB
+├ ○ /resource-management/analytics-dashboard                    10.5 kB         411 kB
+├ ○ /resource-management/categories                             4.15 kB         314 kB
+├ ƒ /resource-management/categories/[id]                        4.99 kB         295 kB
+├ ƒ /resource-management/categories/[id]/edit                   1.13 kB         310 kB
+├ ○ /resource-management/categories/new                           734 B         309 kB
+├ ○ /resource-management/categories/sub-categories              9.34 kB         326 kB
+├ ƒ /resource-management/categories/sub-categories/[id]          8.7 kB         293 kB
+├ ƒ /resource-management/categories/sub-categories/[id]/edit    1.15 kB         313 kB
+├ ○ /resource-management/categories/sub-categories/new            772 B         313 kB
+├ ○ /resource-management/maintenance                            11.5 kB         511 kB
+├ ƒ /resource-management/maintenance/[id]                       5.46 kB         286 kB
+├ ƒ /resource-management/maintenance/[id]/edit                  1.17 kB         307 kB
+├ ○ /resource-management/maintenance/new                          808 B         307 kB
+├ ○ /resource-management/reservations                           3.88 kB         285 kB
+├ ƒ /resource-management/reservations/[id]                      7.67 kB         289 kB
+├ ○ /resource-management/reservations/approvals                 8.38 kB         312 kB
+├ ○ /resource-management/reservations/my-reservations              8 kB         296 kB
+├ ○ /resource-management/reservations/new                       11.3 kB         324 kB
+├ ○ /resource-management/resources                              11.6 kB         328 kB
+├ ƒ /resource-management/resources/[id]                         15.2 kB         301 kB
+├ ƒ /resource-management/resources/[id]/edit                    1.13 kB         342 kB
+├ ○ /resource-management/resources/new                            733 B         341 kB
+├ ○ /staff/category                                             11.5 kB         476 kB
+├ ƒ /staff/category/[id]/edit                                   1.07 kB         296 kB
+├ ○ /staff/category/new                                         1.02 kB         296 kB
+├ ○ /staff/dashboard                                            17.5 kB         473 kB
+├ ○ /staff/list                                                 25.3 kB         525 kB
+├ ƒ /staff/list/[id]                                            3.95 kB         290 kB
+├ ƒ /staff/list/[id]/edit                                       2.27 kB         327 kB
+├ ○ /staff/list/new                                               990 B         325 kB
+├ ○ /students                                                   48.9 kB         585 kB
+├ ƒ /students/[id]                                              6.24 kB         305 kB
+├ ƒ /students/[id]/edit                                         17.8 kB         339 kB
+├ ƒ /students/[id]/edit-promotion                                8.1 kB         314 kB
+├ ○ /students/dashboard                                         26.3 kB         482 kB
+├ ○ /students/graduated                                         14.4 kB         530 kB
+├ ○ /students/promotion                                         20.9 kB         356 kB
+├ ○ /system/api-management                                        14 kB         321 kB
+├ ○ /unauthorized                                               3.92 kB         117 kB
+├ ○ /users                                                      4.63 kB         325 kB
+├ ƒ /users/[id]                                                  6.6 kB         284 kB
+├ ƒ /users/[id]/edit                                            11.2 kB         307 kB
+├ ○ /users/activity                                             11.4 kB         422 kB
+├ ○ /users/dashboard                                            13.8 kB         422 kB
+├ ○ /users/new                                                  9.72 kB         305 kB
+├ ○ /users/role-management                                      27.6 kB         354 kB
+└ ○ /users/roles                                                7.16 kB         332 kB
++ First Load JS shared by all                                    102 kB
+  ├ chunks/31255-675ea469c8dc0052.js                            45.6 kB
+  ├ chunks/4bd1b696-bad92808725a934a.js                         54.2 kB
+  └ other shared chunks (total)                                 2.39 kB
+
+
+ƒ Middleware                                                     104 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
