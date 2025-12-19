@@ -521,7 +521,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
                 />
               </FormControl>
               <FormDescription>
-                Student's roll number (optional, can be added later)
+                Student&apos;s roll number (optional, can be added later)
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -566,7 +566,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
                 />
               </FormControl>
               <FormDescription>
-                Student's register number (optional)
+                Student&apos;s register number (optional)
               </FormDescription>
               <FormMessage />
             </FormItem>

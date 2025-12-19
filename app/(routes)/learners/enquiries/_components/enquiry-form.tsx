@@ -521,16 +521,13 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
       if (!id) return undefined;
 
       if (type === 'state') {
-        // Import location data
-        const { indianStates } = require('@/lib/data/locations');
+        // Use already imported location data
         return indianStates.find((s: any) => s.id === id)?.name;
       } else if (type === 'district') {
-        const { getDistrictsByState } = require('@/lib/data/locations');
         if (!stateId) return undefined;
         const districts = getDistrictsByState(stateId);
         return districts.find((d: any) => d.id === id)?.name;
       } else if (type === 'taluk') {
-        const { getTaluksByDistrict } = require('@/lib/data/locations');
         if (!stateId || !districtId) return undefined;
         const taluks = getTaluksByDistrict(stateId, districtId);
         return taluks.find((t: any) => t.id === id)?.name;
