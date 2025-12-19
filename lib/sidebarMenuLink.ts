@@ -56,9 +56,11 @@ import {
   FileBarChart2,
   History,
   Sparkles,
-  Bot
+  Bot,
+  UserCircle
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
+import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 
 interface MenuItem {
   href: string;
@@ -113,6 +115,24 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admissions/new': 'admissions.create',
   '/admissions/crm': 'admissions.crm.view',
   '/admissions/analytics': 'admissions.dashboard',
+
+  // Learners Module (Unified)
+  '/learners': 'learners.view',
+  '/learners/enquiries': 'learners.view',
+  '/learners/enquiries/new': 'learners.create',
+  '/learners/enquiries/[id]': 'learners.view',
+  '/learners/enquiries/[id]/edit': 'learners.edit',
+  '/learners/applications': 'learners.view',
+  '/learners/applications/[id]': 'learners.view',
+  '/learners/applications/[id]/edit': 'learners.edit',
+  '/learners/profiles': 'learners.view',
+  '/learners/profiles/[id]': 'learners.view',
+  '/learners/profiles/[id]/edit': 'learners.edit',
+  '/learners/profiles/bulk-edit': 'learners.edit',
+  '/learners/profiles/promotion': 'learners.promotion.view',
+  '/learners/alumni': 'learners.view',
+  '/learners/alumni/[id]': 'learners.view',
+  '/learners/analytics': 'learners.dashboard',
 
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
@@ -437,26 +457,27 @@ export function GetPages(pathname: string): MenuGroup[] {
         }
       ]
     },
+    // Old Students/Learners Management (Will be removed later - kept for testing)
     {
-      groupLabel: 'Learners Management',
+      groupLabel: 'Students (Old)',
       menus: [
         {
           href: '/students/dashboard',
-          label: 'Learners Analytics',
+          label: 'Student Analytics',
           active: pathname === '/students/dashboard',
           icon: BarChart,
           submenus: []
         },
         {
           href: '/students',
-          label: 'Learners List',
+          label: 'Students List',
           active: pathname === '/students',
           icon: Users,
           submenus: []
         },
         {
           href: '/students/promotion',
-          label: 'Learners Promotion',
+          label: 'Student Promotion',
           active: pathname === '/students/promotion',
           icon: GraduationCap,
           submenus: []
@@ -693,12 +714,48 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
 
+    // NEW: Unified Learners Module (Will replace old modules)
     {
-      groupLabel: 'Admissions Management',
+      groupLabel: 'Learners Profiles (New)',
+      menus: [
+        {
+          href: '/learners/analytics',
+          label: 'Analytics Dashboard',
+          active: pathname.startsWith('/learners/analytics'),
+          icon: BarChart,
+          submenus: []
+        },
+        {
+          href: '/learners/enquiries',
+          label: 'Enquiries & Applications',
+          active: pathname.startsWith('/learners/enquiries') || pathname.startsWith('/learners/applications'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          href: '/learners/profiles',
+          label: 'Active Students',
+          active: pathname.startsWith('/learners/profiles'),
+          icon: Users,
+          submenus: []
+        },
+        {
+          href: '/learners/alumni',
+          label: 'Alumni & Graduates',
+          active: pathname.startsWith('/learners/alumni'),
+          icon: Award,
+          submenus: []
+        }
+      ]
+    },
+
+    // OLD: Admissions Management (Will be removed later - kept for testing)
+    {
+      groupLabel: 'Admissions (Old)',
       menus: [
         {
           href: '/admissions/analytics',
-          label: 'Analytics Dashboard',
+          label: 'Admissions Analytics',
           active: pathname.startsWith('/admissions/analytics'),
           icon: BarChart,
           submenus: []

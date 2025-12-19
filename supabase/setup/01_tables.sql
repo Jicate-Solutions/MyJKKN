@@ -1,9 +1,9 @@
 -- =====================================================
 -- MYJKKN DATABASE TABLES - COMPLETE STRUCTURE
 -- =====================================================
--- Purpose: All 55 table definitions matching actual database
+-- Purpose: All 56 table definitions matching actual database
 -- Created: 2025-01-16
--- Last Updated: 2025-01-17 - Complete restructure to match actual DB
+-- Last Updated: 2025-01-18 - Added unified learners_profiles table
 --
 -- IMPORTANT: This file now matches the EXACT database structure
 -- All column names, types, and constraints match production DB
@@ -15,6 +15,25 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Create custom types if not exists
 DO $$ BEGIN
     CREATE TYPE student_status AS ENUM ('active', 'inactive', 'graduated', 'dropped', 'suspended');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+-- Create lifecycle_status ENUM for unified learner management
+-- Created: 2025-01-18 - Supports complete learner lifecycle from enquiry to alumni
+DO $$ BEGIN
+    CREATE TYPE lifecycle_status AS ENUM (
+        'enquiry',      -- Initial contact/enquiry stage
+        'pending',      -- Application submitted, pending review
+        'approved',     -- Application approved, ready for enrollment
+        'rejected',     -- Application rejected
+        'waitlisted',   -- Application waitlisted
+        'active',       -- Currently enrolled and active student
+        'inactive',     -- Temporarily inactive (leave, suspension, etc.)
+        'exited',       -- Left institution (dropout, transfer)
+        'graduated',    -- Successfully completed program
+        'alumni'        -- Post-graduation status
+    );
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
@@ -269,10 +288,119 @@ CREATE INDEX IF NOT EXISTS idx_batches_institution_id ON batches(institution_id)
 CREATE INDEX IF NOT EXISTS idx_batches_is_active ON batches(is_active);
 
 -- =====================================================
--- SECTION 4: STUDENT MANAGEMENT
+-- SECTION 4: LEARNER MANAGEMENT (UNIFIED)
+-- Updated: 2025-01-18 - Unified admissions + students into learners_profiles
+-- Legacy tables (students, admissions) maintained for backward compatibility
 -- =====================================================
 
--- Students table
+-- Learners Profiles table (Unified admissions + students)
+-- Created: 2025-01-18 - Phase 1: Foundation of unified learner lifecycle management
+-- Purpose: Single source of truth for all learner data from enquiry to alumni
+-- Migration: Combines admissions (535 records) + students (2,971 records) = 3,506 total
+CREATE TABLE IF NOT EXISTS public.learners_profiles (
+    -- Primary identifiers
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    application_id TEXT UNIQUE, -- Auto-generated JKKN-YYYY-####
+
+    -- Migration lineage (for audit trail and rollback capability)
+    original_admission_id UUID,     -- Source admission.id if migrated from admissions
+    original_student_id UUID,       -- Source student.id if migrated from students
+    migrated_at TIMESTAMPTZ,        -- When record was migrated
+    migration_source TEXT,          -- 'admission', 'student', 'merged', or 'direct'
+
+    -- Unified lifecycle status (replaces admission.status + student.status)
+    lifecycle_status lifecycle_status NOT NULL DEFAULT 'enquiry',
+
+    -- Personal Information (required from admission)
+    first_name TEXT NOT NULL,
+    last_name TEXT DEFAULT '',
+    date_of_birth TEXT NOT NULL,
+    gender TEXT NOT NULL,
+    religion TEXT NOT NULL,
+    community TEXT NOT NULL,
+    caste TEXT,
+
+    -- Parent/Guardian Information
+    father_name TEXT NOT NULL,
+    father_occupation TEXT,
+    father_mobile TEXT NOT NULL,
+    mother_name TEXT NOT NULL,
+    mother_occupation TEXT,
+    mother_mobile TEXT NOT NULL,
+    annual_income TEXT,
+
+    -- Previous Education
+    last_school TEXT NOT NULL,
+    board_of_study TEXT NOT NULL,
+    tenth_marks JSONB NOT NULL,
+    twelfth_marks JSONB NOT NULL,
+    medical_cutoff_marks TEXT,
+    engineering_cutoff_marks TEXT,
+    neet_roll_number TEXT,
+    neet_score TEXT,
+
+    -- Admission/Counseling Information
+    counseling_applied BOOLEAN DEFAULT false,
+    counseling_number TEXT,
+    first_graduate BOOLEAN DEFAULT false,
+    quota TEXT,
+    category TEXT,
+    entry_type TEXT NOT NULL,
+
+    -- Contact Information
+    student_mobile TEXT NOT NULL,
+    student_email TEXT NOT NULL,
+
+    -- Address Information
+    permanent_address_street TEXT NOT NULL,
+    permanent_address_taluk TEXT,
+    permanent_address_district TEXT NOT NULL,
+    permanent_address_pin_code TEXT NOT NULL,
+    permanent_address_state TEXT NOT NULL,
+
+    -- Campus Life
+    accommodation_type TEXT NOT NULL,
+    hostel_type TEXT,
+    food_type TEXT,
+    bus_required BOOLEAN DEFAULT false,
+    bus_route TEXT,
+    bus_pickup_location TEXT,
+
+    -- Reference Information
+    reference_type TEXT,
+    reference_name TEXT,
+    reference_contact TEXT,
+
+    -- Academic Assignment (unlocked after approval/enrollment)
+    institution_id UUID,
+    degree_id UUID,
+    department_id UUID,
+    program_id UUID,
+    semester_id UUID,
+    section_id UUID,
+    academic_year_id UUID,
+    regulation_id UUID,
+    batch_id UUID,
+
+    -- Student-specific fields (unlocked after enrollment)
+    roll_number TEXT,
+    register_number TEXT,
+    college_email TEXT,
+    student_photo_url TEXT,
+    is_profile_complete BOOLEAN DEFAULT false,
+
+    -- Audit fields
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    created_by UUID,
+    updated_by UUID
+);
+
+-- =====================================================
+-- LEGACY TABLES (To be converted to VIEWs in Phase 2)
+-- =====================================================
+
+-- Students table (LEGACY - will become VIEW in Phase 2)
 CREATE TABLE IF NOT EXISTS public.students (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     admission_id UUID,
@@ -337,7 +465,7 @@ CREATE TABLE IF NOT EXISTS public.students (
     application_id TEXT
 );
 
--- Admissions table
+-- Admissions table (LEGACY - will become VIEW in Phase 2)
 CREATE TABLE IF NOT EXISTS public.admissions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     father_name TEXT NOT NULL,
@@ -1259,7 +1387,33 @@ CREATE TABLE IF NOT EXISTS public.user_child_app_permissions (
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
 CREATE INDEX IF NOT EXISTS idx_profiles_institution_id ON public.profiles(institution_id);
 
--- Students indexes
+-- Learners Profiles indexes
+-- Created: 2025-01-18 - Indexes for unified learners_profiles table
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_institution_id ON public.learners_profiles(institution_id);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_application_id ON public.learners_profiles(application_id);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_roll_number ON public.learners_profiles(roll_number);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_college_email ON public.learners_profiles(college_email);
+-- Composite index for institutional queries (most common pattern)
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_institution_department ON public.learners_profiles(institution_id, department_id);
+-- Foreign key indexes for join performance
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_degree_id ON public.learners_profiles(degree_id);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_department_id ON public.learners_profiles(department_id);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_program_id ON public.learners_profiles(program_id);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_semester_id ON public.learners_profiles(semester_id);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_section_id ON public.learners_profiles(section_id);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_academic_year_id ON public.learners_profiles(academic_year_id);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_regulation_id ON public.learners_profiles(regulation_id);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_batch_id ON public.learners_profiles(batch_id);
+-- Lifecycle status index (commonly used for filtering)
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_lifecycle_status ON public.learners_profiles(lifecycle_status);
+-- Profile completion index
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_profile_complete ON public.learners_profiles(is_profile_complete);
+-- Migration lineage indexes (for audit queries and verification)
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_original_admission ON public.learners_profiles(original_admission_id) WHERE original_admission_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_original_student ON public.learners_profiles(original_student_id) WHERE original_student_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_migration_source ON public.learners_profiles(migration_source);
+
+-- Students indexes (LEGACY - for backward compatibility during migration)
 -- Updated: 2025-10-15 - Added indexes for HOD queries and foreign key joins
 CREATE INDEX IF NOT EXISTS idx_students_institution_id ON public.students(institution_id);
 CREATE INDEX IF NOT EXISTS idx_students_roll_number ON public.students(roll_number);

@@ -198,6 +198,158 @@ SELECT
 FROM audit_semester_program_inconsistencies();
 
 -- ================================================================================
+-- SECTION 4: LEARNER LIFECYCLE COMPATIBILITY VIEWS
+-- Created: 2025-01-18
+-- Purpose: Backward compatibility layer for admissions and students tables
+-- ================================================================================
+
+-- Admissions VIEW - Maps learners in admission pipeline to old admissions table structure
+-- Filters: enquiry, pending, approved, rejected, waitlisted
+CREATE OR REPLACE VIEW admissions AS
+SELECT
+    original_admission_id AS id,
+    first_name,
+    last_name,
+    father_name,
+    father_occupation,
+    father_mobile,
+    mother_name,
+    mother_occupation,
+    mother_mobile,
+    date_of_birth,
+    gender,
+    religion,
+    community,
+    caste,
+    annual_income,
+    last_school,
+    board_of_study,
+    tenth_marks,
+    twelfth_marks,
+    medical_cutoff_marks,
+    engineering_cutoff_marks,
+    neet_roll_number,
+    counseling_applied,
+    counseling_number,
+    first_graduate,
+    quota,
+    category,
+    entry_type,
+    permanent_address_street,
+    permanent_address_taluk,
+    permanent_address_district,
+    permanent_address_pin_code,
+    permanent_address_state,
+    student_mobile,
+    student_email,
+    accommodation_type,
+    hostel_type,
+    bus_required,
+    bus_route,
+    bus_pickup_location,
+    reference_type,
+    reference_name,
+    reference_contact,
+    -- Map lifecycle_status back to admission status
+    CASE lifecycle_status
+        WHEN 'enquiry' THEN 'pending'
+        WHEN 'pending' THEN 'pending'
+        WHEN 'approved' THEN 'approved'
+        WHEN 'rejected' THEN 'rejected'
+        WHEN 'waitlisted' THEN 'waitlisted'
+        WHEN 'active' THEN 'enrolled'
+        ELSE 'pending'
+    END AS status,
+    created_at,
+    updated_at,
+    created_by,
+    updated_by,
+    degree_id,
+    department_id,
+    program_id,
+    institution_id,
+    application_id
+FROM learners_profiles
+WHERE lifecycle_status IN ('enquiry', 'pending', 'approved', 'rejected', 'waitlisted', 'active')
+  AND migration_source IN ('admission', 'merged');
+
+-- Students VIEW - Maps active learners to old students table structure
+-- Filters: active, inactive, exited, graduated
+CREATE OR REPLACE VIEW students AS
+SELECT
+    original_student_id AS id,
+    original_admission_id AS admission_id,
+    first_name,
+    last_name,
+    father_name,
+    father_occupation,
+    father_mobile,
+    mother_name,
+    mother_occupation,
+    mother_mobile,
+    date_of_birth,
+    gender,
+    religion,
+    community,
+    caste,
+    annual_income,
+    last_school,
+    board_of_study,
+    tenth_marks,
+    twelfth_marks,
+    medical_cutoff_marks,
+    engineering_cutoff_marks,
+    neet_roll_number,
+    counseling_applied,
+    counseling_number,
+    first_graduate,
+    quota,
+    category,
+    entry_type,
+    permanent_address_street,
+    permanent_address_taluk,
+    permanent_address_district,
+    permanent_address_pin_code,
+    permanent_address_state,
+    student_mobile,
+    student_email,
+    accommodation_type,
+    hostel_type,
+    bus_required,
+    bus_route,
+    bus_pickup_location,
+    reference_type,
+    reference_name,
+    reference_contact,
+    institution_id,
+    degree_id,
+    department_id,
+    program_id,
+    semester_id,
+    section_id,
+    academic_year_id,
+    roll_number,
+    college_email,
+    student_photo_url,
+    is_profile_complete,
+    -- Map lifecycle_status back to student_status ENUM
+    CASE lifecycle_status
+        WHEN 'active' THEN 'active'::student_status
+        WHEN 'inactive' THEN 'inactive'::student_status
+        WHEN 'graduated' THEN 'graduated'::student_status
+        WHEN 'exited' THEN 'dropped'::student_status
+        ELSE 'active'::student_status
+    END AS status,
+    created_at,
+    updated_at,
+    created_by,
+    updated_by,
+    application_id
+FROM learners_profiles
+WHERE lifecycle_status IN ('active', 'inactive', 'exited', 'graduated')
+  AND migration_source IN ('student', 'merged');
+
+-- ================================================================================
 -- End of Views File
--- Total Views: 7
+-- Total Views: 9 (7 original + 2 compatibility views)
 -- ================================================================================

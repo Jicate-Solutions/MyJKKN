@@ -113,8 +113,15 @@ export async function GET(request: NextRequest) {
         if (section) {
           query = query.eq('section_id', section);
         }
+        // Handle status filter - can be single value or comma-separated list
         if (status) {
-          query = query.eq('status', status);
+          // Check if status contains comma (multiple values)
+          if (status.includes(',')) {
+            const statusArray = status.split(',').map(s => s.trim());
+            query = query.in('status', statusArray);
+          } else {
+            query = query.eq('status', status);
+          }
         }
         return query;
       }

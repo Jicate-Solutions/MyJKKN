@@ -198,10 +198,6 @@ export async function GET(request: NextRequest) {
       selectQuery,
       (query) => {
         // Apply filters based on query params
-        if (!includeInactive) {
-          // Only include students with 'active' status if includeInactive is false
-          query = query.eq('status', 'active');
-        }
         if (institution) {
           query = query.eq('institution_id', institution);
         }
@@ -220,9 +216,21 @@ export async function GET(request: NextRequest) {
         if (section) {
           query = query.eq('section_id', section);
         }
+
+        // Handle status filter - can be single value or comma-separated list
         if (status) {
-          query = query.eq('status', status);
+          // Check if status contains comma (multiple values)
+          if (status.includes(',')) {
+            const statusArray = status.split(',').map(s => s.trim());
+            query = query.in('status', statusArray);
+          } else {
+            query = query.eq('status', status);
+          }
+        } else if (!includeInactive) {
+          // Only include students with 'active' status if includeInactive is false and no explicit status filter
+          query = query.eq('status', 'active');
         }
+
         if (isProfileComplete) {
           query = query.eq('is_profile_complete', isProfileComplete);
         }
