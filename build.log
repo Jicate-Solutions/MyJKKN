@@ -1,0 +1,61 @@
+$ next build
+   ▲ Next.js 15.5.9
+   - Environments: .env
+   - Experiments (use with caution):
+     · cpus: 1
+
+   Creating an optimized production build ...
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (129kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+ ✓ Compiled successfully in 79s
+   Linting and checking validity of types ...
+
+Failed to compile.
+
+./app/(routes)/academic/timetables/[id]/page.tsx
+310:9  Warning: The 'allCourses' logical expression could make the dependencies of useMemo Hook (at line 329) change on every render. Move it inside the useMemo callback. Alternatively, wrap the initialization of 'allCourses' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+317:9  Warning: The 'allStaff' logical expression could make the dependencies of useMemo Hook (at line 354) change on every render. Move it inside the useMemo callback. Alternatively, wrap the initialization of 'allStaff' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+323:9  Warning: The 'sections' logical expression could make the dependencies of useMemo Hook (at line 376) change on every render. To fix this, wrap the initialization of 'sections' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+486:5  Warning: React Hook useCallback has an unnecessary dependency: 'slots'. Either exclude it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./app/(routes)/academic/timetables/[id]/_components/practical-period-config-form.tsx
+77:6  Warning: React Hook useEffect has missing dependencies: 'courses' and 'onChange'. Either include them or remove the dependency array. If 'onChange' changes too often, find the parent component that defines it and wrap that definition in useCallback.  react-hooks/exhaustive-deps
+
+./app/(routes)/academic/timetables/[id]/_components/slot-dialog.tsx
+409:6  Warning: React Hook useEffect has missing dependencies: 'staff' and 'timetable?.timetable_type'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+
+./app/(routes)/academic/timetables/[id]/_hooks/use-staff-planning-data.ts
+174:6  Warning: React Hook useEffect has a missing dependency: 'timetable'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./app/(routes)/academic/timetables/[id]/_hooks/use-timetable-detail.ts
+203:6  Warning: React Hook useEffect has a missing dependency: 'fetchTimetableData'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./app/(routes)/academic/timetables/[id]/_utils/performance-utils.ts
+79:10  Warning: React Hook useCallback received a function whose dependencies are unknown. Pass an inline function instead.  react-hooks/exhaustive-deps
+127:10  Warning: React Hook useCallback received a function whose dependencies are unknown. Pass an inline function instead.  react-hooks/exhaustive-deps
+
+./app/(routes)/billing/payment/success/page.tsx
+174:6  Warning: React Hook useEffect has missing dependencies: 'router' and 'transactionId'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+
+./app/(routes)/learners/enquiries/_components/form-sections/basic-details.tsx
+232:53  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+239:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+253:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+267:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+280:53  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+287:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+301:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+315:34  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+
+./app/(routes)/my-bug-reports/_components/bug-report-user-chat.tsx
+265:6  Warning: React Hook useEffect has an unnecessary dependency: 'toast'. Either exclude it or remove the dependency array. Outer scope values like 'toast' aren't valid dependencies because mutating them doesn't re-render the component.  react-hooks/exhaustive-deps
+
+./app/(routes)/users/roles/_components/roles-list.tsx
+184:6  Warning: React Hook useEffect has a missing dependency: 'userRolesCache'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+498:5  Warning: React Hook useMemo has a missing dependency: 'handleOpenMultiRoleDialog'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/admissions/analytics/analytics-filters.tsx
+59:6  Warning: React Hook useEffect has a missing dependency: 'loadAllFilterOptions'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+64:6  Warning: React Hook useEffect has a missing dependency: 'applyHierarchicalFiltering'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+error: script "build" exited with code 1
