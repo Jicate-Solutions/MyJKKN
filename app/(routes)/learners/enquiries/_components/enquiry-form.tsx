@@ -25,9 +25,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
-import { Loader2, Save, Send, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Loader2, Save, Send, ChevronLeft, ChevronRight, X, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 
 // Import form sections
 import { BasicDetailsSection } from './form-sections/basic-details';
@@ -803,9 +805,84 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
     }
   };
 
+  // Calculate profile completion status
+  const collegeEmail = form.watch('college_email');
+  const academicYearId = form.watch('academic_year_id');
+  const semesterId = form.watch('semester_id');
+  const sectionId = form.watch('section_id');
+
+  const requiredForActivation = [
+    { field: 'college_email', label: 'College Email', value: collegeEmail, valid: collegeEmail?.endsWith('@jkkn.ac.in') },
+    { field: 'academic_year_id', label: 'Academic Year', value: academicYearId, valid: !!academicYearId },
+    { field: 'semester_id', label: 'Semester', value: semesterId, valid: !!semesterId },
+    { field: 'section_id', label: 'Section', value: sectionId, valid: !!sectionId },
+  ];
+
+  const filledFieldsCount = requiredForActivation.filter(f => f.valid).length;
+  const isProfileComplete = filledFieldsCount === 4;
+  const currentStatus = learner?.lifecycle_status;
+  const canAutoActivate = currentStatus && ['enquiry', 'pending', 'approved'].includes(currentStatus);
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        {/* Profile Completion Indicator */}
+        {canAutoActivate && (
+          <Alert variant={isProfileComplete ? 'default' : 'default'} className={isProfileComplete ? 'border-green-500 bg-green-50' : 'border-blue-500 bg-blue-50'}>
+            <div className="flex items-start gap-3">
+              {isProfileComplete ? (
+                <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5" />
+              ) : (
+                <Info className="h-5 w-5 text-blue-600 mt-0.5" />
+              )}
+              <div className="flex-1">
+                <AlertTitle className={isProfileComplete ? 'text-green-900' : 'text-blue-900'}>
+                  {isProfileComplete ? (
+                    'Profile Complete - Ready for Activation'
+                  ) : (
+                    `Profile Completion: ${filledFieldsCount}/4 Required Fields`
+                  )}
+                </AlertTitle>
+                <AlertDescription className={isProfileComplete ? 'text-green-800' : 'text-blue-800'}>
+                  {isProfileComplete ? (
+                    <div className="space-y-2">
+                      <p>All required fields are filled. When you save this form, the learner will automatically be activated and a user account will be created.</p>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {requiredForActivation.map(field => (
+                          <Badge key={field.field} variant="outline" className="bg-green-100 border-green-300 text-green-800">
+                            <CheckCircle2 className="mr-1 h-3 w-3" />
+                            {field.label}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p>Fill the following {4 - filledFieldsCount} field(s) to enable auto-activation:</p>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {requiredForActivation.map(field => (
+                          <Badge
+                            key={field.field}
+                            variant="outline"
+                            className={field.valid ? 'bg-green-100 border-green-300 text-green-800' : 'bg-gray-100 border-gray-300 text-gray-700'}
+                          >
+                            {field.valid ? (
+                              <CheckCircle2 className="mr-1 h-3 w-3" />
+                            ) : (
+                              <AlertCircle className="mr-1 h-3 w-3" />
+                            )}
+                            {field.label}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </AlertDescription>
+              </div>
+            </div>
+          </Alert>
+        )}
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-5">
             {formTabs.map((tab) => (
