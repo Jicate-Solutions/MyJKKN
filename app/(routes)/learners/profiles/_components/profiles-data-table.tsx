@@ -1,16 +1,16 @@
 // ============================================
-// ENQUIRIES DATA TABLE COMPONENT
+// PROFILES DATA TABLE COMPONENT
 // ============================================
-// Created: 2025-01-18
-// Purpose: TanStack Table for enquiries and pending applications
+// Created: 2025-01-19
+// Purpose: TanStack Table for active learner profiles
 // ============================================
 
 'use client';
 
 import { useState } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
-import { enquiryColumns } from './columns';
-import type { EnquiriesSearchParams } from './data-table-schema';
+import { profileColumns } from './columns';
+import type { ProfilesSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import { TrashIcon } from 'lucide-react';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
@@ -27,23 +27,15 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-interface EnquiriesDataTableProps {
-  search: EnquiriesSearchParams;
-  /**
-   * Filter by lifecycle status
-   * - 'enquiry': Only enquiries
-   * - 'pending': Only pending applications
-   * - 'rejected': Only rejected applications
-   * - 'waitlisted': Only waitlisted applications
-   * - undefined: All admission statuses
-   */
-  statusFilter?: 'enquiry' | 'pending' | 'rejected' | 'waitlisted';
+interface ProfilesDataTableProps {
+  search: ProfilesSearchParams;
+  statusFilter?: 'active' | 'inactive' | 'exited';
 }
 
 /**
- * EnquiriesDataTable Component
+ * ProfilesDataTable Component
  *
- * Advanced data table for enquiries and pending applications using TanStack Table
+ * Advanced data table for learner profiles using TanStack Table
  *
  * Features:
  * - Server-side pagination
@@ -53,10 +45,7 @@ interface EnquiriesDataTableProps {
  * - Bulk delete with confirmation
  * - URL state management
  */
-export function EnquiriesDataTable({
-  search,
-  statusFilter,
-}: EnquiriesDataTableProps) {
+export function ProfilesDataTable({ search, statusFilter }: ProfilesDataTableProps) {
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [learnersToDelete, setLearnersToDelete] = useState<LearnerProfile[]>([]);
   const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(null);
@@ -92,6 +81,8 @@ export function EnquiriesDataTable({
         semester_id: search.semester_id,
         section_id: search.section_id,
         academic_year_id: search.academic_year_id,
+        gender: search.gender,
+        is_profile_complete: search.is_profile_complete ? search.is_profile_complete === 'true' : undefined,
         // Date range
         fromDate: params.from_date || undefined,
         toDate: params.to_date || undefined,
@@ -112,7 +103,7 @@ export function EnquiriesDataTable({
         },
       };
     } catch (error) {
-      console.error('[learners/enquiries] Error fetching data:', error);
+      console.error('[learners/profiles] Error fetching data:', error);
       toast.error('Failed to load data', {
         description: error instanceof Error ? error.message : 'Please try again.',
       });
@@ -161,18 +152,18 @@ export function EnquiriesDataTable({
       // Show results
       if (success.length > 0 && failed.length === 0) {
         toast.success(
-          `${success.length} enquir${success.length > 1 ? 'ies' : 'y'} deleted successfully`
+          `${success.length} student${success.length > 1 ? 's' : ''} deleted successfully`
         );
       } else if (success.length > 0 && failed.length > 0) {
         toast.success(
-          `${success.length} enquir${success.length > 1 ? 'ies' : 'y'} deleted successfully`
+          `${success.length} student${success.length > 1 ? 's' : ''} deleted successfully`
         );
         toast.error(`Failed to delete ${failed.length} record${failed.length > 1 ? 's' : ''}`);
       } else if (failed.length > 0) {
         toast.error(`Failed to delete ${failed.length} record${failed.length > 1 ? 's' : ''}`);
       }
     } catch (error) {
-      console.error('[learners/enquiries] Error deleting records:', error);
+      console.error('[learners/profiles] Error deleting records:', error);
       toast.error('Failed to delete records. Please try again.');
     } finally {
       setIsDeleting(false);
@@ -209,9 +200,9 @@ export function EnquiriesDataTable({
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => enquiryColumns as any}
+        getColumns={() => profileColumns as any}
         exportConfig={{
-          entityName: statusFilter === 'pending' ? 'pending-applications' : 'enquiries',
+          entityName: 'active-students',
           columnMapping: {},
           columnWidths: [],
           headers: [],
@@ -234,8 +225,8 @@ export function EnquiriesDataTable({
               Delete {learnersToDelete.length} record{learnersToDelete.length > 1 ? 's' : ''}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the selected{' '}
-              {statusFilter === 'pending' ? 'applications' : 'enquiries'} and remove all
+              This action cannot be undone. This will permanently delete the selected
+              student profile{learnersToDelete.length > 1 ? 's' : ''} and remove all
               associated data.
             </AlertDialogDescription>
           </AlertDialogHeader>

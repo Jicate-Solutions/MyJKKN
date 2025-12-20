@@ -57,6 +57,8 @@ export interface LearnerProfile {
   community: string;
   caste?: string;
   aadhar_number?: string;
+  blood_group?: string;
+  admission_year?: number;
 
   // Parent/Guardian Information
   father_name: string;
@@ -205,6 +207,8 @@ export const learnerProfileSchema = z.object({
   religion: z.string().min(1, 'Religion is required'),
   community: z.string().min(1, 'Community is required'),
   caste: z.string().optional(),
+  blood_group: z.string().optional(),
+  admission_year: z.number().optional(),
 
   // Parent Information (always required)
   father_name: z.string().min(2, "Father's name is required"),
@@ -531,6 +535,7 @@ export const STATUS_TRANSITIONS: Record<LifecycleStatus, LifecycleStatus[]> = {
 
 /**
  * Required fields by lifecycle status
+ * Updated: 2025-01-19 - Removed roll_number from active, added college_email as required
  */
 export const REQUIRED_FIELDS_BY_STATUS: Record<LifecycleStatus, string[]> = {
   enquiry: ['first_name', 'student_mobile', 'student_email'],
@@ -538,7 +543,7 @@ export const REQUIRED_FIELDS_BY_STATUS: Record<LifecycleStatus, string[]> = {
   approved: ['institution_id', 'degree_id', 'department_id', 'program_id'],
   rejected: [],
   waitlisted: [],
-  active: ['semester_id', 'section_id', 'academic_year_id', 'roll_number'],
+  active: ['semester_id', 'section_id', 'academic_year_id', 'college_email'],
   inactive: [],
   exited: [],
   graduated: [],

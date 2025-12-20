@@ -727,14 +727,14 @@ export function GetPages(pathname: string): MenuGroup[] {
         },
         {
           href: '/learners/enquiries',
-          label: 'Enquiries & Applications',
+          label: 'Admission Management',
           active: pathname.startsWith('/learners/enquiries') || pathname.startsWith('/learners/applications'),
           icon: ClipboardCheck,
           submenus: []
         },
         {
           href: '/learners/profiles',
-          label: 'Active Students',
+          label: 'Learners Profiles',
           active: pathname.startsWith('/learners/profiles'),
           icon: Users,
           submenus: []

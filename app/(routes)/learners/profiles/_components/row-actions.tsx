@@ -1,8 +1,8 @@
 // ============================================
-// ENQUIRIES ROW ACTIONS COMPONENT
+// PROFILES ROW ACTIONS COMPONENT
 // ============================================
-// Created: 2025-01-18
-// Purpose: Actions menu for enquiry rows in TanStack Table
+// Created: 2025-01-19
+// Purpose: Actions menu for active learner profile rows in TanStack Table
 // ============================================
 
 'use client';
@@ -15,13 +15,13 @@ import { useState } from 'react';
 import {
   FileEdit,
   Trash2,
-  FileCheck,
   Eye,
   Clock,
   CheckCircle,
   XCircle,
-  AlertCircle,
-  HelpCircle
+  UserCheck,
+  UserX,
+  GraduationCap
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -56,11 +56,11 @@ interface DataTableRowActionsProps<TData> {
 /**
  * DataTableRowActions Component
  *
- * Actions menu for enquiry rows:
- * - View Details: Navigate to enquiry detail page
- * - Edit: Navigate to enquiry edit page
- * - Update Status: Change lifecycle status (enquiry, pending, rejected, waitlisted)
- * - Delete: Delete the enquiry (with confirmation)
+ * Actions menu for active learner profile rows:
+ * - View Details: Navigate to profile detail page
+ * - Edit: Navigate to profile edit page
+ * - Update Status: Change lifecycle status (active, inactive, exited, graduated)
+ * - Delete: Delete the profile (with confirmation)
  *
  * Permissions:
  * - View: Always available
@@ -90,11 +90,11 @@ export function DataTableRowActions<TData>({
 
     try {
       await deleteMutation.mutateAsync(learner.id);
-      toast.success('Enquiry deleted successfully');
+      toast.success('Student profile deleted successfully');
       setShowDeleteDialog(false);
     } catch (error) {
-      console.error('[row-actions] Error deleting enquiry:', error);
-      toast.error('Failed to delete enquiry. Please try again.');
+      console.error('[row-actions] Error deleting profile:', error);
+      toast.error('Failed to delete profile. Please try again.');
     }
   };
 
@@ -114,10 +114,10 @@ export function DataTableRowActions<TData>({
       });
 
       const statusLabels: Record<string, string> = {
-        enquiry: 'Enquiry',
-        pending: 'Pending Application',
-        rejected: 'Rejected',
-        waitlisted: 'Waitlisted'
+        active: 'Active',
+        inactive: 'Inactive',
+        exited: 'Exited',
+        graduated: 'Graduated'
       };
 
       toast.success(`Status updated to ${statusLabels[selectedStatus]}`);
@@ -145,7 +145,7 @@ export function DataTableRowActions<TData>({
           <DropdownMenuLabel>Actions</DropdownMenuLabel>
 
           <DropdownMenuItem
-            onSelect={() => router.push(`/learners/enquiries/${learner.id}`)}
+            onSelect={() => router.push(`/learners/profiles/${learner.id}`)}
           >
             <Eye className="mr-2 h-4 w-4" />
             View Details
@@ -153,7 +153,7 @@ export function DataTableRowActions<TData>({
 
           {canEdit && (
             <DropdownMenuItem
-              onSelect={() => router.push(`/learners/enquiries/${learner.id}/edit`)}
+              onSelect={() => router.push(`/learners/profiles/${learner.id}/edit`)}
             >
               <FileEdit className="mr-2 h-4 w-4" />
               Edit
@@ -170,32 +170,32 @@ export function DataTableRowActions<TData>({
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   <DropdownMenuItem
-                    onClick={() => handleStatusUpdate('enquiry')}
-                    disabled={learner.lifecycle_status === 'enquiry' || updateMutation.isPending}
+                    onClick={() => handleStatusUpdate('active')}
+                    disabled={learner.lifecycle_status === 'active' || updateMutation.isPending}
                   >
-                    <HelpCircle className="mr-2 h-4 w-4 text-gray-500" />
-                    Mark as Enquiry
+                    <UserCheck className="mr-2 h-4 w-4 text-green-500" />
+                    Mark as Active
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => handleStatusUpdate('pending')}
-                    disabled={learner.lifecycle_status === 'pending' || updateMutation.isPending}
+                    onClick={() => handleStatusUpdate('inactive')}
+                    disabled={learner.lifecycle_status === 'inactive' || updateMutation.isPending}
                   >
-                    <Clock className="mr-2 h-4 w-4 text-yellow-500" />
-                    Mark as Pending
+                    <UserX className="mr-2 h-4 w-4 text-orange-500" />
+                    Mark as Inactive
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => handleStatusUpdate('rejected')}
-                    disabled={learner.lifecycle_status === 'rejected' || updateMutation.isPending}
+                    onClick={() => handleStatusUpdate('exited')}
+                    disabled={learner.lifecycle_status === 'exited' || updateMutation.isPending}
                   >
                     <XCircle className="mr-2 h-4 w-4 text-red-500" />
-                    Mark as Rejected
+                    Mark as Exited
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => handleStatusUpdate('waitlisted')}
-                    disabled={learner.lifecycle_status === 'waitlisted' || updateMutation.isPending}
+                    onClick={() => handleStatusUpdate('graduated')}
+                    disabled={learner.lifecycle_status === 'graduated' || updateMutation.isPending}
                   >
-                    <AlertCircle className="mr-2 h-4 w-4 text-blue-500" />
-                    Mark as Waitlisted
+                    <GraduationCap className="mr-2 h-4 w-4 text-blue-500" />
+                    Mark as Graduated
                   </DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
@@ -224,7 +224,7 @@ export function DataTableRowActions<TData>({
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              enquiry for &quot;{learner.first_name} {learner.last_name}&quot; and
+              student profile for &quot;{learner.first_name} {learner.last_name}&quot; and
               remove all associated data.
             </AlertDialogDescription>
           </AlertDialogHeader>
