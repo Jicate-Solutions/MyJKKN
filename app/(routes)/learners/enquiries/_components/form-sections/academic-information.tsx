@@ -790,7 +790,7 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
             name="first_graduate"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>First Graduate?</FormLabel>
+                <FormLabel>First Graduate? <span className="text-red-500">*</span></FormLabel>
                 <Select
                   onValueChange={(value) => field.onChange(value === 'true')}
                   value={field.value === true ? 'true' : field.value === false ? 'false' : ''}

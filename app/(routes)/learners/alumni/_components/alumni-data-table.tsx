@@ -1,10 +1,11 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import type { DataFetchParams, DataFetchResult } from '@/components/data-table/data-table';
 import { AlumniSearchParams } from './data-table-schema';
 import { alumniColumns } from './columns';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
-import type { LifecycleStatus } from '@/types/learner-profile';
+import type { LifecycleStatus, LearnerProfile } from '@/types/learner-profile';
 
 interface AlumniDataTableProps {
   search: AlumniSearchParams;
@@ -15,15 +16,7 @@ export function AlumniDataTable({
   search,
   statusFilter
 }: AlumniDataTableProps) {
-  const fetchData = async (params: {
-    page: number;
-    limit: number;
-    search: string;
-    from_date: string;
-    to_date: string;
-    sort_by: string;
-    sort_order: string;
-  }) => {
+  const fetchData = async (params: DataFetchParams) => {
     try {
       const filters = {
         page: params.page,
@@ -66,7 +59,6 @@ export function AlumniDataTable({
       console.error('[learners/alumni] Error fetching alumni:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
         data: [],
         pagination: { page: 1, limit: 50, total_pages: 0, total_items: 0 },
       };
@@ -75,7 +67,7 @@ export function AlumniDataTable({
 
   return (
     <DataTable
-      fetchDataFn={fetchData}
+      fetchDataFn={fetchData as (params: DataFetchParams) => Promise<DataFetchResult<any>>}
       getColumns={() => alumniColumns as any}
       exportConfig={{
         entityName: 'alumni',
