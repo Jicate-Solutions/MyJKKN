@@ -514,7 +514,7 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Board of Study</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value || ''}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select board" />
@@ -593,7 +593,7 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Group/Stream</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value || ''}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select group" />
@@ -751,7 +751,7 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
                 <FormLabel>Applied for Counseling?</FormLabel>
                 <Select
                   onValueChange={(value) => field.onChange(value === 'true')}
-                  defaultValue={field.value ? 'true' : 'false'}
+                  value={field.value === true ? 'true' : field.value === false ? 'false' : ''}
                 >
                   <FormControl>
                     <SelectTrigger>
@@ -793,7 +793,7 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
                 <FormLabel>First Graduate?</FormLabel>
                 <Select
                   onValueChange={(value) => field.onChange(value === 'true')}
-                  defaultValue={field.value ? 'true' : 'false'}
+                  value={field.value === true ? 'true' : field.value === false ? 'false' : ''}
                 >
                   <FormControl>
                     <SelectTrigger>

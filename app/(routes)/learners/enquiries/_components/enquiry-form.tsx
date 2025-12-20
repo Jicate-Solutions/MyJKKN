@@ -191,10 +191,13 @@ function getLocationIdByName(
   try {
     console.log(`[enquiry-form] Converting ${type} name "${name}" to ID`);
 
+    // Normalize name for case-insensitive comparison
+    const normalizedName = name.trim().toLowerCase();
+
     if (type === 'state') {
-      const state = indianStates.find((s) => s.name === name);
+      const state = indianStates.find((s) => s.name.toLowerCase() === normalizedName);
       if (state) {
-        console.log(`[enquiry-form] Found state ID: ${state.id}`);
+        console.log(`[enquiry-form] Found state ID: ${state.id} for name: ${name}`);
         return state.id;
       } else {
         console.warn(`[enquiry-form] State "${name}" not found in indianStates`);
@@ -206,9 +209,9 @@ function getLocationIdByName(
     if (type === 'district') {
       for (const state of indianStates) {
         const districts = getDistrictsByState(state.id);
-        const district = districts.find((d) => d.name === name);
+        const district = districts.find((d) => d.name.toLowerCase() === normalizedName);
         if (district) {
-          console.log(`[enquiry-form] Found district ID: ${district.id}`);
+          console.log(`[enquiry-form] Found district ID: ${district.id} for name: ${name}`);
           return district.id;
         }
       }
@@ -223,9 +226,9 @@ function getLocationIdByName(
         const districts = getDistrictsByState(stateId);
         for (const district of districts) {
           const taluks = getTaluksByDistrict(stateId, district.id);
-          const taluk = taluks.find((t) => t.name === name);
+          const taluk = taluks.find((t) => t.name.toLowerCase() === normalizedName);
           if (taluk) {
-            console.log(`[enquiry-form] Found taluk ID: ${taluk.id}`);
+            console.log(`[enquiry-form] Found taluk ID: ${taluk.id} for name: ${name}`);
             return taluk.id;
           }
         }
@@ -236,9 +239,9 @@ function getLocationIdByName(
           const districts = getDistrictsByState(state.id);
           for (const district of districts) {
             const taluks = getTaluksByDistrict(state.id, district.id);
-            const taluk = taluks.find((t) => t.name === name);
+            const taluk = taluks.find((t) => t.name.toLowerCase() === normalizedName);
             if (taluk) {
-              console.log(`[enquiry-form] Found taluk ID: ${taluk.id}`);
+              console.log(`[enquiry-form] Found taluk ID: ${taluk.id} for name: ${name}`);
               return taluk.id;
             }
           }
@@ -303,7 +306,7 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
 
           // Academic
           last_school: learner.last_school || '',
-          board_of_study: learner.board_of_study || '',
+          board_of_study: learner.board_of_study?.toLowerCase() || '',
           tenth_marks: {
             max_marks: learner.tenth_marks?.max_marks || '',
             obtained_marks: learner.tenth_marks?.obtained_marks || '',

@@ -23,6 +23,8 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { LearnerProfile } from '@/types/learner-profile';
 import { cn } from '@/lib/utils';
+import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
+import { UserIcon } from 'lucide-react';
 
 interface EnquiryDetailProps {
   enquiry: LearnerProfile;
@@ -111,70 +113,102 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
             <>
               <CardHeader>
                 <CardTitle>Personal Details</CardTitle>
-                <CardDescription>Basic personal information</CardDescription>
+                <CardDescription>Personal and family information</CardDescription>
               </CardHeader>
               <CardContent className='space-y-6'>
-                <div className='grid grid-cols-2 gap-4'>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      First Name
-                    </h3>
-                    <p className='text-sm'>{enquiry.first_name}</p>
+                {/* Profile Header with Image and Name */}
+                <div className='flex items-start gap-6 pb-6 border-b'>
+                  <div className='relative w-24 h-24 rounded-full overflow-hidden bg-muted flex items-center justify-center flex-shrink-0'>
+                    {enquiry.student_photo_url ? (
+                      <img
+                        src={enquiry.student_photo_url}
+                        alt={`${enquiry.first_name} ${enquiry.last_name || ''}`}
+                        className='w-full h-full object-cover'
+                      />
+                    ) : (
+                      <div className='w-full h-full flex items-center justify-center bg-primary/10'>
+                        <UserIcon className='h-12 w-12 text-muted-foreground' />
+                      </div>
+                    )}
                   </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Last Name
-                    </h3>
-                    <p className='text-sm'>
-                      {enquiry.last_name || 'Not specified'}
-                    </p>
+                  <div className='flex-1 space-y-2'>
+                    <div>
+                      <h2 className='text-2xl font-bold tracking-tight'>
+                        {enquiry.first_name} {enquiry.last_name || ''}
+                      </h2>
+                      <p className='text-sm text-muted-foreground'>
+                        {enquiry.application_id
+                          ? `Application ID: ${enquiry.application_id}`
+                          : enquiry.roll_number
+                          ? `Roll No: ${enquiry.roll_number}`
+                          : 'No ID assigned'}
+                      </p>
+                    </div>
+                    <div>
+                      <LifecycleStatusBadge status={enquiry.lifecycle_status} showIcon />
+                    </div>
                   </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Date of Birth
-                    </h3>
-                    <p className='text-sm'>{formatDate(enquiry.date_of_birth)}</p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Gender
-                    </h3>
-                    <p className='text-sm'>{enquiry.gender}</p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Religion
-                    </h3>
-                    <p className='text-sm'>{enquiry.religion}</p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Community
-                    </h3>
-                    <p className='text-sm'>{enquiry.community}</p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Caste
-                    </h3>
-                    <p className='text-sm'>
-                      {enquiry.caste || 'Not specified'}
-                    </p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Aadhar Number
-                    </h3>
-                    <p className='text-sm'>
-                      {enquiry.aadhar_number || 'Not provided'}
-                    </p>
+                </div>
+
+                {/* Personal Information */}
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Personal Information</h3>
+                  <div className='grid grid-cols-2 gap-4'>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Date of Birth
+                      </h4>
+                      <p className='text-sm'>{formatDate(enquiry.date_of_birth)}</p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Gender
+                      </h4>
+                      <p className='text-sm'>{enquiry.gender}</p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Blood Group
+                      </h4>
+                      <p className='text-sm'>
+                        {enquiry.blood_group || 'Not specified'}
+                      </p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Religion
+                      </h4>
+                      <p className='text-sm'>{enquiry.religion}</p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Community
+                      </h4>
+                      <p className='text-sm'>{enquiry.community}</p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Caste
+                      </h4>
+                      <p className='text-sm'>
+                        {enquiry.caste || 'Not specified'}
+                      </p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Aadhar Number
+                      </h4>
+                      <p className='text-sm'>
+                        {enquiry.aadhar_number || 'Not provided'}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
                 <Separator />
 
-                <div className='space-y-2'>
-                  <h3 className='text-sm font-medium'>Parent/Guardian Information</h3>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Parent/Guardian Information</h3>
                   <div className='grid grid-cols-2 gap-4'>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
@@ -238,8 +272,8 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                 <CardDescription>Academic and enrollment details</CardDescription>
               </CardHeader>
               <CardContent className='space-y-6'>
-                <div className='space-y-2'>
-                  <h3 className='text-sm font-medium'>Student Identification</h3>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Student Identification</h3>
                   <div className='grid grid-cols-2 gap-4'>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
@@ -270,8 +304,8 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
 
                 <Separator />
 
-                <div className='space-y-2'>
-                  <h3 className='text-sm font-medium'>Program Details</h3>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Program Details</h3>
                   <div className='grid grid-cols-2 gap-4'>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
@@ -360,8 +394,8 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
 
                 <Separator />
 
-                <div className='space-y-2'>
-                  <h3 className='text-sm font-medium'>Counseling & Quota Information</h3>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Counseling & Quota Information</h3>
                   <div className='grid grid-cols-2 gap-4'>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
@@ -419,8 +453,8 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                 </CardDescription>
               </CardHeader>
               <CardContent className='space-y-6'>
-                <div className='space-y-2'>
-                  <h3 className='text-sm font-medium'>Academic Background</h3>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Academic Background</h3>
                   <div className='grid grid-cols-2 gap-4'>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
@@ -439,8 +473,8 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
 
                 <Separator />
 
-                <div className='space-y-2'>
-                  <h3 className='text-sm font-medium'>10th Grade Marks</h3>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>10th Grade Marks</h3>
                   {enquiry.tenth_marks ? (
                     <div className='grid grid-cols-2 md:grid-cols-3 gap-4'>
                       <div className='space-y-1'>
@@ -477,8 +511,8 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
 
                 <Separator />
 
-                <div className='space-y-2'>
-                  <h3 className='text-sm font-medium'>12th Grade Marks</h3>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>12th Grade Marks</h3>
                   {enquiry.twelfth_marks ? (
                     <div className='space-y-4'>
                       <div className='space-y-1'>
@@ -525,8 +559,8 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
 
                 <Separator />
 
-                <div className='space-y-2'>
-                  <h3 className='text-sm font-medium'>Entrance Exam Details</h3>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Entrance Exam Details</h3>
                   <div className='grid grid-cols-2 gap-4'>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
@@ -574,8 +608,8 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                 <CardDescription>Contact information and address</CardDescription>
               </CardHeader>
               <CardContent className='space-y-6'>
-                <div className='space-y-2'>
-                  <h3 className='text-sm font-medium'>Contact Information</h3>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Contact Information</h3>
                   <div className='grid grid-cols-2 gap-4'>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
@@ -594,8 +628,8 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
 
                 <Separator />
 
-                <div className='space-y-2'>
-                  <h3 className='text-sm font-medium'>Permanent Address</h3>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Permanent Address</h3>
                   <div className='grid grid-cols-1 gap-4'>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
@@ -704,8 +738,8 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
 
                 <Separator />
 
-                <div className='space-y-2'>
-                  <h3 className='text-sm font-medium'>Reference Information</h3>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Reference Information</h3>
                   <div className='grid grid-cols-2 gap-4'>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
@@ -789,6 +823,26 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                       Last Updated
                     </h3>
                     <p className='text-sm'>{formatDate(enquiry.updated_at)}</p>
+                  </div>
+                  <div className='space-y-1'>
+                    <h3 className='text-sm font-medium text-muted-foreground'>
+                      Created By
+                    </h3>
+                    <p className='text-sm'>
+                      {enquiry.created_by_user
+                        ? `${enquiry.created_by_user.full_name || enquiry.created_by_user.email}`
+                        : 'Not available'}
+                    </p>
+                  </div>
+                  <div className='space-y-1'>
+                    <h3 className='text-sm font-medium text-muted-foreground'>
+                      Updated By
+                    </h3>
+                    <p className='text-sm'>
+                      {enquiry.updated_by_user
+                        ? `${enquiry.updated_by_user.full_name || enquiry.updated_by_user.email}`
+                        : 'Not available'}
+                    </p>
                   </div>
                 </div>
               </CardContent>

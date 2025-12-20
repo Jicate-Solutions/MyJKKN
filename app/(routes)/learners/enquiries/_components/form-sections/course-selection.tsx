@@ -109,7 +109,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Quota</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select onValueChange={field.onChange} value={field.value || ''}>
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue placeholder="Select quota" />
@@ -132,7 +132,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Category</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select onValueChange={field.onChange} value={field.value || ''}>
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
@@ -180,7 +180,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
                   form.setValue('department_id', '');
                   form.setValue('program_id', '');
                 }}
-                defaultValue={field.value}
+                value={field.value || ''}
               >
                 <FormControl>
                   <SelectTrigger>
@@ -214,7 +214,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
                   form.setValue('department_id', '');
                   form.setValue('program_id', '');
                 }}
-                defaultValue={field.value}
+                value={field.value || ''}
                 disabled={!watchedInstitutionId || loadingDegrees}
               >
                 <FormControl>
@@ -261,7 +261,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
                   // Reset dependent fields
                   form.setValue('program_id', '');
                 }}
-                defaultValue={field.value}
+                value={field.value || ''}
                 disabled={!watchedDegreeId || loadingDepartments}
               >
                 <FormControl>
@@ -302,7 +302,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Entry Type</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value || ''}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select entry type" />
@@ -335,7 +335,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
                   form.setValue('semester_id', '');
                   form.setValue('section_id', '');
                 }}
-                defaultValue={field.value}
+                value={field.value || ''}
                 disabled={!watchedDepartmentId || loadingPrograms}
               >
                 <FormControl>
@@ -378,7 +378,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
               <FormLabel>Academic Year</FormLabel>
               <Select
                 onValueChange={field.onChange}
-                defaultValue={field.value}
+                value={field.value || ''}
                 disabled={!watchedInstitutionId || loadingAcademicYears}
               >
                 <FormControl>
@@ -427,7 +427,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
                   // Reset dependent field
                   form.setValue('section_id', '');
                 }}
-                defaultValue={field.value}
+                value={field.value || ''}
                 disabled={!watchedProgramId || loadingSemesters}
               >
                 <FormControl>
@@ -472,7 +472,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
               </FormLabel>
               <Select
                 onValueChange={field.onChange}
-                defaultValue={field.value}
+                value={field.value || ''}
                 disabled={!watchedSemesterId || !watchedInstitutionId || loadingSections}
               >
                 <FormControl>
@@ -582,7 +582,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
               <FormLabel>Regulation</FormLabel>
               <Select
                 onValueChange={field.onChange}
-                defaultValue={field.value}
+                value={field.value || ''}
                 disabled={!watchedInstitutionId || loadingRegulations}
               >
                 <FormControl>
@@ -625,7 +625,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
               <FormLabel>Batch</FormLabel>
               <Select
                 onValueChange={field.onChange}
-                defaultValue={field.value}
+                value={field.value || ''}
                 disabled={!watchedInstitutionId || loadingBatches}
               >
                 <FormControl>
