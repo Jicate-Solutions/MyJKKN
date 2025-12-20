@@ -6,6 +6,7 @@
 // ============================================
 
 import { UseFormReturn } from 'react-hook-form';
+import { useMemo } from 'react';
 import {
   FormControl,
   FormField,
@@ -21,12 +22,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ProfileImageUpload } from '../profile-image-upload';
 
 interface BasicDetailsProps {
   form: UseFormReturn<any>;
 }
 
 export function BasicDetailsSection({ form }: BasicDetailsProps) {
+  // Generate year options (current year - 10 to current year + 5)
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    for (let i = currentYear - 10; i <= currentYear + 5; i++) {
+      years.push(i);
+    }
+    return years.reverse(); // Most recent years first
+  }, []);
+
   // Religion options (values match database format - uppercase)
   const religionOptions = [
     { value: 'HINDU', label: 'Hindu' },
@@ -48,9 +60,31 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
     { value: 'SC (A)', label: 'SC (A)' }
   ];
 
+  // Blood group options
+  const bloodGroupOptions = [
+    { value: 'A+', label: 'A+' },
+    { value: 'A-', label: 'A-' },
+    { value: 'B+', label: 'B+' },
+    { value: 'B-', label: 'B-' },
+    { value: 'AB+', label: 'AB+' },
+    { value: 'AB-', label: 'AB-' },
+    { value: 'O+', label: 'O+' },
+    { value: 'O-', label: 'O-' },
+    { value: 'A1+', label: 'A1+' },
+    { value: 'A1B', label: 'A1B' }
+  ];
+
   return (
     <div className="space-y-6">
-      {/* Enquiry Date */}
+      {/* Profile Image Upload */}
+      <div className="flex justify-center mb-6">
+        <ProfileImageUpload
+          value={form.watch('student_photo_url')}
+          onChange={(url) => form.setValue('student_photo_url', url)}
+        />
+      </div>
+
+      {/* Enquiry Date and Admission Year */}
       <div className="grid gap-4 md:grid-cols-2">
         <FormField
           control={form.control}
@@ -61,6 +95,34 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
               <FormControl>
                 <Input type="date" {...field} value={field.value || ''} />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="admission_year"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Admission Year</FormLabel>
+              <Select
+                onValueChange={(value) => field.onChange(parseInt(value))}
+                value={field.value?.toString() || ''}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select admission year" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {yearOptions.map((year) => (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <FormMessage />
             </FormItem>
           )}
@@ -220,6 +282,31 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
                     value={field.value || ''}
                   />
                 </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="blood_group"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Blood Group</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value || ''}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select blood group" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {bloodGroupOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}

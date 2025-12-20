@@ -56,15 +56,15 @@ const statusConfig: Record<
     icon: '⏸️',
   },
   active: {
-    label: 'Active Student',
+    label: 'Active',
     variant: 'success',
-    className: 'bg-blue-100 text-blue-800 border-blue-300',
+    className: 'bg-green-600 text-white border-green-700 hover:bg-green-700 hover:text-white',
     icon: '🎓',
   },
   inactive: {
     label: 'Inactive',
-    variant: 'secondary',
-    className: 'bg-gray-100 text-gray-700 border-gray-300',
+    variant: 'destructive',
+    className: 'bg-red-600 text-white border-red-700 hover:bg-red-700 hover:text-white',
     icon: '⏸️',
   },
   exited: {

@@ -60,6 +60,9 @@ const enquiryFormSchema = z.object({
   community: z.string().optional(),
   caste: z.string().optional(),
   aadhar_number: z.string().optional(),
+  blood_group: z.string().optional(),
+  student_photo_url: z.string().optional(),
+  admission_year: z.number().optional(),
 
   // Family Information
   father_name: z.string().optional(),
@@ -123,6 +126,7 @@ const enquiryFormSchema = z.object({
   section_id: z.string().optional(),
   roll_number: z.string().optional(),
   register_number: z.string().optional(),
+  college_email: z.string().optional(),
   regulation_id: z.string().optional(),
   batch_id: z.string().optional(),
 
@@ -284,6 +288,9 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
           community: learner.community || '',
           caste: learner.caste || '',
           aadhar_number: learner.aadhar_number || '',
+          blood_group: learner.blood_group || '',
+          student_photo_url: learner.student_photo_url || '',
+          admission_year: learner.admission_year || undefined,
 
           // Family
           father_name: learner.father_name || '',
@@ -344,6 +351,7 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
           section_id: learner.section_id || '',
           roll_number: learner.roll_number || '',
           register_number: learner.register_number || '',
+          college_email: learner.college_email || '',
           regulation_id: learner.regulation_id || '',
           batch_id: learner.batch_id || '',
 
@@ -388,6 +396,9 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
           community: '',
           caste: '',
           aadhar_number: '',
+          blood_group: '',
+          student_photo_url: '',
+          admission_year: undefined,
 
           // Family
           father_name: '',
@@ -448,6 +459,7 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
           section_id: '',
           roll_number: '',
           register_number: '',
+          college_email: '',
           regulation_id: '',
           batch_id: '',
 
@@ -511,6 +523,12 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
       return value;
     };
 
+    // Helper to convert personal details to uppercase (except email fields)
+    const toUpperCaseField = (value: string | undefined) => {
+      if (!value || value.trim() === '') return undefined;
+      return value.trim().toUpperCase();
+    };
+
     // Helper to convert location IDs to names for database storage
     const getLocationNameById = (
       id: string | undefined,
@@ -536,29 +554,32 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
     };
 
     return {
-      // Basic Details (string fields - NOT NULL)
-      first_name: values.first_name || '',
-      last_name: values.last_name || undefined,
+      // Basic Details (string fields - NOT NULL) - Convert to UPPERCASE
+      first_name: toUpperCaseField(values.first_name) || '',
+      last_name: toUpperCaseField(values.last_name),
       date_of_birth: values.date_of_birth || '',
       gender: values.gender || '',
       religion: values.religion || '',
       community: values.community || '',
-      caste: values.caste || undefined,
+      caste: toUpperCaseField(values.caste),
       aadhar_number: values.aadhar_number || undefined,
+      blood_group: values.blood_group || undefined,
+      student_photo_url: values.student_photo_url || undefined,
+      admission_year: values.admission_year || undefined,
       enquiry_date: values.enquiry_date || undefined,
 
-      // Family Information (NOT NULL fields)
-      father_name: values.father_name || '',
-      father_occupation: values.father_occupation || undefined,
+      // Family Information (NOT NULL fields) - Convert to UPPERCASE
+      father_name: toUpperCaseField(values.father_name) || '',
+      father_occupation: toUpperCaseField(values.father_occupation),
       father_mobile: values.father_mobile || '',
-      mother_name: values.mother_name || '',
-      mother_occupation: values.mother_occupation || undefined,
+      mother_name: toUpperCaseField(values.mother_name) || '',
+      mother_occupation: toUpperCaseField(values.mother_occupation),
       mother_mobile: values.mother_mobile || '',
       annual_income: values.annual_income || undefined,
 
-      // Academic Information (NOT NULL fields)
-      last_school: values.last_school || '',
-      board_of_study: values.board_of_study || '',
+      // Academic Information (NOT NULL fields) - Convert to UPPERCASE
+      last_school: toUpperCaseField(values.last_school) || '',
+      board_of_study: toUpperCaseField(values.board_of_study) || '',
       tenth_marks: values.tenth_marks || {
         max_marks: '',
         obtained_marks: '',
@@ -594,11 +615,12 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
       batch_id: formatUUID(values.batch_id),
       roll_number: values.roll_number || undefined,
       register_number: values.register_number || undefined,
+      college_email: values.college_email || undefined,
 
       // Contact Details (NOT NULL fields)
       student_mobile: values.student_mobile || '',
-      student_email: values.student_email || '',
-      permanent_address_street: values.permanent_address_street || '',
+      student_email: values.student_email || '', // Keep email lowercase
+      permanent_address_street: toUpperCaseField(values.permanent_address_street) || '',
       permanent_address_taluk: getLocationNameById(
         values.permanent_address_taluk,
         'taluk',

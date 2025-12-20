@@ -1,17 +1,17 @@
 // ============================================
-// ENQUIRIES DATA TABLE SCHEMA
+// ALUMNI DATA TABLE SCHEMA
 // ============================================
-// Created: 2025-01-18
-// Purpose: Search params validation for enquiries list
+// Created: 2025-01-19
+// Purpose: Search params validation for alumni and graduates list
 // ============================================
 
 import { z } from 'zod';
 
 /**
- * Search params schema for enquiries data table
+ * Search params schema for alumni data table
  * Validates URL query parameters for filtering, sorting, and pagination
  */
-export const enquiriesSearchParamsSchema = z.object({
+export const alumniSearchParamsSchema = z.object({
   // Pagination
   page: z.coerce.number().default(1),
   pageSize: z.coerce.number().default(50),
@@ -27,7 +27,9 @@ export const enquiriesSearchParamsSchema = z.object({
   semester_id: z.string().uuid().optional(),
   section_id: z.string().uuid().optional(),
   academic_year_id: z.string().uuid().optional(),
-  lifecycle_status: z.string().optional(), // 'enquiry', 'pending', 'rejected', 'waitlisted'
+  lifecycle_status: z.string().optional(), // 'graduated' or 'alumni'
+  gender: z.string().optional(),
+  is_profile_complete: z.string().optional(),
 
   // Date range
   from_date: z.string().optional(),
@@ -38,4 +40,4 @@ export const enquiriesSearchParamsSchema = z.object({
   sort_order: z.enum(['asc', 'desc']).optional(),
 });
 
-export type EnquiriesSearchParams = z.infer<typeof enquiriesSearchParamsSchema>;
+export type AlumniSearchParams = z.infer<typeof alumniSearchParamsSchema>;

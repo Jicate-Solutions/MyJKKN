@@ -14,16 +14,19 @@ import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EnquiriesDataTable } from './_components/enquiries-data-table';
+import { EnquiriesFilters } from './_components/enquiries-filters';
 import { enquiriesSearchParamsSchema } from './_components/data-table-schema';
 import { useSearchParams } from 'next/navigation';
 import { CanView } from '@/components/auth/permission-guard';
 
 /**
- * Enquiries Page
+ * Admission Management Page
  *
- * Displays two tabs:
+ * Displays four tabs for different lifecycle statuses:
  * 1. Enquiries (lifecycle_status = 'enquiry')
  * 2. Pending Applications (lifecycle_status = 'pending')
+ * 3. Rejected (lifecycle_status = 'rejected')
+ * 4. Waitlisted (lifecycle_status = 'waitlisted')
  *
  * Features:
  * - TanStack Table with server-side pagination
@@ -40,12 +43,12 @@ export default function EnquiriesPage() {
   );
 
   return (
-    <ContentLayout title="Enquiries & Applications">
+    <ContentLayout title="Admission Management">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Learners' },
-          { label: 'Enquiries & Applications' }
+          { label: 'Admission Management' }
         ]}
       />
 
@@ -53,9 +56,9 @@ export default function EnquiriesPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
-            <h1 className="text-2xl font-bold py-1">Enquiries & Applications</h1>
+            <h1 className="text-2xl font-bold py-1">Admission Management</h1>
             <p className="text-sm sm:text-base text-muted-foreground">
-              Manage admission enquiries and pending applications
+              Manage admission lifecycle: enquiries, pending applications, rejections, and waitlist
             </p>
           </div>
 
@@ -74,14 +77,28 @@ export default function EnquiriesPage() {
           <TabsList>
             <TabsTrigger value="enquiries">Enquiries</TabsTrigger>
             <TabsTrigger value="pending">Pending Applications</TabsTrigger>
+            <TabsTrigger value="rejected">Rejected</TabsTrigger>
+            <TabsTrigger value="waitlisted">Waitlisted</TabsTrigger>
           </TabsList>
 
           <TabsContent value="enquiries" className="space-y-4">
+            <EnquiriesFilters searchParams={search} statusFilter="enquiry" />
             <EnquiriesDataTable search={search} statusFilter="enquiry" />
           </TabsContent>
 
           <TabsContent value="pending" className="space-y-4">
+            <EnquiriesFilters searchParams={search} statusFilter="pending" />
             <EnquiriesDataTable search={search} statusFilter="pending" />
+          </TabsContent>
+
+          <TabsContent value="rejected" className="space-y-4">
+            <EnquiriesFilters searchParams={search} statusFilter="rejected" />
+            <EnquiriesDataTable search={search} statusFilter="rejected" />
+          </TabsContent>
+
+          <TabsContent value="waitlisted" className="space-y-4">
+            <EnquiriesFilters searchParams={search} statusFilter="waitlisted" />
+            <EnquiriesDataTable search={search} statusFilter="waitlisted" />
           </TabsContent>
         </Tabs>
       </div>
