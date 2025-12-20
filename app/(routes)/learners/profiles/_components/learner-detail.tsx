@@ -668,13 +668,13 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       <h4 className="text-sm font-medium text-muted-foreground">
                         Permanent Address
                       </h4>
-                      <p className="text-sm">{learner.permanent_address || 'Not specified'}</p>
+                      <p className="text-sm">{learner.permanent_address_street || 'Not specified'}</p>
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">
                         Communication Address
                       </h4>
-                      <p className="text-sm">{learner.communication_address || 'Not specified'}</p>
+                      <p className="text-sm">{learner.permanent_address_street || 'Not specified'}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-4 mt-4">
@@ -682,19 +682,19 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       <h4 className="text-sm font-medium text-muted-foreground">
                         City
                       </h4>
-                      <p className="text-sm">{learner.city || 'Not specified'}</p>
+                      <p className="text-sm">{learner.permanent_address_district || 'Not specified'}</p>
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">
                         State
                       </h4>
-                      <p className="text-sm">{learner.state || 'Not specified'}</p>
+                      <p className="text-sm">{learner.permanent_address_state || 'Not specified'}</p>
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">
                         Pincode
                       </h4>
-                      <p className="text-sm">{learner.pincode || 'Not specified'}</p>
+                      <p className="text-sm">{learner.permanent_address_pin_code || 'Not specified'}</p>
                     </div>
                   </div>
                 </div>
