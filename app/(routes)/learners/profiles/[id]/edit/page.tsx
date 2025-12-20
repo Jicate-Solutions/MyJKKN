@@ -163,7 +163,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
   const watchProgramId = form.watch('program_id');
   const watchSemesterId = form.watch('semester_id');
 
-  const { data: academicYears = [] } = useAcademicYearsByInstitution(
+  const { academicYears = [] } = useAcademicYearsByInstitution(
     watchInstitutionId || ''
   );
 
@@ -173,6 +173,12 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
       try {
         setLoading(true);
         const data = await LearnerProfileService.getLearnerProfile(id);
+        
+        if (!data) {
+          setLearner(null);
+          return;
+        }
+        
         setLearner(data);
 
         // Populate form with existing data
@@ -208,14 +214,14 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
           section_id: data.section_id || '',
           register_number: data.register_number || '',
           entry_type: data.entry_type || '',
-          permanent_address: data.permanent_address || '',
-          communication_address: data.communication_address || '',
-          city: data.city || '',
-          state: data.state || '',
-          pincode: data.pincode || '',
+          permanent_address: data.permanent_address_street || '',
+          communication_address: '',
+          city: '',
+          state: data.permanent_address_state || '',
+          pincode: data.permanent_address_pin_code || '',
           accommodation_type: data.accommodation_type || '',
-          application_number: data.application_number || '',
-          admission_date: data.admission_date || '',
+          application_number: '',
+          admission_date: '',
         });
       } catch (error) {
         console.error('[learners/profiles/[id]/edit] Error fetching learner:', error);
@@ -233,8 +239,8 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
   useEffect(() => {
     async function fetchInstitutions() {
       try {
-        const data = await OrganizationService.getInstitutions();
-        setInstitutions(data || []);
+        const response = await OrganizationService.getInstitutions();
+        setInstitutions(response.data || []);
       } catch (error) {
         console.error('[learners/profiles/[id]/edit] Error fetching institutions:', error);
       }
@@ -252,7 +258,9 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
     async function fetchDegrees() {
       try {
-        const data = await DegreeService.getDegreesByInstitution(watchInstitutionId);
+        const data = await DegreeService.getDegreesByInstitution(
+          watchInstitutionId || ''
+        );
         setDegrees(data || []);
       } catch (error) {
         console.error('[learners/profiles/[id]/edit] Error fetching degrees:', error);
@@ -271,7 +279,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
     async function fetchDepartments() {
       try {
-        const data = await DepartmentService.getDepartmentsByDegree(watchDegreeId);
+        const data = await DepartmentService.getDepartmentsByDegree(watchDegreeId || '');
         setDepartments(data || []);
       } catch (error) {
         console.error('[learners/profiles/[id]/edit] Error fetching departments:', error);
@@ -290,7 +298,9 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
     async function fetchPrograms() {
       try {
-        const data = await ProgramService.getProgramsByDepartment(watchDepartmentId);
+        const data = await ProgramService.getProgramsByDepartment(
+          watchDepartmentId || ''
+        );
         setPrograms(data || []);
       } catch (error) {
         console.error('[learners/profiles/[id]/edit] Error fetching programs:', error);
@@ -309,7 +319,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
     async function fetchSemesters() {
       try {
-        const data = await SemesterService.getSemestersByProgram(watchProgramId);
+        const data = await SemesterService.getSemestersByProgram(watchProgramId || '');
         setSemesters(data || []);
       } catch (error) {
         console.error('[learners/profiles/[id]/edit] Error fetching semesters:', error);
@@ -344,44 +354,41 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
       const dto: UpdateLearnerProfileDto = {
         first_name: values.first_name,
-        last_name: values.last_name || null,
+        last_name: values.last_name || undefined,
         father_name: values.father_name,
-        father_occupation: values.father_occupation || null,
-        father_mobile: values.father_mobile || null,
+        father_occupation: values.father_occupation || undefined,
+        father_mobile: values.father_mobile || undefined,
         mother_name: values.mother_name,
-        mother_occupation: values.mother_occupation || null,
-        mother_mobile: values.mother_mobile || null,
-        date_of_birth: values.date_of_birth || null,
-        gender: values.gender || null,
-        roll_number: values.roll_number || null,
-        college_email: values.college_email || null,
-        student_email: values.student_email || null,
+        mother_occupation: values.mother_occupation || undefined,
+        mother_mobile: values.mother_mobile || undefined,
+        date_of_birth: values.date_of_birth || undefined,
+        gender: values.gender || undefined,
+        roll_number: values.roll_number || undefined,
+        college_email: values.college_email || undefined,
+        student_email: values.student_email || undefined,
         academic_year_id: values.academic_year_id,
-        student_mobile: values.student_mobile || null,
-        student_photo_url: values.student_photo_url || null,
-        religion: values.religion || null,
-        community: values.community || null,
-        caste: values.caste || null,
-        blood_group: values.blood_group || null,
-        annual_income: values.annual_income || null,
-        last_school: values.last_school || null,
-        board_of_study: values.board_of_study || null,
-        institution_id: values.institution_id || null,
-        degree_id: values.degree_id || null,
-        department_id: values.department_id || null,
-        program_id: values.program_id || null,
+        student_mobile: values.student_mobile || undefined,
+        student_photo_url: values.student_photo_url || undefined,
+        religion: values.religion || undefined,
+        community: values.community || undefined,
+        caste: values.caste || undefined,
+        blood_group: values.blood_group || undefined,
+        annual_income: values.annual_income || undefined,
+        last_school: values.last_school || undefined,
+        board_of_study: values.board_of_study || undefined,
+        institution_id: values.institution_id || undefined,
+        degree_id: values.degree_id || undefined,
+        department_id: values.department_id || undefined,
+        program_id: values.program_id || undefined,
         semester_id: values.semester_id,
         section_id: values.section_id,
-        register_number: values.register_number || null,
-        entry_type: values.entry_type || null,
-        permanent_address: values.permanent_address || null,
-        communication_address: values.communication_address || null,
-        city: values.city || null,
-        state: values.state || null,
-        pincode: values.pincode || null,
-        accommodation_type: values.accommodation_type || null,
-        application_number: values.application_number || null,
-        admission_date: values.admission_date || null,
+        register_number: values.register_number || undefined,
+        entry_type: values.entry_type || undefined,
+        permanent_address_street: values.permanent_address || undefined,
+        permanent_address_state: values.state || undefined,
+        permanent_address_pin_code: values.pincode || undefined,
+        permanent_address_district: values.city || undefined,
+        accommodation_type: values.accommodation_type || undefined,
       };
 
       await LearnerProfileService.updateLearnerProfile(id, dto);
@@ -975,7 +982,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
                               <SelectContent>
                                 {academicYears.map((year) => (
                                   <SelectItem key={year.id} value={year.id}>
-                                    {year.academic_year}
+                                    {year.academic_year_name}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

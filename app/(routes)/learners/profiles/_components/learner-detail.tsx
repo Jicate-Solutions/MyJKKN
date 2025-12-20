@@ -613,10 +613,10 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">
-                        JEE Roll Number
+                        NEET Score
                       </h4>
                       <p className="text-sm">
-                        {learner.jee_roll_number || 'Not applicable'}
+                        {learner.neet_score || 'Not applicable'}
                       </p>
                     </div>
                   </div>
