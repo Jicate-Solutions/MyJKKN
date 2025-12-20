@@ -55,7 +55,7 @@ const enquiryFormSchema = z.object({
   first_name: z.string().optional(),
   last_name: z.string().optional(),
   date_of_birth: z.string().optional(),
-  gender: z.enum(['Male', 'Female', 'Other']).optional(),
+  gender: z.enum(['MALE', 'FEMALE', 'OTHER']).optional(),
   religion: z.string().optional(),
   community: z.string().optional(),
   caste: z.string().optional(),
@@ -283,7 +283,7 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
           first_name: learner.first_name || '',
           last_name: learner.last_name || '',
           date_of_birth: learner.date_of_birth || '',
-          gender: learner.gender as 'Male' | 'Female' | 'Other' | undefined,
+          gender: learner.gender?.toUpperCase() as 'MALE' | 'FEMALE' | 'OTHER' | undefined,
           religion: learner.religion || '',
           community: learner.community || '',
           caste: learner.caste || '',
@@ -529,7 +529,7 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
       return value.trim().toUpperCase();
     };
 
-    // Helper to convert location IDs to names for database storage
+    // Helper to convert location IDs to names for database storage (uppercase)
     const getLocationNameById = (
       id: string | undefined,
       type: 'state' | 'district' | 'taluk',
@@ -538,19 +538,23 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
     ): string | undefined => {
       if (!id) return undefined;
 
+      let name: string | undefined;
+
       if (type === 'state') {
         // Use already imported location data
-        return indianStates.find((s: any) => s.id === id)?.name;
+        name = indianStates.find((s: any) => s.id === id)?.name;
       } else if (type === 'district') {
         if (!stateId) return undefined;
         const districts = getDistrictsByState(stateId);
-        return districts.find((d: any) => d.id === id)?.name;
+        name = districts.find((d: any) => d.id === id)?.name;
       } else if (type === 'taluk') {
         if (!stateId || !districtId) return undefined;
         const taluks = getTaluksByDistrict(stateId, districtId);
-        return taluks.find((t: any) => t.id === id)?.name;
+        name = taluks.find((t: any) => t.id === id)?.name;
       }
-      return undefined;
+
+      // Convert location names to uppercase for consistency
+      return name ? name.toUpperCase() : undefined;
     };
 
     return {
@@ -558,9 +562,9 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
       first_name: toUpperCaseField(values.first_name) || '',
       last_name: toUpperCaseField(values.last_name),
       date_of_birth: values.date_of_birth || '',
-      gender: values.gender || '',
-      religion: values.religion || '',
-      community: values.community || '',
+      gender: toUpperCaseField(values.gender) || '',
+      religion: toUpperCaseField(values.religion) || '',
+      community: toUpperCaseField(values.community) || '',
       caste: toUpperCaseField(values.caste),
       aadhar_number: values.aadhar_number || undefined,
       blood_group: values.blood_group || undefined,
@@ -646,7 +650,7 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
       bus_route: values.bus_route || undefined,
       bus_pickup_location: values.bus_pickup_location || undefined,
       reference_type: values.reference_type || undefined,
-      reference_name: values.reference_name || undefined,
+      reference_name: toUpperCaseField(values.reference_name),
       reference_contact: values.reference_contact || undefined,
 
       // System fields
