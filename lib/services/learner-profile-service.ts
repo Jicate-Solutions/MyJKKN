@@ -17,6 +17,7 @@ import { STATUS_TRANSITIONS, REQUIRED_FIELDS_BY_STATUS } from '@/types/learner-p
 // LEARNER PROFILE SERVICE
 // ============================================
 // Created: 2025-01-18
+// Updated: 2025-01-20 - Added created_by and updated_by tracking
 // Purpose: Unified service for complete learner lifecycle management
 // Replaces: AdmissionService + StudentService
 // ============================================
@@ -44,7 +45,9 @@ export class LearnerProfileService {
         section:sections(id, section_name),
         academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
         regulation:regulations(id, regulation_code, regulation_year),
-        batch:batches(id, batch_name, batch_code)
+        batch:batches(id, batch_name, batch_code),
+        created_by_user:profiles!created_by(id, email, full_name),
+        updated_by_user:profiles!updated_by(id, email, full_name)
       `
       )
       .eq('id', id)
@@ -178,13 +181,20 @@ export class LearnerProfileService {
    * Create new learner profile
    */
   static async createLearnerProfile(dto: CreateLearnerProfileDto): Promise<LearnerProfile> {
-    const { data, error } = await createClientSupabaseClient()
+    const supabase = createClientSupabaseClient();
+
+    // Get current user ID
+    const { data: userData } = await supabase.auth.getUser();
+    const currentUserId = userData.user?.id;
+
+    const { data, error } = await supabase
       .from('learners_profiles')
       .insert({
         ...dto,
         lifecycle_status: dto.lifecycle_status || 'enquiry',
         is_profile_complete: dto.is_profile_complete || false,
         migration_source: 'direct', // Mark as directly created (not migrated)
+        created_by: currentUserId,
       })
       .select()
       .single();
@@ -204,11 +214,18 @@ export class LearnerProfileService {
     id: string,
     dto: UpdateLearnerProfileDto
   ): Promise<LearnerProfile> {
-    const { data, error } = await createClientSupabaseClient()
+    const supabase = createClientSupabaseClient();
+
+    // Get current user ID
+    const { data: userData } = await supabase.auth.getUser();
+    const currentUserId = userData.user?.id;
+
+    const { data, error } = await supabase
       .from('learners_profiles')
       .update({
         ...dto,
         updated_at: new Date().toISOString(),
+        updated_by: currentUserId,
       })
       .eq('id', id)
       .select()

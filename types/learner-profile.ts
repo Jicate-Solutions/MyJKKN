@@ -188,6 +188,16 @@ export interface LearnerProfile {
     batch_name: string;
     batch_code: string;
   };
+  created_by_user?: {
+    id: string;
+    email: string;
+    full_name?: string;
+  };
+  updated_by_user?: {
+    id: string;
+    email: string;
+    full_name?: string;
+  };
 }
 
 // ============================================

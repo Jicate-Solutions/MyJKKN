@@ -89,12 +89,19 @@ export function useBatches(initialFilters: BatchFilters = {}) {
     [fetchBatches]
   );
 
-  // Update filtersRef when initialFilters change
+  // Fetch data on mount
+  useEffect(() => {
+    fetchBatches(initialFilters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Update filtersRef when initialFilters change and fetch data
   useEffect(() => {
     if (JSON.stringify(initialFilters) !== JSON.stringify(filtersRef.current)) {
       setFilters(initialFilters);
+      fetchBatches(initialFilters);
     }
-  }, [initialFilters]);
+  }, [initialFilters, fetchBatches]);
 
   const createBatch = useCallback(
     async (data: CreateBatchDto) => {
