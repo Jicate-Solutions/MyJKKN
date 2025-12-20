@@ -457,34 +457,34 @@ export function GetPages(pathname: string): MenuGroup[] {
         }
       ]
     },
-    // Old Students/Learners Management (Will be removed later - kept for testing)
+    // Old Students/Learners Management (DEPRECATED - Use "Learners Management" instead)
     {
-      groupLabel: 'Students (Old)',
+      groupLabel: 'Students (Old - Deprecated)',
       menus: [
         {
           href: '/students/dashboard',
-          label: 'Student Analytics',
+          label: 'Student Analytics (Old)',
           active: pathname === '/students/dashboard',
           icon: BarChart,
           submenus: []
         },
         {
           href: '/students',
-          label: 'Students List',
+          label: 'Students List (Old)',
           active: pathname === '/students',
           icon: Users,
           submenus: []
         },
         {
           href: '/students/promotion',
-          label: 'Student Promotion',
+          label: 'Student Promotion (Old)',
           active: pathname === '/students/promotion',
           icon: GraduationCap,
           submenus: []
         },
         {
           href: '/students/graduated',
-          label: 'Graduated & Exited',
+          label: 'Graduated & Exited (Old)',
           active: pathname === '/students/graduated',
           icon: Award,
           submenus: []
@@ -716,7 +716,7 @@ export function GetPages(pathname: string): MenuGroup[] {
 
     // NEW: Unified Learners Module (Will replace old modules)
     {
-      groupLabel: 'Learners Profiles (New)',
+      groupLabel: 'Learners Management',
       menus: [
         {
           href: '/learners/analytics',
@@ -730,14 +730,36 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Admission Management',
           active: pathname.startsWith('/learners/enquiries') || pathname.startsWith('/learners/applications'),
           icon: ClipboardCheck,
-          submenus: []
+          submenus: [
+            {
+              href: '/learners/enquiries',
+              label: 'All Enquiries',
+              active: pathname === '/learners/enquiries'
+            },
+            {
+              href: '/learners/enquiries/new',
+              label: 'New Enquiry',
+              active: pathname === '/learners/enquiries/new'
+            }
+          ]
         },
         {
           href: '/learners/profiles',
-          label: 'Learners Profiles',
+          label: 'Learner Profiles',
           active: pathname.startsWith('/learners/profiles'),
           icon: Users,
-          submenus: []
+          submenus: [
+            {
+              href: '/learners/profiles',
+              label: 'All Profiles',
+              active: pathname === '/learners/profiles'
+            },
+            {
+              href: '/learners/profiles/promotion',
+              label: 'Student Promotion',
+              active: pathname.startsWith('/learners/profiles/promotion')
+            }
+          ]
         },
         {
           href: '/learners/alumni',
@@ -749,34 +771,34 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
 
-    // OLD: Admissions Management (Will be removed later - kept for testing)
+    // OLD: Admissions Management (DEPRECATED - Use "Learners Management" instead)
     {
-      groupLabel: 'Admissions (Old)',
+      groupLabel: 'Admissions (Old - Deprecated)',
       menus: [
         {
           href: '/admissions/analytics',
-          label: 'Admissions Analytics',
+          label: 'Admissions Analytics (Old)',
           active: pathname.startsWith('/admissions/analytics'),
           icon: BarChart,
           submenus: []
         },
         {
           href: '/admissions',
-          label: 'All Admissions',
+          label: 'All Admissions (Old)',
           active: pathname === '/admissions',
           icon: ClipboardCheck,
           submenus: []
         },
         {
           href: '/admissions/new',
-          label: 'New Admission',
+          label: 'New Admission (Old)',
           active: pathname === '/admissions/new',
           icon: PlusCircle,
           submenus: []
         },
         {
           href: '/admissions/crm',
-          label: 'Enquiry CRM',
+          label: 'Enquiry CRM (Old)',
           active: pathname === '/admissions/crm',
           icon: MessageCircle,
           submenus: []

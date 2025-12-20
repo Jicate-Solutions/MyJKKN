@@ -10,6 +10,7 @@ import type {
   EnrollmentDto,
   LearnerDashboardStats,
   LearnerLifecycleFunnel,
+  LifecycleStatus,
 } from '@/types/learner-profile';
 
 // ============================================
@@ -97,14 +98,15 @@ export function useLifecycleFunnel(
 
 /**
  * Get dashboard statistics
+ * Updated: 2025-01-20 - Now uses LearnerDashboardFilters
  */
 export function useLearnerDashboard(
-  institutionId?: string,
-  options?: Omit<UseQueryOptions<LearnerDashboardStats, Error>, 'queryKey' | 'queryFn'>
+  filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+  options?: Omit<UseQueryOptions<import('@/types/learner-dashboard').LearnerDashboardStats, Error>, 'queryKey' | 'queryFn'>
 ) {
-  return useQuery<LearnerDashboardStats, Error>({
-    queryKey: learnerProfileKeys.dashboard(institutionId),
-    queryFn: () => LearnerProfileService.getDashboardStats(institutionId),
+  return useQuery<import('@/types/learner-dashboard').LearnerDashboardStats, Error>({
+    queryKey: ['learners', 'dashboard', filters],
+    queryFn: () => LearnerProfileService.getDashboardStats(filters),
     ...options,
   });
 }
@@ -355,4 +357,76 @@ export function usePrefetchLearnerProfiles() {
       queryFn: () => LearnerProfileService.getLearnerProfiles(filters),
     });
   };
+}
+
+// ============================================
+// PROMOTION HOOKS
+// ============================================
+
+/**
+ * Promote learners to new semester/section
+ * Updated: 2025-01-20 - Added promotion feature
+ */
+export function usePromoteLearners() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    { success: string[]; failed: { id: string; error: string }[] },
+    Error,
+    {
+      learnerIds: string[];
+      semesterId: string;
+      sectionId: string;
+      academicYearId?: string;
+      onProgress?: (
+        current: number,
+        total: number,
+        success: string[],
+        failed: { id: string; error: string }[]
+      ) => void;
+    }
+  >({
+    mutationFn: ({ learnerIds, semesterId, sectionId, academicYearId, onProgress }) =>
+      LearnerProfileService.bulkPromoteLearners(
+        learnerIds,
+        semesterId,
+        sectionId,
+        academicYearId,
+        onProgress
+      ),
+    onSuccess: () => {
+      // Invalidate all caches
+      queryClient.invalidateQueries({ queryKey: learnerProfileKeys.all });
+    },
+  });
+}
+
+/**
+ * Bulk update learner status
+ * Updated: 2025-01-20 - Added status promotion feature
+ */
+export function useBulkUpdateStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    { success: string[]; failed: { id: string; error: string }[] },
+    Error,
+    {
+      learnerIds: string[];
+      newStatus: LifecycleStatus;
+      onProgress?: (
+        current: number,
+        total: number,
+        success: string[],
+        failed: { id: string; error: string }[]
+      ) => void;
+    }
+  >({
+    mutationFn: ({ learnerIds, newStatus, onProgress }) =>
+      LearnerProfileService.bulkUpdateStatus(learnerIds, newStatus, onProgress),
+    onSuccess: () => {
+      // Invalidate all caches
+      queryClient.invalidateQueries({ queryKey: learnerProfileKeys.all });
+    },
+  });
 }

@@ -12,10 +12,11 @@ import { DataTable } from '@/components/data-table/data-table';
 import { profileColumns } from './columns';
 import type { ProfilesSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { TrashIcon } from 'lucide-react';
+import { TrashIcon, ArrowRight } from 'lucide-react';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 import { toast } from 'sonner';
+import Link from 'next/link';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -178,23 +179,35 @@ export function ProfilesDataTable({ search, statusFilter }: ProfilesDataTablePro
     allSelectedIds: (string | number)[];
     totalSelectedCount: number;
     resetSelection: () => void;
-  }) => (
-    <div className="flex items-center gap-2">
-      {props.selectedRows.length > 0 && (
-        <Button
-          onClick={() =>
-            handleBulkDelete(props.selectedRows as LearnerProfile[], props.resetSelection)
-          }
-          variant="destructive"
-          size="sm"
-          className="h-8"
-        >
-          <TrashIcon className="mr-2 h-4 w-4" />
-          Delete Selected ({props.selectedRows.length})
-        </Button>
-      )}
-    </div>
-  );
+  }) => {
+    const selectedIds = props.allSelectedIds.join(',');
+
+    return (
+      <div className="flex items-center gap-2">
+        {props.selectedRows.length > 0 && (
+          <>
+            <Button asChild size="sm" className="h-8">
+              <Link href={`/learners/profiles/promotion?ids=${selectedIds}`}>
+                <ArrowRight className="mr-2 h-4 w-4" />
+                Promote Selected ({props.selectedRows.length})
+              </Link>
+            </Button>
+            <Button
+              onClick={() =>
+                handleBulkDelete(props.selectedRows as LearnerProfile[], props.resetSelection)
+              }
+              variant="destructive"
+              size="sm"
+              className="h-8"
+            >
+              <TrashIcon className="mr-2 h-4 w-4" />
+              Delete Selected ({props.selectedRows.length})
+            </Button>
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
