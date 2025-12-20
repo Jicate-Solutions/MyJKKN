@@ -184,7 +184,7 @@ export function AccommodationPreferencesSection({
           name='accommodation_type'
           render={({ field }) => (
             <FormItem className='space-y-3'>
-              <FormLabel>Accommodation Type</FormLabel>
+              <FormLabel>Accommodation Type <span className="text-red-500">*</span></FormLabel>
               <FormControl>
                 <RadioGroup
                   onValueChange={field.onChange}

@@ -135,7 +135,7 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
               name='permanent_address_street'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Street Address</FormLabel>
+                  <FormLabel>Street Address <span className="text-red-500">*</span></FormLabel>
                   <FormControl>
                     <Input
                       {...field}
@@ -154,7 +154,7 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
             name='permanent_address_state'
             render={({ field }) => (
               <FormItem className='flex flex-col'>
-                <FormLabel>State</FormLabel>
+                <FormLabel>State <span className="text-red-500">*</span></FormLabel>
                 <Popover open={stateOpen} onOpenChange={setStateOpen}>
                   <PopoverTrigger asChild>
                     <FormControl>
@@ -218,7 +218,7 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
             name='permanent_address_district'
             render={({ field }) => (
               <FormItem className='flex flex-col'>
-                <FormLabel>District</FormLabel>
+                <FormLabel>District <span className="text-red-500">*</span></FormLabel>
                 <Popover open={districtOpen} onOpenChange={setDistrictOpen}>
                   <PopoverTrigger asChild>
                     <FormControl>
@@ -288,7 +288,7 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
             name='permanent_address_taluk'
             render={({ field }) => (
               <FormItem className='flex flex-col'>
-                <FormLabel>Taluk/Tehsil</FormLabel>
+                <FormLabel>Taluk/Tehsil <span className="text-red-500">*</span></FormLabel>
                 <Popover open={talukOpen} onOpenChange={setTalukOpen}>
                   <PopoverTrigger asChild>
                     <FormControl>
@@ -358,7 +358,7 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
             name='permanent_address_pin_code'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>PIN Code</FormLabel>
+                <FormLabel>PIN Code <span className="text-red-500">*</span></FormLabel>
                 <FormControl>
                   <Input
                     {...field}
@@ -386,7 +386,7 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
             name='student_mobile'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Student&apos;s Mobile Number</FormLabel>
+                <FormLabel>Student&apos;s Mobile Number <span className="text-red-500">*</span></FormLabel>
                 <FormControl>
                   <Input
                     {...field}

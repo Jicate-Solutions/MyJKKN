@@ -206,7 +206,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
           name="degree_id"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Degree</FormLabel>
+              <FormLabel>Degree <span className="text-red-500">*</span></FormLabel>
               <Select
                 onValueChange={(value) => {
                   field.onChange(value);
@@ -254,7 +254,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
           name="department_id"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Department</FormLabel>
+              <FormLabel>Department <span className="text-red-500">*</span></FormLabel>
               <Select
                 onValueChange={(value) => {
                   field.onChange(value);
@@ -301,7 +301,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
           name="entry_type"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Entry Type</FormLabel>
+              <FormLabel>Entry Type <span className="text-red-500">*</span></FormLabel>
               <Select onValueChange={field.onChange} value={field.value || ''}>
                 <FormControl>
                   <SelectTrigger>
@@ -375,7 +375,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
           name="academic_year_id"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Academic Year</FormLabel>
+              <FormLabel>Academic Year <span className="text-red-500">*</span></FormLabel>
               <Select
                 onValueChange={field.onChange}
                 value={field.value || ''}

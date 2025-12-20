@@ -154,7 +154,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
           name="last_name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Last Name</FormLabel>
+              <FormLabel>Last Name <span className="text-red-500">*</span></FormLabel>
               <FormControl>
                 <Input placeholder="Enter last name" {...field} />
               </FormControl>
@@ -168,7 +168,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
           name="date_of_birth"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Date of Birth</FormLabel>
+              <FormLabel>Date of Birth <span className="text-red-500">*</span></FormLabel>
               <FormControl>
                 <Input type="date" {...field} />
               </FormControl>
@@ -182,7 +182,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
           name="gender"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Gender</FormLabel>
+              <FormLabel>Gender <span className="text-red-500">*</span></FormLabel>
               <Select onValueChange={field.onChange} value={field.value || ''}>
                 <FormControl>
                   <SelectTrigger>
@@ -207,7 +207,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
             name="religion"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Religion</FormLabel>
+                <FormLabel>Religion <span className="text-red-500">*</span></FormLabel>
                 <Select onValueChange={field.onChange} value={field.value || ''}>
                   <FormControl>
                     <SelectTrigger>
@@ -232,7 +232,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
             name="community"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Community</FormLabel>
+                <FormLabel>Community <span className="text-red-500">*</span></FormLabel>
                 <Select onValueChange={field.onChange} value={field.value || ''}>
                   <FormControl>
                     <SelectTrigger>
@@ -257,7 +257,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
             name="caste"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Caste</FormLabel>
+                <FormLabel>Caste <span className="text-red-500">*</span></FormLabel>
                 <FormControl>
                   <Input placeholder="Enter caste" {...field} />
                 </FormControl>
@@ -323,7 +323,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
             name="father_name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Father&apos;s Name</FormLabel>
+                <FormLabel>Father&apos;s Name <span className="text-red-500">*</span></FormLabel>
                 <FormControl>
                   <Input placeholder="Enter father's name" {...field} />
                 </FormControl>
@@ -371,7 +371,7 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
             name="mother_name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Mother&apos;s Name</FormLabel>
+                <FormLabel>Mother&apos;s Name <span className="text-red-500">*</span></FormLabel>
                 <FormControl>
                   <Input placeholder="Enter mother's name" {...field} />
                 </FormControl>

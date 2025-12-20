@@ -59,7 +59,7 @@ import {
 import { Badge } from '../ui/badge';
 
 // Define types for the data fetching function params and result
-interface DataFetchParams {
+export interface DataFetchParams {
   page: number;
   limit: number;
   search: string;
@@ -69,7 +69,7 @@ interface DataFetchParams {
   sort_order: string;
 }
 
-interface DataFetchResult<TData> {
+export interface DataFetchResult<TData> {
   success: boolean;
   data: TData[];
   pagination: {
