@@ -1,3 +1,7 @@
 {
-  "recommendations": ["anthropic.claude-code"]
+  "recommendations": [
+    "anthropic.claude-code",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss"
+  ]
 }
