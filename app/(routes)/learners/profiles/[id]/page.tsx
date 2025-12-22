@@ -54,7 +54,21 @@ export default function LearnerDetailPage({ params }: LearnerDetailPageProps) {
   }, [isSuperAdmin, canAccess, router, permissionsLoading]);
 
   useEffect(() => {
+    // UUID validation regex
+    const isValidUUID = (str: string) => {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      return uuidRegex.test(str);
+    };
+
     async function fetchLearner() {
+      // Check if ID is a valid UUID
+      if (!isValidUUID(id)) {
+        console.warn(`[learners/profiles/[id]] Invalid UUID format: "${id}"`);
+        setLoading(false);
+        setError(`Invalid learner ID format. The page "${id}" does not exist.`);
+        return;
+      }
+
       try {
         setLoading(true);
         setError(null);
@@ -87,8 +101,15 @@ export default function LearnerDetailPage({ params }: LearnerDetailPageProps) {
     return (
       <ContentLayout title="Learner Details">
         <div className="flex flex-col items-center justify-center p-8 text-center">
-          <h2 className="text-xl font-semibold mb-2">Error Loading Learner</h2>
+          <h2 className="text-xl font-semibold mb-2">
+            {error.includes('Invalid learner ID format') ? 'Page Not Found' : 'Error Loading Learner'}
+          </h2>
           <p className="text-muted-foreground mb-4">{error}</p>
+          {error.includes('bulk-edit') && (
+            <p className="text-sm text-amber-600 mb-4">
+              The Bulk Edit feature is coming soon. Please use individual edit for now.
+            </p>
+          )}
           <Button asChild>
             <Link href="/learners/profiles">Back to Learners</Link>
           </Button>

@@ -37,6 +37,7 @@ import { Loader2, CheckCircle2, XCircle, Users, AlertTriangle } from 'lucide-rea
 interface StatusPromotionFormProps {
   selectedLearnerIds: string[];
   onSuccess?: () => void;
+  onDeselectLearner?: (learnerId: string) => void;
 }
 
 const STATUS_OPTIONS: { value: LifecycleStatus; label: string; description: string }[] = [
@@ -65,6 +66,7 @@ const STATUS_OPTIONS: { value: LifecycleStatus; label: string; description: stri
 export function StatusPromotionForm({
   selectedLearnerIds,
   onSuccess,
+  onDeselectLearner,
 }: StatusPromotionFormProps) {
   const [newStatus, setNewStatus] = useState<LifecycleStatus | ''>('');
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);

@@ -42,6 +42,18 @@ export default function LearnerPromotionPage() {
 
   const [activeTab, setActiveTab] = useState('semester');
 
+  const handleDeselectLearner = (learnerId: string) => {
+    const updatedIds = selectedIds.filter(id => id !== learnerId);
+
+    if (updatedIds.length === 0) {
+      // If no learners left, redirect back to profiles page
+      router.push('/learners/profiles');
+    } else {
+      // Update URL with remaining IDs
+      router.push(`/learners/profiles/promotion?ids=${updatedIds.join(',')}`);
+    }
+  };
+
   return (
     <ContentLayout title="Promote Learners">
       <PageBreadcrumb
@@ -94,6 +106,7 @@ export default function LearnerPromotionPage() {
                 <SemesterPromotionForm
                   selectedLearnerIds={selectedIds}
                   onSuccess={() => router.push('/learners/profiles')}
+                  onDeselectLearner={handleDeselectLearner}
                 />
               </TabsContent>
 
@@ -101,6 +114,7 @@ export default function LearnerPromotionPage() {
                 <StatusPromotionForm
                   selectedLearnerIds={selectedIds}
                   onSuccess={() => router.push('/learners/profiles')}
+                  onDeselectLearner={handleDeselectLearner}
                 />
               </TabsContent>
             </Tabs>

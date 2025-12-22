@@ -7,6 +7,7 @@ import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 // LEARNER ONBOARDING API
 // ============================================
 // Created: 2025-01-20
+// Updated: 2025-01-21 - Added gender and avatar_url to profile creation
 // Purpose: Auto-create user accounts for active learners
 // Adapted from: app/api/students/complete-onboarding/route.ts
 // ============================================
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
     const { data: learner, error: learnerError } = await supabaseAdmin
       .from('learners_profiles')
       .select(
-        'id, first_name, last_name, college_email, student_mobile, institution_id, department_id, is_profile_complete, lifecycle_status'
+        'id, first_name, last_name, college_email, student_mobile, gender, student_photo_url, institution_id, department_id, is_profile_complete, lifecycle_status'
       )
       .eq('id', learner_id)
       .single();
@@ -158,11 +159,21 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Create profile
+    // Convert gender from learner format (MALE/FEMALE/OTHER) to profile format (male/female/other)
+    const genderMapping: Record<string, string> = {
+      'MALE': 'male',
+      'FEMALE': 'female',
+      'OTHER': 'other'
+    };
+    const profileGender = learner.gender ? genderMapping[learner.gender.toUpperCase()] || 'other' : null;
+
     const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
       id: authUser.id,
       email: learner.college_email,
       full_name: `${learner.first_name} ${learner.last_name || ''}`.trim(),
       phone_number: learner.student_mobile,
+      gender: profileGender,
+      avatar_url: learner.student_photo_url || null,
       role: 'student',
       institution_id: learner.institution_id,
       department_id: learner.department_id,

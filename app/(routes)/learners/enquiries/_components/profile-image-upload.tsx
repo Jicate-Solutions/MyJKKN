@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -15,10 +15,44 @@ import { Camera, Loader2, Upload, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 
+/**
+ * Helper function to upload a file to Supabase storage
+ * Use this in EnquiryForm to upload the file on submit
+ */
+export async function uploadProfileImage(file: File): Promise<string> {
+  const supabase = createClientSupabaseClient();
+
+  // Generate unique filename
+  const timestamp = Date.now();
+  const fileName = `${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+
+  // Upload to Supabase storage
+  const { data, error } = await supabase.storage
+    .from('student-photos')
+    .upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: false,
+    });
+
+  if (error) {
+    console.error('[profile-image-upload] Upload error:', error);
+    throw new Error('Failed to upload image');
+  }
+
+  // Get public URL
+  const { data: { publicUrl } } = supabase.storage
+    .from('student-photos')
+    .getPublicUrl(fileName);
+
+  return publicUrl;
+}
+
 interface ProfileImageUploadProps {
   value?: string;
   onChange: (url: string) => void;
   className?: string;
+  delayUpload?: boolean; // If true, only preview - don't upload until parent triggers
+  onFileChange?: (file: File | null) => void; // Callback for delayed upload mode
 }
 
 /**
@@ -30,12 +64,23 @@ interface ProfileImageUploadProps {
  * - Remove existing image
  * - Validates file size (max 5MB) and type (images only)
  * - Generates unique filenames using timestamp
+ * - Delayed upload mode: Only preview image, upload on form submit
  */
-export function ProfileImageUpload({ value, onChange, className }: ProfileImageUploadProps) {
+export function ProfileImageUpload({ value, onChange, className, delayUpload = false, onFileChange }: ProfileImageUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | undefined>(value);
+  const [pendingFile, setPendingFile] = useState<File | null>(null); // For delayed upload
   const fileInputRef = useRef<HTMLInputElement>(null);
   const supabase = createClientSupabaseClient();
+
+  // Cleanup: Revoke object URL on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (pendingFile && previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [pendingFile, previewUrl]);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -54,6 +99,23 @@ export function ProfileImageUpload({ value, onChange, className }: ProfileImageU
       return;
     }
 
+    // DELAYED UPLOAD MODE: Only create preview, don't upload yet
+    if (delayUpload) {
+      // Create local preview URL
+      const localPreviewUrl = URL.createObjectURL(file);
+      setPreviewUrl(localPreviewUrl);
+      setPendingFile(file);
+
+      // Notify parent component
+      if (onFileChange) {
+        onFileChange(file);
+      }
+
+      toast.success('Image selected - will upload on submit');
+      return;
+    }
+
+    // IMMEDIATE UPLOAD MODE: Upload to storage right away
     setUploading(true);
     try {
       // Generate unique filename: student-photos/timestamp-filename
@@ -101,6 +163,24 @@ export function ProfileImageUpload({ value, onChange, className }: ProfileImageU
     if (!previewUrl) return;
 
     try {
+      // DELAYED UPLOAD MODE: Only remove local preview
+      if (delayUpload && pendingFile) {
+        // Revoke local preview URL to free memory
+        URL.revokeObjectURL(previewUrl);
+        setPendingFile(null);
+        setPreviewUrl(undefined);
+        onChange('');
+
+        // Notify parent
+        if (onFileChange) {
+          onFileChange(null);
+        }
+
+        toast.success('Image removed');
+        return;
+      }
+
+      // IMMEDIATE UPLOAD MODE: Delete from storage
       // Extract file path from public URL
       const urlParts = previewUrl.split('/student-photos/');
       if (urlParts.length === 2) {

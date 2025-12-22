@@ -376,6 +376,7 @@ export interface LearnerProfileFilters {
   application_id?: string;
   roll_number?: string;
   college_email?: string;
+  ids?: string[]; // Filter by specific learner IDs
 
   // Lifecycle filters
   lifecycle_status?: LifecycleStatus | LifecycleStatus[];

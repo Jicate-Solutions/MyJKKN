@@ -276,6 +276,10 @@ export class StaffService {
     filters: StaffFilters = {}
   ): Promise<StaffListResponse> {
     try {
+      const startTime = performance.now();
+
+      // OPTIMIZATION: Use 'estimated' count instead of 'exact' for better performance
+      // 'estimated' uses Postgres statistics instead of counting all rows
       let query = this.supabase.from('staff').select(
         `
           *,
@@ -293,10 +297,17 @@ export class StaffService {
             department_name
           )
         `,
-        { count: 'exact' }
+        { count: 'estimated' }
       );
 
-      // Apply filters
+      // CRITICAL OPTIMIZATION: Apply institution_id filter FIRST to minimize RLS overhead
+      // This reduces the dataset before applying other filters, dramatically improving performance
+      if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
+        console.log('[staff-service] Applied institution filter first:', filters.institution_id);
+      }
+
+      // Apply other filters AFTER institution filter
       if (filters.search) {
         query = query.or(
           `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,staff_id.ilike.%${filters.search}%`
@@ -305,10 +316,6 @@ export class StaffService {
 
       if (filters.category_id) {
         query = query.eq('category_id', filters.category_id);
-      }
-
-      if (filters.institution_id) {
-        query = query.eq('institution_id', filters.institution_id);
       }
 
       if (filters.department_id) {
@@ -335,11 +342,22 @@ export class StaffService {
       } = (await Promise.race([
         query,
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Staff query timeout')), 30000)
+          setTimeout(() => reject(new Error('Staff query timeout - please try filtering by institution or category')), 30000)
         )
       ])) as any;
 
       if (error) throw error;
+
+      const endTime = performance.now();
+      const queryTime = endTime - startTime;
+
+      // Log performance metrics
+      console.log(`[staff-service] Query completed in ${queryTime.toFixed(2)}ms | Returned ${staff?.length || 0} records | Estimated total: ${count || 0}`);
+
+      // Warn if query is slow
+      if (queryTime > 5000) {
+        console.warn(`[staff-service] SLOW QUERY WARNING: Query took ${queryTime.toFixed(2)}ms. Consider adding institution filter.`);
+      }
 
       return {
         data: staff || [],
@@ -400,9 +418,10 @@ export class StaffService {
     institutionId: string
   ): Promise<StaffListResponse> {
     try {
-      console.log('Using optimized HOD query for institution:', institutionId);
+      const startTime = performance.now();
+      console.log('[staff-service] Using optimized HOD query for institution:', institutionId);
 
-      // Create a more targeted query that minimizes RLS overhead
+      // OPTIMIZATION: Use 'estimated' count instead of 'exact' for better performance
       let query = this.supabase.from('staff').select(
         `
           *,
@@ -420,10 +439,10 @@ export class StaffService {
             department_name
           )
         `,
-        { count: 'exact' }
+        { count: 'estimated' }
       );
 
-      // Apply institution filter first to reduce dataset
+      // Apply institution filter first to reduce dataset and minimize RLS overhead
       query = query.eq('institution_id', institutionId);
 
       // Apply other filters
@@ -464,7 +483,7 @@ export class StaffService {
           setTimeout(
             () =>
               reject(
-                new Error('Query timeout - taking longer than 30 seconds')
+                new Error('Staff query timeout - please try filtering by category or reducing the page size')
               ),
             30000
           )
@@ -472,6 +491,12 @@ export class StaffService {
       ])) as any;
 
       if (error) throw error;
+
+      const endTime = performance.now();
+      const queryTime = endTime - startTime;
+
+      // Log performance metrics
+      console.log(`[staff-service] HOD query completed in ${queryTime.toFixed(2)}ms | Returned ${staff?.length || 0} records | Estimated total: ${count || 0}`);
 
       return {
         data: staff || [],
@@ -483,7 +508,7 @@ export class StaffService {
         }
       };
     } catch (error) {
-      console.error('Error in optimized HOD staff query:', error);
+      console.error('[staff-service] Error in optimized HOD staff query:', error);
       if (error instanceof Error && error.message.includes('timeout')) {
         throw new Error(
           'Staff query timed out. Please try filtering by category or reducing the page size.'

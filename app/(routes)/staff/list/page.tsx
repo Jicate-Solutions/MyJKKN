@@ -45,7 +45,7 @@ export default function StaffPage() {
     department_id: '',
     isActive: undefined,
     page: 1,
-    limit: 50 // Increase limit for better client-side search performance
+    limit: 20 // Optimized limit to balance performance and user experience (reduced from 50)
   });
 
   // Search state for client-side advanced search

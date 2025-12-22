@@ -37,6 +37,7 @@ import { AcademicInformationSection } from './form-sections/academic-information
 import { CourseSelectionSection } from './form-sections/course-selection';
 import { ContactDetailsSection } from './form-sections/contact-details';
 import { AccommodationPreferencesSection } from './form-sections/accommodation-preferences';
+import { uploadProfileImage } from './profile-image-upload';
 
 // Import location data for converting names to IDs
 import {
@@ -277,6 +278,7 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
   const [activeTab, setActiveTab] = useState('basic-details');
   const [savedEnquiryId, setSavedEnquiryId] = useState<string | null>(learner?.id || null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
 
   // Initialize form with all fields
   const form = useForm<EnquiryFormValues>({
@@ -776,6 +778,22 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
 
     setIsSubmitting(true);
     try {
+      // Upload pending image file first (if exists)
+      if (pendingImageFile) {
+        console.log('[enquiry-form] Uploading pending image file...');
+        try {
+          const imageUrl = await uploadProfileImage(pendingImageFile);
+          values.student_photo_url = imageUrl; // Update form value with uploaded URL
+          console.log('[enquiry-form] Image uploaded successfully:', imageUrl);
+          toast.success('Image uploaded successfully');
+        } catch (error) {
+          console.error('[enquiry-form] Image upload failed:', error);
+          toast.error('Failed to upload image. Please try again.');
+          setIsSubmitting(false);
+          return; // Don't proceed if image upload fails
+        }
+      }
+
       const data = formatFormDataForAPI(values);
 
       let result: LearnerProfile;
@@ -791,6 +809,20 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
         result = await LearnerProfileService.createLearnerProfile(data as any);
         toast.success('Enquiry created successfully');
       }
+
+      // Check if user account was created
+      // @ts-ignore - Temporary metadata from service
+      const userCreation = result._userCreation;
+      if (userCreation) {
+        if (userCreation.success) {
+          toast.success(userCreation.message, { duration: 5000 });
+        } else {
+          toast.error(`User creation failed: ${userCreation.message}`, { duration: 5000 });
+        }
+      }
+
+      // Clear pending image after successful submission
+      setPendingImageFile(null);
 
       if (onSuccess) {
         onSuccess(result);
@@ -894,7 +926,7 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
 
           <TabsContent value="basic-details" className="space-y-4">
             <Card className="p-6">
-              <BasicDetailsSection form={form} />
+              <BasicDetailsSection form={form} onImageFileChange={setPendingImageFile} />
             </Card>
           </TabsContent>
 
