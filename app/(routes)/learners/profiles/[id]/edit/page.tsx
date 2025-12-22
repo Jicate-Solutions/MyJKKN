@@ -338,7 +338,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
     async function fetchSections() {
       try {
-        const data = await SectionService.getSectionsBySemester(watchSemesterId);
+        const data = await SectionService.getSectionsBySemester(watchSemesterId || '');
         setSections(data || []);
       } catch (error) {
         console.error('[learners/profiles/[id]/edit] Error fetching sections:', error);

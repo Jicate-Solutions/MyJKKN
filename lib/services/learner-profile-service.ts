@@ -61,73 +61,84 @@ export class LearnerProfileService {
   /**
    * Check if profile should auto-activate and trigger user creation
    * Called after every update
-   * Updated: 2025-01-20 - Auto-activation logic
+   * Updated: 2025-01-21 - Added user creation status return
+   *
+   * Auto-activation: Only from 'approved' → 'active'
+   * User creation: Any 'active' status with complete profile
    */
   private static async checkAndAutoActivate(
     id: string,
     updatedProfile: LearnerProfile
-  ): Promise<LearnerProfile> {
-    // Only auto-activate from pre-enrollment statuses
-    const preEnrollmentStatuses: LifecycleStatus[] = ['enquiry', 'pending', 'approved'];
-
-    if (!preEnrollmentStatuses.includes(updatedProfile.lifecycle_status as LifecycleStatus)) {
-      return updatedProfile; // Already enrolled, no action
-    }
-
-    // Check if profile is complete
+  ): Promise<{ profile: LearnerProfile; userCreation?: { success: boolean; message: string } }> {
     const isComplete = this.calculateProfileCompleteness(updatedProfile);
+    const hasValidEmail = this.isValidCollegeEmail(updatedProfile.college_email);
 
-    if (!isComplete) {
-      return updatedProfile; // Not ready for activation
+    // ============================================
+    // PART 1: Auto-activation (ONLY from 'approved' status)
+    // ============================================
+    if (updatedProfile.lifecycle_status === 'approved') {
+      // Check if profile is ready for auto-activation
+      if (!isComplete || !hasValidEmail) {
+        console.log(`[learner-profile-service] Profile not ready for auto-activation: ${id}`);
+        return { profile: updatedProfile };
+      }
+
+      console.log(`[learner-profile-service] Auto-activating learner from approved: ${id}`);
+
+      // Auto-transition to 'active'
+      const supabase = createClientSupabaseClient();
+      const { data: userData } = await supabase.auth.getUser();
+      const currentUserId = userData.user?.id;
+
+      const { data: activatedProfile, error } = await supabase
+        .from('learners_profiles')
+        .update({
+          lifecycle_status: 'active',
+          is_profile_complete: true,
+          updated_at: new Date().toISOString(),
+          updated_by: currentUserId,
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[learner-profile-service] Error auto-activating learner:', error);
+        return { profile: updatedProfile };
+      }
+
+      // Update profile reference for Part 2
+      updatedProfile = activatedProfile;
     }
 
-    // Validate college email
-    if (!this.isValidCollegeEmail(updatedProfile.college_email)) {
-      console.warn(`[learner-profile-service] Invalid college email for ${id}`);
-      return updatedProfile;
+    // ============================================
+    // PART 2: User creation (for ANY 'active' status)
+    // ============================================
+    let userCreationResult;
+    if (updatedProfile.lifecycle_status === 'active') {
+      // Check if ready for user creation
+      if (isComplete && hasValidEmail) {
+        console.log(`[learner-profile-service] Triggering user creation for active learner: ${id}`);
+        userCreationResult = await this.triggerUserCreation(id, updatedProfile);
+      } else {
+        console.log(`[learner-profile-service] Active learner not ready for user creation: ${id}`);
+      }
     }
 
-    console.log(`[learner-profile-service] Auto-activating learner ${id}`);
-
-    // Auto-transition to 'active'
-    const supabase = createClientSupabaseClient();
-    const { data: userData } = await supabase.auth.getUser();
-    const currentUserId = userData.user?.id;
-
-    const { data: activatedProfile, error } = await supabase
-      .from('learners_profiles')
-      .update({
-        lifecycle_status: 'active',
-        is_profile_complete: true,
-        updated_at: new Date().toISOString(),
-        updated_by: currentUserId,
-      })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('[learner-profile-service] Error auto-activating learner:', error);
-      return updatedProfile;
-    }
-
-    // Trigger user creation
-    await this.triggerUserCreation(id, activatedProfile);
-
-    return activatedProfile;
+    return { profile: updatedProfile, userCreation: userCreationResult };
   }
 
   /**
    * Trigger user account creation
-   * Updated: 2025-01-20 - User creation trigger
+   * Updated: 2025-01-21 - Added toast notification for user creation
    */
   private static async triggerUserCreation(
     learnerId: string,
     profile: LearnerProfile
-  ): Promise<void> {
+  ): Promise<{ success: boolean; message: string }> {
     if (!profile.college_email) {
       console.warn(`[learner-profile-service] No college email for ${learnerId}, skipping user creation`);
-      return;
+      return { success: false, message: 'No college email provided' };
     }
 
     try {
@@ -141,13 +152,18 @@ export class LearnerProfileService {
       if (!response.ok) {
         const errorData = await response.json();
         console.error(`[learner-profile-service] User creation failed for ${learnerId}:`, errorData);
-        // Non-blocking error - learner still activated
+        return { success: false, message: errorData.error || 'User creation failed' };
       } else {
+        const result = await response.json();
         console.log(`[learner-profile-service] User account created for ${learnerId}`);
+        return {
+          success: true,
+          message: `User account created successfully for ${profile.first_name} ${profile.last_name || ''} (${profile.college_email})`
+        };
       }
     } catch (error) {
       console.error(`[learner-profile-service] Error calling user creation API:`, error);
-      // Non-blocking error
+      return { success: false, message: 'Error connecting to user creation service' };
     }
   }
 
@@ -218,6 +234,7 @@ export class LearnerProfileService {
     const supabase = createClientSupabaseClient();
     const {
       search,
+      ids,
       lifecycle_status,
       institution_id,
       degree_id,
@@ -252,6 +269,10 @@ export class LearnerProfileService {
       );
 
     // Apply filters
+    if (ids && ids.length > 0) {
+      query = query.in('id', ids);
+    }
+
     if (search) {
       query = query.or(
         `first_name.ilike.%${search}%,last_name.ilike.%${search}%,application_id.ilike.%${search}%,roll_number.ilike.%${search}%,student_mobile.ilike.%${search}%,student_email.ilike.%${search}%`
@@ -337,7 +358,7 @@ export class LearnerProfileService {
 
   /**
    * Update learner profile
-   * Updated: 2025-01-20 - Added auto-activation check
+   * Updated: 2025-01-21 - Calculate is_profile_complete before auto-activation check
    */
   static async updateLearnerProfile(
     id: string,
@@ -349,7 +370,8 @@ export class LearnerProfileService {
     const { data: userData } = await supabase.auth.getUser();
     const currentUserId = userData.user?.id;
 
-    const { data, error } = await supabase
+    // First update with provided DTO
+    const { data: updatedData, error: updateError } = await supabase
       .from('learners_profiles')
       .update({
         ...dto,
@@ -360,15 +382,44 @@ export class LearnerProfileService {
       .select()
       .single();
 
-    if (error) {
-      console.error('[learner-profile-service] Error updating learner profile:', error);
-      throw error;
+    if (updateError) {
+      console.error('[learner-profile-service] Error updating learner profile:', updateError);
+      throw updateError;
     }
 
-    // ✨ NEW: Check for auto-activation
-    const finalProfile = await this.checkAndAutoActivate(id, data);
+    // Calculate profile completeness
+    const isComplete = this.calculateProfileCompleteness(updatedData);
 
-    return finalProfile;
+    // Update is_profile_complete flag if it changed
+    if (updatedData.is_profile_complete !== isComplete) {
+      const { data: profileWithFlag, error: flagError } = await supabase
+        .from('learners_profiles')
+        .update({
+          is_profile_complete: isComplete,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (flagError) {
+        console.error('[learner-profile-service] Error updating is_profile_complete flag:', flagError);
+        // Continue with original data, not a critical error
+      } else {
+        updatedData.is_profile_complete = isComplete;
+      }
+    }
+
+    // Check for auto-activation and user creation
+    const result = await this.checkAndAutoActivate(id, updatedData);
+
+    // Store user creation result in metadata (will be used by mutation hook)
+    if (result.userCreation) {
+      // @ts-ignore - Temporary storage for toast notification
+      result.profile._userCreation = result.userCreation;
+    }
+
+    return result.profile;
   }
 
   /**
@@ -1115,7 +1166,7 @@ export class LearnerProfileService {
 
     let query = supabase
       .from('learners_profiles')
-      .select('institution_id, institutions(institution_name)');
+      .select('institution_id, institutions(name)');
 
     if (filters.institutionIds && filters.institutionIds.length > 0) {
       query = query.in('institution_id', filters.institutionIds);
@@ -1132,7 +1183,7 @@ export class LearnerProfileService {
         if (!acc[p.institution_id]) {
           acc[p.institution_id] = {
             id: p.institution_id,
-            name: (p.institutions as any)?.institution_name || 'Unknown',
+            name: (p.institutions as any)?.name || 'Unknown',
             count: 0
           };
         }
@@ -1153,39 +1204,344 @@ export class LearnerProfileService {
 
   // Similar helper methods for other distributions
   private static async getDistributionByDepartment(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    // Similar implementation
-    return [];
+    const supabase = createClientSupabaseClient();
+
+    let query = supabase
+      .from('learners_profiles')
+      .select('department_id, departments(department_name)');
+
+    if (filters.departmentId) {
+      query = query.eq('department_id', filters.departmentId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const profiles = data || [];
+    const total = profiles.length;
+
+    const groups = profiles.reduce((acc, p) => {
+      if (p.department_id) {
+        if (!acc[p.department_id]) {
+          acc[p.department_id] = {
+            id: p.department_id,
+            name: (p.departments as any)?.department_name || 'Unknown',
+            count: 0
+          };
+        }
+        acc[p.department_id].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>).map(
+      (item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      })
+    );
   }
 
   private static async getDistributionByProgram(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    return [];
+    const supabase = createClientSupabaseClient();
+
+    let query = supabase
+      .from('learners_profiles')
+      .select('program_id, programs(program_name)');
+
+    if (filters.programId) {
+      query = query.eq('program_id', filters.programId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const profiles = data || [];
+    const total = profiles.length;
+
+    const groups = profiles.reduce((acc, p) => {
+      if (p.program_id) {
+        if (!acc[p.program_id]) {
+          acc[p.program_id] = {
+            id: p.program_id,
+            name: (p.programs as any)?.program_name || 'Unknown',
+            count: 0
+          };
+        }
+        acc[p.program_id].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>).map(
+      (item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      })
+    );
   }
 
   private static async getDistributionBySemester(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    return [];
+    const supabase = createClientSupabaseClient();
+
+    let query = supabase
+      .from('learners_profiles')
+      .select('semester_id, semesters(semester_name)');
+
+    if (filters.semesterId) {
+      query = query.eq('semester_id', filters.semesterId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const profiles = data || [];
+    const total = profiles.length;
+
+    const groups = profiles.reduce((acc, p) => {
+      if (p.semester_id) {
+        if (!acc[p.semester_id]) {
+          acc[p.semester_id] = {
+            id: p.semester_id,
+            name: (p.semesters as any)?.semester_name || 'Unknown',
+            count: 0
+          };
+        }
+        acc[p.semester_id].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>).map(
+      (item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      })
+    );
   }
 
   private static async getDistributionBySection(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    return [];
+    const supabase = createClientSupabaseClient();
+
+    let query = supabase
+      .from('learners_profiles')
+      .select('section_id, sections(section_name)');
+
+    if (filters.sectionId) {
+      query = query.eq('section_id', filters.sectionId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const profiles = data || [];
+    const total = profiles.length;
+
+    const groups = profiles.reduce((acc, p) => {
+      if (p.section_id) {
+        if (!acc[p.section_id]) {
+          acc[p.section_id] = {
+            id: p.section_id,
+            name: (p.sections as any)?.section_name || 'Unknown',
+            count: 0
+          };
+        }
+        acc[p.section_id].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>).map(
+      (item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      })
+    );
   }
 
   private static async getDistributionByGender(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    return [];
+    const supabase = createClientSupabaseClient();
+
+    let query = supabase
+      .from('learners_profiles')
+      .select('gender');
+
+    if (filters.gender) {
+      query = query.eq('gender', filters.gender);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const profiles = data || [];
+    const total = profiles.length;
+
+    const groups = profiles.reduce((acc, p) => {
+      if (p.gender) {
+        if (!acc[p.gender]) {
+          acc[p.gender] = {
+            id: p.gender,
+            name: p.gender.charAt(0).toUpperCase() + p.gender.slice(1),
+            count: 0
+          };
+        }
+        acc[p.gender].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>).map(
+      (item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      })
+    );
   }
 
   private static async getDistributionByAcademicYear(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    return [];
+    const supabase = createClientSupabaseClient();
+
+    let query = supabase
+      .from('learners_profiles')
+      .select('academic_year_id, academic_years(academic_year_name)');
+
+    if (filters.academicYearId) {
+      query = query.eq('academic_year_id', filters.academicYearId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const profiles = data || [];
+    const total = profiles.length;
+
+    const groups = profiles.reduce((acc, p) => {
+      if (p.academic_year_id) {
+        if (!acc[p.academic_year_id]) {
+          acc[p.academic_year_id] = {
+            id: p.academic_year_id,
+            name: (p.academic_years as any)?.academic_year_name || 'Unknown',
+            count: 0
+          };
+        }
+        acc[p.academic_year_id].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>).map(
+      (item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      })
+    );
   }
 
   private static async getEnquiriesTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
-    return [];
+    const supabase = createClientSupabaseClient();
+
+    let query = supabase
+      .from('learners_profiles')
+      .select('created_at')
+      .eq('lifecycle_status', 'enquiry');
+
+    if (filters.institutionIds && filters.institutionIds.length > 0) {
+      query = query.in('institution_id', filters.institutionIds);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    // Group by date
+    const groupedByDate = (data || []).reduce((acc, p) => {
+      const date = new Date(p.created_at).toISOString().split('T')[0];
+      acc[date] = (acc[date] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Convert to time series format
+    return Object.entries(groupedByDate)
+      .map(([date, count]): import('@/types/learner-dashboard').TimeSeriesDataPoint => ({
+        date,
+        count,
+        label: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }
 
   private static async getActivationsTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
-    return [];
+    const supabase = createClientSupabaseClient();
+
+    let query = supabase
+      .from('learners_profiles')
+      .select('updated_at')
+      .eq('lifecycle_status', 'active');
+
+    if (filters.institutionIds && filters.institutionIds.length > 0) {
+      query = query.in('institution_id', filters.institutionIds);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    // Group by date
+    const groupedByDate = (data || []).reduce((acc, p) => {
+      const date = new Date(p.updated_at).toISOString().split('T')[0];
+      acc[date] = (acc[date] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Convert to time series format
+    return Object.entries(groupedByDate)
+      .map(([date, count]): import('@/types/learner-dashboard').TimeSeriesDataPoint => ({
+        date,
+        count,
+        label: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }
 
   private static async getGraduationsTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
-    return [];
+    const supabase = createClientSupabaseClient();
+
+    let query = supabase
+      .from('learners_profiles')
+      .select('updated_at')
+      .eq('lifecycle_status', 'graduated');
+
+    if (filters.institutionIds && filters.institutionIds.length > 0) {
+      query = query.in('institution_id', filters.institutionIds);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    // Group by date
+    const groupedByDate = (data || []).reduce((acc, p) => {
+      const date = new Date(p.updated_at).toISOString().split('T')[0];
+      acc[date] = (acc[date] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Convert to time series format
+    return Object.entries(groupedByDate)
+      .map(([date, count]): import('@/types/learner-dashboard').TimeSeriesDataPoint => ({
+        date,
+        count,
+        label: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }
 }

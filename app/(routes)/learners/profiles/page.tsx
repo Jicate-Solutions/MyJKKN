@@ -63,11 +63,13 @@ export default function ProfilesPage() {
 
           <div className="flex gap-2">
             <CanView module="learners.edit">
-              <Button variant="outline" asChild>
-                <Link href="/learners/profiles/bulk-edit">
-                  <Upload className="mr-2 h-4 w-4" />
-                  Bulk Edit
-                </Link>
+              <Button
+                variant="outline"
+                disabled
+                title="Bulk Edit feature coming soon"
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Bulk Edit (Coming Soon)
               </Button>
             </CanView>
 

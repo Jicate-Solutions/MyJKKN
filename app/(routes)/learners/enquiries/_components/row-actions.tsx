@@ -59,7 +59,7 @@ interface DataTableRowActionsProps<TData> {
  * Actions menu for enquiry rows:
  * - View Details: Navigate to enquiry detail page
  * - Edit: Navigate to enquiry edit page
- * - Update Status: Change lifecycle status (enquiry, pending, rejected, waitlisted)
+ * - Update Status: Change lifecycle status (enquiry, pending, approved, rejected, waitlisted)
  * - Delete: Delete the enquiry (with confirmation)
  *
  * Permissions:
@@ -108,7 +108,7 @@ export function DataTableRowActions<TData>({
     if (!canEdit || !selectedStatus) return;
 
     try {
-      await updateMutation.mutateAsync({
+      const result = await updateMutation.mutateAsync({
         id: learner.id,
         dto: { lifecycle_status: selectedStatus as any }
       });
@@ -116,11 +116,24 @@ export function DataTableRowActions<TData>({
       const statusLabels: Record<string, string> = {
         enquiry: 'Enquiry',
         pending: 'Pending Application',
+        approved: 'Approved',
         rejected: 'Rejected',
         waitlisted: 'Waitlisted'
       };
 
       toast.success(`Status updated to ${statusLabels[selectedStatus]}`);
+
+      // Check if user account was created during this update
+      // @ts-ignore - Temporary metadata from service
+      const userCreation = result._userCreation;
+      if (userCreation) {
+        if (userCreation.success) {
+          toast.success(userCreation.message, { duration: 5000 });
+        } else {
+          toast.error(`User creation failed: ${userCreation.message}`, { duration: 5000 });
+        }
+      }
+
       setShowStatusDialog(false);
       setSelectedStatus('');
     } catch (error) {
@@ -182,6 +195,13 @@ export function DataTableRowActions<TData>({
                   >
                     <Clock className="mr-2 h-4 w-4 text-yellow-500" />
                     Mark as Pending
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleStatusUpdate('approved')}
+                    disabled={learner.lifecycle_status === 'approved' || updateMutation.isPending}
+                  >
+                    <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                    Mark as Approved
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => handleStatusUpdate('rejected')}

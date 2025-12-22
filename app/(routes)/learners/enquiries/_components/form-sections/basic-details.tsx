@@ -26,9 +26,10 @@ import { ProfileImageUpload } from '../profile-image-upload';
 
 interface BasicDetailsProps {
   form: UseFormReturn<any>;
+  onImageFileChange?: (file: File | null) => void;
 }
 
-export function BasicDetailsSection({ form }: BasicDetailsProps) {
+export function BasicDetailsSection({ form, onImageFileChange }: BasicDetailsProps) {
   // Generate year options (current year - 10 to current year + 5)
   const yearOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -81,6 +82,8 @@ export function BasicDetailsSection({ form }: BasicDetailsProps) {
         <ProfileImageUpload
           value={form.watch('student_photo_url')}
           onChange={(url) => form.setValue('student_photo_url', url)}
+          delayUpload={true}
+          onFileChange={onImageFileChange}
         />
       </div>
 

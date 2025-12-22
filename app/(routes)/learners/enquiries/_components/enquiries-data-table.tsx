@@ -7,7 +7,8 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { DataTable } from '@/components/data-table/data-table';
 import { enquiryColumns } from './columns';
 import type { EnquiriesSearchParams } from './data-table-schema';
@@ -16,6 +17,7 @@ import { TrashIcon } from 'lucide-react';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 import { toast } from 'sonner';
+import { learnerProfileKeys } from '@/hooks/use-learner-profiles';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,14 +59,32 @@ export function EnquiriesDataTable({
   search,
   statusFilter,
 }: EnquiriesDataTableProps) {
+  const queryClient = useQueryClient();
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [learnersToDelete, setLearnersToDelete] = useState<LearnerProfile[]>([]);
   const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
+
+  // Listen for React Query cache invalidations to trigger table refetch
+  useEffect(() => {
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      // When learner profiles list queries are invalidated, trigger refetch
+      if (event?.type === 'updated' && event?.action?.type === 'invalidate') {
+        const queryKey = event.query.queryKey;
+        if (queryKey[0] === 'learner-profiles' && queryKey[1] === 'list') {
+          setRefetchTrigger(prev => prev + 1);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [queryClient]);
 
   /**
    * Fetch data function for DataTable
    * Maps URL params to service filters
+   * Updated: 2025-01-21 - Added refetchTrigger dependency for real-time updates
    */
   const fetchData = async (params: {
     page: number;
@@ -75,6 +95,9 @@ export function EnquiriesDataTable({
     sort_by: string;
     sort_order: string;
   }) => {
+    // Include refetchTrigger in closure to force refetch when it changes
+    console.log('[enquiries-data-table] Fetching data (trigger:', refetchTrigger, ')');
+
     try {
       const filters = {
         page: params.page,
