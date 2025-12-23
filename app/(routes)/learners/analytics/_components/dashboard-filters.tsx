@@ -87,7 +87,7 @@ export function DashboardFilters({
   );
 
   // Fetch institutions
-  const { data: institutions = [] } = useQuery({
+  const { data: institutions = [] } = useQuery<{ id: string; institution_name: string }[]>({
     queryKey: ['institutions', accessibleInstitutionIds],
     queryFn: async () => {
       let query = supabase
@@ -235,7 +235,7 @@ export function DashboardFilters({
       lifecycleStatuses: selectedStatuses.length > 0 ? selectedStatuses : undefined,
       isProfileComplete: selectedProfileComplete === 'all' ? undefined : selectedProfileComplete === 'complete',
       gender: selectedGender === 'all' ? undefined : (selectedGender as 'male' | 'female' | 'other'),
-      dateRange: dateRange.from && dateRange.to ? dateRange : undefined
+      dateRange: dateRange.from && dateRange.to ? { from: dateRange.from, to: dateRange.to } : undefined
     };
 
     onFiltersChange(newFilters);
