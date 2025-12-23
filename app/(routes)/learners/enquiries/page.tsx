@@ -17,7 +17,9 @@ import { EnquiriesDataTable } from './_components/enquiries-data-table';
 import { EnquiriesFilters } from './_components/enquiries-filters';
 import { enquiriesSearchParamsSchema } from './_components/data-table-schema';
 import { useSearchParams } from 'next/navigation';
-import { CanView } from '@/components/auth/permission-guard';
+import { CanView, PermissionGuard } from '@/components/auth/permission-guard';
+import BulkUploadEnquiries from './_components/bulk-upload-enquiries';
+import { useState } from 'react';
 
 /**
  * Admission Management Page
@@ -37,10 +39,15 @@ import { CanView } from '@/components/auth/permission-guard';
  */
 export default function EnquiriesPage() {
   const searchParams = useSearchParams();
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const search = enquiriesSearchParamsSchema.parse(
     Object.fromEntries(searchParams.entries())
   );
+
+  const handleBulkUploadSuccess = () => {
+    setRefreshKey(prev => prev + 1);
+  };
 
   return (
     <ContentLayout title="Admission Management">
@@ -62,14 +69,19 @@ export default function EnquiriesPage() {
             </p>
           </div>
 
-          <CanView module="learners.create">
-            <Button asChild>
-              <Link href="/learners/enquiries/new">
-                <Plus className="mr-2 h-4 w-4" />
-                New Enquiry
-              </Link>
-            </Button>
-          </CanView>
+          <div className="flex gap-2">
+            <PermissionGuard module="learners.enquiries" action="bulk_upload">
+              <BulkUploadEnquiries onSuccess={handleBulkUploadSuccess} />
+            </PermissionGuard>
+            <CanView module="learners.create">
+              <Button asChild>
+                <Link href="/learners/enquiries/new">
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Enquiry
+                </Link>
+              </Button>
+            </CanView>
+          </div>
         </div>
 
         {/* Tabs with DataTables */}
@@ -83,7 +95,7 @@ export default function EnquiriesPage() {
 
           <TabsContent value="enquiries" className="space-y-4">
             <EnquiriesFilters searchParams={search} statusFilter="enquiry" />
-            <EnquiriesDataTable search={search} statusFilter="enquiry" />
+            <EnquiriesDataTable key={`enquiry-${refreshKey}`} search={search} statusFilter="enquiry" />
           </TabsContent>
 
           <TabsContent value="pending" className="space-y-4">

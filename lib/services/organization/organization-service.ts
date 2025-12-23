@@ -290,9 +290,9 @@ export class OrganizationService {
 
       // Delete academic structure
       await Promise.all([
+        this.supabase.from('learners_profiles').delete().eq('institution_id', id),
         this.supabase.from('students').delete().eq('institution_id', id),
         this.supabase.from('staff').delete().eq('institution_id', id),
-        this.supabase.from('admissions').delete().eq('institution_id', id),
         this.supabase.from('sections').delete().eq('institution_id', id),
         this.supabase.from('semesters').delete().eq('institution_id', id),
         this.supabase.from('courses').delete().eq('institution_id', id),

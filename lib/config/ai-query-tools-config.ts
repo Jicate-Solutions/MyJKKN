@@ -13,7 +13,6 @@ export type ToolCategory =
   | 'academic'
   | 'billing'
   | 'learners'
-  | 'admissions'
   | 'facilitators'
   | 'organization'
   | 'dashboard'
@@ -71,13 +70,6 @@ export const TOOL_CATEGORIES: ToolCategoryInfo[] = [
     description: 'Learner records, search, and analytics',
     icon: 'Users',
     color: 'bg-purple-500',
-  },
-  {
-    key: 'admissions',
-    label: 'Admissions',
-    description: 'Admission applications, statistics, and analytics',
-    icon: 'FileText',
-    color: 'bg-teal-500',
   },
   {
     key: 'facilitators',
@@ -201,7 +193,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
     name: 'get_students',
     description: 'Get list of learners with optional filters by department, program, section, status, or search term',
     category: 'learners',
-    permission: 'students.view',
+    permission: 'learners.view',
     tier: 1,
     rpcFunction: 'ai_rpc_students',
     parameters: [
@@ -222,7 +214,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
     name: 'get_student_details',
     description: 'Get detailed information about a specific learner including personal, academic, and contact details',
     category: 'learners',
-    permission: 'students.view',
+    permission: 'learners.view',
     tier: 1,
     rpcFunction: 'ai_rpc_student_details',
     parameters: [
@@ -237,7 +229,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
     name: 'search_students',
     description: 'Advanced learner search - find learners by name, roll number, email, mobile, learning partner name, or other fields',
     category: 'learners',
-    permission: 'students.view',
+    permission: 'learners.view',
     tier: 1,
     rpcFunction: 'ai_rpc_student_search',
     parameters: [
@@ -257,7 +249,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
     name: 'get_students_by_department',
     description: 'Get learner counts grouped by department with status breakdown',
     category: 'learners',
-    permission: 'students.view',
+    permission: 'learners.view',
     tier: 1,
     rpcFunction: 'ai_rpc_students_by_department',
     parameters: [
@@ -273,7 +265,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
     name: 'get_students_summary',
     description: 'Get summary statistics for learners including total counts, status breakdown, gender distribution, accommodation types',
     category: 'learners',
-    permission: 'students.view',
+    permission: 'learners.view',
     tier: 1,
     rpcFunction: 'ai_rpc_students_summary',
     parameters: [
@@ -290,7 +282,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
     name: 'get_learners_by_location',
     description: 'Comprehensive location-based learner search - searches across permanent address district, bus pickup location, street address, and taluk fields. Returns learners from specific areas with location statistics, distribution data, and indicates which field matched.',
     category: 'learners',
-    permission: 'students.view',
+    permission: 'learners.view',
     tier: 1,
     rpcFunction: 'ai_rpc_learners_by_location',
     parameters: [
@@ -316,7 +308,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
     name: 'get_learners_comprehensive',
     description: 'MOST POWERFUL learner search - searches ALL learner data across ALL institutions. Supports filtering by demographics (gender, religion, community, caste), accommodation (hostel, day scholar, bus), academic hierarchy, admission details (quota, category, first graduate), location, and education background. Returns comprehensive statistics breakdown.',
     category: 'learners',
-    permission: 'students.view',
+    permission: 'learners.view',
     tier: 1,
     rpcFunction: 'ai_rpc_learners_comprehensive',
     parameters: [
@@ -363,125 +355,6 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
       'How many learners in each institution?',
       'Show BC community learners who require bus',
       'List day scholar female learners',
-    ],
-  },
-
-  // Admission Tools (JKKN: Admission Applications)
-  {
-    name: 'get_admissions',
-    description: 'COMPREHENSIVE admission query - searches ALL admission applications with FULL details including: identity, contact, parents, demographics, academic background (10th/12th marks, NEET scores), admission status, address, accommodation, and timestamps. Use for any admission-related query. Returns ALL fields and statistics by default. NO LIMIT on results.',
-    category: 'admissions',
-    permission: 'admissions.view',
-    tier: 1,
-    rpcFunction: 'ai_rpc_admissions',
-    parameters: [
-      { name: 'institution_id', type: 'string', description: 'Filter by institution UUID' },
-      { name: 'department_id', type: 'string', description: 'Filter by department UUID' },
-      { name: 'program_id', type: 'string', description: 'Filter by program UUID' },
-      { name: 'degree_id', type: 'string', description: 'Filter by degree UUID' },
-      { name: 'status', type: 'string', description: 'Admission status', enum: ['pending', 'approved', 'rejected', 'waitlisted', 'enrolled'] },
-      { name: 'entry_type', type: 'string', description: 'Entry type (FIRST YEAR, LATERAL ENTRY)' },
-      { name: 'district', type: 'string', description: 'Filter by district (permanent address)' },
-      { name: 'state', type: 'string', description: 'Filter by state' },
-      { name: 'taluk', type: 'string', description: 'Filter by taluk' },
-      { name: 'gender', type: 'string', description: 'Filter by gender', enum: ['male', 'female'] },
-      { name: 'religion', type: 'string', description: 'Filter by religion' },
-      { name: 'community', type: 'string', description: 'Filter by community (BC, MBC, SC, ST, OC, etc.)' },
-      { name: 'counseling_applied', type: 'boolean', description: 'Filter by counseling status' },
-      { name: 'first_graduate', type: 'boolean', description: 'Filter first-generation graduates' },
-      { name: 'quota', type: 'string', description: 'Filter by admission quota (GOVERNMENT, MANAGEMENT)' },
-      { name: 'category', type: 'string', description: 'Filter by category' },
-      { name: 'accommodation_type', type: 'string', description: 'Filter by accommodation type (hostel, dayscholar)' },
-      { name: 'bus_required', type: 'boolean', description: 'Filter applicants who require bus transport' },
-      { name: 'search', type: 'string', description: 'Search by name, email, mobile, application ID, father name, mother name' },
-      { name: 'date_from', type: 'string', description: 'Admission date from (YYYY-MM-DD)' },
-      { name: 'date_to', type: 'string', description: 'Admission date to (YYYY-MM-DD)' },
-      { name: 'include_stats', type: 'boolean', description: 'Include statistics (default: true)' },
-    ],
-    examples: [
-      'Show all admission applications',
-      'List pending admissions',
-      'Get admissions from Karur district',
-      'Show approved female applicants',
-      'How many admissions were received this year?',
-      'List first-generation graduate applicants',
-    ],
-  },
-  {
-    name: 'get_admission_details',
-    description: 'Get COMPLETE details of a specific admission application including ALL 54 fields: personal info, parent details, 10th/12th marks, NEET scores, address, accommodation preferences, reference info, admission status, and enrollment status.',
-    category: 'admissions',
-    permission: 'admissions.view',
-    tier: 1,
-    rpcFunction: 'ai_rpc_admission_details',
-    parameters: [
-      { name: 'admission_id', type: 'string', description: 'Admission UUID' },
-      { name: 'application_id', type: 'string', description: 'Application ID (e.g., JKKN-DCH-084)' },
-    ],
-    examples: [
-      'Show details for admission JKKN-DCH-084',
-      'Get complete profile for application JKKN-CNR-125',
-    ],
-  },
-  {
-    name: 'get_admissions_by_location',
-    description: 'Search admissions by geographic location - searches across district, state, taluk, city, and bus pickup location. Returns ALL matching admissions with location statistics breakdown. Use this when asked about admissions from a specific district, city, or region.',
-    category: 'admissions',
-    permission: 'admissions.view',
-    tier: 1,
-    rpcFunction: 'ai_rpc_admissions_by_location',
-    parameters: [
-      { name: 'district', type: 'string', description: 'District name (e.g., Karur, Salem, Erode, Coimbatore)' },
-      { name: 'state', type: 'string', description: 'State name (e.g., Tamil Nadu, Kerala)' },
-      { name: 'taluk', type: 'string', description: 'Taluk/sub-district name' },
-      { name: 'city', type: 'string', description: 'City name' },
-      { name: 'status', type: 'string', description: 'Admission status filter', enum: ['pending', 'approved', 'rejected', 'waitlisted', 'enrolled'] },
-      { name: 'include_stats', type: 'boolean', description: 'Include location statistics (default: true)' },
-    ],
-    examples: [
-      'How many admissions are from Karur district?',
-      'Show admissions from Tamil Nadu',
-      'List admissions from Erode',
-      'Get district-wise admission distribution',
-    ],
-  },
-  {
-    name: 'get_admission_statistics',
-    description: 'Get admission STATISTICS and ANALYTICS - institution-wise breakdown, status distribution, demographics, academic performance metrics, entry type analysis, geographic distribution, and year-wise trends.',
-    category: 'admissions',
-    permission: 'admissions.analytics.view',
-    tier: 1,
-    rpcFunction: 'ai_rpc_admission_statistics',
-    parameters: [
-      { name: 'institution_id', type: 'string', description: 'Filter by institution UUID' },
-      { name: 'date_from', type: 'string', description: 'Date range start (YYYY-MM-DD)' },
-      { name: 'date_to', type: 'string', description: 'Date range end (YYYY-MM-DD)' },
-      { name: 'group_by', type: 'string', description: 'Primary grouping field', enum: ['institution', 'status', 'entry_type', 'gender', 'community', 'district', 'program', 'department'] },
-    ],
-    examples: [
-      'Show admission statistics',
-      'Get status-wise admission breakdown',
-      'Show gender distribution of admissions',
-      'What is the community-wise admission count?',
-    ],
-  },
-  {
-    name: 'get_admission_analytics',
-    description: 'ADVANCED admission analytics - conversion rates, enrollment rates, counseling stats, quota utilization, first-graduate analysis, accommodation breakdown, reference source effectiveness, academic performance averages, and year-over-year comparisons.',
-    category: 'admissions',
-    permission: 'admissions.analytics.view',
-    tier: 1,
-    rpcFunction: 'ai_rpc_admission_analytics',
-    parameters: [
-      { name: 'institution_id', type: 'string', description: 'Filter by institution UUID' },
-      { name: 'academic_year_id', type: 'string', description: 'Filter by academic year UUID' },
-      { name: 'include_trends', type: 'boolean', description: 'Include time trends (default: true)' },
-    ],
-    examples: [
-      'Show admission conversion rate',
-      'What percentage of applicants enrolled?',
-      'Show admission trends analysis',
-      'Get quota utilization report',
     ],
   },
 

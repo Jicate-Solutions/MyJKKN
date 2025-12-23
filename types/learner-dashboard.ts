@@ -164,6 +164,36 @@ export interface LearnerDashboardStats {
   byAcademicYear: DistributionItem[];
 
   // ============================================
+  // HIERARCHICAL ORGANIZATIONAL DATA
+  // ============================================
+  hierarchicalInstitutions: HierarchicalInstitution[];
+
+  // ============================================
+  // GEOGRAPHIC DISTRIBUTIONS
+  // ============================================
+  byState: DistributionItem[];
+  byDistrict: DistributionItem[];
+
+  // ============================================
+  // DEMOGRAPHIC DISTRIBUTIONS
+  // ============================================
+  byAge: DistributionItem[];
+  byReligion: DistributionItem[];
+  byCommunity: DistributionItem[];
+  byEntryType: DistributionItem[];
+  byAccommodationType: DistributionItem[];
+
+  // ============================================
+  // PROFILE COMPLETION TIERS
+  // ============================================
+  profileCompletionTiers: {
+    excellent: number; // 100% complete
+    good: number; // 80-99% complete
+    needsWork: number; // 50-79% complete
+    critical: number; // <50% complete
+  };
+
+  // ============================================
   // TIME SERIES (for charts)
   // ============================================
   enquiriesByDate: TimeSeriesDataPoint[];
@@ -190,6 +220,71 @@ export type QuickFilterPreset =
   | 'awaiting_activation'
   | 'incomplete_profiles'
   | 'recent_enquiries';
+
+/**
+ * Hierarchical Section Data
+ * Represents sections within a semester
+ */
+export interface HierarchicalSection {
+  id: string;
+  name: string;
+  count: number;
+}
+
+/**
+ * Hierarchical Semester Data
+ * Represents semesters within a program with nested sections
+ */
+export interface HierarchicalSemester {
+  id: string;
+  name: string;
+  count: number;
+  sections: HierarchicalSection[];
+}
+
+/**
+ * Hierarchical Program Data
+ * Represents programs within a department with nested semesters
+ */
+export interface HierarchicalProgram {
+  id: string;
+  name: string;
+  count: number;
+  semesters: HierarchicalSemester[];
+}
+
+/**
+ * Hierarchical Department Data
+ * Represents departments within a degree with nested programs
+ */
+export interface HierarchicalDepartment {
+  id: string;
+  name: string;
+  count: number;
+  programs: HierarchicalProgram[];
+}
+
+/**
+ * Hierarchical Degree Data
+ * Represents degrees within an institution with nested departments
+ */
+export interface HierarchicalDegree {
+  id: string;
+  name: string;
+  count: number;
+  departments: HierarchicalDepartment[];
+}
+
+/**
+ * Hierarchical Institution Data
+ * Top-level institution with complete hierarchy
+ */
+export interface HierarchicalInstitution {
+  id: string;
+  name: string;
+  count: number;
+  degrees: HierarchicalDegree[];
+}
 
 /**
  * Dashboard Export Options

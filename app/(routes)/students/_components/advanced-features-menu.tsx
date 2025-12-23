@@ -37,10 +37,10 @@ export function AdvancedFeaturesMenu({
   const { canAccess, isSuperAdmin } = usePermissions();
 
   // Check granular permissions
-  const canExportForUpdate = isSuperAdmin || canAccess('students.onboarding.bulk_update', 'export');
-  const canImportUpdates = isSuperAdmin || canAccess('students.onboarding.bulk_update', 'import');
-  const canExportCreateTemplate = isSuperAdmin || canAccess('students.bulk_create', 'export_template');
-  const canImportNewStudents = isSuperAdmin || canAccess('students.bulk_create', 'import');
+  const canExportForUpdate = isSuperAdmin || canAccess('learners.onboarding.bulk_update', 'export');
+  const canImportUpdates = isSuperAdmin || canAccess('learners.onboarding.bulk_update', 'import');
+  const canExportCreateTemplate = isSuperAdmin || canAccess('learners.bulk_create', 'export_template');
+  const canImportNewStudents = isSuperAdmin || canAccess('learners.bulk_create', 'import');
 
   // Show bulk update section if user has any update permission
   const showBulkUpdateSection = canExportForUpdate || canImportUpdates;

@@ -13,7 +13,7 @@ import { DataTable } from '@/components/data-table/data-table';
 import { enquiryColumns } from './columns';
 import type { EnquiriesSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { TrashIcon } from 'lucide-react';
+import { TrashIcon, RefreshCw } from 'lucide-react';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 import { toast } from 'sonner';
@@ -28,6 +28,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { BulkStatusUpdateDialog } from './bulk-status-update-dialog';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 
 interface EnquiriesDataTableProps {
   search: EnquiriesSearchParams;
@@ -61,7 +63,9 @@ export function EnquiriesDataTable({
 }: EnquiriesDataTableProps) {
   const queryClient = useQueryClient();
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [showBulkStatusUpdateDialog, setShowBulkStatusUpdateDialog] = useState(false);
   const [learnersToDelete, setLearnersToDelete] = useState<LearnerProfile[]>([]);
+  const [learnersToUpdate, setLearnersToUpdate] = useState<LearnerProfile[]>([]);
   const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [refetchTrigger, setRefetchTrigger] = useState(0);
@@ -158,6 +162,38 @@ export function EnquiriesDataTable({
   };
 
   /**
+   * Handle bulk status update action
+   */
+  const handleBulkStatusUpdate = (
+    selectedRows: LearnerProfile[],
+    resetSelection: () => void
+  ) => {
+    if (selectedRows.length === 0) return;
+
+    setLearnersToUpdate(selectedRows);
+    setResetSelectionFn(() => resetSelection);
+    setShowBulkStatusUpdateDialog(true);
+  };
+
+  /**
+   * Handle successful bulk status update
+   */
+  const handleBulkStatusUpdateSuccess = () => {
+    // Reset selection
+    if (resetSelectionFn) {
+      resetSelectionFn();
+    }
+
+    // Close dialog
+    setShowBulkStatusUpdateDialog(false);
+    setLearnersToUpdate([]);
+    setResetSelectionFn(null);
+
+    // Trigger table refresh
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  /**
    * Confirm and execute bulk delete
    */
   const confirmBulkDelete = async () => {
@@ -213,17 +249,32 @@ export function EnquiriesDataTable({
   }) => (
     <div className="flex items-center gap-2">
       {props.selectedRows.length > 0 && (
-        <Button
-          onClick={() =>
-            handleBulkDelete(props.selectedRows as LearnerProfile[], props.resetSelection)
-          }
-          variant="destructive"
-          size="sm"
-          className="h-8"
-        >
-          <TrashIcon className="mr-2 h-4 w-4" />
-          Delete Selected ({props.selectedRows.length})
-        </Button>
+        <>
+          <PermissionGuard module="learners.enquiries" action="bulk_status_update">
+            <Button
+              onClick={() =>
+                handleBulkStatusUpdate(props.selectedRows as LearnerProfile[], props.resetSelection)
+              }
+              variant="default"
+              size="sm"
+              className="h-8"
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Change Status ({props.selectedRows.length})
+            </Button>
+          </PermissionGuard>
+          <Button
+            onClick={() =>
+              handleBulkDelete(props.selectedRows as LearnerProfile[], props.resetSelection)
+            }
+            variant="destructive"
+            size="sm"
+            className="h-8"
+          >
+            <TrashIcon className="mr-2 h-4 w-4" />
+            Delete ({props.selectedRows.length})
+          </Button>
+        </>
       )}
     </div>
   );
@@ -274,6 +325,14 @@ export function EnquiriesDataTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulk Status Update Dialog */}
+      <BulkStatusUpdateDialog
+        open={showBulkStatusUpdateDialog}
+        onOpenChange={setShowBulkStatusUpdateDialog}
+        selectedLearners={learnersToUpdate}
+        onSuccess={handleBulkStatusUpdateSuccess}
+      />
     </>
   );
 }

@@ -129,7 +129,8 @@ export class LearnerProfileService {
   }
 
   /**
-   * Trigger user account creation
+   * Trigger user account creation or reactivation
+   * Updated: 2025-01-22 - Check for existing user and reactivate instead of creating duplicate
    * Updated: 2025-01-21 - Added toast notification for user creation
    */
   private static async triggerUserCreation(
@@ -141,7 +142,54 @@ export class LearnerProfileService {
       return { success: false, message: 'No college email provided' };
     }
 
+    const supabase = createClientSupabaseClient();
+
     try {
+      // First, check if a user profile already exists for this email
+      const { data: existingProfile, error: profileCheckError } = await supabase
+        .from('profiles')
+        .select('id, is_active, email')
+        .eq('email', profile.college_email)
+        .maybeSingle();
+
+      if (profileCheckError) {
+        console.error('[learner-profile-service] Error checking for existing profile:', profileCheckError);
+        // Continue to user creation attempt
+      }
+
+      // If profile already exists, reactivate it instead of creating a new one
+      if (existingProfile) {
+        console.log(`[learner-profile-service] User profile already exists for ${profile.college_email}`);
+
+        // Check if it's already active
+        if (existingProfile.is_active) {
+          console.log(`[learner-profile-service] User profile already active for ${profile.college_email}`);
+          return {
+            success: true,
+            message: `User account already active for ${profile.first_name} ${profile.last_name || ''}`
+          };
+        }
+
+        // Reactivate the existing profile
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ is_active: true })
+          .eq('id', existingProfile.id);
+
+        if (updateError) {
+          console.error('[learner-profile-service] Error reactivating profile:', updateError);
+          return { success: false, message: 'Failed to reactivate user account' };
+        }
+
+        console.log(`[learner-profile-service] Reactivated user account for ${profile.college_email}`);
+        return {
+          success: true,
+          message: `User account reactivated for ${profile.first_name} ${profile.last_name || ''} (${profile.college_email})`
+        };
+      }
+
+      // No existing profile - create a new user account
+      console.log(`[learner-profile-service] Creating new user account for ${profile.college_email}`);
       const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
       const response = await fetch(`${baseUrl}/api/learners/complete-onboarding`, {
         method: 'POST',
@@ -162,8 +210,71 @@ export class LearnerProfileService {
         };
       }
     } catch (error) {
-      console.error(`[learner-profile-service] Error calling user creation API:`, error);
+      console.error(`[learner-profile-service] Error in triggerUserCreation:`, error);
       return { success: false, message: 'Error connecting to user creation service' };
+    }
+  }
+
+  /**
+   * Sync profile is_active status based on learner lifecycle_status
+   * Rule: Only 'active' lifecycle_status should have is_active = true
+   * All other statuses (enquiry, pending, approved, rejected, waitlisted, inactive, exited, graduated, alumni) → is_active = false
+   */
+  private static async syncProfileStatus(
+    learnerId: string,
+    learnerProfile: LearnerProfile
+  ): Promise<void> {
+    // Only sync if learner has college_email (no email = no user profile)
+    if (!learnerProfile.college_email) {
+      console.log(`[learner-profile-service] No college email for ${learnerId}, skipping profile sync`);
+      return;
+    }
+
+    const supabase = createClientSupabaseClient();
+
+    try {
+      // Find profile by email
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, is_active')
+        .eq('email', learnerProfile.college_email)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error('[learner-profile-service] Error finding profile:', profileError);
+        return;
+      }
+
+      if (!profile) {
+        console.log(`[learner-profile-service] No profile found for ${learnerProfile.college_email}, skipping sync`);
+        return;
+      }
+
+      // Determine correct is_active state based on lifecycle_status
+      const shouldBeActive = learnerProfile.lifecycle_status === 'active';
+
+      // Only update if different from current state
+      if (profile.is_active !== shouldBeActive) {
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ is_active: shouldBeActive })
+          .eq('id', profile.id);
+
+        if (updateError) {
+          console.error('[learner-profile-service] Error updating profile is_active:', updateError);
+        } else {
+          console.log(
+            `[learner-profile-service] Synced profile is_active to ${shouldBeActive} for ${learnerProfile.college_email} (lifecycle_status: ${learnerProfile.lifecycle_status})`
+          );
+        }
+      } else {
+        console.log(
+          `[learner-profile-service] Profile is_active already ${shouldBeActive} for ${learnerProfile.college_email}, no update needed`
+        );
+      }
+    } catch (error) {
+      console.error('[learner-profile-service] Error in syncProfileStatus:', error);
+      // Don't throw - profile sync is not critical for learner update
     }
   }
 
@@ -413,6 +524,10 @@ export class LearnerProfileService {
     // Check for auto-activation and user creation
     const result = await this.checkAndAutoActivate(id, updatedData);
 
+    // Sync profile is_active status based on lifecycle_status
+    // This ensures user can only log in when learner status is 'active'
+    await this.syncProfileStatus(id, result.profile);
+
     // Store user creation result in metadata (will be used by mutation hook)
     if (result.userCreation) {
       // @ts-ignore - Temporary storage for toast notification
@@ -423,14 +538,74 @@ export class LearnerProfileService {
   }
 
   /**
-   * Delete learner profile (soft delete recommended)
+   * Delete learner profile and associated user profile
+   * Also deletes the user's auth account if a profile exists
    */
   static async deleteLearnerProfile(id: string): Promise<void> {
-    const { error } = await createClientSupabaseClient().from('learners_profiles').delete().eq('id', id);
+    const supabase = createClientSupabaseClient();
 
-    if (error) {
-      console.error('[learner-profile-service] Error deleting learner profile:', error);
-      throw error;
+    try {
+      // First, get the learner to find out if they have a college_email
+      const learner = await this.getLearnerProfile(id);
+
+      // If learner doesn't exist, return early (already deleted)
+      if (!learner) {
+        console.log(`[learner-profile-service] Learner ${id} not found - may already be deleted`);
+        return;
+      }
+
+      // If there is a college_email, try to delete the associated profile
+      if (learner.college_email) {
+        try {
+          // Find the profile associated with the college_email
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('email', learner.college_email)
+            .maybeSingle();
+
+          if (!profileError && profile) {
+            // Delete the profile using the API endpoint (which handles auth table deletion too)
+            const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+            const response = await fetch(`${baseUrl}/api/users/${profile.id}`, {
+              method: 'DELETE',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+
+            if (!response.ok) {
+              console.warn(
+                `[learner-profile-service] Failed to delete user profile for learner ${id}:`,
+                await response.text()
+              );
+            } else {
+              console.log(
+                `[learner-profile-service] Successfully deleted user for learner with email ${learner.college_email}`
+              );
+            }
+          }
+        } catch (profileError) {
+          console.warn(
+            '[learner-profile-service] Error finding or deleting learner user profile:',
+            profileError
+          );
+          // Continue with learner deletion even if profile deletion fails
+        }
+      }
+
+      // Delete the learner record
+      const { error } = await supabase
+        .from('learners_profiles')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      console.log(`[learner-profile-service] Successfully deleted learner record: ${id}`);
+    } catch (error) {
+      console.error('[learner-profile-service] Error deleting learner record:', error);
+      throw error; // Re-throw to let calling component handle the error toast
     }
   }
 
@@ -855,7 +1030,10 @@ export class LearnerProfileService {
 
     try {
       // Build base query filters
-      let baseQuery = supabase.from('learners_profiles').select('*', { count: 'exact' });
+      // NOTE: Supabase default limit is 1000 rows. For analytics, we need all records.
+      let baseQuery = supabase
+        .from('learners_profiles')
+        .select('*', { count: 'exact' });
 
       // Apply filters
       if (filters.institutionIds && filters.institutionIds.length > 0) {
@@ -904,6 +1082,10 @@ export class LearnerProfileService {
           .lte('created_at', filters.dateRange.to.toISOString());
       }
 
+      // IMPORTANT: Apply range AFTER all filters to fetch up to 10,000 records
+      // This must be called last to override Supabase's default 1000 row limit
+      baseQuery = baseQuery.range(0, 9999);
+
       // Run all queries in parallel
       const [
         allData,
@@ -917,7 +1099,16 @@ export class LearnerProfileService {
         academicYearData,
         enquiriesTrend,
         activationsTrend,
-        graduationsTrend
+        graduationsTrend,
+        stateData,
+        districtData,
+        ageData,
+        religionData,
+        communityData,
+        entryTypeData,
+        accommodationData,
+        completionTiers,
+        hierarchicalInstitutions
       ] = await Promise.all([
         // 1. Get all data for complex calculations
         baseQuery,
@@ -937,7 +1128,24 @@ export class LearnerProfileService {
         // 4. Time series queries
         this.getEnquiriesTrend(filters),
         this.getActivationsTrend(filters),
-        this.getGraduationsTrend(filters)
+        this.getGraduationsTrend(filters),
+
+        // 5. Geographic distributions
+        this.getDistributionByState(filters),
+        this.getDistributionByDistrict(filters),
+
+        // 6. Demographic distributions
+        this.getDistributionByAge(filters),
+        this.getDistributionByReligion(filters),
+        this.getDistributionByCommunity(filters),
+        this.getDistributionByEntryType(filters),
+        this.getDistributionByAccommodationType(filters),
+
+        // 7. Profile completion tiers
+        this.getProfileCompletionTiers(filters),
+
+        // 8. Hierarchical institution data
+        this.getHierarchicalInstitutions(filters)
       ]);
 
       if (allData.error) throw allData.error;
@@ -945,30 +1153,94 @@ export class LearnerProfileService {
       const profiles = allData.data || [];
       const totalCount = allData.count || 0;
 
-      // Calculate overview counts
-      const enquiriesCount = profiles.filter(p => p.lifecycle_status === 'enquiry').length;
-      const pendingCount = profiles.filter(p => p.lifecycle_status === 'pending').length;
-      const approvedCount = profiles.filter(p => p.lifecycle_status === 'approved').length;
-      const activeCount = profiles.filter(p => p.lifecycle_status === 'active').length;
-      const inactiveCount = profiles.filter(p => p.lifecycle_status === 'inactive').length;
-      const graduatedCount = profiles.filter(p => p.lifecycle_status === 'graduated').length;
-      const exitedCount = profiles.filter(p => p.lifecycle_status === 'exited').length;
+      // DEBUG: Log counts by status
+      console.log('[learners/analytics] Profile counts from query:', {
+        totalCount,
+        profilesLength: profiles.length,
+        filters: JSON.stringify(filters, null, 2)
+      });
 
-      // Profile completion stats
-      const completeProfiles = profiles.filter(p => p.is_profile_complete);
-      const incompleteProfiles = profiles.filter(p => !p.is_profile_complete);
-      const completionRate = totalCount > 0 ? (completeProfiles.length / totalCount) * 100 : 0;
+      // Calculate overview counts from statusCounts query instead of limited profiles array
+      // This fixes the issue where only 1000 profiles were being fetched
+      const enquiriesCount = statusCounts.find(s => s.status === 'enquiry')?.count || 0;
+      const pendingCount = statusCounts.find(s => s.status === 'pending')?.count || 0;
+      const approvedCount = statusCounts.find(s => s.status === 'approved')?.count || 0;
+      const activeCount = statusCounts.find(s => s.status === 'active')?.count || 0;
+      const inactiveCount = statusCounts.find(s => s.status === 'inactive')?.count || 0;
+      const graduatedCount = statusCounts.find(s => s.status === 'graduated')?.count || 0;
+      const exitedCount = statusCounts.find(s => s.status === 'exited')?.count || 0;
 
-      // Awaiting activation (complete but not active)
-      const awaitingActivation = profiles.filter(
-        p => p.is_profile_complete && ['enquiry', 'pending', 'approved'].includes(p.lifecycle_status)
-      ).length;
+      // DEBUG: Log status breakdown
+      console.log('[learners/analytics] Status breakdown from statusCounts:', {
+        enquiriesCount,
+        pendingCount,
+        approvedCount,
+        activeCount,
+        totalFromCounts: enquiriesCount + pendingCount + approvedCount + activeCount + inactiveCount + graduatedCount + exitedCount
+      });
 
-      // Missing fields breakdown
-      const missingCollegeEmail = profiles.filter(p => !p.college_email).length;
-      const missingAcademicYear = profiles.filter(p => !p.academic_year_id).length;
-      const missingSemester = profiles.filter(p => !p.semester_id).length;
-      const missingSection = profiles.filter(p => !p.section_id).length;
+      // Profile completion stats - Use server-side counts to avoid 1000-row limit
+      // Get complete profiles count
+      let completeQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
+      if (filters.institutionIds && filters.institutionIds.length > 0) {
+        completeQuery = completeQuery.in('institution_id', filters.institutionIds);
+      }
+      completeQuery = completeQuery.eq('is_profile_complete', true);
+      const { count: completeProfilesCount } = await completeQuery;
+
+      // Get incomplete profiles count
+      let incompleteQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
+      if (filters.institutionIds && filters.institutionIds.length > 0) {
+        incompleteQuery = incompleteQuery.in('institution_id', filters.institutionIds);
+      }
+      incompleteQuery = incompleteQuery.eq('is_profile_complete', false);
+      const { count: incompleteProfilesCount } = await incompleteQuery;
+
+      const completionRate = totalCount > 0 ? ((completeProfilesCount || 0) / totalCount) * 100 : 0;
+
+      // Awaiting activation - show approved count (learners approved and ready to be activated)
+      const awaitingActivation = approvedCount;
+
+      // Missing fields breakdown - Use server-side counts
+      let missingEmailQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
+      if (filters.institutionIds && filters.institutionIds.length > 0) {
+        missingEmailQuery = missingEmailQuery.in('institution_id', filters.institutionIds);
+      }
+      missingEmailQuery = missingEmailQuery.or('college_email.is.null,college_email.eq.');
+      const { count: missingCollegeEmail } = await missingEmailQuery;
+
+      let missingYearQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
+      if (filters.institutionIds && filters.institutionIds.length > 0) {
+        missingYearQuery = missingYearQuery.in('institution_id', filters.institutionIds);
+      }
+      missingYearQuery = missingYearQuery.is('academic_year_id', null);
+      const { count: missingAcademicYear } = await missingYearQuery;
+
+      let missingSemQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
+      if (filters.institutionIds && filters.institutionIds.length > 0) {
+        missingSemQuery = missingSemQuery.in('institution_id', filters.institutionIds);
+      }
+      missingSemQuery = missingSemQuery.is('semester_id', null);
+      const { count: missingSemester } = await missingSemQuery;
+
+      let missingSectionQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
+      if (filters.institutionIds && filters.institutionIds.length > 0) {
+        missingSectionQuery = missingSectionQuery.in('institution_id', filters.institutionIds);
+      }
+      missingSectionQuery = missingSectionQuery.is('section_id', null);
+      const { count: missingSection } = await missingSectionQuery;
+
+      // DEBUG: Log profile completion counts
+      console.log('[learners/analytics] Profile completion stats:', {
+        totalCount,
+        completeProfilesCount: completeProfilesCount || 0,
+        incompleteProfilesCount: incompleteProfilesCount || 0,
+        completionRate: completionRate.toFixed(2) + '%',
+        missingCollegeEmail: missingCollegeEmail || 0,
+        missingAcademicYear: missingAcademicYear || 0,
+        missingSemester: missingSemester || 0,
+        missingSection: missingSection || 0
+      });
 
       // Trends (last 7 and 30 days)
       const now = new Date();
@@ -1000,11 +1272,12 @@ export class LearnerProfileService {
       const activations7DayChange = this.calculatePercentageChange(activations7Days, activations30Days - activations7Days);
       const activations30DayChange = this.calculatePercentageChange(activations30Days, activations30To60Days);
 
-      // Conversion metrics
-      const convertedToActive = profiles.filter(p => p.lifecycle_status === 'active').length;
-      const conversionRate = enquiriesCount > 0 ? (convertedToActive / enquiriesCount) * 100 : 0;
+      // Conversion metrics - use statusCounts instead of limited profiles array
+      const convertedToActive = activeCount; // Use activeCount from statusCounts
+      const totalEnquiriesAndPending = enquiriesCount + pendingCount; // Combined enquiry + pending
+      const conversionRate = totalEnquiriesAndPending > 0 ? (convertedToActive / totalEnquiriesAndPending) * 100 : 0;
 
-      // Average time to activation (simplified - would need created_at vs status change tracking)
+      // Average time to activation (simplified - calculated from limited profiles sample)
       const activeProfiles = profiles.filter(p => p.lifecycle_status === 'active');
       const avgTimeToActivation = activeProfiles.length > 0
         ? activeProfiles.reduce((sum, p) => {
@@ -1032,14 +1305,14 @@ export class LearnerProfileService {
         // Profile completion
         profileCompletion: {
           totalProfiles: totalCount,
-          completeProfiles: completeProfiles.length,
-          incompleteProfiles: incompleteProfiles.length,
+          completeProfiles: completeProfilesCount || 0,
+          incompleteProfiles: incompleteProfilesCount || 0,
           completionRate,
           awaitingActivation,
-          missingCollegeEmail,
-          missingAcademicYear,
-          missingSemester,
-          missingSection
+          missingCollegeEmail: missingCollegeEmail || 0,
+          missingAcademicYear: missingAcademicYear || 0,
+          missingSemester: missingSemester || 0,
+          missingSection: missingSection || 0
         },
 
         // Trends
@@ -1050,7 +1323,7 @@ export class LearnerProfileService {
           trend: this.getTrend(enquiries7DayChange)
         },
         newEnquiries30Days: {
-          current: newEnquiries30Days,
+          current: enquiriesCount + pendingCount, // Show enquiry + pending statuses as "Total Enquiries"
           previous: newEnquiries30To60Days,
           change: enquiries30DayChange,
           trend: this.getTrend(enquiries30DayChange)
@@ -1070,7 +1343,7 @@ export class LearnerProfileService {
 
         // Conversion
         conversion: {
-          totalEnquiries: enquiriesCount,
+          totalEnquiries: totalEnquiriesAndPending, // Combined enquiry + pending count
           convertedToActive,
           conversionRate,
           averageTimeToActivation: avgTimeToActivation,
@@ -1087,6 +1360,23 @@ export class LearnerProfileService {
         bySection: sectionData,
         byGender: genderData,
         byAcademicYear: academicYearData,
+
+        // Hierarchical organizational data
+        hierarchicalInstitutions,
+
+        // Geographic distributions
+        byState: stateData,
+        byDistrict: districtData,
+
+        // Demographic distributions
+        byAge: ageData,
+        byReligion: religionData,
+        byCommunity: communityData,
+        byEntryType: entryTypeData,
+        byAccommodationType: accommodationData,
+
+        // Profile completion tiers
+        profileCompletionTiers: completionTiers,
 
         // Time series
         enquiriesByDate: enquiriesTrend,
@@ -1123,6 +1413,105 @@ export class LearnerProfileService {
   }
 
   /**
+   * Helper: Fetch ALL records with chunked pagination
+   * Overcomes Supabase's 1000-row default limit
+   *
+   * @param tableName - The Supabase table to query
+   * @param selectClause - What columns to select (e.g., 'gender' or 'state, districts(district_name)')
+   * @param filters - Dashboard filters to apply
+   * @returns Array of all matching records
+   */
+  private static async fetchAllRecordsChunked(
+    tableName: string,
+    selectClause: string,
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+  ): Promise<any[]> {
+    const supabase = createClientSupabaseClient();
+
+    let allRecords: any[] = [];
+    let offset = 0;
+    const limit = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      let query = supabase
+        .from(tableName)
+        .select(selectClause);
+
+      // Apply all common filters
+      if (filters.institutionIds && filters.institutionIds.length > 0) {
+        query = query.in('institution_id', filters.institutionIds);
+      }
+
+      if (filters.academicYearId) {
+        query = query.eq('academic_year_id', filters.academicYearId);
+      }
+
+      if (filters.degreeId) {
+        query = query.eq('degree_id', filters.degreeId);
+      }
+
+      if (filters.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
+
+      if (filters.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+
+      if (filters.semesterId) {
+        query = query.eq('semester_id', filters.semesterId);
+      }
+
+      if (filters.sectionId) {
+        query = query.eq('section_id', filters.sectionId);
+      }
+
+      if (filters.lifecycleStatuses && filters.lifecycleStatuses.length > 0) {
+        query = query.in('lifecycle_status', filters.lifecycleStatuses);
+      }
+
+      if (filters.isProfileComplete !== undefined) {
+        query = query.eq('is_profile_complete', filters.isProfileComplete);
+      }
+
+      if (filters.gender) {
+        query = query.eq('gender', filters.gender);
+      }
+
+      if (filters.dateRange) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      // Fetch in chunks
+      query = query.range(offset, offset + limit - 1);
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error(`[learners/analytics] Error fetching ${tableName}:`, error);
+        throw error;
+      }
+
+      if (!data || data.length === 0) {
+        hasMore = false;
+      } else {
+        allRecords = allRecords.concat(data);
+        offset += limit;
+
+        // If we got fewer than limit records, we've reached the end
+        if (data.length < limit) {
+          hasMore = false;
+        }
+      }
+    }
+
+    return allRecords;
+  }
+
+  /**
    * Helper: Get count by status
    */
   private static async getCountByStatus(
@@ -1130,30 +1519,94 @@ export class LearnerProfileService {
   ): Promise<import('@/types/learner-dashboard').StatusCount[]> {
     const supabase = createClientSupabaseClient();
 
-    let query = supabase.from('learners_profiles').select('lifecycle_status');
+    // Helper function to build query with all filters
+    const buildQuery = (status?: import('@/types/learner-profile').LifecycleStatus) => {
+      let query = supabase
+        .from('learners_profiles')
+        .select('*', { count: 'exact', head: true }); // head: true means we only want the count, not the data
 
-    // Apply same filters
-    if (filters.institutionIds && filters.institutionIds.length > 0) {
-      query = query.in('institution_id', filters.institutionIds);
-    }
-    // ... apply other filters
+      // Apply filters
+      if (filters.institutionIds && filters.institutionIds.length > 0) {
+        query = query.in('institution_id', filters.institutionIds);
+      }
 
-    const { data, error } = await query;
-    if (error) throw error;
+      if (filters.academicYearId) {
+        query = query.eq('academic_year_id', filters.academicYearId);
+      }
 
-    const profiles = data || [];
-    const total = profiles.length;
+      if (filters.degreeId) {
+        query = query.eq('degree_id', filters.degreeId);
+      }
 
-    const statusGroups = profiles.reduce((acc, p) => {
-      acc[p.lifecycle_status] = (acc[p.lifecycle_status] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+      if (filters.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
 
-    return Object.entries(statusGroups).map(([status, count]): import('@/types/learner-dashboard').StatusCount => ({
-      status: status as import('@/types/learner-profile').LifecycleStatus,
-      count: count as number,
-      percentage: total > 0 ? ((count as number) / total) * 100 : 0
-    }));
+      if (filters.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+
+      if (filters.semesterId) {
+        query = query.eq('semester_id', filters.semesterId);
+      }
+
+      if (filters.sectionId) {
+        query = query.eq('section_id', filters.sectionId);
+      }
+
+      if (filters.lifecycleStatuses && filters.lifecycleStatuses.length > 0) {
+        query = query.in('lifecycle_status', filters.lifecycleStatuses);
+      }
+
+      if (filters.gender) {
+        query = query.eq('gender', filters.gender);
+      }
+
+      if (filters.dateRange) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      // Add status filter if provided
+      if (status) {
+        query = query.eq('lifecycle_status', status);
+      }
+
+      return query;
+    };
+
+    // Get counts for each lifecycle status using server-side count (head: true)
+    // This avoids the 1000-row limit by only returning counts, not data
+    const lifecycleStatuses: import('@/types/learner-profile').LifecycleStatus[] = [
+      'enquiry', 'pending', 'approved', 'active', 'inactive', 'graduated', 'exited'
+    ];
+
+    const statusCountPromises = lifecycleStatuses.map(async (status) => {
+      const { count, error } = await buildQuery(status);
+
+      if (error) {
+        console.error(`[learners/analytics] Error counting ${status}:`, error);
+        return { status, count: 0 };
+      }
+
+      return { status, count: count || 0 };
+    });
+
+    const statusCounts = await Promise.all(statusCountPromises);
+    const total = statusCounts.reduce((sum, s) => sum + s.count, 0);
+
+    // DEBUG: Log status counts
+    console.log('[learners/analytics] Status counts from server-side count:', {
+      statusCounts,
+      total
+    });
+
+    return statusCounts.map(({ status, count }): import('@/types/learner-dashboard').StatusCount => ({
+      status,
+      count,
+      percentage: total > 0 ? (count / total) * 100 : 0
+    })); // Return all statuses, including those with 0 count
   }
 
   /**
@@ -1171,6 +1624,9 @@ export class LearnerProfileService {
     if (filters.institutionIds && filters.institutionIds.length > 0) {
       query = query.in('institution_id', filters.institutionIds);
     }
+
+    // Apply range to fetch up to 10,000 records
+    query = query.range(0, 9999);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -1214,6 +1670,9 @@ export class LearnerProfileService {
       query = query.eq('department_id', filters.departmentId);
     }
 
+    // Apply range to fetch up to 10,000 records
+    query = query.range(0, 9999);
+
     const { data, error } = await query;
     if (error) throw error;
 
@@ -1254,6 +1713,9 @@ export class LearnerProfileService {
     if (filters.programId) {
       query = query.eq('program_id', filters.programId);
     }
+
+    // Apply range to fetch up to 10,000 records
+    query = query.range(0, 9999);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -1296,6 +1758,9 @@ export class LearnerProfileService {
       query = query.eq('semester_id', filters.semesterId);
     }
 
+    // Apply range to fetch up to 10,000 records
+    query = query.range(0, 9999);
+
     const { data, error } = await query;
     if (error) throw error;
 
@@ -1337,6 +1802,9 @@ export class LearnerProfileService {
       query = query.eq('section_id', filters.sectionId);
     }
 
+    // Apply range to fetch up to 10,000 records
+    query = query.range(0, 9999);
+
     const { data, error } = await query;
     if (error) throw error;
 
@@ -1368,20 +1836,8 @@ export class LearnerProfileService {
   }
 
   private static async getDistributionByGender(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    const supabase = createClientSupabaseClient();
-
-    let query = supabase
-      .from('learners_profiles')
-      .select('gender');
-
-    if (filters.gender) {
-      query = query.eq('gender', filters.gender);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-
-    const profiles = data || [];
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'gender', filters);
     const total = profiles.length;
 
     const groups = profiles.reduce((acc, p) => {
@@ -1450,22 +1906,13 @@ export class LearnerProfileService {
   }
 
   private static async getEnquiriesTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
-    const supabase = createClientSupabaseClient();
-
-    let query = supabase
-      .from('learners_profiles')
-      .select('created_at')
-      .eq('lifecycle_status', 'enquiry');
-
-    if (filters.institutionIds && filters.institutionIds.length > 0) {
-      query = query.in('institution_id', filters.institutionIds);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    // Note: Apply lifecycle_status='enquiry' as an additional filter
+    const enquiryFilters = { ...filters, lifecycleStatuses: ['enquiry'] };
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'created_at', enquiryFilters);
 
     // Group by date
-    const groupedByDate = (data || []).reduce((acc, p) => {
+    const groupedByDate = profiles.reduce((acc, p) => {
       const date = new Date(p.created_at).toISOString().split('T')[0];
       acc[date] = (acc[date] || 0) + 1;
       return acc;
@@ -1482,22 +1929,13 @@ export class LearnerProfileService {
   }
 
   private static async getActivationsTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
-    const supabase = createClientSupabaseClient();
-
-    let query = supabase
-      .from('learners_profiles')
-      .select('updated_at')
-      .eq('lifecycle_status', 'active');
-
-    if (filters.institutionIds && filters.institutionIds.length > 0) {
-      query = query.in('institution_id', filters.institutionIds);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    // Note: Apply lifecycle_status='active' as an additional filter
+    const activeFilters = { ...filters, lifecycleStatuses: ['active'] };
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'updated_at', activeFilters);
 
     // Group by date
-    const groupedByDate = (data || []).reduce((acc, p) => {
+    const groupedByDate = profiles.reduce((acc, p) => {
       const date = new Date(p.updated_at).toISOString().split('T')[0];
       acc[date] = (acc[date] || 0) + 1;
       return acc;
@@ -1514,22 +1952,13 @@ export class LearnerProfileService {
   }
 
   private static async getGraduationsTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
-    const supabase = createClientSupabaseClient();
-
-    let query = supabase
-      .from('learners_profiles')
-      .select('updated_at')
-      .eq('lifecycle_status', 'graduated');
-
-    if (filters.institutionIds && filters.institutionIds.length > 0) {
-      query = query.in('institution_id', filters.institutionIds);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    // Note: Apply lifecycle_status='graduated' as an additional filter
+    const graduatedFilters = { ...filters, lifecycleStatuses: ['graduated'] };
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'updated_at', graduatedFilters);
 
     // Group by date
-    const groupedByDate = (data || []).reduce((acc, p) => {
+    const groupedByDate = profiles.reduce((acc, p) => {
       const date = new Date(p.updated_at).toISOString().split('T')[0];
       acc[date] = (acc[date] || 0) + 1;
       return acc;
@@ -1543,5 +1972,512 @@ export class LearnerProfileService {
         label: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       }))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }
+
+  // ============================================
+  // GEOGRAPHIC DISTRIBUTIONS
+  // ============================================
+
+  private static async getDistributionByState(
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+  ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'permanent_address_state', filters);
+    const total = profiles.length;
+
+    // Group by state
+    const groups = profiles.reduce((acc, p) => {
+      const state = p.permanent_address_state;
+      if (state) {
+        if (!acc[state]) {
+          acc[state] = {
+            id: state,
+            name: state,
+            count: 0
+          };
+        }
+        acc[state].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    // Convert to array and calculate percentages
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>)
+      .map((item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      }))
+      .sort((a, b) => b.count - a.count) // Sort by count descending
+      .slice(0, 20); // Top 20 states
+  }
+
+  private static async getDistributionByDistrict(
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+  ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'permanent_address_district', filters);
+    const total = profiles.length;
+
+    // Group by district
+    const groups = profiles.reduce((acc, p) => {
+      const district = p.permanent_address_district;
+      if (district) {
+        if (!acc[district]) {
+          acc[district] = {
+            id: district,
+            name: district,
+            count: 0
+          };
+        }
+        acc[district].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    // Convert to array and calculate percentages
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>)
+      .map((item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      }))
+      .sort((a, b) => b.count - a.count) // Sort by count descending
+      .slice(0, 20); // Top 20 districts
+  }
+
+  // ============================================
+  // DEMOGRAPHIC DISTRIBUTIONS
+  // ============================================
+
+  private static async getDistributionByAge(
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+  ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'date_of_birth', filters);
+    const total = profiles.length;
+
+    // Calculate age groups
+    const now = new Date();
+    const ageGroups = {
+      '<18': 0,
+      '18-20': 0,
+      '21-23': 0,
+      '24-26': 0,
+      '27+': 0
+    };
+
+    profiles.forEach((p) => {
+      if (p.date_of_birth) {
+        const birthDate = new Date(p.date_of_birth);
+        const age = now.getFullYear() - birthDate.getFullYear();
+
+        if (age < 18) {
+          ageGroups['<18']++;
+        } else if (age <= 20) {
+          ageGroups['18-20']++;
+        } else if (age <= 23) {
+          ageGroups['21-23']++;
+        } else if (age <= 26) {
+          ageGroups['24-26']++;
+        } else {
+          ageGroups['27+']++;
+        }
+      }
+    });
+
+    return Object.entries(ageGroups).map(([age, count]): import('@/types/learner-dashboard').DistributionItem => ({
+      id: age,
+      name: age + ' years',
+      count,
+      percentage: total > 0 ? (count / total) * 100 : 0
+    }));
+  }
+
+  private static async getDistributionByReligion(
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+  ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'religion', filters);
+    const total = profiles.length;
+
+    // Group by religion
+    const groups = profiles.reduce((acc, p) => {
+      const religion = p.religion;
+      if (religion) {
+        if (!acc[religion]) {
+          acc[religion] = {
+            id: religion,
+            name: religion,
+            count: 0
+          };
+        }
+        acc[religion].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>)
+      .map((item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  private static async getDistributionByCommunity(
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+  ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'community', filters);
+    const total = profiles.length;
+
+    // Group by community
+    const groups = profiles.reduce((acc, p) => {
+      const community = p.community;
+      if (community) {
+        if (!acc[community]) {
+          acc[community] = {
+            id: community,
+            name: community,
+            count: 0
+          };
+        }
+        acc[community].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>)
+      .map((item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  private static async getDistributionByEntryType(
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+  ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'entry_type', filters);
+    const total = profiles.length;
+
+    // Group by entry type
+    const groups = profiles.reduce((acc, p) => {
+      const entryType = p.entry_type;
+      if (entryType) {
+        if (!acc[entryType]) {
+          acc[entryType] = {
+            id: entryType,
+            name: entryType,
+            count: 0
+          };
+        }
+        acc[entryType].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>)
+      .map((item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  private static async getDistributionByAccommodationType(
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+  ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'accommodation_type', filters);
+    const total = profiles.length;
+
+    // Group by accommodation type
+    const groups = profiles.reduce((acc, p) => {
+      const accType = p.accommodation_type;
+      if (accType) {
+        if (!acc[accType]) {
+          acc[accType] = {
+            id: accType,
+            name: accType,
+            count: 0
+          };
+        }
+        acc[accType].count++;
+      }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>)
+      .map((item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  // ============================================
+  // PROFILE COMPLETION TIERS
+  // ============================================
+
+  private static async getProfileCompletionTiers(
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+  ): Promise<{
+    excellent: number;
+    good: number;
+    needsWork: number;
+    critical: number;
+  }> {
+    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
+    const profiles = await this.fetchAllRecordsChunked(
+      'learners_profiles',
+      'is_profile_complete, college_email, academic_year_id, semester_id, section_id',
+      filters
+    );
+
+    // Categorize profiles into completion tiers
+    const tiers = {
+      excellent: 0, // 100% complete (all 4 required fields)
+      good: 0, // 3 out of 4 fields (75%)
+      needsWork: 0, // 2 out of 4 fields (50%)
+      critical: 0 // 0-1 out of 4 fields (<50%)
+    };
+
+    profiles.forEach((p) => {
+      // Count how many required fields are filled
+      let filledFields = 0;
+      if (p.college_email) filledFields++;
+      if (p.academic_year_id) filledFields++;
+      if (p.semester_id) filledFields++;
+      if (p.section_id) filledFields++;
+
+      if (filledFields === 4) {
+        tiers.excellent++;
+      } else if (filledFields === 3) {
+        tiers.good++;
+      } else if (filledFields === 2) {
+        tiers.needsWork++;
+      } else {
+        tiers.critical++;
+      }
+    });
+
+    return tiers;
+  }
+
+  /**
+   * Helper: Get hierarchical institution data
+   * Returns institution → degree → department → program → semester → section hierarchy
+   * Fetches all learner records to build accurate hierarchy
+   */
+  private static async getHierarchicalInstitutions(
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+  ): Promise<import('@/types/learner-dashboard').HierarchicalInstitution[]> {
+    const supabase = createClientSupabaseClient();
+
+    console.log('[learners/analytics] Fetching hierarchical institution data...');
+
+    // Strategy: Fetch ALL learner profiles in chunks to build accurate counts
+    // This is necessary because Supabase limits queries to 1000 rows by default
+
+    let allProfiles: any[] = [];
+    let offset = 0;
+    const limit = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      let query = supabase
+        .from('learners_profiles')
+        .select(`
+          institution_id,
+          institutions!inner(id, name),
+          degree_id,
+          degrees(id, degree_name, institution_id),
+          department_id,
+          departments(id, department_name),
+          program_id,
+          programs(id, program_name),
+          semester_id,
+          semesters(id, semester_name),
+          section_id,
+          sections(id, section_name)
+        `)
+        .not('institution_id', 'is', null);
+
+      // Apply institution filter if provided
+      if (filters.institutionIds && filters.institutionIds.length > 0) {
+        query = query.in('institution_id', filters.institutionIds);
+      }
+
+      // Fetch in chunks
+      query = query.range(offset, offset + limit - 1);
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('[learners/analytics] Error fetching hierarchical data:', error);
+        throw error;
+      }
+
+      if (!data || data.length === 0) {
+        hasMore = false;
+      } else {
+        allProfiles = allProfiles.concat(data);
+        offset += limit;
+
+        // If we got fewer than limit records, we've reached the end
+        if (data.length < limit) {
+          hasMore = false;
+        }
+      }
+
+      console.log(`[learners/analytics] Fetched ${allProfiles.length} profiles so far...`);
+    }
+
+    console.log(`[learners/analytics] Total profiles fetched: ${allProfiles.length}`);
+
+    // Build hierarchy from all fetched records
+    return this.buildHierarchyFromRecords(allProfiles);
+  }
+
+  /**
+   * Build hierarchy from individual records
+   */
+  private static buildHierarchyFromRecords(records: any[]): import('@/types/learner-dashboard').HierarchicalInstitution[] {
+    const institutionMap = new Map<string, import('@/types/learner-dashboard').HierarchicalInstitution>();
+
+    // First pass: Count all learners per institution (including those with mismatched degrees)
+    records.forEach((profile) => {
+      if (!profile.institution_id || !profile.institutions) return;
+
+      const instId = profile.institution_id;
+      const instName = (profile.institutions as any)?.name || 'Unknown Institution';
+
+      if (!institutionMap.has(instId)) {
+        institutionMap.set(instId, {
+          id: instId,
+          name: instName,
+          count: 0,
+          degrees: []
+        });
+      }
+      const institution = institutionMap.get(instId)!;
+      institution.count++;
+    });
+
+    // Second pass: Build hierarchy, but skip records where degree doesn't belong to institution
+    records.forEach((profile) => {
+      if (!profile.institution_id || !profile.institutions) return;
+      if (!profile.degree_id || !profile.degrees) return;
+
+      const instId = profile.institution_id;
+      const institution = institutionMap.get(instId);
+      if (!institution) return;
+
+      const degreeId = profile.degree_id;
+      const degreeName = (profile.degrees as any)?.degree_name || 'Unknown Degree';
+
+      // IMPORTANT: Skip if degree doesn't exist or if degree belongs to different institution
+      // This handles data integrity issues where learners have degrees from wrong institutions
+      const degreeInstitutionId = (profile.degrees as any)?.institution_id;
+      if (degreeInstitutionId && degreeInstitutionId !== instId) {
+        console.warn(`[learners/analytics] Data integrity issue: Learner has degree from different institution. ` +
+          `Learner institution: ${instId}, Degree institution: ${degreeInstitutionId}`);
+        return; // Skip this record for hierarchy building
+      }
+
+      let degree = institution.degrees.find(d => d.id === degreeId);
+      if (!degree) {
+        degree = {
+          id: degreeId,
+          name: degreeName,
+          count: 0,
+          departments: []
+        };
+        institution.degrees.push(degree);
+      }
+      degree.count++;
+
+      if (!profile.department_id || !profile.departments) return;
+
+      const deptId = profile.department_id;
+      const deptName = (profile.departments as any)?.department_name || 'Unknown Department';
+
+      let department = degree.departments.find(d => d.id === deptId);
+      if (!department) {
+        department = {
+          id: deptId,
+          name: deptName,
+          count: 0,
+          programs: []
+        };
+        degree.departments.push(department);
+      }
+      department.count++;
+
+      if (!profile.program_id || !profile.programs) return;
+
+      const progId = profile.program_id;
+      const progName = (profile.programs as any)?.program_name || 'Unknown Program';
+
+      let program = department.programs.find(p => p.id === progId);
+      if (!program) {
+        program = {
+          id: progId,
+          name: progName,
+          count: 0,
+          semesters: []
+        };
+        department.programs.push(program);
+      }
+      program.count++;
+
+      if (!profile.semester_id || !profile.semesters) return;
+
+      const semId = profile.semester_id;
+      const semName = (profile.semesters as any)?.semester_name || 'Unknown Semester';
+
+      let semester = program.semesters.find(s => s.id === semId);
+      if (!semester) {
+        semester = {
+          id: semId,
+          name: semName,
+          count: 0,
+          sections: []
+        };
+        program.semesters.push(semester);
+      }
+      semester.count++;
+
+      if (!profile.section_id || !profile.sections) return;
+
+      const sectId = profile.section_id;
+      const sectName = (profile.sections as any)?.section_name || 'Unknown Section';
+
+      let section = semester.sections.find(s => s.id === sectId);
+      if (!section) {
+        section = {
+          id: sectId,
+          name: sectName,
+          count: 0
+        };
+        semester.sections.push(section);
+      }
+      section.count++;
+    });
+
+    return Array.from(institutionMap.values()).sort((a, b) => b.count - a.count);
   }
 }

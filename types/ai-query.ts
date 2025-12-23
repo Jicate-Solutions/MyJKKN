@@ -305,13 +305,13 @@ export const TOOL_PERMISSIONS: Record<string, string> = {
   get_billing_categories: 'billing.categories.view',
   get_payment_transactions: 'billing.payments.view',
 
-  // Students
-  get_students: 'students.view',
-  get_student_details: 'students.view',
-  get_students_by_status: 'students.view',
-  get_students_by_section: 'students.view',
-  get_student_onboarding_status: 'students.view',
-  get_promotion_candidates: 'students.promotion.view',
+  // Learners
+  get_students: 'learners.view',
+  get_student_details: 'learners.view',
+  get_students_by_status: 'learners.view',
+  get_students_by_section: 'learners.view',
+  get_student_onboarding_status: 'learners.view',
+  get_promotion_candidates: 'learners.promotion.view',
 
   // Staff
   get_staff: 'staff.view',
@@ -321,13 +321,13 @@ export const TOOL_PERMISSIONS: Record<string, string> = {
   get_faculty_course_assignments: 'staff.view',
 
   // Admissions (JKKN: Admission Applications)
-  get_admissions: 'admissions.view',
-  get_admission_details: 'admissions.view',
-  get_admissions_by_location: 'admissions.view',
-  get_admission_by_status: 'admissions.view',
-  get_admission_statistics: 'admissions.analytics.view',
-  get_admission_analytics: 'admissions.analytics.view',
-  get_applications: 'admissions.view',
+  get_admissions: 'learners.admissions.view',
+  get_admission_details: 'learners.admissions.view',
+  get_admissions_by_location: 'learners.admissions.view',
+  get_admission_by_status: 'learners.admissions.view',
+  get_admission_statistics: 'learners.admissions.dashboard',
+  get_admission_analytics: 'learners.admissions.dashboard',
+  get_applications: 'learners.admissions.view',
 
   // Organization
   get_institutions: 'organizations.institutions.view',
