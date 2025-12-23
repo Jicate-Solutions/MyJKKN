@@ -530,7 +530,7 @@ export class LearnerProfileService {
 
     // Store user creation result in metadata (will be used by mutation hook)
     if (result.userCreation) {
-      // @ts-ignore - Temporary storage for toast notification
+      // @ts-expect-error - Temporary storage for toast notification
       result.profile._userCreation = result.userCreation;
     }
 

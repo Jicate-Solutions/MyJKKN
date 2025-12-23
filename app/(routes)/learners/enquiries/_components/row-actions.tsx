@@ -124,7 +124,7 @@ export function DataTableRowActions<TData>({
       toast.success(`Status updated to ${statusLabels[selectedStatus]}`);
 
       // Check if user account was created during this update
-      // @ts-ignore - Temporary metadata from service
+      // @ts-expect-error - Temporary metadata from service
       const userCreation = result._userCreation;
       if (userCreation) {
         if (userCreation.success) {

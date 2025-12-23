@@ -415,7 +415,7 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
                     </div>
                     <p className="text-xs font-medium text-destructive flex items-center gap-2 mt-3 pt-3 border-t border-primary/10">
                       <AlertCircle className="h-3 w-3" />
-                      Do NOT modify the ID column - it's used to match records
+                      Do NOT modify the ID column - it&apos;s used to match records
                     </p>
                   </AlertDescription>
                 </Alert>
@@ -713,7 +713,7 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
                       <Eye className="h-4 w-4" />
                       <AlertTitle className="text-sm">Next Step: Preview Changes</AlertTitle>
                       <AlertDescription className="text-xs">
-                        We'll analyze your file and show you exactly what will change before updating any data.
+                        We&apos;ll analyze your file and show you exactly what will change before updating any data.
                       </AlertDescription>
                     </Alert>
 

@@ -811,7 +811,7 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
       }
 
       // Check if user account was created
-      // @ts-ignore - Temporary metadata from service
+      // @ts-expect-error - Temporary metadata from service
       const userCreation = result._userCreation;
       if (userCreation) {
         if (userCreation.success) {
