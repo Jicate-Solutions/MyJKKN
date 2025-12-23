@@ -511,7 +511,7 @@ export default function TimetableDetailPage({
               '@/lib/services/learner-profile-service'
             );
             const studentsResponse = await LearnerProfileService.getLearnerProfiles({
-              sectionId: sectionId,
+              section_id: sectionId,
               limit: 1000
             });
 
@@ -586,7 +586,7 @@ export default function TimetableDetailPage({
               '@/lib/services/learner-profile-service'
             );
             const studentsResponse = await LearnerProfileService.getLearnerProfiles({
-              sectionId: slotData.section_ids[0],
+              section_id: slotData.section_ids[0],
               limit: 1000
             });
 
