@@ -223,7 +223,7 @@ export class OrganizationService {
         this.supabase.from('programs').select('id', { count: 'exact', head: true }).eq('institution_id', id),
         this.supabase.from('departments').select('id', { count: 'exact', head: true }).eq('institution_id', id),
         this.supabase.from('staff').select('id', { count: 'exact', head: true }).eq('institution_id', id),
-        this.supabase.from('students').select('id', { count: 'exact', head: true }).eq('institution_id', id),
+        this.supabase.from('learners_profiles').select('id', { count: 'exact', head: true }).eq('institution_id', id),
         this.supabase.from('billing_student_bills').select('id', { count: 'exact', head: true }).eq('institution_id', id),
         this.supabase.from('academic_years').select('id', { count: 'exact', head: true }).eq('institution_id', id),
         this.supabase.from('sections').select('id', { count: 'exact', head: true }).eq('institution_id', id),
@@ -300,7 +300,7 @@ export class OrganizationService {
       // Delete academic structure
       await Promise.all([
         this.supabase.from('learners_profiles').delete().eq('institution_id', id),
-        this.supabase.from('students').delete().eq('institution_id', id),
+        this.supabase.from('learners_profiles').delete().eq('institution_id', id),
         this.supabase.from('staff').delete().eq('institution_id', id),
         this.supabase.from('sections').delete().eq('institution_id', id),
         this.supabase.from('semesters').delete().eq('institution_id', id),

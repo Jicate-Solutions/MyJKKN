@@ -88,7 +88,7 @@ export class StudentSearchService {
   ): Promise<StudentForBillingListResponse> {
     try {
       let query = this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           id,
@@ -114,7 +114,7 @@ export class StudentSearchService {
         `,
           { count: 'exact' }
         )
-        .eq('status', 'active')
+        .eq('lifecycle_status', 'active')
         .eq('is_profile_complete', true);
 
       // Apply filters
@@ -208,7 +208,7 @@ export class StudentSearchService {
   ): Promise<StudentForBilling> {
     try {
       const { data, error } = await this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           id,
@@ -234,7 +234,7 @@ export class StudentSearchService {
         `
         )
         .eq('id', studentId)
-        .eq('status', 'active')
+        .eq('lifecycle_status', 'active')
         .single();
 
       if (error) throw error;
@@ -481,7 +481,7 @@ export class StudentSearchService {
   ): Promise<StudentForBilling[]> {
     try {
       const { data, error } = await this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           id,
@@ -500,7 +500,7 @@ export class StudentSearchService {
         `
         )
         .eq('institution_id', institutionId)
-        .eq('status', 'active')
+        .eq('lifecycle_status', 'active')
         .order('first_name', { ascending: true })
         .limit(limit);
 
@@ -532,7 +532,7 @@ export class StudentSearchService {
   ): Promise<StudentForBilling[]> {
     try {
       let query = this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           id,
@@ -557,7 +557,7 @@ export class StudentSearchService {
           section:sections!section_id(id, section_name)
         `
         )
-        .eq('status', 'active');
+        .eq('lifecycle_status', 'active');
 
       if (institutionId) {
         query = query.eq('institution_id', institutionId);
@@ -597,7 +597,7 @@ export class StudentSearchService {
   ): Promise<StudentForBilling[]> {
     try {
       let query = this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           id,
@@ -614,7 +614,7 @@ export class StudentSearchService {
           department:departments(id, department_name)
         `
         )
-        .eq('status', 'active');
+        .eq('lifecycle_status', 'active');
 
       if (institutionId) {
         query = query.eq('institution_id', institutionId);

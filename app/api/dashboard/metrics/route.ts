@@ -39,7 +39,7 @@ export async function GET(request: Request) {
         .from('institutions')
         .select('id', { count: 'exact', head: true }),
       supabaseAdmin
-        .from('students')
+        .from('learners_profiles')
         .select('id', { count: 'exact', head: true }),
       // supabaseAdmin.from('applications').select('id', { count: 'exact', head: true }), // Add if needed
       supabaseAdmin.from('profiles').select('role') // Fetch roles for chart data
@@ -80,7 +80,7 @@ export async function GET(request: Request) {
     // const sevenDaysAgo = new Date();
     // sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     // const { data: recentStudents, error: recentError } = await supabaseAdmin
-    //   .from('students')
+    //   .from('learners_profiles')
     //   .select('created_at')
     //   .gte('created_at', sevenDaysAgo.toISOString());
     // Process recentStudents into daily/weekly counts...

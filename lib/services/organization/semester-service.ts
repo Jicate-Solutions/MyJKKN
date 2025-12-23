@@ -309,7 +309,7 @@ export class SemesterService {
     try {
       // Fetch semesters that actually have students in the selected program
       const { data: students, error } = await this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           semester_id,

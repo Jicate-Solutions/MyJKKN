@@ -240,7 +240,7 @@ export class StorageService {
 
       // Get student details with institution name and roll number
       const { data: student, error: studentError } = await this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           roll_number,
@@ -354,7 +354,7 @@ export class StorageService {
         .map((item) => item.rollNumber!);
 
       const { data: students, error: studentsError } = await this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           id,
@@ -453,7 +453,7 @@ export class StorageService {
 
               // Update student record with new photo URL
               const { error: updateError } = await this.supabase
-                .from('students')
+                .from('learners_profiles')
                 .update({ student_photo_url: urlData.publicUrl })
                 .eq('id', student.id);
 
@@ -766,7 +766,7 @@ export class StorageService {
     try {
       // Get student details to delete from new path structure
       const { data: student } = await this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           roll_number,

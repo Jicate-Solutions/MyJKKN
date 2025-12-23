@@ -151,7 +151,7 @@ export class PaymentGatewayService {
 
       // Step 2: Fetch student details for payment session
       const { data: student, error: studentError } = await supabase
-        .from('students')
+        .from('learners_profiles')
         .select('id, first_name, last_name, student_email, college_email, student_mobile')
         .eq('id', sessionData.student_id)
         .single();
@@ -455,7 +455,7 @@ export class PaymentGatewayService {
 
       // Fetch student details for payer name
       const { data: student } = await supabase
-        .from('students')
+        .from('learners_profiles')
         .select('first_name, last_name')
         .eq('id', transaction.student_id)
         .single();
@@ -963,7 +963,7 @@ export class PaymentGatewayService {
 
         // Create receipt
         const { data: student } = await (supabase as any)
-          .from('students')
+          .from('learners_profiles')
           .select('first_name, last_name, student_mobile')
           .eq('id', transaction.student_id)
           .single();

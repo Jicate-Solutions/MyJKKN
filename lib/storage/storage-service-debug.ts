@@ -288,7 +288,7 @@ export class StorageServiceDebug {
 
       // Fetch students with institution details
       const { data: students, error: studentsError } = await this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           id,
@@ -592,7 +592,7 @@ export class StorageServiceDebug {
 
               // Update student record
               const { error: updateError } = await this.supabase
-                .from('students')
+                .from('learners_profiles')
                 .update({ student_photo_url: urlData.publicUrl })
                 .eq('id', student.id);
 

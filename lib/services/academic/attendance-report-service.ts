@@ -808,7 +808,7 @@ export class AttendanceReportService {
         const studentDataMap = new Map();
         if (studentIds.length > 0) {
           const { data: freshStudentData } = await this.supabase
-            .from('students')
+            .from('learners_profiles')
             .select('id, first_name, last_name, roll_number, student_photo_url, section_id')
             .in('id', studentIds);
 
