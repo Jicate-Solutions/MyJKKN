@@ -183,7 +183,7 @@ export default function LearnersAnalyticsDashboard() {
         <Alert variant="destructive" className="mt-4">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            You don't have permission to view the learners analytics dashboard.
+            You don&apos;t have permission to view the learners analytics dashboard.
             Please contact your administrator if you need access.
           </AlertDescription>
         </Alert>

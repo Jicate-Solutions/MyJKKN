@@ -430,7 +430,7 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
                       <li>System checks if profile is complete</li>
                       <li>Creates user accounts automatically for complete profiles</li>
                       <li>Generates temporary passwords</li>
-                      <li>You'll receive credentials after upload</li>
+                      <li>You&apos;ll receive credentials after upload</li>
                     </ul>
                   </AlertDescription>
                 </Alert>

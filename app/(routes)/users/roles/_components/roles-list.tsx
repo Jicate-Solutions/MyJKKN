@@ -181,6 +181,7 @@ export function RolesList({
     if (users.length > 0) {
       fetchBatchUserRoles();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [users]);
 
   const handleRoleChange = (
@@ -193,7 +194,7 @@ export function RolesList({
     setShowConfirmDialog(true);
   };
 
-  const handleOpenMultiRoleDialog = (user: Profile) => {
+  const handleOpenMultiRoleDialog = useCallback((user: Profile) => {
     const userRoles = userRolesCache[user.id] || [];
     setPendingMultiRoleUpdate({
       userId: user.id,
@@ -206,7 +207,7 @@ export function RolesList({
       primaryRole?.role_id || (userRoles[0]?.role_id ?? '')
     );
     setShowMultiRoleDialog(true);
-  };
+  }, [userRolesCache]);
 
   const handleBulkRoleUpdate = useCallback(
     async (selectedUsers: Profile[]) => {
@@ -500,7 +501,8 @@ export function RolesList({
       isLoadingRoles,
       getRoleName,
       userRolesCache,
-      loadingUserRoles
+      loadingUserRoles,
+      handleOpenMultiRoleDialog
     ]
   );
 

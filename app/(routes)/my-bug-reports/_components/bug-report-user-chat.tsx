@@ -262,13 +262,13 @@ export function BugReportUserChat({
     return () => {
       supabase.removeChannel(channel);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     reportId,
     supabase,
     refetchMessages,
     refetchUnreadCount,
-    currentUserId,
-    toast
+    currentUserId
   ]);
 
   // Auto-scroll to bottom when new messages arrive

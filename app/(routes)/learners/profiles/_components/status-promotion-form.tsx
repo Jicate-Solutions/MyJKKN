@@ -165,7 +165,7 @@ export function StatusPromotionForm({
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Warning: User Account Disabling</AlertTitle>
             <AlertDescription>
-              Setting status to "Exited" will <strong>disable the user accounts</strong> for these
+              Setting status to &quot;Exited&quot; will <strong>disable the user accounts</strong> for these
               learners. They will no longer be able to log in to the system.
             </AlertDescription>
           </Alert>

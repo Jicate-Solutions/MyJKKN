@@ -160,7 +160,7 @@ export function BulkStatusUpdateDialog({
           });
 
           // Check if user was created (from service metadata)
-          // @ts-ignore - Temporary metadata from service
+          // @ts-expect-error - Temporary metadata from service
           const userCreation = result._userCreation;
           const userCreated = userCreation?.success || false;
 
@@ -329,8 +329,8 @@ export function BulkStatusUpdateDialog({
                       <AlertDescription className="text-yellow-800">
                         <strong>{incompleteProfiles.length}</strong> record
                         {incompleteProfiles.length > 1 ? 's' : ''} will be marked as
-                        approved but <strong>won't create user accounts</strong> because
-                        they're missing required fields (college email, academic year,
+                        approved but <strong>won&apos;t create user accounts</strong> because
+                        they&apos;re missing required fields (college email, academic year,
                         semester, or section).
                       </AlertDescription>
                     </Alert>
