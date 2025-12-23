@@ -1143,10 +1143,10 @@ export class AttendanceService {
           department_id,
           semester_id,
           section_id,
-          status
+          lifecycle_status
         `
         )
-        .eq('status', 'active')
+        .eq('lifecycle_status', 'active')
         .eq('institution_id', studentFilters.institution_id)
         .eq('section_id', section_id);
 
@@ -1574,10 +1574,10 @@ export class AttendanceService {
           department_id,
           semester_id,
           section_id,
-          status
+          lifecycle_status
         `
         )
-        .eq('status', 'active')
+        .eq('lifecycle_status', 'active')
         .eq('institution_id', filters.institution_id);
 
       if (filters.degree_id) {
@@ -1845,14 +1845,14 @@ export class AttendanceService {
           department_id,
           semester_id,
           section_id,
-          status,
+          lifecycle_status,
           section:sections(
             id,
             section_name
           )
         `
         )
-        .eq('status', 'active')
+        .eq('lifecycle_status', 'active')
         .eq('institution_id', studentFilters.institution_id)
         .in('section_id', sectionIds); // Filter by sections assigned to the slot
 
