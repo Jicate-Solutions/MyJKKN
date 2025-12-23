@@ -110,11 +110,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/applications/new': 'applications.create',
   '/applications/categories': 'applications.categories.view',
 
-  // Admissions Management
-  '/admissions': 'admissions.view',
-  '/admissions/new': 'admissions.create',
-  '/admissions/crm': 'admissions.crm.view',
-  '/admissions/analytics': 'admissions.dashboard',
 
   // Learners Module (Unified)
   '/learners': 'learners.view',
@@ -150,15 +145,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
     'organizations.course.mappings.edit',
 
   //student management
-  '/students': 'students.view',
-  '/students/dashboard': 'students.dashboard.view',
-  '/students/new': 'students.create',
-  '/students/[id]': 'students.view',
-  '/students/[id]/edit': 'students.edit',
-  '/students/[id]/edit-promotion': 'students.promotion.edit',
+  '/students': 'learners.view',
+  '/students/dashboard': 'learners.dashboard.view',
+  '/students/new': 'learners.create',
+  '/students/[id]': 'learners.view',
+  '/students/[id]/edit': 'learners.edit',
+  '/students/[id]/edit-promotion': 'learners.promotion.edit',
   // NOTE: Onboarding routes removed - students now go directly to learners page after approval
-  '/students/promotion': 'students.promotion.view',
-  '/students/graduated': 'students.graduated.view',
+  '/students/promotion': 'learners.promotion.view',
+  '/students/graduated': 'learners.graduated.view',
   '/admin/students/sync-profiles': 'super_admin', // Super admin only
 
   // Staff Management
@@ -771,40 +766,6 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
 
-    // OLD: Admissions Management (DEPRECATED - Use "Learners Management" instead)
-    {
-      groupLabel: 'Admissions (Old - Deprecated)',
-      menus: [
-        {
-          href: '/admissions/analytics',
-          label: 'Admissions Analytics (Old)',
-          active: pathname.startsWith('/admissions/analytics'),
-          icon: BarChart,
-          submenus: []
-        },
-        {
-          href: '/admissions',
-          label: 'All Admissions (Old)',
-          active: pathname === '/admissions',
-          icon: ClipboardCheck,
-          submenus: []
-        },
-        {
-          href: '/admissions/new',
-          label: 'New Admission (Old)',
-          active: pathname === '/admissions/new',
-          icon: PlusCircle,
-          submenus: []
-        },
-        {
-          href: '/admissions/crm',
-          label: 'Enquiry CRM (Old)',
-          active: pathname === '/admissions/crm',
-          icon: MessageCircle,
-          submenus: []
-        }
-      ]
-    },
     {
       groupLabel: 'Billing Management',
       menus: [

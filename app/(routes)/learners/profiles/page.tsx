@@ -18,6 +18,10 @@ import { ProfilesFilters } from './_components/profiles-filters';
 import { profilesSearchParamsSchema } from './_components/data-table-schema';
 import { useSearchParams } from 'next/navigation';
 import { CanView } from '@/components/auth/permission-guard';
+import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
+import { BulkUploadProfilesDialog } from './_components/bulk-upload-profiles-dialog';
+import { BulkEditActiveDialog } from './_components/bulk-edit-exited-dialog';
+import { usePermissions } from '@/hooks/use-permissions';
 
 /**
  * Learners Management Page
@@ -36,10 +40,16 @@ import { CanView } from '@/components/auth/permission-guard';
  */
 export default function ProfilesPage() {
   const searchParams = useSearchParams();
+  const { isSuperAdmin, canAccess } = usePermissions();
 
   const search = profilesSearchParamsSchema.parse(
     Object.fromEntries(searchParams.entries())
   );
+
+  // Permission checks
+  const canSyncProfiles = isSuperAdmin || canAccess('learners.profiles.sync');
+  const canBulkUpload = isSuperAdmin || canAccess('learners.profiles.bulk_upload');
+  const canBulkEditActive = isSuperAdmin || canAccess('learners.profiles.bulk_edit') || canAccess('learners.edit');
 
   return (
     <ContentLayout title="Learners Management">
@@ -62,16 +72,9 @@ export default function ProfilesPage() {
           </div>
 
           <div className="flex gap-2">
-            <CanView module="learners.edit">
-              <Button
-                variant="outline"
-                disabled
-                title="Bulk Edit feature coming soon"
-              >
-                <Upload className="mr-2 h-4 w-4" />
-                Bulk Edit (Coming Soon)
-              </Button>
-            </CanView>
+            {canSyncProfiles && <CreateMissingProfilesButton />}
+            {canBulkUpload && <BulkUploadProfilesDialog />}
+            {canBulkEditActive && <BulkEditActiveDialog />}
 
             <CanView module="learners.promotion.view">
               <Button variant="outline" asChild>

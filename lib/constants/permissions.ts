@@ -229,36 +229,52 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    name: 'Students',
-    key: 'students',
+    name: 'Learners',
+    key: 'learners',
     permissions: [
-      { key: 'students.view', label: 'View Learners' },
-      { key: 'students.create', label: 'Create Learners' },
-      { key: 'students.edit', label: 'Edit Learners' },
-      { key: 'students.delete', label: 'Delete Learners' },
-      {
-        key: 'students.dashboard.view',
-        label: 'View Learner Analytics Dashboard'
-      },
-      { key: 'students.onboarding.view', label: 'View Learner Onboarding' },
-      { key: 'students.onboarding.edit', label: 'Edit Learner Onboarding' },
-      { key: 'students.onboarding.delete', label: 'Delete Learner Onboarding' },
-      { key: 'students.onboarding.bulk_update', label: 'Bulk Update Learners' },
-      { key: 'students.onboarding.bulk_update.export', label: 'Export Learners for Update' },
-      { key: 'students.onboarding.bulk_update.import', label: 'Import Learner Updates' },
-      { key: 'students.bulk_edit', label: 'Bulk Edit Learners' },
-      { key: 'students.bulk_edit.export', label: 'Export Learners for Editing' },
-      { key: 'students.bulk_edit.preview', label: 'Preview Bulk Edit Changes' },
-      { key: 'students.bulk_edit.apply', label: 'Apply Bulk Edit Changes' },
-      { key: 'students.bulk_create', label: 'Bulk Create Learners' },
-      { key: 'students.bulk_create.download_template', label: 'Download Bulk Create Template' },
-      { key: 'students.bulk_create.export_template', label: 'Download Bulk Create Template (Legacy)' },
-      { key: 'students.bulk_create.import', label: 'Import New Students' },
-      { key: 'students.bulk_upload_images', label: 'Bulk Upload Learner Photos' },
-      { key: 'students.promotion.view', label: 'View Learner Promotion' },
-      { key: 'students.promotion.edit', label: 'Edit Learner Promotion' },
-      { key: 'students.graduated.view', label: 'View Graduated & Exited Students' },
-      { key: 'students.graduated.edit', label: 'Edit Graduated & Exited Students Status' }
+      // Basic Learner Operations
+      { key: 'learners.view', label: 'View Learners' },
+      { key: 'learners.create', label: 'Create Learners' },
+      { key: 'learners.edit', label: 'Edit Learners' },
+      { key: 'learners.delete', label: 'Delete Learners' },
+      { key: 'learners.dashboard.view', label: 'View Learner Analytics Dashboard' },
+
+      // Learner Onboarding
+      { key: 'learners.onboarding.view', label: 'View Learner Onboarding' },
+      { key: 'learners.onboarding.edit', label: 'Edit Learner Onboarding' },
+      { key: 'learners.onboarding.delete', label: 'Delete Learner Onboarding' },
+      { key: 'learners.onboarding.bulk_update', label: 'Bulk Update Learners' },
+      { key: 'learners.onboarding.bulk_update.export', label: 'Export Learners for Update' },
+      { key: 'learners.onboarding.bulk_update.import', label: 'Import Learner Updates' },
+
+      // Bulk Operations
+      { key: 'learners.bulk_edit', label: 'Bulk Edit Learners' },
+      { key: 'learners.bulk_edit.export', label: 'Export Learners for Editing' },
+      { key: 'learners.bulk_edit.preview', label: 'Preview Bulk Edit Changes' },
+      { key: 'learners.bulk_edit.apply', label: 'Apply Bulk Edit Changes' },
+      { key: 'learners.bulk_create', label: 'Bulk Create Learners' },
+      { key: 'learners.bulk_create.download_template', label: 'Download Bulk Create Template' },
+      { key: 'learners.bulk_create.export_template', label: 'Download Bulk Create Template (Legacy)' },
+      { key: 'learners.bulk_create.import', label: 'Import New Learners' },
+      { key: 'learners.bulk_upload_images', label: 'Bulk Upload Learner Photos' },
+
+      // Learner Lifecycle Management
+      { key: 'learners.promotion.view', label: 'View Learner Promotion' },
+      { key: 'learners.promotion.edit', label: 'Edit Learner Promotion' },
+      { key: 'learners.graduated.view', label: 'View Graduated & Exited Learners' },
+      { key: 'learners.graduated.edit', label: 'Edit Graduated & Exited Learners Status' },
+
+      // Admission & Enquiries Management
+      { key: 'learners.admissions.dashboard', label: 'View Admissions Analytics Dashboard' },
+      { key: 'learners.admissions.view', label: 'View Admissions' },
+      { key: 'learners.admissions.create', label: 'Create Admissions' },
+      { key: 'learners.admissions.edit', label: 'Edit Admissions' },
+      { key: 'learners.admissions.delete', label: 'Delete Admissions' },
+      { key: 'learners.admissions.crm.view', label: 'View Enquiry CRM' },
+
+      // Learner Enquiries Bulk Operations
+      { key: 'learners.enquiries.bulk_upload', label: 'Bulk Upload Enquiries' },
+      { key: 'learners.enquiries.bulk_status_update', label: 'Bulk Status Update for Enquiries' }
     ]
   },
   {
@@ -363,18 +379,6 @@ export const PERMISSION_CATEGORIES = [
 
       // Leave Analytics
       { key: 'leave.analytics.view', label: 'View Leave Analytics' }
-    ]
-  },
-  {
-    name: 'Admissions',
-    key: 'admissions',
-    permissions: [
-      { key: 'admissions.dashboard', label: 'View Analytics Dashboard' },
-      { key: 'admissions.view', label: 'View Admissions' },
-      { key: 'admissions.create', label: 'Create Admissions' },
-      { key: 'admissions.edit', label: 'Edit Admissions' },
-      { key: 'admissions.delete', label: 'Delete Admissions' },
-      { key: 'admissions.crm.view', label: 'View Enquiry CRM' }
     ]
   },
   {

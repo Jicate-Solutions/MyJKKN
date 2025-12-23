@@ -20,6 +20,14 @@ export function createClientSupabaseClient() {
           detectSessionInUrl: true,
           // Increase session refresh threshold to prevent frequent auth checks
           flowType: 'pkce'
+        },
+        db: {
+          schema: 'public'
+        },
+        global: {
+          headers: {
+            'Prefer': 'count=exact'
+          }
         }
       }
     );

@@ -1,57 +1,78 @@
 // ============================================
-// LEARNERS ANALYTICS DASHBOARD
+// LEARNERS ANALYTICS DASHBOARD - COMPREHENSIVE
 // ============================================
 // Created: 2025-01-20
-// Purpose: Comprehensive analytics dashboard for learner profiles
-// Features: Institution-based filtering, permission checks, advanced metrics
+// Updated: 2025-01-23 - Complete dashboard with 6 tabs
+// Purpose: Unified analytics for entire learner lifecycle
 // ============================================
 
 'use client';
 
 import { useState } from 'react';
-import { subDays } from 'date-fns';
+import { subDays, formatDistanceToNow } from 'date-fns';
 import {
-  Users,
-  UserCheck,
-  Clock,
-  RefreshCw,
   BarChart3,
   TrendingUp,
+  Users,
+  Building2,
+  MapPin,
+  UserCheck,
+  RefreshCw,
+  Filter,
   AlertCircle,
-  CheckCircle2,
-  UserCog
+  Download,
+  Sparkles
 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle
-} from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
+import { toast } from 'sonner';
+
+// Tab components (will be created in subsequent phases)
+import { OverviewTab } from './_components/overview-tab';
+import { OrganizationalTab } from './_components/organizational-tab';
+import { DemographicsTab } from './_components/demographics-tab';
+import { GeographicTab } from './_components/geographic-tab';
+import { TrendsTab } from './_components/trends-tab';
+import { ProfileCompletionTab } from './_components/profile-completion-tab';
+import { DashboardFilters } from './_components/dashboard-filters';
+import { ExportDashboardDialog } from './_components/export-dashboard-dialog';
 
 /**
- * Learners Analytics Dashboard
+ * Learners Analytics Dashboard - Main Page
  *
- * Comprehensive analytics for learner lifecycle management
- * - Permission-based access (learners.dashboard)
- * - Institution-based filtering (super admin sees all)
- * - Advanced filters and metrics
- * - Real-time data visualization
+ * Comprehensive analytics dashboard combining features from:
+ * - Old student dashboard (institution hierarchy, enrollment analytics)
+ * - Old admission dashboard (conversion funnel, status breakdown)
+ *
+ * Features:
+ * - 6 tabbed sections for organized data presentation
+ * - Advanced filtering with cascading dropdowns
+ * - Export functionality (PDF, Excel, CSV)
+ * - Interactive charts with drill-down capability
+ * - Real-time refresh mechanism
+ * - Permission-based access control
+ * - Institution-based data filtering
+ *
+ * Access Control:
+ * - Permission: learners.dashboard
+ * - Super admins: See all institutions
+ * - Regular users: See only accessible institutions
  */
 export default function LearnersAnalyticsDashboard() {
   const queryClient = useQueryClient();
-  const { can } = usePermissions();
+  const { can, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const {
     canAccessAllInstitutions,
     getAccessibleInstitutionIds,
@@ -59,18 +80,22 @@ export default function LearnersAnalyticsDashboard() {
     loading: institutionsLoading
   } = useUserInstitutionAccess();
 
+  // State management
+  const [showFilters, setShowFilters] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+
   // Permission check
   const hasAccess = can('learners.dashboard');
 
   // Initialize filters with institution filtering based on user access
+  // NOTE: No date range by default - shows all data
+  // Users can apply date range filter via the filter panel if needed
   const [filters, setFilters] = useState<LearnerDashboardFilters>({
     institutionIds: canAccessAllInstitutions
       ? undefined
-      : getAccessibleInstitutionIds(),
-    dateRange: {
-      from: subDays(new Date(), 30),
-      to: new Date()
-    }
+      : getAccessibleInstitutionIds()
   });
 
   // Fetch dashboard stats
@@ -88,11 +113,40 @@ export default function LearnersAnalyticsDashboard() {
     refetchOnMount: true
   });
 
+  // Handle manual refresh
   const handleRefresh = async () => {
-    await queryClient.invalidateQueries({
-      queryKey: ['learners', 'dashboard']
+    setIsRefreshing(true);
+    try {
+      await queryClient.invalidateQueries({
+        queryKey: ['learners', 'dashboard']
+      });
+      await refetch();
+      setLastUpdated(new Date());
+      toast.success('Dashboard refreshed successfully');
+    } catch (error) {
+      toast.error('Failed to refresh dashboard');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Handle filter changes
+  const handleFiltersChange = (newFilters: LearnerDashboardFilters) => {
+    setFilters(newFilters);
+    setLastUpdated(new Date());
+  };
+
+  // Handle filter reset
+  const handleResetFilters = () => {
+    setFilters({
+      institutionIds: canAccessAllInstitutions
+        ? undefined
+        : getAccessibleInstitutionIds(),
+      dateRange: {
+        from: subDays(new Date(), 30),
+        to: new Date()
+      }
     });
-    await refetch();
   };
 
   // Breadcrumb
@@ -102,7 +156,26 @@ export default function LearnersAnalyticsDashboard() {
     { label: 'Analytics Dashboard' }
   ];
 
-  // Permission denied
+  // Count active filters
+  const activeFilterCount = Object.keys(filters).filter(
+    (key) => key !== 'institutionIds' && filters[key as keyof LearnerDashboardFilters] !== undefined
+  ).length;
+
+  // Loading state - Check this FIRST to prevent permission flash
+  if (isLoading || institutionsLoading || permissionsLoading) {
+    return (
+      <ContentLayout title="Learners Analytics">
+        <PageBreadcrumb items={breadcrumbItems} />
+        <div className="mt-8 space-y-4">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Permission denied - Only check after permissions have loaded
   if (!hasAccess) {
     return (
       <ContentLayout title="Access Denied">
@@ -118,16 +191,15 @@ export default function LearnersAnalyticsDashboard() {
     );
   }
 
-  // Loading state
+  // Main dashboard render
   if (isLoading || institutionsLoading) {
     return (
       <ContentLayout title="Learners Analytics">
         <PageBreadcrumb items={breadcrumbItems} />
-        <div className="mt-8 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-muted-foreground">Loading analytics...</p>
-          </div>
+        <div className="mt-8 space-y-4">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-64 w-full" />
         </div>
       </ContentLayout>
     );
@@ -156,285 +228,203 @@ export default function LearnersAnalyticsDashboard() {
 
   return (
     <ContentLayout title="Learners Analytics Dashboard">
-      <PageBreadcrumb items={breadcrumbItems} />
+      <div className="space-y-6">
+        <PageBreadcrumb items={breadcrumbItems} />
 
-      {/* Header with actions */}
-      <div className="mt-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Learners Analytics</h1>
-          <p className="text-sm text-muted-foreground">
-            Comprehensive analytics for {stats.totalCount.toLocaleString()} learners
-            {!canAccessAllInstitutions && institutions.length > 0 && (
-              <> across {institutions.length} institution(s)</>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleRefresh}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
-      </div>
-
-      {/* Overview Stats Cards */}
-      <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Total Learners */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Learners</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalCount.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">
-              All learner profiles
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Active Students */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Students</CardTitle>
-            <UserCheck className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {stats.activeCount.toLocaleString()}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {((stats.activeCount / stats.totalCount) * 100).toFixed(1)}% of total
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* New Enquiries (30 days) */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">New Enquiries</CardTitle>
-            <UserCog className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {stats.newEnquiries30Days.current.toLocaleString()}
-            </div>
-            <div className="flex items-center gap-1 text-xs">
-              {stats.newEnquiries30Days.trend === 'up' ? (
-                <TrendingUp className="h-3 w-3 text-green-600" />
-              ) : (
-                <TrendingUp className="h-3 w-3 rotate-180 text-red-600" />
-              )}
-              <span className={stats.newEnquiries30Days.change > 0 ? 'text-green-600' : 'text-red-600'}>
-                {Math.abs(stats.newEnquiries30Days.change).toFixed(1)}%
-              </span>
-              <span className="text-muted-foreground">vs last month</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Awaiting Activation */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Awaiting Activation</CardTitle>
-            <Clock className="h-4 w-4 text-orange-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">
-              {stats.profileCompletion.awaitingActivation.toLocaleString()}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Complete profiles ready for activation
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Lifecycle Status Overview */}
-      <div className="mt-6 grid gap-6 md:grid-cols-2">
-        {/* Status Breakdown */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Lifecycle Status Distribution</CardTitle>
-            <CardDescription>Learners by lifecycle stage</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-blue-500" />
-                <span className="text-sm">Enquiries</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{stats.enquiriesCount}</span>
-                <Badge variant="secondary">
-                  {((stats.enquiriesCount / stats.totalCount) * 100).toFixed(1)}%
-                </Badge>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-yellow-500" />
-                <span className="text-sm">Pending Approval</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{stats.pendingCount}</span>
-                <Badge variant="secondary">
-                  {((stats.pendingCount / stats.totalCount) * 100).toFixed(1)}%
-                </Badge>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-orange-500" />
-                <span className="text-sm">Approved</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{stats.approvedCount}</span>
-                <Badge variant="secondary">
-                  {((stats.approvedCount / stats.totalCount) * 100).toFixed(1)}%
-                </Badge>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-green-500" />
-                <span className="text-sm">Active</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{stats.activeCount}</span>
-                <Badge variant="secondary">
-                  {((stats.activeCount / stats.totalCount) * 100).toFixed(1)}%
-                </Badge>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-purple-500" />
-                <span className="text-sm">Graduated</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{stats.graduatedCount}</span>
-                <Badge variant="secondary">
-                  {((stats.graduatedCount / stats.totalCount) * 100).toFixed(1)}%
-                </Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Profile Completion */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Profile Completion Status</CardTitle>
-            <CardDescription>Required fields completion rate</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        {/* Hero Section with Gradient */}
+        <div className="rounded-lg bg-gradient-to-r from-blue-500 to-indigo-600 p-6 text-white">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium">Overall Completion</span>
-                <span className="text-sm font-bold">
-                  {stats.profileCompletion.completionRate.toFixed(1)}%
+              <div className="flex items-center gap-2 mb-2">
+                <h1 className="text-2xl sm:text-3xl font-bold">Learners Analytics</h1>
+                <Badge variant="secondary" className="bg-white/20 text-white border-white/30">
+                  <div className="h-2 w-2 rounded-full bg-green-400 mr-2 animate-pulse" />
+                  Live Data
+                </Badge>
+              </div>
+              <p className="text-sm sm:text-base text-blue-100">
+                Comprehensive analytics for {stats.totalCount.toLocaleString()} learners
+                {!canAccessAllInstitutions && institutions.length > 0 && (
+                  <> across {institutions.length} institution(s)</>
+                )}
+              </p>
+              <p className="text-xs text-blue-200 mt-1">
+                Last updated: {formatDistanceToNow(lastUpdated, { addSuffix: true })}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowFilters(!showFilters)}
+                className="bg-white/10 hover:bg-white/20 text-white border-white/30"
+              >
+                <Filter className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">
+                  {showFilters ? 'Hide' : 'Show'} Filters
                 </span>
-              </div>
-              <div className="h-2 rounded-full bg-secondary">
-                <div
-                  className="h-2 rounded-full bg-green-500"
-                  style={{ width: `${stats.profileCompletion.completionRate}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Complete Profiles</span>
-                <span className="font-medium">{stats.profileCompletion.completeProfiles}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Incomplete Profiles</span>
-                <span className="font-medium text-orange-600">
-                  {stats.profileCompletion.incompleteProfiles}
+                {activeFilterCount > 0 && (
+                  <Badge variant="destructive" className="ml-2">
+                    {activeFilterCount}
+                  </Badge>
+                )}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="bg-white/10 hover:bg-white/20 text-white border-white/30"
+              >
+                <RefreshCw className={`h-4 w-4 sm:mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">
+                  {isRefreshing ? 'Refreshing...' : 'Refresh'}
                 </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Missing College Email</span>
-                <span className="font-medium text-red-600">
-                  {stats.profileCompletion.missingCollegeEmail}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Missing Academic Year</span>
-                <span className="font-medium text-red-600">
-                  {stats.profileCompletion.missingAcademicYear}
-                </span>
-              </div>
-            </div>
-
-            {stats.profileCompletion.awaitingActivation > 0 && (
-              <Alert>
-                <CheckCircle2 className="h-4 w-4" />
-                <AlertDescription>
-                  {stats.profileCompletion.awaitingActivation} profile(s) are complete and ready
-                  for auto-activation
-                </AlertDescription>
-              </Alert>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Conversion Metrics */}
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Conversion Metrics</CardTitle>
-          <CardDescription>Enquiry to active student conversion analysis</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
-            <div>
-              <div className="text-sm text-muted-foreground">Total Enquiries</div>
-              <div className="text-2xl font-bold">{stats.conversion.totalEnquiries}</div>
-            </div>
-            <div>
-              <div className="text-sm text-muted-foreground">Converted to Active</div>
-              <div className="text-2xl font-bold text-green-600">
-                {stats.conversion.convertedToActive}
-              </div>
-            </div>
-            <div>
-              <div className="text-sm text-muted-foreground">Conversion Rate</div>
-              <div className="text-2xl font-bold text-blue-600">
-                {stats.conversion.conversionRate.toFixed(1)}%
-              </div>
-            </div>
-            <div>
-              <div className="text-sm text-muted-foreground">Avg. Time to Activation</div>
-              <div className="text-2xl font-bold">
-                {stats.conversion.averageTimeToActivation.toFixed(0)} days
-              </div>
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowExportDialog(true)}
+                className="bg-white/10 hover:bg-white/20 text-white border-white/30"
+              >
+                <Download className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Export</span>
+              </Button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Placeholder for charts - to be implemented */}
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Trends & Distributions</CardTitle>
-          <CardDescription>
-            Detailed charts and visualizations (coming soon)
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex items-center justify-center py-12">
-          <div className="text-center text-muted-foreground">
-            <BarChart3 className="mx-auto h-12 w-12 mb-2" />
-            <p>Advanced charts and visualizations will be added here</p>
-          </div>
-        </CardContent>
-      </Card>
+        {/* Filters Panel (Collapsible) */}
+        {showFilters && (
+          <Card>
+            <CardContent className="pt-6">
+              <DashboardFilters
+                filters={filters}
+                onFiltersChange={handleFiltersChange}
+                onReset={handleResetFilters}
+                canAccessAllInstitutions={canAccessAllInstitutions}
+                accessibleInstitutionIds={getAccessibleInstitutionIds()}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Tabbed Analytics */}
+        <Tabs defaultValue="overview" className="space-y-4">
+          <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6 gap-2">
+            <TabsTrigger value="overview" className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4" />
+              <span className="hidden sm:inline">Overview</span>
+            </TabsTrigger>
+            <TabsTrigger value="organizational" className="flex items-center gap-2">
+              <Building2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Organizational</span>
+            </TabsTrigger>
+            <TabsTrigger value="demographics" className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              <span className="hidden sm:inline">Demographics</span>
+            </TabsTrigger>
+            <TabsTrigger value="geographic" className="flex items-center gap-2">
+              <MapPin className="h-4 w-4" />
+              <span className="hidden sm:inline">Geographic</span>
+            </TabsTrigger>
+            <TabsTrigger value="trends" className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" />
+              <span className="hidden sm:inline">Trends</span>
+            </TabsTrigger>
+            <TabsTrigger value="profile-completion" className="flex items-center gap-2">
+              <UserCheck className="h-4 w-4" />
+              <span className="hidden sm:inline">Profile Completion</span>
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Overview Tab */}
+          <TabsContent value="overview">
+            <OverviewTab
+              data={stats}
+              filters={filters}
+            />
+          </TabsContent>
+
+          {/* Organizational Tab */}
+          <TabsContent value="organizational">
+            <OrganizationalTab
+              data={stats}
+              filters={filters}
+            />
+          </TabsContent>
+
+          {/* Demographics Tab */}
+          <TabsContent value="demographics">
+            <DemographicsTab
+              data={stats}
+              filters={filters}
+            />
+          </TabsContent>
+
+          {/* Geographic Tab */}
+          <TabsContent value="geographic">
+            <GeographicTab
+              data={stats}
+              filters={filters}
+            />
+          </TabsContent>
+
+          {/* Trends Tab */}
+          <TabsContent value="trends">
+            <TrendsTab
+              data={stats}
+              filters={filters}
+            />
+          </TabsContent>
+
+          {/* Profile Completion Tab */}
+          <TabsContent value="profile-completion">
+            <ProfileCompletionTab
+              data={stats}
+              filters={filters}
+            />
+          </TabsContent>
+        </Tabs>
+
+        {/* Metadata Footer */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-xs sm:text-sm text-muted-foreground">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                <span className="font-medium">
+                  Total Records: <span className="font-normal">{stats.totalCount.toLocaleString()}</span>
+                </span>
+                <span className="hidden sm:inline">•</span>
+                <span className="font-medium">
+                  Date Range:{' '}
+                  <span className="font-normal">
+                    {filters.dateRange?.from && filters.dateRange?.to
+                      ? `${new Date(filters.dateRange.from).toLocaleDateString()} - ${new Date(filters.dateRange.to).toLocaleDateString()}`
+                      : 'All Time'}
+                  </span>
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium">
+                  Generated:{' '}
+                  <span className="font-normal">
+                    {new Date(stats.generatedAt).toLocaleString()}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Export Dialog */}
+      <ExportDashboardDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        dashboardData={stats}
+        filters={filters}
+      />
     </ContentLayout>
   );
 }

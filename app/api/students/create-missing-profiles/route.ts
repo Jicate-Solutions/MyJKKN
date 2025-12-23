@@ -34,22 +34,15 @@ function generateTemporaryPassword(length = 12): string {
 
 export async function POST() {
   try {
-    // 1. Find students with complete profiles who are missing a user profile
-    const { data: checkData, error: checkError } = await fetch(
-      `${
-        process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-      }/api/students/check-missing-profiles`
-    ).then((res) => res.json());
+    // 1. Use database function to get truly missing profiles (same as check endpoint)
+    const { data: missingProfiles, error: missingError } = await supabaseAdmin
+      .rpc('get_students_missing_profiles');
 
-    if (checkError || !checkData) {
-      throw new Error(
-        `Failed to check for missing profiles: ${
-          (checkError as any)?.message || 'Unknown error'
-        }`
-      );
+    if (missingError) {
+      throw new Error(`Failed to fetch missing profiles: ${missingError.message}`);
     }
 
-    const studentsToCreate = checkData.missing_profiles;
+    const studentsToCreate = missingProfiles;
 
     if (!studentsToCreate || studentsToCreate.length === 0) {
       return NextResponse.json({

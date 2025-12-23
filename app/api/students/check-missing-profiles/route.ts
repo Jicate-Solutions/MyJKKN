@@ -17,18 +17,28 @@ const supabaseAdmin = createClient(
 
 export async function GET() {
   try {
-    // 1. Get all students with complete profiles and a college email
-    const { data: students, error: studentsError } = await supabaseAdmin
+    // 1. Use database function to get truly missing profiles
+    // This bypasses Supabase pagination limits and does case-insensitive comparison
+    // at the database level using LEFT JOIN for accuracy
+    const { data: missingProfiles, error: missingError } = await supabaseAdmin
+      .rpc('get_students_missing_profiles');
+
+    if (missingError) {
+      throw new Error(`Failed to fetch missing profiles: ${missingError.message}`);
+    }
+
+    // 2. Get total count of students with complete profiles for summary
+    const { count: totalStudents, error: countError } = await supabaseAdmin
       .from('students')
-      .select('id, college_email')
+      .select('id', { count: 'exact', head: true })
       .eq('is_profile_complete', true)
       .not('college_email', 'is', null);
 
-    if (studentsError) {
-      throw new Error(`Failed to fetch students: ${studentsError.message}`);
+    if (countError) {
+      throw new Error(`Failed to count students: ${countError.message}`);
     }
 
-    if (!students || students.length === 0) {
+    if (!totalStudents || totalStudents === 0) {
       return NextResponse.json({
         message: 'No students with complete profiles found.',
         count: 0,
@@ -36,30 +46,14 @@ export async function GET() {
       });
     }
 
-    // 2. Get all existing profiles
-    const { data: profiles, error: profilesError } = await supabaseAdmin
-      .from('profiles')
-      .select('email');
-
-    if (profilesError) {
-      throw new Error(`Failed to fetch profiles: ${profilesError.message}`);
-    }
-
-    const existingProfileEmails = new Set(profiles.map((p) => p.email));
-
-    // 3. Find students who are missing a profile
-    const missingProfiles = students.filter(
-      (student) => !existingProfileEmails.has(student.college_email!)
-    );
-
     // Construct the response in the format expected by the frontend component
     const summaryMessage = `Found ${missingProfiles.length} students with complete profiles who are missing a user profile.`;
 
     return NextResponse.json({
       success: true,
       summary: summaryMessage,
-      details: missingProfiles.map((s) => ({
-        student_id: s.id,
+      details: missingProfiles.map((s: any) => ({
+        student_id: s.student_id,
         college_email: s.college_email
       }))
     });
