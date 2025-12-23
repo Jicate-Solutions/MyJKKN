@@ -406,9 +406,9 @@ export function SemesterPromotionForm({
               <SelectValue placeholder={isLoadingAcademicYears ? "Loading..." : "Keep current year"} />
             </SelectTrigger>
             <SelectContent>
-              {academicYears?.data?.map((year) => (
-                <SelectItem key={year.id} value={year.id}>
-                  {year.academic_year_name}
+              {academicYears?.data?.map((year: any) => (
+                <SelectItem key={year.academic_year_id} value={year.academic_year_id}>
+                  {year.academic_year_name || 'N/A'}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -518,7 +518,7 @@ export function SemesterPromotionForm({
                     <span className="font-medium text-muted-foreground">Academic Year:</span>{' '}
                     {academicYearId ? (
                       <span className="text-green-600 font-medium">
-                        {academicYears?.data?.find((y) => y.id === academicYearId)?.academic_year_name}
+                        {(academicYears?.data?.find((y: any) => y.academic_year_id === academicYearId) as any)?.academic_year_name}
                       </span>
                     ) : (
                       <span className="text-muted-foreground italic">Unchanged</span>
