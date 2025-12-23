@@ -56,7 +56,7 @@ export class BillingInvoiceServiceOptimized {
         await Promise.allSettled([
           // Get student data
           this.supabase
-            .from('students')
+            .from('learners_profiles')
             .select('id, first_name, last_name, roll_number, college_email')
             .eq('id', invoice.student_id)
             .single(),
@@ -228,7 +228,7 @@ export class BillingInvoiceServiceOptimized {
         const [studentsResult, institutionsResult, invoiceItemsResult] =
           await Promise.allSettled([
             this.supabase
-              .from('students')
+              .from('learners_profiles')
               .select('id, first_name, last_name, roll_number, college_email')
               .in('id', studentIds),
 

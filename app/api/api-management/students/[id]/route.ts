@@ -94,7 +94,7 @@ export async function GET(
 
     // First check if student exists
     const { count, error: countError } = await supabase
-      .from('students')
+      .from('learners_profiles')
       .select('*', { count: 'exact', head: true })
       .eq('id', id);
 
@@ -114,7 +114,7 @@ export async function GET(
 
     // Query to get the student details - specify the foreign key relationship to avoid ambiguity
     const { data: student, error } = await supabase
-      .from('students')
+      .from('learners_profiles')
       .select(
         `
         *,

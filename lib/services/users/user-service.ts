@@ -175,7 +175,7 @@ export class UserService {
 
         for (let i = 0; i < 2; i++) {
           const query = supabase
-            .from('students')
+            .from('learners_profiles')
             .select(
               'id, status, is_profile_complete, first_name, last_name, college_email, institution_id'
             )
@@ -206,7 +206,7 @@ export class UserService {
 
           // Try exact name match first
           let nameQuery = supabase
-            .from('students')
+            .from('learners_profiles')
             .select(
               'id, status, is_profile_complete, college_email, first_name, last_name'
             );
@@ -237,7 +237,7 @@ export class UserService {
         if (!studentData) {
           const { data: sDataByPersonal, error: sErrorByPersonal } =
             await supabase
-              .from('students')
+              .from('learners_profiles')
               .select(
                 'id, status, is_profile_complete, college_email, student_email'
               )

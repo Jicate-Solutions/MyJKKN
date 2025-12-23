@@ -131,7 +131,7 @@ export class AttendanceDashboardService {
 
           while (fetchMore) {
             let query = this.supabase
-              .from('students')
+              .from('learners_profiles')
               .select(
                 `
                 id, 

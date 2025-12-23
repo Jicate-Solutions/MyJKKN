@@ -1129,7 +1129,7 @@ export class AttendanceService {
 
       // Get students for this section
       let studentsQuery = this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           id,
@@ -1560,7 +1560,7 @@ export class AttendanceService {
       );
 
       let query = this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           id,
@@ -1831,7 +1831,7 @@ export class AttendanceService {
 
       // Get students for the sections assigned to this slot
       let studentsQuery = this.supabase
-        .from('students')
+        .from('learners_profiles')
         .select(
           `
           id,

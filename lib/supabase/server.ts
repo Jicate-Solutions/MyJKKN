@@ -135,7 +135,7 @@ export async function getEnhancedUserProfile(): Promise<{
     if (profileData && profileData.role === 'student') {
       try {
         const { data: studentData, error: studentError } = await supabase
-          .from('students')
+          .from('learners_profiles')
           .select('id, status, is_profile_complete')
           .eq('college_email', profileData.email)
           .single();

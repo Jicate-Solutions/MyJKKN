@@ -584,7 +584,7 @@ export class BillingReportService {
     institutionId?: string
   ): Promise<number> {
     let query = this.supabase
-      .from('students')
+      .from('learners_profiles')
       .select('id', { count: 'exact', head: true });
 
     if (institutionId) {
