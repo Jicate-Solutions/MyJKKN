@@ -10,9 +10,12 @@ import type {
   OrganizationListResponse
 } from '@/types/organizations';
 import { StorageService } from '@/lib/storage/storage-service';
+import type { Database } from '@/types/database.types';
 
 export class OrganizationService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() {
+    return createClientSupabaseClient();
+  }
 
   static async checkCodeExists(
     counsellingCode: string,
@@ -45,31 +48,32 @@ export class OrganizationService {
     data: CreateInstitutionDto
   ): Promise<Institution> {
     try {
+      // Prepare institution data for database insert
+      const institutionData: Database['public']['Tables']['institutions']['Insert'] = {
+        name: data.name,
+        counselling_code: data.counselling_code,
+        institution_type: data.institution_type,
+        category: data.category,
+        timetable_type: data.timetable_type,
+        accredited_by: data.accredited_by,
+        address_line1: data.address_line1,
+        address_line2: data.address_line2,
+        address_line3: data.address_line3,
+        city: data.city,
+        state: data.state,
+        country: data.country,
+        pin_code: data.pin_code,
+        email: data.email,
+        phone: data.phone,
+        website: data.website,
+        logo_url: data.logo_url,
+        is_active: data.is_active
+      };
+
       // First create the institution record
-      const { data: institution, error: institutionError } = await this.supabase
-        .from('institutions')
-        .insert([
-          {
-            name: data.name,
-            counselling_code: data.counselling_code,
-            institution_type: data.institution_type,
-            category: data.category,
-            timetable_type: data.timetable_type,
-            accredited_by: data.accredited_by,
-            address_line1: data.address_line1,
-            address_line2: data.address_line2,
-            address_line3: data.address_line3,
-            city: data.city,
-            state: data.state,
-            country: data.country,
-            pin_code: data.pin_code,
-            email: data.email,
-            phone: data.phone,
-            website: data.website,
-            logo_url: data.logo_url,
-            is_active: data.is_active
-          }
-        ])
+      const { data: institution, error: institutionError } = await ((this.supabase
+        .from('institutions') as any)
+        .insert(institutionData))
         .select()
         .single();
 
@@ -87,14 +91,15 @@ export class OrganizationService {
         const departmentPromises = Object.entries(data.departments)
           .filter(([_, contact]) => contact && contact.contact_name) // Only process departments with data
           .map(([type, contact]) => {
-            return this.supabase.from('institution_departments').insert({
+            const deptData: Database['public']['Tables']['institution_departments']['Insert'] = {
               institution_id: institution.id,
               department_type: type,
-              contact_name: contact.contact_name,
-              designation: contact.designation,
-              email: contact.email,
-              mobile: contact.mobile
-            });
+              contact_name: contact.contact_name!,
+              designation: contact.designation!,
+              email: contact.email!,
+              mobile: contact.mobile!
+            };
+            return ((this.supabase.from('institution_departments') as any).insert(deptData));
           });
 
         if (departmentPromises.length > 0) {
@@ -117,30 +122,33 @@ export class OrganizationService {
     data: UpdateInstitutionDto
   ): Promise<Institution> {
     try {
+      // Prepare institution data for database update
+      const institutionData: Database['public']['Tables']['institutions']['Update'] = {
+        name: data.name,
+        counselling_code: data.counselling_code,
+        institution_type: data.institution_type,
+        category: data.category,
+        timetable_type: data.timetable_type,
+        accredited_by: data.accredited_by,
+        address_line1: data.address_line1,
+        address_line2: data.address_line2,
+        address_line3: data.address_line3,
+        city: data.city,
+        state: data.state,
+        country: data.country,
+        pin_code: data.pin_code,
+        email: data.email,
+        phone: data.phone,
+        website: data.website,
+        logo_url: data.logo_url,
+        is_active: data.is_active,
+        updated_at: new Date().toISOString()
+      };
+
       // Update institution record
-      const { data: institution, error: institutionError } = await this.supabase
-        .from('institutions')
-        .update({
-          name: data.name,
-          counselling_code: data.counselling_code,
-          institution_type: data.institution_type,
-          category: data.category,
-          timetable_type: data.timetable_type,
-          accredited_by: data.accredited_by,
-          address_line1: data.address_line1,
-          address_line2: data.address_line2,
-          address_line3: data.address_line3,
-          city: data.city,
-          state: data.state,
-          country: data.country,
-          pin_code: data.pin_code,
-          email: data.email,
-          phone: data.phone,
-          website: data.website,
-          logo_url: data.logo_url,
-          is_active: data.is_active,
-          updated_at: new Date().toISOString()
-        })
+      const { data: institution, error: institutionError} = await ((this.supabase
+        .from('institutions') as any)
+        .update(institutionData))
         .eq('id', id)
         .select()
         .single();
@@ -159,14 +167,15 @@ export class OrganizationService {
         const departmentPromises = Object.entries(data.departments)
           .filter(([_, contact]) => contact && contact.contact_name)
           .map(([type, contact]) => {
-            return this.supabase.from('institution_departments').insert({
+            const deptData: Database['public']['Tables']['institution_departments']['Insert'] = {
               institution_id: id,
               department_type: type,
-              contact_name: contact.contact_name,
-              designation: contact.designation,
-              email: contact.email,
-              mobile: contact.mobile
-            });
+              contact_name: contact.contact_name!,
+              designation: contact.designation!,
+              email: contact.email!,
+              mobile: contact.mobile!
+            };
+            return ((this.supabase.from('institution_departments') as any).insert(deptData));
           });
 
         if (departmentPromises.length > 0) {
@@ -258,7 +267,7 @@ export class OrganizationService {
         .from('institutions')
         .select('logo_url')
         .eq('id', id)
-        .single();
+        .single() as { data: { logo_url: string | null } | null };
 
       // Delete the logo if exists
       if (institution?.logo_url) {
@@ -332,7 +341,7 @@ export class OrganizationService {
         .from('institutions')
         .select('logo_url')
         .eq('id', id)
-        .single();
+        .single() as { data: { logo_url: string | null } | null };
 
       // Delete the logo if exists
       if (institution?.logo_url) {

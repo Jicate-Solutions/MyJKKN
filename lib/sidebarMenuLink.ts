@@ -144,17 +144,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/organizations/courses/mappings/[id]/edit':
     'organizations.course.mappings.edit',
 
-  //student management
-  '/students': 'learners.view',
-  '/students/dashboard': 'learners.dashboard.view',
-  '/students/new': 'learners.create',
-  '/students/[id]': 'learners.view',
-  '/students/[id]/edit': 'learners.edit',
-  '/students/[id]/edit-promotion': 'learners.promotion.edit',
-  // NOTE: Onboarding routes removed - students now go directly to learners page after approval
-  '/students/promotion': 'learners.promotion.view',
-  '/students/graduated': 'learners.graduated.view',
-  '/admin/students/sync-profiles': 'super_admin', // Super admin only
+  // Student routes removed - now using /learners routes
 
   // Staff Management
   '/staff/category': 'staff.categories.view',
@@ -452,40 +442,7 @@ export function GetPages(pathname: string): MenuGroup[] {
         }
       ]
     },
-    // Old Students/Learners Management (DEPRECATED - Use "Learners Management" instead)
-    {
-      groupLabel: 'Students (Old - Deprecated)',
-      menus: [
-        {
-          href: '/students/dashboard',
-          label: 'Student Analytics (Old)',
-          active: pathname === '/students/dashboard',
-          icon: BarChart,
-          submenus: []
-        },
-        {
-          href: '/students',
-          label: 'Students List (Old)',
-          active: pathname === '/students',
-          icon: Users,
-          submenus: []
-        },
-        {
-          href: '/students/promotion',
-          label: 'Student Promotion (Old)',
-          active: pathname === '/students/promotion',
-          icon: GraduationCap,
-          submenus: []
-        },
-        {
-          href: '/students/graduated',
-          label: 'Graduated & Exited (Old)',
-          active: pathname === '/students/graduated',
-          icon: Award,
-          submenus: []
-        }
-      ]
-    },
+    // Student menu group removed - now using /learners routes
 
     {
       groupLabel: 'Facilitators Management',

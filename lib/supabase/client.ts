@@ -1,16 +1,16 @@
 import { createBrowserClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/database.types';
 
-// Client-side singleton instance
-// Note: Database type removed to avoid type errors with incomplete type definitions
-let clientInstance: ReturnType<typeof createBrowserClient>;
+// Client-side singleton instance with proper database typing
+let clientInstance: ReturnType<typeof createBrowserClient<Database>>;
 
-// Admin singleton instance
-let adminInstance: ReturnType<typeof createClient>;
+// Admin singleton instance with proper database typing
+let adminInstance: ReturnType<typeof createClient<Database>>;
 
 export function createClientSupabaseClient() {
   if (!clientInstance) {
-    clientInstance = createBrowserClient(
+    clientInstance = createBrowserClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -48,7 +48,7 @@ export function createAdminClient() {
       throw new Error('Missing Supabase credentials');
     }
 
-    adminInstance = createClient(
+    adminInstance = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       authKey,
       {

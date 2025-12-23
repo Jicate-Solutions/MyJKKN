@@ -40,16 +40,16 @@ import { usePermissions } from '@/hooks/use-permissions';
  */
 export default function ProfilesPage() {
   const searchParams = useSearchParams();
-  const { isSuperAdmin, canAccess } = usePermissions();
+  const { isSuperAdmin, can } = usePermissions();
 
   const search = profilesSearchParamsSchema.parse(
     Object.fromEntries(searchParams.entries())
   );
 
   // Permission checks
-  const canSyncProfiles = isSuperAdmin || canAccess('learners.profiles.sync');
-  const canBulkUpload = isSuperAdmin || canAccess('learners.profiles.bulk_upload');
-  const canBulkEditActive = isSuperAdmin || canAccess('learners.profiles.bulk_edit') || canAccess('learners.edit');
+  const canSyncProfiles = isSuperAdmin || can('learners.profiles.sync');
+  const canBulkUpload = isSuperAdmin || can('learners.profiles.bulk_upload');
+  const canBulkEditActive = isSuperAdmin || can('learners.profiles.bulk_edit') || can('learners.edit');
 
   return (
     <ContentLayout title="Learners Management">

@@ -7,6 +7,9 @@
 
 import { LifecycleStatus } from './learner-profile';
 
+// Re-export LifecycleStatus for convenience
+export type { LifecycleStatus };
+
 /**
  * Dashboard Filters
  * All filters for the learners analytics dashboard
