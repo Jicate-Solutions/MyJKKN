@@ -507,11 +507,11 @@ export default function TimetableDetailPage({
         if (hasStudentAssignments && existingSlot.section_ids?.[0]) {
           try {
             const sectionId = existingSlot.section_ids[0];
-            const { StudentService } = await import(
-              '@/lib/services/student/student-service'
+            const { LearnerProfileService } = await import(
+              '@/lib/services/learner-profile-service'
             );
-            const studentsResponse = await StudentService.getStudents({
-              section: sectionId,
+            const studentsResponse = await LearnerProfileService.getLearnerProfiles({
+              sectionId: sectionId,
               limit: 1000
             });
 
@@ -582,11 +582,11 @@ export default function TimetableDetailPage({
         if (shouldConfigureSubdivision) {
           // Store data for subdivision configuration
           if (slotData.section_ids?.[0]) {
-            const { StudentService } = await import(
-              '@/lib/services/student/student-service'
+            const { LearnerProfileService } = await import(
+              '@/lib/services/learner-profile-service'
             );
-            const studentsResponse = await StudentService.getStudents({
-              section: slotData.section_ids[0],
+            const studentsResponse = await LearnerProfileService.getLearnerProfiles({
+              sectionId: slotData.section_ids[0],
               limit: 1000
             });
 

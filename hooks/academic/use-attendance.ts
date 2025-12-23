@@ -14,7 +14,7 @@ import type {
   ConsolidatedAttendanceStudent,
   UpsertConsolidatedAttendanceDto
 } from '@/types/attendance';
-import type { Student } from '@/types/student';
+import type { LearnerProfile } from '@/types/learner-profile';
 import toast from 'react-hot-toast';
 
 export function useAttendance(initialFilters: AttendanceFilters = {}) {

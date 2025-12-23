@@ -470,7 +470,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
     tier: 1,
     rpcFunction: 'ai_rpc_export_data',
     parameters: [
-      { name: 'data_source', type: 'string', description: 'The data source to export', required: true, enum: ['students', 'staff', 'attendance_defaulters', 'fee_defaulters'] },
+      { name: 'data_source', type: 'string', description: 'The data source to export', required: true, enum: ['learners', 'staff', 'attendance_defaulters', 'fee_defaulters'] },
       { name: 'filters', type: 'object', description: 'Optional filters for the export' },
     ],
     examples: [
