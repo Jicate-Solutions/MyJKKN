@@ -442,34 +442,6 @@ export function GetPages(pathname: string): MenuGroup[] {
         }
       ]
     },
-    // Student menu group removed - now using /learners routes
-
-    {
-      groupLabel: 'Facilitators Management',
-      menus: [
-        {
-          href: '/staff/dashboard',
-          label: 'Analytics Dashboard',
-          active: pathname === '/staff/dashboard',
-          icon: BarChart,
-          submenus: []
-        },
-        {
-          href: '/staff/category',
-          label: 'Facilitators Category',
-          active: pathname === '/staff/category',
-          icon: Tags,
-          submenus: []
-        },
-        {
-          href: '/staff/list',
-          label: 'Facilitators List',
-          active: pathname === '/staff/list',
-          icon: Users,
-          submenus: []
-        }
-      ]
-    },
     {
       groupLabel: 'Academic Management',
       menus: [
@@ -590,6 +562,88 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     {
+      groupLabel: 'Facilitators Management',
+      menus: [
+        {
+          href: '/staff/dashboard',
+          label: 'Analytics Dashboard',
+          active: pathname === '/staff/dashboard',
+          icon: BarChart,
+          submenus: []
+        },
+        {
+          href: '/staff/category',
+          label: 'Facilitators Category',
+          active: pathname === '/staff/category',
+          icon: Tags,
+          submenus: []
+        },
+        {
+          href: '/staff/list',
+          label: 'Facilitators List',
+          active: pathname === '/staff/list',
+          icon: Users,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Learners Management',
+      menus: [
+        {
+          href: '/learners/analytics',
+          label: 'Analytics Dashboard',
+          active: pathname.startsWith('/learners/analytics'),
+          icon: BarChart,
+          submenus: []
+        },
+        {
+          href: '/learners/enquiries',
+          label: 'Admission Management',
+          active: pathname.startsWith('/learners/enquiries') || pathname.startsWith('/learners/applications'),
+          icon: ClipboardCheck,
+          submenus: [
+            {
+              href: '/learners/enquiries',
+              label: 'All Enquiries',
+              active: pathname === '/learners/enquiries'
+            },
+            {
+              href: '/learners/enquiries/new',
+              label: 'New Enquiry',
+              active: pathname === '/learners/enquiries/new'
+            }
+          ]
+        },
+        {
+          href: '/learners/profiles',
+          label: 'Learner Profiles',
+          active: pathname.startsWith('/learners/profiles'),
+          icon: Users,
+          submenus: [
+            {
+              href: '/learners/profiles',
+              label: 'All Profiles',
+              active: pathname === '/learners/profiles'
+            },
+            {
+              href: '/learners/profiles/promotion',
+              label: 'Student Promotion',
+              active: pathname.startsWith('/learners/profiles/promotion')
+            }
+          ]
+        },
+        {
+          href: '/learners/alumni',
+          label: 'Alumni & Graduates',
+          active: pathname.startsWith('/learners/alumni'),
+          icon: Award,
+          submenus: []
+        }
+      ]
+    },
+
+    {
       groupLabel: 'Resource Management',
       menus: [
         {
@@ -667,61 +721,7 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     // NEW: Unified Learners Module (Will replace old modules)
-    {
-      groupLabel: 'Learners Management',
-      menus: [
-        {
-          href: '/learners/analytics',
-          label: 'Analytics Dashboard',
-          active: pathname.startsWith('/learners/analytics'),
-          icon: BarChart,
-          submenus: []
-        },
-        {
-          href: '/learners/enquiries',
-          label: 'Admission Management',
-          active: pathname.startsWith('/learners/enquiries') || pathname.startsWith('/learners/applications'),
-          icon: ClipboardCheck,
-          submenus: [
-            {
-              href: '/learners/enquiries',
-              label: 'All Enquiries',
-              active: pathname === '/learners/enquiries'
-            },
-            {
-              href: '/learners/enquiries/new',
-              label: 'New Enquiry',
-              active: pathname === '/learners/enquiries/new'
-            }
-          ]
-        },
-        {
-          href: '/learners/profiles',
-          label: 'Learner Profiles',
-          active: pathname.startsWith('/learners/profiles'),
-          icon: Users,
-          submenus: [
-            {
-              href: '/learners/profiles',
-              label: 'All Profiles',
-              active: pathname === '/learners/profiles'
-            },
-            {
-              href: '/learners/profiles/promotion',
-              label: 'Student Promotion',
-              active: pathname.startsWith('/learners/profiles/promotion')
-            }
-          ]
-        },
-        {
-          href: '/learners/alumni',
-          label: 'Alumni & Graduates',
-          active: pathname.startsWith('/learners/alumni'),
-          icon: Award,
-          submenus: []
-        }
-      ]
-    },
+  
 
     {
       groupLabel: 'Billing Management',
