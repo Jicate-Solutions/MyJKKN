@@ -141,7 +141,7 @@ export function PendingAttendanceFilters({
   };
 
   const getActiveFiltersDisplay = () => {
-    const activeFilters = [];
+    const activeFilters: string[] = [];
     if (filters.search) activeFilters.push('Search');
     if (filters.startDate || filters.endDate) activeFilters.push('Date Range');
     if (filters.institutionId && !dashboardInstitutionId) activeFilters.push('Institution');

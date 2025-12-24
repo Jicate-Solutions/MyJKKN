@@ -135,7 +135,7 @@ export class BillingRefundService {
     filters: RefundFilters = {}
   ): Promise<RefundListResponse> {
     try {
-      let query = this.supabase.from('billing_refunds').select(
+      let query = (this.supabase as any).from('billing_refunds').select(
         `
           *,
           receipt:billing_receipts (
@@ -416,7 +416,7 @@ export class BillingRefundService {
         if (receiptItems) {
           for (const item of receiptItems) {
             // Call the database function to recalculate bill status
-            await this.supabase.rpc('recalculate_bill_status_with_refunds', {
+            await (this.supabase as any).rpc('recalculate_bill_status_with_refunds', {
               p_bill_id: item.bill_id
             });
           }

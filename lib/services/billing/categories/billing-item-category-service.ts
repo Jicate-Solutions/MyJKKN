@@ -53,8 +53,8 @@ export class BillingItemCategoryService {
         );
       }
 
-      const { data, error } = await this.supabase
-        .from('billing_item_categories')
+      const { data, error } = await (this.supabase
+        .from('billing_item_categories') as any)
         .insert([
           {
             ...itemCategoryData,
@@ -112,8 +112,8 @@ export class BillingItemCategoryService {
         }
       }
 
-      const { data, error } = await this.supabase
-        .from('billing_item_categories')
+      const { data, error } = await (this.supabase
+        .from('billing_item_categories') as any)
         .update({
           ...itemCategoryData,
           updated_by: (await this.supabase.auth.getUser()).data.user?.id
@@ -207,7 +207,7 @@ export class BillingItemCategoryService {
         limit = 10
       } = filters;
 
-      let query = this.supabase.from('billing_item_categories').select(
+      let query = (this.supabase as any).from('billing_item_categories').select(
         `
           *,
           institution:institutions(

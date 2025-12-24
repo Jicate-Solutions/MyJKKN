@@ -81,7 +81,7 @@ export default function TimetableConflictsPage() {
       setError(null);
 
       // Call the database function directly
-      const { data: conflictData, error: conflictError } = await supabase.rpc(
+      const { data: conflictData, error: conflictError } = await (supabase as any).rpc(
         'get_all_timetable_staff_conflicts'
       );
 
@@ -113,7 +113,7 @@ export default function TimetableConflictsPage() {
       }
 
       // Call the sync function directly
-      const { data: syncResult, error: syncError } = await supabase.rpc(
+      const { data: syncResult, error: syncError } = await (supabase as any).rpc(
         'sync_timetable_staff_assignment' as any,
         {
           p_timetable_id: conflict.timetable_id,

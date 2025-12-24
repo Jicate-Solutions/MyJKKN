@@ -154,10 +154,11 @@ export default function AttendanceReportDetailPage() {
         return;
       }
 
-      setReport(data as DetailedAttendanceReport);
+      const reportData = data as DetailedAttendanceReport;
+      setReport(reportData);
       // Default select first period
-      if (data.period_details && data.period_details.length > 0) {
-        setSelectedPeriod(data.period_details[0].period_id);
+      if (reportData.period_details && reportData.period_details.length > 0) {
+        setSelectedPeriod(reportData.period_details[0].period_id);
       }
     } catch (error) {
       toast.error('An error occurred while fetching the report');

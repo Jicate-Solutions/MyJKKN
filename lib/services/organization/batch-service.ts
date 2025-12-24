@@ -75,7 +75,7 @@ export class BatchService {
    */
   static async getBatches(filters: BatchFilters = {}): Promise<Batch[]> {
     try {
-      let query = this.supabase.from('batches').select('*');
+      let query = (this.supabase as any).from('batches').select('*');
 
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);

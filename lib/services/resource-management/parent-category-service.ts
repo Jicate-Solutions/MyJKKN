@@ -40,7 +40,7 @@ export class ParentCategoryService {
     filters: ParentCategoryFilters = {}
   ): Promise<ParentCategoryListResponse> {
     try {
-      let query = this.supabase.from('resource_parent_categories').select(
+      let query = (this.supabase as any).from('resource_parent_categories').select(
         `
           *,
           subcategories:resource_sub_categories(count),
@@ -85,7 +85,7 @@ export class ParentCategoryService {
       if (error) throw error;
 
       // Transform data to include usage statistics
-      const transformedCategories = (categories || []).map((category) => ({
+      const transformedCategories = (categories || []).map((category: any) => ({
         ...category,
         usage_count: category.resources?.[0]?.count || 0,
         subcategories_count: category.subcategories?.[0]?.count || 0
@@ -133,22 +133,22 @@ export class ParentCategoryService {
 
       // Get created_by user info if exists
       let created_by_user = null;
-      if (category.created_by) {
+      if ((category as any).created_by) {
         const { data: createdUser } = await this.supabase
           .from('profiles')
           .select('id, full_name, email')
-          .eq('id', category.created_by)
+          .eq('id', (category as any).created_by)
           .single();
         created_by_user = createdUser;
       }
 
       // Get updated_by user info if exists
       let updated_by_user = null;
-      if (category.updated_by) {
+      if ((category as any).updated_by) {
         const { data: updatedUser } = await this.supabase
           .from('profiles')
           .select('id, full_name, email')
-          .eq('id', category.updated_by)
+          .eq('id', (category as any).updated_by)
           .single();
         updated_by_user = updatedUser;
       }
@@ -161,7 +161,7 @@ export class ParentCategoryService {
 
       // Combine the data
       const result = {
-        ...category,
+        ...(category as any),
         subcategories: subcategories || [],
         subcategories_count: subcategories?.length || 0,
         usage_count: usageCount || 0,
@@ -210,11 +210,11 @@ export class ParentCategoryService {
           .limit(1)
           .single();
 
-        displayOrder = (lastCategory?.display_order || 0) + 1;
+        displayOrder = ((lastCategory as any)?.display_order || 0) + 1;
       }
 
-      const { data: category, error } = await this.supabase
-        .from('resource_parent_categories')
+      const { data: category, error } = await (this.supabase
+        .from('resource_parent_categories') as any)
         .insert({
           ...(customId && { id: customId }),
           ...categoryData,
@@ -295,8 +295,8 @@ export class ParentCategoryService {
         updated_at: new Date().toISOString()
       };
 
-      const { data: category, error } = await this.supabase
-        .from('resource_parent_categories')
+      const { data: category, error } = await (this.supabase
+        .from('resource_parent_categories') as any)
         .update(updateData)
         .eq('id', id)
         .select()
@@ -472,8 +472,8 @@ export class ParentCategoryService {
   ): Promise<boolean> {
     try {
       const updates = categoryOrders.map(({ id, display_order }) =>
-        this.supabase
-          .from('resource_parent_categories')
+        (this.supabase
+          .from('resource_parent_categories') as any)
           .update({
             display_order,
             updated_at: new Date().toISOString()
@@ -521,7 +521,7 @@ export class ParentCategoryService {
 
       if (error) throw error;
 
-      return (stats || []).map((stat) => ({
+      return (stats || []).map((stat: any) => ({
         id: stat.id,
         name: stat.name,
         subcategories_count: stat.subcategories?.[0]?.count || 0,

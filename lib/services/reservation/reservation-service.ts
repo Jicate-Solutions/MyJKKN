@@ -144,7 +144,7 @@ export class ReservationService {
       .single();
 
     // Determine initial status based on approval config
-    const requiresApproval = resource?.approval_config?.enabled || false;
+    const requiresApproval = (resource as any)?.approval_config?.enabled || false;
     const initialStatus = requiresApproval ? 'pending' : 'approved';
 
     const reservationData = {
@@ -163,8 +163,8 @@ export class ReservationService {
       approved_at: requiresApproval ? null : new Date().toISOString()
     };
 
-    const { data, error } = await supabase
-      .from('resource_reservations')
+    const { data, error } = await (supabase
+      .from('resource_reservations') as any)
       .insert(reservationData)
       .select(
         `
@@ -181,10 +181,10 @@ export class ReservationService {
     }
 
     // If approval is required, create approval records
-    if (requiresApproval && resource?.approval_config?.approvers) {
+    if (requiresApproval && (resource as any)?.approval_config?.approvers) {
       await this.createApprovalRecords(
-        data.id,
-        resource.approval_config.approvers
+        (data as any).id,
+        (resource as any).approval_config.approvers
       );
     }
 
@@ -223,8 +223,8 @@ export class ReservationService {
       }
     }
 
-    const { data, error } = await supabase
-      .from('resource_reservations')
+    const { data, error } = await (supabase
+      .from('resource_reservations') as any)
       .update({
         ...dto,
         updated_at: new Date().toISOString()
@@ -326,8 +326,8 @@ export class ReservationService {
     }
 
     if (
-      resource.status === 'maintenance' ||
-      resource.status === 'out_of_order'
+      (resource as any).status === 'maintenance' ||
+      (resource as any).status === 'out_of_order'
     ) {
       return [];
     }
@@ -340,7 +340,7 @@ export class ReservationService {
       '@/lib/services/resource-management/time-slot-generator-service'
     );
 
-    const bookingConfig = resource.booking_config as any;
+    const bookingConfig = (resource as any).booking_config as any;
 
     // Step 1: Check if date is available using DateAvailabilityService
     const dateConfig = bookingConfig?.date_availability;
@@ -368,7 +368,7 @@ export class ReservationService {
 
     // Step 4: Mark booked slots
     return generatedSlots.map((slot) => {
-      const isBooked = reservations?.some((r) => {
+      const isBooked = reservations?.some((r: any) => {
         const reservationStart = new Date(r.start_time);
         const reservationEnd = new Date(r.end_time);
         const slotStart = new Date(slot.start_time);
@@ -386,13 +386,13 @@ export class ReservationService {
         slot_name: slot.slot_name, // Pass through custom slot name
         max_capacity: slot.max_capacity, // Pass through capacity
         existing_reservation_id: isBooked
-          ? reservations?.find((r) => {
+          ? (reservations?.find((r: any) => {
               const reservationStart = new Date(r.start_time);
               const reservationEnd = new Date(r.end_time);
               const slotStart = new Date(slot.start_time);
               const slotEnd = new Date(slot.end_time);
               return reservationStart < slotEnd && reservationEnd > slotStart;
-            })?.id
+            }) as any)?.id
           : undefined
       };
     });
@@ -457,7 +457,7 @@ export class ReservationService {
 
     const daysInMonth = new Date(year, month, 0).getDate();
     const calendar: CalendarSlot[] = [];
-    const bookingConfig = resource.booking_config as any;
+    const bookingConfig = (resource as any).booking_config as any;
     const dateAvailability = bookingConfig?.date_availability;
 
     for (let day = 1; day <= daysInMonth; day++) {
@@ -496,7 +496,7 @@ export class ReservationService {
           is_fully_booked: false,
           is_partially_booked: false,
           is_available: false,
-          is_maintenance: resource.status === 'maintenance',
+          is_maintenance: (resource as any).status === 'maintenance',
           is_date_unavailable: true
         });
         continue;
@@ -513,7 +513,7 @@ export class ReservationService {
         is_fully_booked: fullyBooked,
         is_partially_booked: partiallyBooked,
         is_available: available,
-        is_maintenance: resource.status === 'maintenance',
+        is_maintenance: (resource as any).status === 'maintenance',
         is_date_unavailable: false
       });
     }
@@ -530,8 +530,8 @@ export class ReservationService {
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await supabase
-      .from('resource_reservations')
+    const { data, error } = await (supabase
+      .from('resource_reservations') as any)
       .update({
         status: 'approved',
         approved_by: approverId,
@@ -556,8 +556,8 @@ export class ReservationService {
     }
 
     // Update approval record
-    await supabase
-      .from('resource_approvals')
+    await (supabase
+      .from('resource_approvals') as any)
       .update({
         status: 'approved',
         approved_at: new Date().toISOString()
@@ -577,8 +577,8 @@ export class ReservationService {
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await supabase
-      .from('resource_reservations')
+    const { data, error } = await (supabase
+      .from('resource_reservations') as any)
       .update({
         status: 'rejected',
         approved_by: approverId,
@@ -601,8 +601,8 @@ export class ReservationService {
     }
 
     // Update approval record
-    await supabase
-      .from('resource_approvals')
+    await (supabase
+      .from('resource_approvals') as any)
       .update({
         status: 'rejected',
         rejection_reason: dto.rejection_reason,
@@ -623,8 +623,8 @@ export class ReservationService {
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await supabase
-      .from('resource_reservations')
+    const { data, error } = await (supabase
+      .from('resource_reservations') as any)
       .update({
         status: 'cancelled',
         cancelled_by: userId,
@@ -655,8 +655,8 @@ export class ReservationService {
   static async checkIn(dto: CheckInDto, userId: string): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await supabase
-      .from('resource_reservations')
+    const { data, error } = await (supabase
+      .from('resource_reservations') as any)
       .update({
         checked_in_at: new Date().toISOString(),
         checked_in_by: userId,
@@ -694,8 +694,8 @@ export class ReservationService {
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await supabase
-      .from('resource_reservations')
+    const { data, error } = await (supabase
+      .from('resource_reservations') as any)
       .update({
         status: 'completed',
         checked_out_at: new Date().toISOString(),
@@ -731,7 +731,7 @@ export class ReservationService {
   static async getReservationStats(userId?: string): Promise<ReservationStats> {
     const supabase = createClientSupabaseClient();
 
-    let query = supabase.from('resource_reservations').select('status');
+    let query = (supabase as any).from('resource_reservations').select('status');
 
     if (userId) {
       query = query.eq('user_id', userId);
@@ -747,14 +747,14 @@ export class ReservationService {
     const stats: ReservationStats = {
       total_reservations: data?.length || 0,
       pending_approvals:
-        data?.filter((r) => r.status === 'pending').length || 0,
-      approved_count: data?.filter((r) => r.status === 'approved').length || 0,
-      rejected_count: data?.filter((r) => r.status === 'rejected').length || 0,
+        data?.filter((r: any) => r.status === 'pending').length || 0,
+      approved_count: data?.filter((r: any) => r.status === 'approved').length || 0,
+      rejected_count: data?.filter((r: any) => r.status === 'rejected').length || 0,
       cancelled_count:
-        data?.filter((r) => r.status === 'cancelled').length || 0,
+        data?.filter((r: any) => r.status === 'cancelled').length || 0,
       completed_count:
-        data?.filter((r) => r.status === 'completed').length || 0,
-      no_show_count: data?.filter((r) => r.status === 'no_show').length || 0,
+        data?.filter((r: any) => r.status === 'completed').length || 0,
+      no_show_count: data?.filter((r: any) => r.status === 'no_show').length || 0,
       upcoming_reservations: 0, // Calculated separately
       overdue_reservations: 0 // Calculated separately
     };
@@ -805,7 +805,7 @@ export class ReservationService {
       status: 'pending'
     }));
 
-    await supabase.from('resource_approvals').insert(approvalRecords);
+    await (supabase as any).from('resource_approvals').insert(approvalRecords);
   }
 
   /**
@@ -816,7 +816,7 @@ export class ReservationService {
   ): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    await supabase.rpc('increment_resource_usage', {
+    await (supabase as any).rpc('increment_resource_usage', {
       resource_id: resourceId
     });
   }
@@ -834,7 +834,7 @@ export class ReservationService {
     const reservation = await this.getReservation(reservationId);
     if (!reservation) return;
 
-    await supabase.from('resource_usage_logs').insert({
+    await (supabase as any).from('resource_usage_logs').insert({
       resource_id: reservation.resource_id,
       reservation_id: reservationId,
       user_id: userId,

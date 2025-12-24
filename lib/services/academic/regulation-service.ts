@@ -119,7 +119,7 @@ export class RegulationService {
     filters: RegulationFilters = {}
   ): Promise<RegulationListResponse> {
     try {
-      let query = this.supabase.from('regulations').select(
+      let query = (this.supabase as any).from('regulations').select(
         `
           *,
           institution:institutions(id, name, counselling_code)
@@ -210,7 +210,7 @@ export class RegulationService {
     isSuperAdmin: boolean = false
   ): Promise<RegulationListResponse> {
     try {
-      let query = this.supabase.from('regulations').select(
+      let query = (this.supabase as any).from('regulations').select(
         `
           *,
           institution:institutions (

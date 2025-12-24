@@ -667,7 +667,7 @@ export class BillingReportService {
     }
 
     const { data } = await query;
-    return data?.reduce((sum, bill) => sum + (bill.final_amount || 0), 0) || 0;
+    return data?.reduce((sum, bill: any) => sum + (bill.final_amount || 0), 0) || 0;
   }
 
   private static async getTotalAmountCollected(
@@ -695,7 +695,7 @@ export class BillingReportService {
     const { data: receiptData } = await receiptQuery;
     const totalReceiptAmount =
       receiptData?.reduce(
-        (sum, receipt) => sum + (receipt.payment_amount || 0),
+        (sum, receipt: any) => sum + (receipt.payment_amount || 0),
         0
       ) || 0;
 
@@ -722,7 +722,7 @@ export class BillingReportService {
     const { data: refundData } = await refundQuery;
     const totalProcessedRefunds =
       refundData?.reduce(
-        (sum, refund) => sum + (refund.refund_amount || 0),
+        (sum, refund: any) => sum + (refund.refund_amount || 0),
         0
       ) || 0;
 
@@ -744,7 +744,7 @@ export class BillingReportService {
 
     const { data } = await query;
     return (
-      data?.reduce((sum, bill) => sum + (bill.balance_amount || 0), 0) || 0
+      data?.reduce((sum, bill: any) => sum + (bill.balance_amount || 0), 0) || 0
     );
   }
 
@@ -765,7 +765,7 @@ export class BillingReportService {
 
     const { data } = await query;
     return (
-      data?.reduce((sum, bill) => sum + (bill.balance_amount || 0), 0) || 0
+      data?.reduce((sum, bill: any) => sum + (bill.balance_amount || 0), 0) || 0
     );
   }
 
@@ -790,7 +790,7 @@ export class BillingReportService {
     const { data } = await query;
     return (
       data?.reduce(
-        (sum, discount) => sum + (discount.discount_amount || 0),
+        (sum, discount: any) => sum + (discount.discount_amount || 0),
         0
       ) || 0
     );
@@ -822,7 +822,7 @@ export class BillingReportService {
 
     const { data } = await query;
     return (
-      data?.reduce((sum, refund) => sum + (refund.refund_amount || 0), 0) || 0
+      data?.reduce((sum, refund: any) => sum + (refund.refund_amount || 0), 0) || 0
     );
   }
 
@@ -953,7 +953,7 @@ export class BillingReportService {
       const monthlyData = new Map<string, number>();
 
       // Add receipts
-      receipts?.forEach((receipt) => {
+      receipts?.forEach((receipt: any) => {
         const month = new Date(receipt.receipt_date).toISOString().slice(0, 7); // YYYY-MM
         monthlyData.set(
           month,
@@ -962,7 +962,7 @@ export class BillingReportService {
       });
 
       // Subtract refunds
-      refunds?.forEach((refund) => {
+      refunds?.forEach((refund: any) => {
         const month = new Date(refund.refund_date).toISOString().slice(0, 7); // YYYY-MM
         monthlyData.set(
           month,
@@ -998,7 +998,7 @@ export class BillingReportService {
       if (!institutions) return [];
 
       const summaries = await Promise.all(
-        institutions.map(async (institution) => {
+        institutions.map(async (institution: any) => {
           // Get bills count and amount billed
           const { data: bills } = await this.supabase
             .from('billing_student_bills')
@@ -1007,7 +1007,7 @@ export class BillingReportService {
 
           const totalBills = bills?.length || 0;
           const amountBilled =
-            bills?.reduce((sum, bill) => sum + bill.final_amount, 0) || 0;
+            bills?.reduce((sum, bill: any) => sum + bill.final_amount, 0) || 0;
 
           // Get receipts amount
           const { data: receipts } = await this.supabase
@@ -1017,7 +1017,7 @@ export class BillingReportService {
 
           const totalReceiptAmount =
             receipts?.reduce(
-              (sum, receipt) => sum + receipt.payment_amount,
+              (sum, receipt: any) => sum + receipt.payment_amount,
               0
             ) || 0;
 
@@ -1031,7 +1031,7 @@ export class BillingReportService {
             .eq('approval_status', 'processed');
 
           const totalRefunds =
-            refunds?.reduce((sum, refund) => sum + refund.refund_amount, 0) ||
+            refunds?.reduce((sum, refund: any) => sum + refund.refund_amount, 0) ||
             0;
 
           // Calculate net collection and outstanding

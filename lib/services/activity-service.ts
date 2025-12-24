@@ -130,7 +130,7 @@ export class ActivityService {
       // Use server client to get elevated permissions for admin queries
       const supabase = await this.getServerSupabase();
 
-      let query = supabase.from('user_activity_logs').select(
+      let query = (supabase as any).from('user_activity_logs').select(
         `
           *,
           profiles(

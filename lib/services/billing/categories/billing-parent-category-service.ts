@@ -54,8 +54,8 @@ export class BillingParentCategoryService {
         );
       }
 
-      const { data: category, error } = await this.supabase
-        .from('billing_parent_categories')
+      const { data: category, error } = await (this.supabase
+        .from('billing_parent_categories') as any)
         .insert([
           {
             institution_id: data.institution_id,
@@ -120,8 +120,8 @@ export class BillingParentCategoryService {
         updateData.parent_category_name = data.parent_category_name.trim();
       if (data.is_active !== undefined) updateData.is_active = data.is_active;
 
-      const { data: category, error } = await this.supabase
-        .from('billing_parent_categories')
+      const { data: category, error } = await (this.supabase
+        .from('billing_parent_categories') as any)
         .update(updateData)
         .eq('id', id)
         .select(
@@ -150,8 +150,8 @@ export class BillingParentCategoryService {
       // TODO: Check if category has associated sub-categories before deletion
       // This will be implemented when we create the sub-category module
 
-      const { error } = await this.supabase
-        .from('billing_parent_categories')
+      const { error } = await (this.supabase
+        .from('billing_parent_categories') as any)
         .delete()
         .eq('id', id);
 
@@ -196,7 +196,7 @@ export class BillingParentCategoryService {
         limit = 10
       } = filters;
 
-      let query = this.supabase.from('billing_parent_categories').select(
+      let query = (this.supabase as any).from('billing_parent_categories').select(
         `
           *,
           institution:institutions(
@@ -286,7 +286,7 @@ export class BillingParentCategoryService {
         limit = 10
       } = filters;
 
-      let query = this.supabase.from('billing_parent_categories').select(
+      let query = (this.supabase as any).from('billing_parent_categories').select(
         `
           *,
           institution:institutions(

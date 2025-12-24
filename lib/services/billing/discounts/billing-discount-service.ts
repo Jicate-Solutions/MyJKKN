@@ -24,7 +24,7 @@ export class BillingDiscountService {
 
       if (billQuery.error) throw billQuery.error;
 
-      const billAmount = billQuery.data.total_amount;
+      const billAmount = (billQuery.data as { total_amount: number }).total_amount;
       let discountAmount = 0;
 
       if (discountData.discount_type === 'percentage') {
@@ -52,7 +52,7 @@ export class BillingDiscountService {
           expiry_date: discountData.expiry_date,
           approval_status: 'pending',
           created_by: user?.id
-        })
+        } as any)
         .select(
           `
           *,
@@ -77,7 +77,7 @@ export class BillingDiscountService {
         .single();
 
       if (error) throw error;
-      return data;
+      return data as BillingDiscount;
     } catch (error) {
       console.error('Error creating discount:', error);
       throw new Error(
@@ -91,7 +91,7 @@ export class BillingDiscountService {
     discountData: UpdateDiscountDto
   ): Promise<BillingDiscount> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('billing_discounts')
         .update(discountData)
         .eq('id', id)
@@ -119,7 +119,7 @@ export class BillingDiscountService {
         .single();
 
       if (error) throw error;
-      return data;
+      return data as BillingDiscount;
     } catch (error) {
       console.error('Error updating discount:', error);
       throw new Error(
@@ -148,7 +148,7 @@ export class BillingDiscountService {
     filters: DiscountFilters = {}
   ): Promise<DiscountListResponse> {
     try {
-      let query = this.supabase.from('billing_discounts').select(
+      let query = (this.supabase as any).from('billing_discounts').select(
         `
           *,
           bill:billing_student_bills (
@@ -287,8 +287,10 @@ export class BillingDiscountService {
 
       if (billError) throw billError;
 
+      const billDataTyped = billData as { final_amount: number; balance_amount: number; status: string };
+
       // Validate that discount doesn't exceed bill amount
-      if (discountData.discount_amount > billData.final_amount) {
+      if (discountData.discount_amount > billDataTyped.final_amount) {
         throw new Error('Discount amount cannot exceed bill amount');
       }
 
@@ -299,24 +301,24 @@ export class BillingDiscountService {
 
       // Calculate new amounts after discount
       const newFinalAmount =
-        billData.final_amount - discountData.discount_amount;
+        billDataTyped.final_amount - discountData.discount_amount;
 
       // For balance_amount calculation:
       // - If bill is unpaid: balance_amount = new final_amount
       // - If bill is partially_paid: balance_amount = current balance - discount_amount (but not less than 0)
       let newBalanceAmount = 0;
-      if (billData.status === 'unpaid') {
+      if (billDataTyped.status === 'unpaid') {
         newBalanceAmount = newFinalAmount;
-      } else if (billData.status === 'partially_paid') {
+      } else if (billDataTyped.status === 'partially_paid') {
         newBalanceAmount = Math.max(
           0,
-          billData.balance_amount - discountData.discount_amount
+          billDataTyped.balance_amount - discountData.discount_amount
         );
       }
 
       // Start a transaction to update both discount and bill
       const { data: updatedDiscount, error: discountError } =
-        await this.supabase
+        await (this.supabase as any)
           .from('billing_discounts')
           .update({
             approval_status: 'approved',
@@ -350,7 +352,7 @@ export class BillingDiscountService {
       if (discountError) throw discountError;
 
       // Update the bill amounts
-      const { error: billUpdateError } = await this.supabase
+      const { error: billUpdateError } = await (this.supabase as any)
         .from('billing_student_bills')
         .update({
           final_amount: newFinalAmount,
@@ -362,8 +364,8 @@ export class BillingDiscountService {
       if (billUpdateError) throw billUpdateError;
 
       // If balance becomes 0, mark bill as paid
-      if (newBalanceAmount === 0 && billData.status !== 'paid') {
-        const { error: statusUpdateError } = await this.supabase
+      if (newBalanceAmount === 0 && billDataTyped.status !== 'paid') {
+        const { error: statusUpdateError } = await (this.supabase as any)
           .from('billing_student_bills')
           .update({
             status: 'paid',
@@ -396,7 +398,7 @@ export class BillingDiscountService {
       // First get the current discount to access the discount_reason
       const currentDiscount = await this.getBillingDiscount(id);
 
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('billing_discounts')
         .update({
           approval_status: 'rejected',
@@ -463,17 +465,19 @@ export class BillingDiscountService {
 
       if (billError) throw billError;
 
+      const billDataTyped = billData as { final_amount: number; balance_amount: number; status: string; total_amount: number; tax_amount: number };
+
       // Calculate restored amounts (add back the discount)
       const restoredFinalAmount =
-        billData.final_amount + discountData.discount_amount;
+        billDataTyped.final_amount + discountData.discount_amount;
 
       // For balance_amount calculation, add back the discount amount
       const restoredBalanceAmount =
-        billData.balance_amount + discountData.discount_amount;
+        billDataTyped.balance_amount + discountData.discount_amount;
 
       // Update the discount status to 'reversed'
       const { data: updatedDiscount, error: discountError } =
-        await this.supabase
+        await (this.supabase as any)
           .from('billing_discounts')
           .update({
             approval_status: 'rejected', // We'll use rejected status for reversed discounts
@@ -510,7 +514,7 @@ export class BillingDiscountService {
       if (discountError) throw discountError;
 
       // Restore the bill amounts
-      const { error: billUpdateError } = await this.supabase
+      const { error: billUpdateError } = await (this.supabase as any)
         .from('billing_student_bills')
         .update({
           final_amount: restoredFinalAmount,
@@ -583,20 +587,23 @@ export class BillingDiscountService {
 
       if (discountError) throw discountError;
 
+      const discountsTyped = discounts as BillingDiscount[];
+      const billTyped = bill as { total_amount: number; tax_amount: number; final_amount: number };
+
       // Calculate discount totals
-      const appliedDiscounts = discounts.filter(
-        (d) => d.approval_status === 'approved'
+      const appliedDiscounts = discountsTyped.filter(
+        (d: any) => d.approval_status === 'approved'
       );
-      const pendingDiscounts = discounts.filter(
-        (d) => d.approval_status === 'pending'
+      const pendingDiscounts = discountsTyped.filter(
+        (d: any) => d.approval_status === 'pending'
       );
       const totalDiscountAmount = appliedDiscounts.reduce(
-        (sum, d) => sum + d.discount_amount,
+        (sum: number, d: any) => sum + d.discount_amount,
         0
       );
 
       // Calculate effective amount (this should match bill.final_amount if our logic is correct)
-      const originalAmount = bill.total_amount + (bill.tax_amount || 0);
+      const originalAmount = billTyped.total_amount + (billTyped.tax_amount || 0);
       const effectiveAmount = originalAmount - totalDiscountAmount;
 
       return {

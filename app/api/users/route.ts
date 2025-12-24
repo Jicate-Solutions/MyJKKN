@@ -319,7 +319,7 @@ export async function POST(request: Request) {
     // Use the secure function to create pre-registered profile
     console.log('Creating profile using secure function...');
 
-    const { data: newProfile, error: createError } = await supabase.rpc(
+    const { data: newProfile, error: createError } = await (supabase as any).rpc(
       'create_preregistered_profile',
       {
         profile_id: placeholderId,

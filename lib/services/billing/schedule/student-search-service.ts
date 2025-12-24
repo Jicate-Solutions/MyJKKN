@@ -416,7 +416,7 @@ export class StudentSearchService {
     studentId: string
   ): Promise<number> {
     try {
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'calculate_student_outstanding',
         { student_uuid: studentId }
       );
@@ -443,7 +443,7 @@ export class StudentSearchService {
     }
 
     try {
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'bulk_calculate_student_outstanding',
         { student_ids: studentIds }
       );

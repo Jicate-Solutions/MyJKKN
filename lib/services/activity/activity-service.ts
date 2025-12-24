@@ -23,7 +23,7 @@ export class ActivityService {
     data: CreateActivityLogRequest
   ): Promise<UserActivityLog> {
     try {
-      const { data: activity, error } = await this.supabase
+      const { data: activity, error } = await (this.supabase as any)
         .from('user_activity_logs')
         .insert([data])
         .select('*')
@@ -114,7 +114,7 @@ export class ActivityService {
     sortOrder?: 'asc' | 'desc';
   }): Promise<ActivityLogsPaginatedResponse> {
     try {
-      let query = this.supabase.from('user_activity_logs').select(
+      let query = (this.supabase as any).from('user_activity_logs').select(
         `
           *,
           user:profiles!user_activity_logs_user_id_fkey(
@@ -236,8 +236,11 @@ export class ActivityService {
         .gte('created_at', dateRange.from)
         .lte('created_at', dateRange.to);
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const usersData = uniqueUsersData as { user_id: string }[] | null;
+
       const uniqueUsers = new Set(
-        uniqueUsersData?.map((log) => log.user_id) || []
+        usersData?.map((log) => log.user_id) || []
       ).size;
 
       // Get unique sessions
@@ -248,8 +251,11 @@ export class ActivityService {
         .lte('created_at', dateRange.to)
         .not('session_id', 'is', null);
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const sessionsData = uniqueSessionsData as { session_id: string }[] | null;
+
       const uniqueSessions = new Set(
-        uniqueSessionsData?.map((log) => log.session_id) || []
+        sessionsData?.map((log) => log.session_id) || []
       ).size;
 
       // Get top actions
@@ -259,8 +265,11 @@ export class ActivityService {
         .gte('created_at', dateRange.from)
         .lte('created_at', dateRange.to);
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const actionsResult = actionsData as { action_type: string }[] | null;
+
       const actionCounts =
-        actionsData?.reduce((acc, log) => {
+        actionsResult?.reduce((acc, log) => {
           acc[log.action_type] = (acc[log.action_type] || 0) + 1;
           return acc;
         }, {} as Record<string, number>) || {};
@@ -284,8 +293,11 @@ export class ActivityService {
         .lte('created_at', dateRange.to)
         .not('resource_type', 'is', null);
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const resourcesResult = resourcesData as { resource_type: string | null }[] | null;
+
       const resourceCounts =
-        resourcesData?.reduce((acc, log) => {
+        resourcesResult?.reduce((acc, log) => {
           if (log.resource_type) {
             acc[log.resource_type] = (acc[log.resource_type] || 0) + 1;
           }
@@ -319,8 +331,11 @@ export class ActivityService {
         .gte('created_at', dateRange.from)
         .lte('created_at', dateRange.to);
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const userActivityResult = userActivityData as { user_id: string; profiles: { full_name: string }[] }[] | null;
+
       const userCounts =
-        userActivityData?.reduce((acc, log) => {
+        userActivityResult?.reduce((acc, log) => {
           acc[log.user_id] = (acc[log.user_id] || 0) + 1;
           return acc;
         }, {} as Record<string, number>) || {};
@@ -330,7 +345,7 @@ export class ActivityService {
       ).sort(([, a], [, b]) => b - a)[0]?.[0];
 
       const mostActiveUser =
-        userActivityData?.find((log) => log.user_id === mostActiveUserId)
+        userActivityResult?.find((log) => log.user_id === mostActiveUserId)
           ?.profiles?.[0]?.full_name || 'Unknown';
 
       return {
@@ -362,7 +377,7 @@ export class ActivityService {
     to: string;
   }): Promise<Array<{ date: string; count: number }>> {
     try {
-      const { data } = await this.supabase.rpc('get_daily_activity_trend', {
+      const { data } = await (this.supabase as any).rpc('get_daily_activity_trend', {
         start_date: dateRange.from,
         end_date: dateRange.to
       });
@@ -376,8 +391,11 @@ export class ActivityService {
         .gte('created_at', dateRange.from)
         .lte('created_at', dateRange.to);
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const trendData = data as { created_at: string }[] | null;
+
       const dailyCounts =
-        data?.reduce((acc, log) => {
+        trendData?.reduce((acc, log) => {
           const date = log.created_at.split('T')[0];
           acc[date] = (acc[date] || 0) + 1;
           return acc;
@@ -403,8 +421,11 @@ export class ActivityService {
         .gte('created_at', dateRange.from)
         .lte('created_at', dateRange.to);
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const hourlyData = data as { created_at: string }[] | null;
+
       const hourlyCounts =
-        data?.reduce((acc, log) => {
+        hourlyData?.reduce((acc, log) => {
           const hour = new Date(log.created_at).getHours();
           acc[hour] = (acc[hour] || 0) + 1;
           return acc;
@@ -442,10 +463,13 @@ export class ActivityService {
         .lte('created_at', dateRange.to)
         .not('institution_id', 'is', null);
 
-      const totalWithInstitution = data?.length || 0;
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const institutionData = data as { institutions: { name: string }[] }[] | null;
+
+      const totalWithInstitution = institutionData?.length || 0;
 
       const institutionCounts =
-        data?.reduce((acc, log) => {
+        institutionData?.reduce((acc, log) => {
           const name = log.institutions?.[0]?.name || 'Unknown';
           acc[name] = (acc[name] || 0) + 1;
           return acc;
@@ -527,7 +551,7 @@ export class ActivityService {
    */
   static async refreshActivityStats(): Promise<void> {
     try {
-      const { error } = await this.supabase.rpc('refresh_activity_stats');
+      const { error } = await (this.supabase as any).rpc('refresh_activity_stats');
       if (error) throw error;
     } catch (error) {
       console.error('Error refreshing activity stats:', error);

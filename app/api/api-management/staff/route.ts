@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
     const isActive = url.searchParams.get('is_active');
 
     // Build query
-    let query = supabase.from('staff').select(
+    let query = (supabase as any).from('staff').select(
       `
       *,
       category:employment_categories(id, category_name),

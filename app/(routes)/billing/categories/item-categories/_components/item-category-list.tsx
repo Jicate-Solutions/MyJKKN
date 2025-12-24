@@ -39,7 +39,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
-import { toast } from 'react-hot-toast';
+import { toast, type Toast } from 'react-hot-toast';
 import type { BillingItemCategory } from '@/types/billing';
 
 interface ItemCategoryListProps {
@@ -78,7 +78,7 @@ export function ItemCategoryList({
     // Create a more user-friendly toast confirmation
     const confirmed = await new Promise((resolve) => {
       toast(
-        (t) => (
+        (t: Toast) => (
           <div className='flex flex-col gap-3 max-w-xs'>
             <div className='font-semibold text-sm'>
               Delete &quot;{name}&quot;?

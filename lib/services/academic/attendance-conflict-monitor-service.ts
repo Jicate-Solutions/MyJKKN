@@ -54,7 +54,7 @@ export class AttendanceConflictMonitorService {
         dateFilter = `AND sa.attendance_date BETWEEN '${dateRange.start}' AND '${dateRange.end}'`;
       }
 
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'get_attendance_staff_conflicts',
         {
           p_institution_id: institutionId,
@@ -84,7 +84,7 @@ export class AttendanceConflictMonitorService {
     dateRange?: { start: string; end: string }
   ): Promise<ConflictSummary> {
     try {
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'get_attendance_conflict_summary',
         {
           p_institution_id: institutionId,
@@ -116,7 +116,7 @@ export class AttendanceConflictMonitorService {
     suggestions: string[];
   }> {
     try {
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'validate_attendance_record',
         { p_attendance_id: attendanceId }
       );

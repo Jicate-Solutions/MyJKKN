@@ -229,7 +229,7 @@ export class BillingReceiptService {
     filters: ReceiptFilters = {}
   ): Promise<ReceiptListResponse> {
     try {
-      let query = this.supabase.from('billing_receipts').select(
+      let query = (this.supabase as any).from('billing_receipts').select(
         `
           *,
           student:students (

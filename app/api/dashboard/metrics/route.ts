@@ -8,7 +8,7 @@ async function checkAuth() {
   // const supabase = createServerClient(...);
   // const { data: { user } } = await supabase.auth.getUser();
   // if (!user) throw new Error('Unauthorized');
-  // const { data: profile } = await supabase.from('profiles')...;
+  // const { data: profile } = await (supabase as any).from('profiles')...;
   // if (profile?.role !== 'admin') throw new Error('Forbidden');
   return true; // Placeholder
 }

@@ -157,7 +157,7 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
   };
 
   const getTargetDescription = () => {
-    const parts = [];
+    const parts: string[] = [];
     if (notification.targeting.institution_id) parts.push('Institution');
     if (notification.targeting.department_id) parts.push('Department');
     if (notification.targeting.program_id) parts.push('Program');

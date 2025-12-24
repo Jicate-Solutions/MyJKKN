@@ -66,7 +66,7 @@ export async function GET(
     }
 
     // Get user roles with role details using the RPC function
-    const { data: roles, error: rolesError } = await supabase.rpc(
+    const { data: roles, error: rolesError } = await (supabase as any).rpc(
       'get_user_roles_with_details',
       { p_user_id: userId }
     );
@@ -80,7 +80,7 @@ export async function GET(
     }
 
     // Also get merged permissions
-    const { data: permissions, error: permError } = await supabase.rpc(
+    const { data: permissions, error: permError } = await (supabase as any).rpc(
       'get_user_merged_permissions',
       { p_user_id: userId }
     );

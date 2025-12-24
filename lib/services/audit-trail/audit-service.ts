@@ -107,8 +107,8 @@ export async function createAuditLog(
     severity: dto.severity || AuditSeverity.INFO
   };
 
-  const { data, error } = await supabase
-    .from('audit_logs')
+  const { data, error } = await (supabase
+    .from('audit_logs') as any)
     .insert(auditData)
     .select()
     .single();
@@ -118,7 +118,7 @@ export async function createAuditLog(
 }
 
 export async function deleteAuditLog(id: string): Promise<void> {
-  const { error } = await supabase.from('audit_logs').delete().eq('id', id);
+  const { error } = await (supabase as any).from('audit_logs').delete().eq('id', id);
 
   if (error) throw error;
 }
@@ -128,7 +128,7 @@ export async function deleteAuditLog(id: string): Promise<void> {
 export async function getAuditStats(
   filters: Omit<AuditFilters, 'limit' | 'offset'> = {}
 ): Promise<AuditStats> {
-  let query = supabase.from('audit_logs').select(`
+  let query = (supabase as any).from('audit_logs').select(`
     action,
     module,
     severity,

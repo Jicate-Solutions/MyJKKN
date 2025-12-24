@@ -85,7 +85,7 @@ export class BugReportService {
           );
           const filePath = `${newReport.id}/screenshot.png`;
 
-          const { error: uploadError } = await supabase.storage
+          const { error: uploadError } = await (supabase as any).storage
             .from(BUG_REPORTS_BUCKET)
             .upload(filePath, screenshotFile, {
               cacheControl: '3600',

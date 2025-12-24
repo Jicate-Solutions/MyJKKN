@@ -93,8 +93,11 @@ export default function LoginPage() {
             .eq('id', data.user.id)
             .single();
 
+          // Type cast to fix TypeScript inference after React 19 upgrade
+          const profileData = profile as { role: string } | null;
+
           // Handle student role - sign them out and stay on login page
-          if (profile?.role === 'student') {
+          if (profileData?.role === 'student') {
             console.log('[Login Page] Student detected - signing out and staying on login page');
 
             // Sign out the student
@@ -118,17 +121,17 @@ export default function LoginPage() {
 
           // Determine destination based on role (non-students only)
           let destination = '/';
-          if (profile?.role === 'guest') {
+          if (profileData?.role === 'guest') {
             destination = '/guest';
-          } else if (profile?.role === 'driver') {
+          } else if (profileData?.role === 'driver') {
             destination = '/driver';
           }
 
           // For non-student, non-guest users, allow redirectedFrom as before
           if (
             redirectedFrom &&
-            profile?.role !== 'guest' &&
-            profile?.role !== 'student'
+            profileData?.role !== 'guest' &&
+            profileData?.role !== 'student'
           ) {
             destination = redirectedFrom;
           }
@@ -138,9 +141,9 @@ export default function LoginPage() {
           if (destination === currentPath || destination === '/auth/login') {
             console.warn('[Login Page] Preventing redirect loop to:', destination);
             // Default to role-based dashboard instead
-            if (profile?.role === 'guest') {
+            if (profileData?.role === 'guest') {
               destination = '/guest';
-            } else if (profile?.role === 'driver') {
+            } else if (profileData?.role === 'driver') {
               destination = '/driver';
             } else {
               destination = '/';

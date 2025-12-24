@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
     const isActive = url.searchParams.get('isActive');
 
     // Build query
-    let query = supabase.from('institutions').select('*', { count: 'exact' });
+    let query = (supabase as any).from('institutions').select('*', { count: 'exact' });
 
     console.log('5. Executing query...');
 

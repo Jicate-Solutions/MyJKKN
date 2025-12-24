@@ -751,7 +751,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
       console.log('[enquiries/bulk-upload] Parsed Excel data:', jsonData.slice(0, 2));
 
       // Process and validate data (async for lookups)
-      const processedData = [];
+      const processedData: any[] = [];
 
       for (let index = 0; index < jsonData.length; index++) {
         const row = jsonData[index] as any;

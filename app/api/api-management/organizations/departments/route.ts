@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
         { count: 'exact', head: true }
       );
 
-    let query = supabase.from('departments').select(
+    let query = (supabase as any).from('departments').select(
       `
       *,
       institution:institutions (

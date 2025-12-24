@@ -35,7 +35,7 @@ export async function GET(request: Request) {
 
     // Get all users who have submitted bug reports
     const { data: usersWithBugs, error: usersError } = await (
-      supabase.from('bug_reports') as any
+      (supabase as any).from('bug_reports') as any
     )
       .select('reporter_user_id')
       .not('reporter_user_id', 'is', null);
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
       uniqueUserIds.map(async (userId: any) => {
         // Get user profile
         const { data: userProfile, error: profileError } = await (
-          supabase.from('profiles') as any
+          (supabase as any).from('profiles') as any
         )
           .select('id, full_name, avatar_url')
           .eq('id', userId)
@@ -76,7 +76,7 @@ export async function GET(request: Request) {
 
         // Helper to build query with optional date filter
         const buildQuery = (statusFilter?: string) => {
-          let query = (supabase.from('bug_reports') as any)
+          let query = ((supabase as any).from('bug_reports') as any)
             .select('*', { count: 'exact', head: true })
             .eq('reporter_user_id', userId);
           if (statusFilter) query = query.eq('status', statusFilter);

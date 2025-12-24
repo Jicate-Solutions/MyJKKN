@@ -28,7 +28,7 @@ export class ResourceService {
     filters: ResourceFilters = {}
   ): Promise<ResourceListResponse> {
     try {
-      let query = this.supabase.from('resources').select(
+      let query = (this.supabase as any).from('resources').select(
         `
           *,
           parent_category:resource_parent_categories(id, name, image_url),
@@ -295,7 +295,7 @@ export class ResourceService {
         caretaker_user_ids: dbData.caretaker_user_ids
       });
 
-      const { data: resource, error } = await this.supabase
+      const { data: resource, error } = await (this.supabase as any)
         .from('resources')
         .insert(dbData)
         .select()
@@ -398,7 +398,7 @@ export class ResourceService {
         updated_at: new Date().toISOString()
       };
 
-      const { data: resource, error } = await this.supabase
+      const { data: resource, error } = await (this.supabase as any)
         .from('resources')
         .update(updateData)
         .eq('id', id)
@@ -430,7 +430,7 @@ export class ResourceService {
       const resource = await this.getResource(id);
 
       // Delete the resource (database will cascade delete all related data)
-      const { error } = await this.supabase
+      const { error } = await (this.supabase as any)
         .from('resources')
         .delete()
         .eq('id', id);
@@ -516,7 +516,7 @@ export class ResourceService {
         throw new Error('Stock quantity cannot be negative');
       }
 
-      const { data: resource, error } = await this.supabase
+      const { data: resource, error } = await (this.supabase as any)
         .from('resources')
         .update({
           current_stock_quantity: quantity,
@@ -619,7 +619,7 @@ export class ResourceService {
     utilizationRate: number;
   }> {
     try {
-      const { data: stats, error } = await this.supabase.rpc(
+      const { data: stats, error } = await (this.supabase as any).rpc(
         'get_resource_usage_stats',
         {
           p_resource_id: resourceId
@@ -628,18 +628,18 @@ export class ResourceService {
 
       if (error) {
         // If function doesn't exist, calculate manually
-        const { data: reservations } = await this.supabase
+        const { data: reservations } = await (this.supabase as any)
           .from('resource_reservations')
           .select('status, start_time, end_time')
           .eq('resource_id', resourceId);
 
         const total = reservations?.length || 0;
         const completed =
-          reservations?.filter((r) => r.status === 'completed').length || 0;
+          reservations?.filter((r: any) => r.status === 'completed').length || 0;
         const cancelled =
-          reservations?.filter((r) => r.status === 'cancelled').length || 0;
+          reservations?.filter((r: any) => r.status === 'cancelled').length || 0;
         const noShow =
-          reservations?.filter((r) => r.status === 'no_show').length || 0;
+          reservations?.filter((r: any) => r.status === 'no_show').length || 0;
 
         return {
           totalReservations: total,
@@ -721,7 +721,7 @@ export class ResourceService {
    */
   static async incrementUsageCount(resourceId: string): Promise<void> {
     try {
-      await this.supabase.rpc('increment_resource_usage', {
+      await (this.supabase as any).rpc('increment_resource_usage', {
         resource_id: resourceId
       });
     } catch (error) {
@@ -735,7 +735,7 @@ export class ResourceService {
    */
   static async incrementReservationCount(resourceId: string): Promise<void> {
     try {
-      await this.supabase.rpc('increment_resource_reservations', {
+      await (this.supabase as any).rpc('increment_resource_reservations', {
         resource_id: resourceId
       });
     } catch (error) {

@@ -386,7 +386,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { error } = await supabase.from('applications').delete().eq('id', id);
+    const { error } = await (supabase as any).from('applications').delete().eq('id', id);
 
     if (error) {
       throw error;

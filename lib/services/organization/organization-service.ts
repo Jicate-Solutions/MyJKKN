@@ -91,7 +91,7 @@ export class OrganizationService {
         const departmentPromises = Object.entries(data.departments)
           .filter(([_, contact]) => contact && contact.contact_name) // Only process departments with data
           .map(([type, contact]) => {
-            const deptData: Database['public']['Tables']['institution_departments']['Insert'] = {
+            const deptData = {
               institution_id: institution.id,
               department_type: type,
               contact_name: contact.contact_name!,
@@ -167,7 +167,7 @@ export class OrganizationService {
         const departmentPromises = Object.entries(data.departments)
           .filter(([_, contact]) => contact && contact.contact_name)
           .map(([type, contact]) => {
-            const deptData: Database['public']['Tables']['institution_departments']['Insert'] = {
+            const deptData = {
               institution_id: id,
               department_type: type,
               contact_name: contact.contact_name!,
@@ -317,7 +317,7 @@ export class OrganizationService {
       ]);
 
       // Delete institution departments
-      await this.supabase.from('institution_departments').delete().eq('institution_id', id);
+      await (this.supabase as any).from('institution_departments').delete().eq('institution_id', id);
 
       // Finally delete the institution itself
       const { error } = await this.supabase

@@ -13,7 +13,7 @@ export class BillingInvoiceService {
 
   // Generate invoice number
   private static async generateInvoiceNumber(): Promise<string> {
-    const { data, error } = await this.supabase.rpc('generate_invoice_number');
+    const { data, error } = await (this.supabase as any).rpc('generate_invoice_number');
 
     if (error) {
       console.error('Error generating invoice number:', error);
@@ -38,8 +38,8 @@ export class BillingInvoiceService {
         (invoiceData.discount_applied || 0);
 
       // Create invoice record
-      const { data: invoice, error: invoiceError } = await this.supabase
-        .from('billing_invoices')
+      const { data: invoice, error: invoiceError } = await (this.supabase
+        .from('billing_invoices') as any)
         .insert({
           invoice_number: invoiceNumber,
           invoice_type: invoiceData.invoice_type,
@@ -68,13 +68,13 @@ export class BillingInvoiceService {
       // Create invoice items
       if (invoiceData.invoice_items.length > 0) {
         const invoiceItems = invoiceData.invoice_items.map((item) => ({
-          invoice_id: invoice.id,
+          invoice_id: (invoice as any).id,
           receipt_id: item.receipt_id,
           amount: item.amount
         }));
 
-        const { error: itemsError } = await this.supabase
-          .from('billing_invoice_items')
+        const { error: itemsError } = await (this.supabase
+          .from('billing_invoice_items') as any)
           .insert(invoiceItems);
 
         if (itemsError) {
@@ -85,7 +85,7 @@ export class BillingInvoiceService {
         }
       }
 
-      return await this.getBillingInvoice(invoice.id);
+      return await this.getBillingInvoice((invoice as any).id);
     } catch (error) {
       console.error('Error in createBillingInvoice:', error);
       throw error;
@@ -98,8 +98,8 @@ export class BillingInvoiceService {
     invoiceData: UpdateInvoiceDto
   ): Promise<BillingInvoice> {
     try {
-      const { data, error } = await this.supabase
-        .from('billing_invoices')
+      const { data, error } = await (this.supabase
+        .from('billing_invoices') as any)
         .update({
           invoice_type: invoiceData.invoice_type,
           invoice_date: invoiceData.invoice_date,
@@ -156,7 +156,7 @@ export class BillingInvoiceService {
   ): Promise<InvoiceListResponse> {
     try {
       // Single query with count included (eliminates separate count query)
-      let query = this.supabase.from('billing_invoices').select(
+      let query = (this.supabase as any).from('billing_invoices').select(
         `
           *,
           student:students(
@@ -311,7 +311,7 @@ export class BillingInvoiceService {
 
         // Return simple data with empty relations
         return {
-          ...simpleData,
+          ...(simpleData as any),
           student: null,
           institution: null,
           invoice_items: []
@@ -420,7 +420,7 @@ export class BillingInvoiceService {
       // TODO: Replace with actual email service integration
       // Example integration:
       /*
-      const { data, error } = await this.supabase.functions.invoke('send-email', {
+      const { data, error } = await (this.supabase as any).functions.invoke('send-email', {
         body: {
           to: email,
           subject: emailSubject,
@@ -967,7 +967,7 @@ export class BillingInvoiceService {
       if (error) throw error;
 
       // Find invoice that contains the specific bill
-      const invoice = data?.find((inv) =>
+      const invoice = data?.find((inv: any) =>
         inv.invoice_items?.some((item: any) =>
           item.receipt?.receipt_items?.some((ri: any) => ri.bill_id === billId)
         )

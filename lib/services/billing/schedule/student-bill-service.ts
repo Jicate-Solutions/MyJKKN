@@ -17,7 +17,7 @@ export class StudentBillService {
   ): Promise<StudentBill> {
     try {
       // Get current user ID
-      const { data: userData } = await this.supabase.auth.getUser();
+      const { data: userData } = await (this.supabase as any).auth.getUser();
       const currentUserId = userData?.user?.id;
 
       // Calculate final amount if not provided
@@ -267,7 +267,7 @@ export class StudentBillService {
 
       if (hasAcademicFilters) {
         // Use the billing_student_bills table with joins when academic filters are needed
-        query = this.supabase.from('billing_student_bills').select(
+        query = (this.supabase as any).from('billing_student_bills').select(
           `
             id,
             student_id,
@@ -317,7 +317,7 @@ export class StudentBillService {
       } else {
         // Use the optimized view that pre-joins all data when no academic filters are needed
         // Note: For now, let's use the full query to ensure we get all necessary data
-        query = this.supabase.from('billing_student_bills').select(
+        query = (this.supabase as any).from('billing_student_bills').select(
           `
             id,
             student_id,
@@ -696,7 +696,7 @@ export class StudentBillService {
 
   static async markOverdueBills(): Promise<number> {
     try {
-      const { data, error } = await this.supabase.rpc('mark_overdue_bills');
+      const { data, error } = await (this.supabase as any).rpc('mark_overdue_bills');
 
       if (error) throw error;
       return data || 0;
@@ -709,7 +709,7 @@ export class StudentBillService {
   static async calculateStudentOutstanding(studentId: string): Promise<number> {
     try {
       // Use the optimized function with fallback
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'calculate_student_outstanding_optimized',
         { student_uuid: studentId }
       );

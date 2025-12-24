@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
 
     // Build base query function to avoid duplication
     const buildQuery = () => {
-      let query = supabase.from('profiles').select(`
+      let query = (supabase as any).from('profiles').select(`
         id,
         email,
         full_name,

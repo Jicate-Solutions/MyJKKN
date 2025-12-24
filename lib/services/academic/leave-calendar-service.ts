@@ -26,7 +26,7 @@ export class LeaveCalendarService {
     filters: LeaveCalendarFilters
   ): Promise<CalendarLeave[]> {
     try {
-      const { data, error } = await this.supabase.rpc('get_leaves_for_month', {
+      const { data, error } = await (this.supabase as any).rpc('get_leaves_for_month', {
         p_institution_id: filters.institution_id,
         p_year: filters.year,
         p_month: filters.month,

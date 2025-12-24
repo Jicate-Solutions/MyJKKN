@@ -43,7 +43,7 @@ export class DegreeService {
     institutionId: string
   ): Promise<Degree | null> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('degrees')
         .select('*')
         .eq('institution_id', institutionId)
@@ -66,7 +66,7 @@ export class DegreeService {
 
   static async createDegree(data: CreateDegreeDto): Promise<Degree> {
     try {
-      const { data: degree, error } = await this.supabase
+      const { data: degree, error } = await (this.supabase as any)
         .from('degrees')
         .insert([
           {
@@ -97,7 +97,7 @@ export class DegreeService {
     data: UpdateDegreeDto
   ): Promise<Degree> {
     try {
-      const { data: degree, error } = await this.supabase
+      const { data: degree, error } = await (this.supabase as any)
         .from('degrees')
         .update({
           ...data,
@@ -120,7 +120,7 @@ export class DegreeService {
 
   static async deleteDegree(id: string): Promise<void> {
     try {
-      const { error } = await this.supabase
+      const { error } = await (this.supabase as any)
         .from('degrees')
         .delete()
         .eq('id', id);
@@ -138,7 +138,7 @@ export class DegreeService {
     filters: DegreeFilters = {}
   ): Promise<DegreeListResponse> {
     try {
-      let query = this.supabase.from('degrees').select(
+      let query = (this.supabase as any).from('degrees').select(
         `
         *,
         institution:institutions (
@@ -237,7 +237,7 @@ export class DegreeService {
 
   static async getDegree(id: string): Promise<Degree> {
     try {
-      const { data: degree, error } = await this.supabase
+      const { data: degree, error } = await (this.supabase as any)
         .from('degrees')
         .select(
           `
@@ -275,7 +275,7 @@ export class DegreeService {
 
       if (isUUID) {
         // If it's a UUID, use it directly with eq
-        query = this.supabase
+        query = (this.supabase as any)
           .from('degrees')
           .select('*')
           .eq('institution_id', institutionId)
@@ -283,14 +283,14 @@ export class DegreeService {
           .order('degree_name');
       } else {
         // If it's not a UUID, we need to first find the institution by name
-        const { data: institution } = await this.supabase
+        const { data: institution } = await (this.supabase as any)
           .from('institutions')
           .select('id')
           .ilike('name', institutionId)
           .single();
 
         if (institution) {
-          query = this.supabase
+          query = (this.supabase as any)
             .from('degrees')
             .select('*')
             .eq('institution_id', institution.id)

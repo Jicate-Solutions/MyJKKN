@@ -480,13 +480,6 @@ export type Database = {
             referencedRelation: "billing_student_bills"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "fk_billing_discounts_bill"
-            columns: ["bill_id"]
-            isOneToOne: false
-            referencedRelation: "v_bill_details"
-            referencedColumns: ["id"]
-          },
         ]
       }
       billing_invoice_items: {
@@ -603,34 +596,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_invoices_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "auto_generated_invoices"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_invoices_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "bill_invoice_relationships"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_invoices_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "semester_program_audit_view"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_invoices_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
           },
         ]
       }
@@ -794,13 +759,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "fk_billing_receipt_items_bill"
-            columns: ["bill_id"]
-            isOneToOne: false
-            referencedRelation: "v_bill_details"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "fk_billing_receipt_items_receipt"
             columns: ["receipt_id"]
             isOneToOne: false
@@ -892,34 +850,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_receipts_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "auto_generated_invoices"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_receipts_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "bill_invoice_relationships"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_receipts_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "semester_program_audit_view"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_receipts_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
           },
         ]
       }
@@ -1109,34 +1039,6 @@ export type Database = {
             columns: ["item_category_id"]
             isOneToOne: false
             referencedRelation: "billing_item_categories"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "auto_generated_invoices"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "bill_invoice_relationships"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "semester_program_audit_view"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
             referencedColumns: ["id"]
           },
         ]
@@ -2217,49 +2119,6 @@ export type Database = {
         }
         Relationships: []
       }
-      institution_departments: {
-        Row: {
-          id: string
-          institution_id: string | null
-          department_type: string
-          contact_name: string
-          designation: string
-          email: string
-          mobile: string
-          created_at: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          id?: string
-          institution_id?: string | null
-          department_type: string
-          contact_name: string
-          designation: string
-          email: string
-          mobile: string
-          created_at?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          id?: string
-          institution_id?: string | null
-          department_type?: string
-          contact_name?: string
-          designation?: string
-          email?: string
-          mobile?: string
-          created_at?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "institution_departments_institution_id_fkey"
-            columns: ["institution_id"]
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
       learners_profiles: {
         Row: {
           aadhar_number: string | null
@@ -2310,8 +2169,6 @@ export type Database = {
           mother_occupation: string | null
           neet_roll_number: string | null
           neet_score: string | null
-          original_admission_id: string | null
-          original_student_id: string | null
           permanent_address_district: string
           permanent_address_pin_code: string
           permanent_address_state: string
@@ -2385,8 +2242,6 @@ export type Database = {
           mother_occupation?: string | null
           neet_roll_number?: string | null
           neet_score?: string | null
-          original_admission_id?: string | null
-          original_student_id?: string | null
           permanent_address_district: string
           permanent_address_pin_code: string
           permanent_address_state: string
@@ -2460,8 +2315,6 @@ export type Database = {
           mother_occupation?: string | null
           neet_roll_number?: string | null
           neet_score?: string | null
-          original_admission_id?: string | null
-          original_student_id?: string | null
           permanent_address_district?: string
           permanent_address_pin_code?: string
           permanent_address_state?: string
@@ -2586,6 +2439,240 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      learners_profiles_backup_20251223: {
+        Row: {
+          aadhar_number: string | null
+          academic_year_id: string | null
+          accommodation_type: string | null
+          admission_year: number | null
+          annual_income: string | null
+          application_id: string | null
+          batch_id: string | null
+          blood_group: string | null
+          board_of_study: string | null
+          bus_pickup_location: string | null
+          bus_required: boolean | null
+          bus_route: string | null
+          caste: string | null
+          category: string | null
+          college_email: string | null
+          community: string | null
+          counseling_applied: boolean | null
+          counseling_number: string | null
+          created_at: string | null
+          created_by: string | null
+          date_of_birth: string | null
+          degree_id: string | null
+          department_id: string | null
+          engineering_cutoff_marks: string | null
+          enquiry_date: string | null
+          entry_type: string | null
+          father_mobile: string | null
+          father_name: string | null
+          father_occupation: string | null
+          first_graduate: boolean | null
+          first_name: string | null
+          food_type: string | null
+          gender: string | null
+          hostel_type: string | null
+          id: string | null
+          institution_id: string | null
+          is_profile_complete: boolean | null
+          last_name: string | null
+          last_school: string | null
+          lifecycle_status:
+            | Database["public"]["Enums"]["lifecycle_status"]
+            | null
+          medical_cutoff_marks: string | null
+          migrated_at: string | null
+          migration_source: string | null
+          mother_mobile: string | null
+          mother_name: string | null
+          mother_occupation: string | null
+          neet_roll_number: string | null
+          neet_score: string | null
+          original_admission_id: string | null
+          original_student_id: string | null
+          permanent_address_district: string | null
+          permanent_address_pin_code: string | null
+          permanent_address_state: string | null
+          permanent_address_street: string | null
+          permanent_address_taluk: string | null
+          program_id: string | null
+          quota: string | null
+          reference_contact: string | null
+          reference_name: string | null
+          reference_type: string | null
+          register_number: string | null
+          regulation_id: string | null
+          religion: string | null
+          roll_number: string | null
+          section_id: string | null
+          semester_id: string | null
+          student_email: string | null
+          student_mobile: string | null
+          student_photo_url: string | null
+          tenth_marks: Json | null
+          twelfth_marks: Json | null
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          aadhar_number?: string | null
+          academic_year_id?: string | null
+          accommodation_type?: string | null
+          admission_year?: number | null
+          annual_income?: string | null
+          application_id?: string | null
+          batch_id?: string | null
+          blood_group?: string | null
+          board_of_study?: string | null
+          bus_pickup_location?: string | null
+          bus_required?: boolean | null
+          bus_route?: string | null
+          caste?: string | null
+          category?: string | null
+          college_email?: string | null
+          community?: string | null
+          counseling_applied?: boolean | null
+          counseling_number?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          date_of_birth?: string | null
+          degree_id?: string | null
+          department_id?: string | null
+          engineering_cutoff_marks?: string | null
+          enquiry_date?: string | null
+          entry_type?: string | null
+          father_mobile?: string | null
+          father_name?: string | null
+          father_occupation?: string | null
+          first_graduate?: boolean | null
+          first_name?: string | null
+          food_type?: string | null
+          gender?: string | null
+          hostel_type?: string | null
+          id?: string | null
+          institution_id?: string | null
+          is_profile_complete?: boolean | null
+          last_name?: string | null
+          last_school?: string | null
+          lifecycle_status?:
+            | Database["public"]["Enums"]["lifecycle_status"]
+            | null
+          medical_cutoff_marks?: string | null
+          migrated_at?: string | null
+          migration_source?: string | null
+          mother_mobile?: string | null
+          mother_name?: string | null
+          mother_occupation?: string | null
+          neet_roll_number?: string | null
+          neet_score?: string | null
+          original_admission_id?: string | null
+          original_student_id?: string | null
+          permanent_address_district?: string | null
+          permanent_address_pin_code?: string | null
+          permanent_address_state?: string | null
+          permanent_address_street?: string | null
+          permanent_address_taluk?: string | null
+          program_id?: string | null
+          quota?: string | null
+          reference_contact?: string | null
+          reference_name?: string | null
+          reference_type?: string | null
+          register_number?: string | null
+          regulation_id?: string | null
+          religion?: string | null
+          roll_number?: string | null
+          section_id?: string | null
+          semester_id?: string | null
+          student_email?: string | null
+          student_mobile?: string | null
+          student_photo_url?: string | null
+          tenth_marks?: Json | null
+          twelfth_marks?: Json | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          aadhar_number?: string | null
+          academic_year_id?: string | null
+          accommodation_type?: string | null
+          admission_year?: number | null
+          annual_income?: string | null
+          application_id?: string | null
+          batch_id?: string | null
+          blood_group?: string | null
+          board_of_study?: string | null
+          bus_pickup_location?: string | null
+          bus_required?: boolean | null
+          bus_route?: string | null
+          caste?: string | null
+          category?: string | null
+          college_email?: string | null
+          community?: string | null
+          counseling_applied?: boolean | null
+          counseling_number?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          date_of_birth?: string | null
+          degree_id?: string | null
+          department_id?: string | null
+          engineering_cutoff_marks?: string | null
+          enquiry_date?: string | null
+          entry_type?: string | null
+          father_mobile?: string | null
+          father_name?: string | null
+          father_occupation?: string | null
+          first_graduate?: boolean | null
+          first_name?: string | null
+          food_type?: string | null
+          gender?: string | null
+          hostel_type?: string | null
+          id?: string | null
+          institution_id?: string | null
+          is_profile_complete?: boolean | null
+          last_name?: string | null
+          last_school?: string | null
+          lifecycle_status?:
+            | Database["public"]["Enums"]["lifecycle_status"]
+            | null
+          medical_cutoff_marks?: string | null
+          migrated_at?: string | null
+          migration_source?: string | null
+          mother_mobile?: string | null
+          mother_name?: string | null
+          mother_occupation?: string | null
+          neet_roll_number?: string | null
+          neet_score?: string | null
+          original_admission_id?: string | null
+          original_student_id?: string | null
+          permanent_address_district?: string | null
+          permanent_address_pin_code?: string | null
+          permanent_address_state?: string | null
+          permanent_address_street?: string | null
+          permanent_address_taluk?: string | null
+          program_id?: string | null
+          quota?: string | null
+          reference_contact?: string | null
+          reference_name?: string | null
+          reference_type?: string | null
+          register_number?: string | null
+          regulation_id?: string | null
+          religion?: string | null
+          roll_number?: string | null
+          section_id?: string | null
+          semester_id?: string | null
+          student_email?: string | null
+          student_mobile?: string | null
+          student_photo_url?: string | null
+          tenth_marks?: Json | null
+          twelfth_marks?: Json | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       leave_approval_chains: {
         Row: {
@@ -2921,13 +3008,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "fk_payment_transaction_items_bill"
-            columns: ["bill_id"]
-            isOneToOne: false
-            referencedRelation: "v_bill_details"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "fk_payment_transaction_items_transaction"
             columns: ["transaction_id"]
             isOneToOne: false
@@ -3017,34 +3097,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "fk_payment_transactions_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "auto_generated_invoices"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_payment_transactions_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "bill_invoice_relationships"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_payment_transactions_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "semester_program_audit_view"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_payment_transactions_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
           },
         ]
       }
@@ -4798,7 +4850,61 @@ export type Database = {
           },
         ]
       }
-      students: {
+      student_attendance_backup_20251223: {
+        Row: {
+          academic_year_id: string | null
+          attendance_data: Json | null
+          attendance_date: string | null
+          created_at: string | null
+          degree_id: string | null
+          department_id: string | null
+          id: string | null
+          institution_id: string | null
+          period_slot_id: string | null
+          program_id: string | null
+          section_id: string | null
+          section_ids: string[] | null
+          semester_id: string | null
+          timetable_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          academic_year_id?: string | null
+          attendance_data?: Json | null
+          attendance_date?: string | null
+          created_at?: string | null
+          degree_id?: string | null
+          department_id?: string | null
+          id?: string | null
+          institution_id?: string | null
+          period_slot_id?: string | null
+          program_id?: string | null
+          section_id?: string | null
+          section_ids?: string[] | null
+          semester_id?: string | null
+          timetable_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          academic_year_id?: string | null
+          attendance_data?: Json | null
+          attendance_date?: string | null
+          created_at?: string | null
+          degree_id?: string | null
+          department_id?: string | null
+          id?: string | null
+          institution_id?: string | null
+          period_slot_id?: string | null
+          program_id?: string | null
+          section_id?: string | null
+          section_ids?: string[] | null
+          semester_id?: string | null
+          timetable_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      students_backup_20251223: {
         Row: {
           aadhar_number: string | null
           academic_year_id: string | null
@@ -4807,39 +4913,39 @@ export type Database = {
           annual_income: string | null
           application_id: string | null
           batch_id: string | null
-          board_of_study: string
+          board_of_study: string | null
           bus_pickup_location: string | null
           bus_required: boolean | null
           bus_route: string | null
           caste: string | null
           category: string | null
           college_email: string | null
-          community: string
+          community: string | null
           counseling_applied: boolean | null
           counseling_number: string | null
           created_at: string | null
           created_by: string | null
-          date_of_birth: string
-          degree_id: string
-          department_id: string
+          date_of_birth: string | null
+          degree_id: string | null
+          department_id: string | null
           engineering_cutoff_marks: string | null
-          entry_type: string
+          entry_type: string | null
           father_mobile: string | null
-          father_name: string
+          father_name: string | null
           father_occupation: string | null
           first_graduate: boolean | null
-          first_name: string
+          first_name: string | null
           food_type: string | null
-          gender: string
+          gender: string | null
           hostel_type: string | null
-          id: string
-          institution_id: string
+          id: string | null
+          institution_id: string | null
           is_profile_complete: boolean | null
           last_name: string | null
-          last_school: string
+          last_school: string | null
           medical_cutoff_marks: string | null
-          mother_mobile: string
-          mother_name: string
+          mother_mobile: string | null
+          mother_name: string | null
           mother_occupation: string | null
           neet_roll_number: string | null
           neet_score: string | null
@@ -4848,14 +4954,14 @@ export type Database = {
           permanent_address_state: string | null
           permanent_address_street: string | null
           permanent_address_taluk: string | null
-          program_id: string
+          program_id: string | null
           quota: string | null
           reference_contact: string | null
           reference_name: string | null
           reference_type: string | null
           register_number: string | null
           regulation_id: string | null
-          religion: string
+          religion: string | null
           roll_number: string | null
           section_id: string | null
           semester_id: string | null
@@ -4863,8 +4969,8 @@ export type Database = {
           student_email: string | null
           student_mobile: string | null
           student_photo_url: string | null
-          tenth_marks: Json
-          twelfth_marks: Json
+          tenth_marks: Json | null
+          twelfth_marks: Json | null
           updated_at: string | null
           updated_by: string | null
         }
@@ -4876,39 +4982,39 @@ export type Database = {
           annual_income?: string | null
           application_id?: string | null
           batch_id?: string | null
-          board_of_study: string
+          board_of_study?: string | null
           bus_pickup_location?: string | null
           bus_required?: boolean | null
           bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
-          community: string
+          community?: string | null
           counseling_applied?: boolean | null
           counseling_number?: string | null
           created_at?: string | null
           created_by?: string | null
-          date_of_birth: string
-          degree_id: string
-          department_id: string
+          date_of_birth?: string | null
+          degree_id?: string | null
+          department_id?: string | null
           engineering_cutoff_marks?: string | null
-          entry_type: string
+          entry_type?: string | null
           father_mobile?: string | null
-          father_name: string
+          father_name?: string | null
           father_occupation?: string | null
           first_graduate?: boolean | null
-          first_name: string
+          first_name?: string | null
           food_type?: string | null
-          gender: string
+          gender?: string | null
           hostel_type?: string | null
-          id?: string
-          institution_id: string
+          id?: string | null
+          institution_id?: string | null
           is_profile_complete?: boolean | null
           last_name?: string | null
-          last_school: string
+          last_school?: string | null
           medical_cutoff_marks?: string | null
-          mother_mobile: string
-          mother_name: string
+          mother_mobile?: string | null
+          mother_name?: string | null
           mother_occupation?: string | null
           neet_roll_number?: string | null
           neet_score?: string | null
@@ -4917,14 +5023,14 @@ export type Database = {
           permanent_address_state?: string | null
           permanent_address_street?: string | null
           permanent_address_taluk?: string | null
-          program_id: string
+          program_id?: string | null
           quota?: string | null
           reference_contact?: string | null
           reference_name?: string | null
           reference_type?: string | null
           register_number?: string | null
           regulation_id?: string | null
-          religion: string
+          religion?: string | null
           roll_number?: string | null
           section_id?: string | null
           semester_id?: string | null
@@ -4932,8 +5038,8 @@ export type Database = {
           student_email?: string | null
           student_mobile?: string | null
           student_photo_url?: string | null
-          tenth_marks: Json
-          twelfth_marks: Json
+          tenth_marks?: Json | null
+          twelfth_marks?: Json | null
           updated_at?: string | null
           updated_by?: string | null
         }
@@ -4945,39 +5051,39 @@ export type Database = {
           annual_income?: string | null
           application_id?: string | null
           batch_id?: string | null
-          board_of_study?: string
+          board_of_study?: string | null
           bus_pickup_location?: string | null
           bus_required?: boolean | null
           bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
-          community?: string
+          community?: string | null
           counseling_applied?: boolean | null
           counseling_number?: string | null
           created_at?: string | null
           created_by?: string | null
-          date_of_birth?: string
-          degree_id?: string
-          department_id?: string
+          date_of_birth?: string | null
+          degree_id?: string | null
+          department_id?: string | null
           engineering_cutoff_marks?: string | null
-          entry_type?: string
+          entry_type?: string | null
           father_mobile?: string | null
-          father_name?: string
+          father_name?: string | null
           father_occupation?: string | null
           first_graduate?: boolean | null
-          first_name?: string
+          first_name?: string | null
           food_type?: string | null
-          gender?: string
+          gender?: string | null
           hostel_type?: string | null
-          id?: string
-          institution_id?: string
+          id?: string | null
+          institution_id?: string | null
           is_profile_complete?: boolean | null
           last_name?: string | null
-          last_school?: string
+          last_school?: string | null
           medical_cutoff_marks?: string | null
-          mother_mobile?: string
-          mother_name?: string
+          mother_mobile?: string | null
+          mother_name?: string | null
           mother_occupation?: string | null
           neet_roll_number?: string | null
           neet_score?: string | null
@@ -4986,14 +5092,14 @@ export type Database = {
           permanent_address_state?: string | null
           permanent_address_street?: string | null
           permanent_address_taluk?: string | null
-          program_id?: string
+          program_id?: string | null
           quota?: string | null
           reference_contact?: string | null
           reference_name?: string | null
           reference_type?: string | null
           register_number?: string | null
           regulation_id?: string | null
-          religion?: string
+          religion?: string | null
           roll_number?: string | null
           section_id?: string | null
           semester_id?: string | null
@@ -5001,83 +5107,12 @@ export type Database = {
           student_email?: string | null
           student_mobile?: string | null
           student_photo_url?: string | null
-          tenth_marks?: Json
-          twelfth_marks?: Json
+          tenth_marks?: Json | null
+          twelfth_marks?: Json | null
           updated_at?: string | null
           updated_by?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "students_academic_year_id_fkey"
-            columns: ["academic_year_id"]
-            isOneToOne: false
-            referencedRelation: "academic_years"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "students_batch_id_fkey"
-            columns: ["batch_id"]
-            isOneToOne: false
-            referencedRelation: "batches"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "students_degree_id_fkey"
-            columns: ["degree_id"]
-            isOneToOne: false
-            referencedRelation: "degrees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "students_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "students_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "students_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "students_program_id_fkey"
-            columns: ["program_id"]
-            isOneToOne: false
-            referencedRelation: "programs"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "students_regulation_id_fkey"
-            columns: ["regulation_id"]
-            isOneToOne: false
-            referencedRelation: "regulations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "students_section_id_fkey"
-            columns: ["section_id"]
-            isOneToOne: false
-            referencedRelation: "sections"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "students_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       subcategories: {
         Row: {
@@ -5642,36 +5677,6 @@ export type Database = {
         }
         Relationships: []
       }
-      auto_generated_invoices: {
-        Row: {
-          student_id: string | null
-          student_name: string | null
-        }
-        Insert: {
-          student_id?: string | null
-          student_name?: never
-        }
-        Update: {
-          student_id?: string | null
-          student_name?: never
-        }
-        Relationships: []
-      }
-      bill_invoice_relationships: {
-        Row: {
-          student_id: string | null
-          student_name: string | null
-        }
-        Insert: {
-          student_id?: string | null
-          student_name?: never
-        }
-        Update: {
-          student_id?: string | null
-          student_name?: never
-        }
-        Relationships: []
-      }
       billing_deletion_dependencies: {
         Row: {
           bill_id: string | null
@@ -5679,36 +5684,7 @@ export type Database = {
           refunds_count: number | null
           student_id: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "auto_generated_invoices"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "bill_invoice_relationships"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "semester_program_audit_view"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       bug_reporters_leaderboard: {
         Row: {
@@ -5783,23 +5759,23 @@ export type Database = {
         Row: {
           institution_id: string | null
           institution_name: string | null
+          total_learners: number | null
           total_programs: number | null
           total_sections: number | null
           total_semesters: number | null
-          total_students: number | null
         }
         Relationships: []
       }
       semester_program_audit_view: {
         Row: {
           consistency_status: string | null
+          learner_id: string | null
+          learner_name: string | null
           roll_number: string | null
           section_name: string | null
           section_program_id: string | null
           semester_name: string | null
           semester_program_id: string | null
-          student_id: string | null
-          student_name: string | null
         }
         Relationships: [
           {
@@ -5814,85 +5790,6 @@ export type Database = {
             columns: ["semester_program_id"]
             isOneToOne: false
             referencedRelation: "programs"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      v_bill_details: {
-        Row: {
-          balance_amount: number | null
-          bill_description: string | null
-          created_at: string | null
-          created_by: string | null
-          due_date: string | null
-          final_amount: number | null
-          id: string | null
-          institution_id: string | null
-          institution_name: string | null
-          is_recurring: boolean | null
-          item_category_id: string | null
-          number_of_recurrences: number | null
-          payment_date: string | null
-          quantity: number | null
-          recurrence_pattern: string | null
-          remarks: string | null
-          roll_number: string | null
-          status: string | null
-          student_id: string | null
-          student_name: string | null
-          tax_amount: number | null
-          total_amount: number | null
-          unit_amount: number | null
-          updated_at: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "fk_billing_student_bills_institution"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_institution"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_item_category"
-            columns: ["item_category_id"]
-            isOneToOne: false
-            referencedRelation: "billing_item_categories"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "auto_generated_invoices"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "bill_invoice_relationships"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "semester_program_audit_view"
-            referencedColumns: ["student_id"]
-          },
-          {
-            foreignKeyName: "fk_billing_student_bills_student"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
             referencedColumns: ["id"]
           },
         ]
@@ -5921,9 +5818,86 @@ export type Database = {
         }
         Returns: Json
       }
-      ai_rpc_accessible_scope: { Args: { p_user_id: string }; Returns: Json }
-      ai_rpc_analytics_overview: {
-        Args: { p_date_from?: string; p_date_to?: string; p_user_id: string }
+      ai_rpc_admission_analytics: {
+        Args: {
+          p_academic_year_id?: string
+          p_include_trends?: boolean
+          p_institution_id?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      ai_rpc_admission_details: {
+        Args: {
+          p_admission_id?: string
+          p_application_id?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      ai_rpc_admission_referrers: {
+        Args: {
+          p_date_from?: string
+          p_date_to?: string
+          p_department_id?: string
+          p_include_details?: boolean
+          p_institution_id?: string
+          p_program_id?: string
+          p_reference_name?: string
+          p_reference_type?: string
+          p_status?: string
+          p_top_n?: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      ai_rpc_admission_statistics: {
+        Args: {
+          p_date_from?: string
+          p_date_to?: string
+          p_group_by?: string
+          p_institution_id?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      ai_rpc_admissions: {
+        Args: {
+          p_accommodation_type?: string
+          p_bus_required?: boolean
+          p_category?: string
+          p_community?: string
+          p_counseling_applied?: boolean
+          p_date_from?: string
+          p_date_to?: string
+          p_degree_id?: string
+          p_department_id?: string
+          p_district?: string
+          p_entry_type?: string
+          p_first_graduate?: boolean
+          p_gender?: string
+          p_include_stats?: boolean
+          p_institution_id?: string
+          p_program_id?: string
+          p_quota?: string
+          p_religion?: string
+          p_search?: string
+          p_state?: string
+          p_status?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      ai_rpc_admissions_by_location: {
+        Args: {
+          p_city?: string
+          p_district?: string
+          p_include_stats?: boolean
+          p_state?: string
+          p_status?: string
+          p_taluk?: string
+          p_user_id: string
+        }
         Returns: Json
       }
       ai_rpc_app_favorites: {
@@ -5981,16 +5955,6 @@ export type Database = {
           p_institution_id?: string
           p_limit?: number
           p_offset?: number
-          p_user_id: string
-        }
-        Returns: Json
-      }
-      ai_rpc_bills_summary: {
-        Args: {
-          p_date_from?: string
-          p_date_to?: string
-          p_department_id?: string
-          p_section_id?: string
           p_user_id: string
         }
         Returns: Json
@@ -6055,17 +6019,6 @@ export type Database = {
         }
         Returns: Json
       }
-      ai_rpc_discounts: {
-        Args: {
-          p_department_id?: string
-          p_limit?: number
-          p_offset?: number
-          p_status?: string
-          p_student_id?: string
-          p_user_id: string
-        }
-        Returns: Json
-      }
       ai_rpc_employment_categories: {
         Args: { p_limit?: number; p_offset?: number; p_user_id: string }
         Returns: Json
@@ -6084,33 +6037,16 @@ export type Database = {
         }
         Returns: Json
       }
-      ai_rpc_fee_defaulters:
-        | {
-            Args: {
-              p_department_id?: string
-              p_due_before?: string
-              p_limit?: number
-              p_min_amount?: number
-              p_offset?: number
-              p_status?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_department_id?: string
-              p_due_before?: string
-              p_limit?: number
-              p_min_amount?: number
-              p_offset?: number
-              p_status?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
-      ai_rpc_hierarchy_summary: {
-        Args: { p_institution_id?: string; p_user_id: string }
+      ai_rpc_fee_defaulters: {
+        Args: {
+          p_department_id?: string
+          p_due_before?: string
+          p_limit?: number
+          p_min_amount?: number
+          p_offset?: number
+          p_status?: string
+          p_user_id: string
+        }
         Returns: Json
       }
       ai_rpc_institution_access: {
@@ -6121,39 +6057,6 @@ export type Database = {
           p_target_user_id?: string
           p_user_id: string
         }
-        Returns: Json
-      }
-      ai_rpc_institutions: {
-        Args: { p_limit?: number; p_offset?: number; p_user_id: string }
-        Returns: Json
-      }
-      ai_rpc_invoices:
-        | {
-            Args: {
-              p_date_from?: string
-              p_date_to?: string
-              p_department_id?: string
-              p_limit?: number
-              p_offset?: number
-              p_student_id?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_date_from?: string
-              p_date_to?: string
-              p_department_id?: string
-              p_limit?: number
-              p_offset?: number
-              p_student_id?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
-      ai_rpc_kpi_summary: {
-        Args: { p_institution_id?: string; p_user_id: string }
         Returns: Json
       }
       ai_rpc_learners_by_location: {
@@ -6173,39 +6076,24 @@ export type Database = {
       }
       ai_rpc_learners_comprehensive: {
         Args: {
-          p_academic_year_id?: string
           p_accommodation_type?: string
-          p_board_of_study?: string
-          p_bus_pickup_location?: string
           p_bus_required?: boolean
-          p_bus_route?: string
-          p_caste?: string
-          p_category?: string
           p_community?: string
-          p_counseling_applied?: boolean
-          p_degree_id?: string
           p_department_id?: string
           p_district?: string
           p_entry_type?: string
           p_first_graduate?: boolean
-          p_food_type?: string
           p_gender?: string
-          p_hostel_type?: string
-          p_include_full_details?: boolean
           p_include_stats?: boolean
           p_institution_id?: string
-          p_last_school?: string
           p_limit?: number
           p_offset?: number
           p_program_id?: string
           p_quota?: string
           p_religion?: string
           p_search?: string
-          p_section_id?: string
           p_semester_id?: string
-          p_state?: string
           p_status?: string
-          p_taluk?: string
           p_user_id: string
         }
         Returns: Json
@@ -6238,28 +6126,6 @@ export type Database = {
         }
         Returns: Json
       }
-      ai_rpc_onboarding_status: {
-        Args: {
-          p_department_id?: string
-          p_limit?: number
-          p_offset?: number
-          p_section_id?: string
-          p_user_id: string
-        }
-        Returns: Json
-      }
-      ai_rpc_payment_transactions: {
-        Args: {
-          p_date_from?: string
-          p_date_to?: string
-          p_limit?: number
-          p_offset?: number
-          p_payment_mode?: string
-          p_student_id?: string
-          p_user_id: string
-        }
-        Returns: Json
-      }
       ai_rpc_periods: {
         Args: {
           p_institution_id?: string
@@ -6269,32 +6135,11 @@ export type Database = {
         }
         Returns: Json
       }
-      ai_rpc_programs:
-        | {
-            Args: {
-              p_degree_id?: string
-              p_department_id?: string
-              p_limit?: number
-              p_offset?: number
-              p_user_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_department_id?: string
-              p_limit?: number
-              p_offset?: number
-              p_user_id: string
-            }
-            Returns: Json
-          }
-      ai_rpc_promotion_candidates: {
+      ai_rpc_programs: {
         Args: {
           p_department_id?: string
           p_limit?: number
           p_offset?: number
-          p_semester_id?: string
           p_user_id: string
         }
         Returns: Json
@@ -6303,62 +6148,15 @@ export type Database = {
         Args: { p_limit?: number; p_offset?: number; p_user_id: string }
         Returns: Json
       }
-      ai_rpc_receipts:
-        | {
-            Args: {
-              p_date_from?: string
-              p_date_to?: string
-              p_department_id?: string
-              p_limit?: number
-              p_offset?: number
-              p_student_id?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_date_from?: string
-              p_date_to?: string
-              p_department_id?: string
-              p_limit?: number
-              p_offset?: number
-              p_student_id?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
-      ai_rpc_refunds: {
+      ai_rpc_sections: {
         Args: {
-          p_department_id?: string
           p_limit?: number
           p_offset?: number
-          p_status?: string
-          p_student_id?: string
+          p_semester_id?: string
           p_user_id: string
         }
         Returns: Json
       }
-      ai_rpc_sections:
-        | {
-            Args: {
-              p_department_id?: string
-              p_limit?: number
-              p_offset?: number
-              p_semester_id?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_limit?: number
-              p_offset?: number
-              p_semester_id?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
       ai_rpc_semesters: {
         Args: {
           p_limit?: number
@@ -6414,35 +6212,20 @@ export type Database = {
         }
         Returns: Json
       }
-      ai_rpc_student_bills:
-        | {
-            Args: {
-              p_date_from?: string
-              p_date_to?: string
-              p_department_id?: string
-              p_limit?: number
-              p_offset?: number
-              p_section_id?: string
-              p_status?: string
-              p_student_id?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_date_from?: string
-              p_date_to?: string
-              p_department_id?: string
-              p_limit?: number
-              p_offset?: number
-              p_section_id?: string
-              p_status?: string
-              p_student_id?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
+      ai_rpc_student_bills: {
+        Args: {
+          p_date_from?: string
+          p_date_to?: string
+          p_department_id?: string
+          p_limit?: number
+          p_offset?: number
+          p_section_id?: string
+          p_status?: string
+          p_student_id?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       ai_rpc_student_details: {
         Args: { p_student_id: string; p_user_id: string }
         Returns: Json
@@ -6482,35 +6265,16 @@ export type Database = {
         }
         Returns: Json
       }
-      ai_rpc_students_by_section: {
+      ai_rpc_students_by_status: {
         Args: {
+          p_department_id?: string
           p_limit?: number
           p_offset?: number
-          p_section_id: string
+          p_status?: string
           p_user_id: string
         }
         Returns: Json
       }
-      ai_rpc_students_by_status:
-        | {
-            Args: {
-              p_department_id?: string
-              p_limit?: number
-              p_offset?: number
-              p_status?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_limit?: number
-              p_offset?: number
-              p_status?: string
-              p_user_id: string
-            }
-            Returns: Json
-          }
       ai_rpc_students_summary: {
         Args: {
           p_department_id?: string
@@ -6586,26 +6350,6 @@ export type Database = {
       api_key_has_permission: {
         Args: { permission_name: string }
         Returns: boolean
-      }
-      attendance_contains_section: {
-        Args: { attendance_jsonb: Json; target_section_id: string }
-        Returns: boolean
-      }
-      audit_semester_program_inconsistencies: {
-        Args: never
-        Returns: {
-          inconsistency_type: string
-          institution_name: string
-          roll_number: string
-          semester_id: string
-          semester_name: string
-          semester_program_id: string
-          semester_program_name: string
-          student_id: string
-          student_name: string
-          student_program_id: string
-          student_program_name: string
-        }[]
       }
       bulk_calculate_student_outstanding: {
         Args: { student_ids: string[] }
@@ -6726,17 +6470,6 @@ export type Database = {
         }
         Returns: boolean
       }
-      check_student_semester_hierarchy: {
-        Args: { p_student_id: string }
-        Returns: {
-          error_message: string
-          is_valid: boolean
-          student_id: string
-          student_name: string
-          student_program: string
-          student_semester: string
-        }[]
-      }
       check_user_conflicts: {
         Args: { check_email: string; check_user_id?: string }
         Returns: {
@@ -6770,7 +6503,6 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: number
       }
-      consolidate_attendance_records: { Args: never; Returns: undefined }
       convert_to_date: { Args: { input_date: string }; Returns: string }
       create_api_key: {
         Args: { p_name: string; p_scopes: string[]; p_user_id: string }
@@ -6943,20 +6675,9 @@ export type Database = {
         }
         Returns: boolean
       }
-      fix_student_profile_mismatches: {
-        Args: never
-        Returns: {
-          profiles_updated: number
-          students_fixed: number
-        }[]
-      }
       generate_api_key:
         | { Args: never; Returns: string }
         | { Args: { length?: number }; Returns: string }
-      generate_auto_invoice_for_bill: {
-        Args: { p_bill_id: string }
-        Returns: undefined
-      }
       generate_bug_display_id: { Args: never; Returns: string }
       generate_invoice_number: { Args: never; Returns: string }
       generate_learner_application_id: {
@@ -7037,34 +6758,6 @@ export type Database = {
           period_name: string
         }[]
       }
-      get_attendance_record_details: {
-        Args: { p_attendance_id: string; p_period_id?: string }
-        Returns: {
-          absent_count: number
-          attendance_date: string
-          attendance_percentage: number
-          course_code: string
-          course_name: string
-          degree_name: string
-          department_name: string
-          end_time: string
-          faculty_email: string
-          faculty_name: string
-          id: string
-          institution_name: string
-          marked_at: string
-          marked_by: string
-          period_name: string
-          present_count: number
-          program_name: string
-          section_code: string
-          section_name: string
-          semester_name: string
-          start_time: string
-          students_data: Json
-          total_students: number
-        }[]
-      }
       get_attendance_staff_conflicts: {
         Args: {
           p_date_end?: string
@@ -7119,28 +6812,6 @@ export type Database = {
           p_timetable_id: string
         }
         Returns: Json
-      }
-      get_course_attendance_stats: {
-        Args: {
-          p_degree_id?: string
-          p_department_id?: string
-          p_end_date: string
-          p_institution_id: string
-          p_program_id?: string
-          p_section_text?: string
-          p_semester_text?: string
-          p_start_date: string
-        }
-        Returns: {
-          attendance_not_taken: number
-          attendance_percentage: number
-          attendance_taken: number
-          avg_student_attendance: number
-          course_code: string
-          course_id: string
-          course_name: string
-          total_periods: number
-        }[]
       }
       get_courses_by_department_count: {
         Args: { inst_ids?: string[] }
@@ -7245,15 +6916,6 @@ export type Database = {
           id: string
         }[]
       }
-      get_invoice_with_details: {
-        Args: { invoice_uuid: string }
-        Returns: {
-          institution_data: Json
-          invoice_data: Json
-          invoice_items_data: Json
-          student_data: Json
-        }[]
-      }
       get_learners_missing_profiles: {
         Args: never
         Returns: {
@@ -7321,70 +6983,6 @@ export type Database = {
           name: string
         }[]
       }
-      get_proper_course_attendance_stats: {
-        Args: {
-          p_degree_id: string
-          p_department_id: string
-          p_end_date: string
-          p_institution_id: string
-          p_program_id: string
-          p_section_text: string
-          p_semester_text: string
-          p_start_date: string
-        }
-        Returns: {
-          attendance_marked_periods: number
-          attendance_percentage: number
-          avg_student_attendance: number
-          course_code: string
-          course_id: string
-          course_name: string
-          total_scheduled_periods: number
-        }[]
-      }
-      get_proper_faculty_attendance_stats: {
-        Args: {
-          p_degree_id: string
-          p_department_id: string
-          p_end_date: string
-          p_institution_id: string
-          p_program_id: string
-          p_section_text: string
-          p_semester_text: string
-          p_start_date: string
-        }
-        Returns: {
-          attendance_not_taken: number
-          attendance_percentage: number
-          attendance_taken: number
-          avg_student_attendance: number
-          staff_designation: string
-          staff_id: string
-          staff_name: string
-          total_periods: number
-        }[]
-      }
-      get_proper_student_attendance_stats: {
-        Args: {
-          p_degree_id: string
-          p_department_id: string
-          p_end_date: string
-          p_institution_id: string
-          p_program_id: string
-          p_section_text: string
-          p_semester_text: string
-          p_start_date: string
-        }
-        Returns: {
-          absent_periods: number
-          attendance_percentage: number
-          present_periods: number
-          student_id: string
-          student_name: string
-          student_roll_number: string
-          total_periods: number
-        }[]
-      }
       get_related_slot_ids: {
         Args: { p_slot_id: string }
         Returns: {
@@ -7402,72 +7000,7 @@ export type Database = {
           role_name: string
         }[]
       }
-      get_semester_inconsistency_summary: {
-        Args: never
-        Returns: {
-          consistency_percentage: number
-          inconsistent_students: number
-          institution_name: string
-          total_students: number
-        }[]
-      }
-      get_slot_attendance_with_history: {
-        Args: {
-          p_end_date?: string
-          p_section_id: string
-          p_slot_id: string
-          p_start_date?: string
-        }
-        Returns: {
-          attendance_date: string
-          attendance_id: string
-          course_name: string
-          is_current_slot: boolean
-          period_name: string
-          slot_id: string
-          slot_version: number
-          student_count: number
-        }[]
-      }
       get_staff_id_by_email: { Args: { p_email: string }; Returns: string }
-      get_student_attendance_stats: {
-        Args: {
-          p_degree_id?: string
-          p_department_id?: string
-          p_end_date: string
-          p_institution_id: string
-          p_program_id?: string
-          p_section_id?: string
-          p_semester_id?: string
-          p_start_date: string
-        }
-        Returns: {
-          absent_periods: number
-          attendance_percentage: number
-          present_periods: number
-          student_id: string
-          student_name: string
-          student_roll_number: string
-          total_periods: number
-        }[]
-      }
-      get_student_billing_summary_optimized: {
-        Args: { student_uuid: string }
-        Returns: {
-          billing_summary: Json
-          recent_bills: Json
-          recent_invoices: Json
-          recent_receipts: Json
-          student_info: Json
-        }[]
-      }
-      get_students_missing_profiles: {
-        Args: never
-        Returns: {
-          college_email: string
-          student_id: string
-        }[]
-      }
       get_timetable_slot: {
         Args: { day_name: string; period_uuid: string; timetable_uuid: string }
         Returns: Json
@@ -7665,10 +7198,6 @@ export type Database = {
         Returns: undefined
       }
       refresh_activity_stats: { Args: never; Returns: undefined }
-      refresh_student_billing_summary: {
-        Args: { student_uuid?: string }
-        Returns: undefined
-      }
       reset_receipt_number_sequence_for_year: {
         Args: never
         Returns: undefined
@@ -7707,17 +7236,6 @@ export type Database = {
         Returns: boolean
       }
       sync_user_role_enum: { Args: never; Returns: undefined }
-      test_auto_invoice_generation: {
-        Args: never
-        Returns: {
-          bill_description: string
-          bill_id: string
-          invoice_generated: boolean
-          invoice_number: string
-          message: string
-          student_name: string
-        }[]
-      }
       update_analytics_with_activity: {
         Args: {
           p_action: string
@@ -7788,10 +7306,6 @@ export type Database = {
       }
       update_user_role: {
         Args: { new_role: string; user_id: string }
-        Returns: undefined
-      }
-      upsert_student_billing_summary: {
-        Args: { student_uuid: string }
         Returns: undefined
       }
       upsert_user_app_session: {

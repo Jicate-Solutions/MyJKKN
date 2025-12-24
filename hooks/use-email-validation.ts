@@ -25,7 +25,7 @@ export function useEmailValidation(): UseEmailValidationReturn {
   const [isChecking, setIsChecking] = useState(false);
   const [validationResult, setValidationResult] =
     useState<EmailValidationResult | null>(null);
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const checkEmailAvailability = async (
     email: string

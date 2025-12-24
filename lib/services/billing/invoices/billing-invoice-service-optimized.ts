@@ -14,7 +14,7 @@ export class BillingInvoiceServiceOptimized {
   // Generate invoice number with error handling
   private static async generateInvoiceNumber(): Promise<string> {
     try {
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'generate_invoice_number'
       );
 
@@ -58,14 +58,14 @@ export class BillingInvoiceServiceOptimized {
           this.supabase
             .from('learners_profiles')
             .select('id, first_name, last_name, roll_number, college_email')
-            .eq('id', invoice.student_id)
+            .eq('id', (invoice as any).student_id)
             .single(),
 
           // Get institution data
           this.supabase
             .from('institutions')
             .select('id, name, counselling_code')
-            .eq('id', invoice.institution_id)
+            .eq('id', (invoice as any).institution_id)
             .single(),
 
           // Get invoice items
@@ -94,9 +94,9 @@ export class BillingInvoiceServiceOptimized {
           : [];
 
       // Step 4: Get receipt data for invoice items (if any)
-      let enrichedInvoiceItems = invoiceItems;
+      let enrichedInvoiceItems: any[] = invoiceItems;
       if (invoiceItems.length > 0) {
-        const receiptIds = invoiceItems.map((item) => item.receipt_id);
+        const receiptIds = invoiceItems.map((item: any) => item.receipt_id);
         const { data: receipts } = await this.supabase
           .from('billing_receipts')
           .select(
@@ -105,16 +105,16 @@ export class BillingInvoiceServiceOptimized {
           .in('id', receiptIds);
 
         // Map receipts to invoice items
-        enrichedInvoiceItems = invoiceItems.map((item) => ({
+        enrichedInvoiceItems = invoiceItems.map((item: any) => ({
           ...item,
           receipt:
-            receipts?.find((receipt) => receipt.id === item.receipt_id) || null
-        }));
+            receipts?.find((receipt: any) => receipt.id === item.receipt_id) || null
+        })) as any[];
       }
 
       // Step 5: Return complete invoice object
       return {
-        ...invoice,
+        ...(invoice as any),
         student,
         institution,
         invoice_items: enrichedInvoiceItems
@@ -131,7 +131,7 @@ export class BillingInvoiceServiceOptimized {
   ): Promise<InvoiceListResponse> {
     try {
       // Step 1: Build base query for invoices only
-      let query = this.supabase.from('billing_invoices').select('*');
+      let query = (this.supabase as any).from('billing_invoices').select('*');
 
       // Apply filters to base query
       if (filters.search) {
@@ -218,11 +218,11 @@ export class BillingInvoiceServiceOptimized {
 
       // Step 2: Get related data for the fetched invoices
       if (invoices.length > 0) {
-        const studentIds = [...new Set(invoices.map((inv) => inv.student_id))];
+        const studentIds = [...new Set(invoices.map((inv: any) => inv.student_id))];
         const institutionIds = [
-          ...new Set(invoices.map((inv) => inv.institution_id))
+          ...new Set(invoices.map((inv: any) => inv.institution_id))
         ];
-        const invoiceIds = invoices.map((inv) => inv.id);
+        const invoiceIds = invoices.map((inv: any) => inv.id);
 
         // Fetch related data in parallel
         const [studentsResult, institutionsResult, invoiceItemsResult] =
@@ -260,7 +260,7 @@ export class BillingInvoiceServiceOptimized {
         let receipts: any[] = [];
         if (invoiceItems.length > 0) {
           const receiptIds = [
-            ...new Set(invoiceItems.map((item) => item.receipt_id))
+            ...new Set(invoiceItems.map((item: any) => item.receipt_id))
           ];
           const receiptsResult = await this.supabase
             .from('billing_receipts')
@@ -271,16 +271,16 @@ export class BillingInvoiceServiceOptimized {
         }
 
         // Step 3: Combine data efficiently
-        const enrichedInvoices = invoices.map((invoice) => ({
+        const enrichedInvoices = invoices.map((invoice: any) => ({
           ...invoice,
-          student: students.find((s) => s.id === invoice.student_id) || null,
+          student: students.find((s: any) => s.id === invoice.student_id) || null,
           institution:
-            institutions.find((i) => i.id === invoice.institution_id) || null,
+            institutions.find((i: any) => i.id === invoice.institution_id) || null,
           invoice_items: invoiceItems
-            .filter((item) => item.invoice_id === invoice.id)
-            .map((item) => ({
+            .filter((item: any) => item.invoice_id === invoice.id)
+            .map((item: any) => ({
               ...item,
-              receipt: receipts.find((r) => r.id === item.receipt_id) || null
+              receipt: receipts.find((r: any) => r.id === item.receipt_id) || null
             }))
         }));
 
@@ -317,8 +317,8 @@ export class BillingInvoiceServiceOptimized {
     try {
       const invoiceNumber = await this.generateInvoiceNumber();
 
-      const { data, error } = await this.supabase
-        .from('billing_invoices')
+      const { data, error } = await (this.supabase
+        .from('billing_invoices') as any)
         .insert({
           ...invoiceData,
           invoice_number: invoiceNumber
@@ -335,11 +335,11 @@ export class BillingInvoiceServiceOptimized {
       if (invoiceData.invoice_items && invoiceData.invoice_items.length > 0) {
         const invoiceItems = invoiceData.invoice_items.map((item) => ({
           ...item,
-          invoice_id: data.id
+          invoice_id: (data as any).id
         }));
 
-        const { error: itemsError } = await this.supabase
-          .from('billing_invoice_items')
+        const { error: itemsError } = await (this.supabase
+          .from('billing_invoice_items') as any)
           .insert(invoiceItems);
 
         if (itemsError) {
@@ -349,7 +349,7 @@ export class BillingInvoiceServiceOptimized {
       }
 
       // Return the created invoice with full details
-      return await this.getBillingInvoice(data.id);
+      return await this.getBillingInvoice((data as any).id);
     } catch (error) {
       console.error('Error in createBillingInvoice:', error);
       throw error;
@@ -362,8 +362,8 @@ export class BillingInvoiceServiceOptimized {
     invoiceData: UpdateInvoiceDto
   ): Promise<BillingInvoice> {
     try {
-      const { data, error } = await this.supabase
-        .from('billing_invoices')
+      const { data, error } = await (this.supabase
+        .from('billing_invoices') as any)
         .update(invoiceData)
         .eq('id', id)
         .select('*')
@@ -478,7 +478,7 @@ export class BillingInvoiceServiceOptimized {
         return null;
       }
 
-      const receiptIds = receiptItems.map((item) => item.receipt_id);
+      const receiptIds = receiptItems.map((item: any) => item.receipt_id);
 
       // Find invoice items that reference these receipts
       const { data: invoiceItems, error: invoiceItemsError } =
@@ -491,7 +491,7 @@ export class BillingInvoiceServiceOptimized {
         return null;
       }
 
-      const invoiceId = invoiceItems[0].invoice_id;
+      const invoiceId = (invoiceItems[0] as any).invoice_id;
 
       // Get the full invoice details
       return await this.getBillingInvoice(invoiceId);

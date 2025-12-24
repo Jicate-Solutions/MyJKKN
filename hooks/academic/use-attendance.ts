@@ -12,7 +12,8 @@ import type {
   ConsolidatedStudentAttendance,
   ConsolidatedAttendanceData,
   ConsolidatedAttendanceStudent,
-  UpsertConsolidatedAttendanceDto
+  UpsertConsolidatedAttendanceDto,
+  AttendanceStudent
 } from '@/types/attendance';
 import type { LearnerProfile } from '@/types/learner-profile';
 import toast from 'react-hot-toast';
@@ -96,7 +97,7 @@ export function useAttendanceRoster() {
   const [availablePeriods, setAvailablePeriods] = useState<
     AttendancePeriodOption[]
   >([]);
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<AttendanceStudent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchContext, setSearchContext] = useState<AttendanceSearchContext>({
@@ -567,13 +568,16 @@ export function useConsolidatedAttendanceRoster() {
               .eq('is_active', true)
               .single();
 
-            if (staffData) {
+            // Type cast to fix TypeScript inference after React 19 upgrade
+            const staffInfo = staffData as { first_name: string; last_name: string; email: string; institution_email: string } | null;
+
+            if (staffInfo) {
               markerName =
-                `${staffData.first_name || ''} ${
-                  staffData.last_name || ''
+                `${staffInfo.first_name || ''} ${
+                  staffInfo.last_name || ''
                 }`.trim() || markerName;
               markerEmail =
-                staffData.email || staffData.institution_email || markerEmail;
+                staffInfo.email || staffInfo.institution_email || markerEmail;
             }
           } catch (error) {
             console.warn(

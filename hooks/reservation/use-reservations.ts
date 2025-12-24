@@ -99,6 +99,9 @@ export function useApprovalStats() {
         .select('id, start_time')
         .eq('status', ReservationStatus.PENDING);
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const pendingData = pending as { id: string; start_time: string }[] | null;
+
       // Get today's approved
       const { data: approvedToday } = await supabase
         .from('resource_reservations')
@@ -115,10 +118,10 @@ export function useApprovalStats() {
 
       const now = new Date();
       const overdueCount =
-        pending?.filter((r) => new Date(r.start_time) < now).length || 0;
+        pendingData?.filter((r) => new Date(r.start_time) < now).length || 0;
 
       return {
-        pending_approvals: pending?.length || 0,
+        pending_approvals: pendingData?.length || 0,
         approved_today: approvedToday?.length || 0,
         rejected_today: rejectedToday?.length || 0,
         overdue_approvals: overdueCount

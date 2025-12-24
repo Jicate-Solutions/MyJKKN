@@ -16,7 +16,7 @@ export class BatchService {
     try {
       const { data: batch, error } = await this.supabase
         .from('batches')
-        .insert([data])
+        .insert([data] as any)
         .select()
         .single();
 
@@ -31,7 +31,7 @@ export class BatchService {
         throw enhancedError;
       }
 
-      return batch;
+      return batch as Batch;
     } catch (error) {
       logger.error('academic/batches', 'Error creating batch', error);
       throw error;
@@ -48,7 +48,7 @@ export class BatchService {
         .update({
           ...data,
           updated_at: new Date().toISOString()
-        })
+        } as any)
         .eq('id', id)
         .select()
         .single();
@@ -63,7 +63,7 @@ export class BatchService {
         throw enhancedError;
       }
 
-      return batch;
+      return batch as Batch;
     } catch (error) {
       logger.error('academic/batches', 'Error updating batch', error);
       throw error;
@@ -119,7 +119,7 @@ export class BatchService {
     filters: BatchFilters = {}
   ): Promise<BatchListResponse> {
     try {
-      let query = this.supabase.from('batches').select(
+      let query = (this.supabase as any).from('batches').select(
         `
           *,
           institution:institutions(id, name, counselling_code)
@@ -210,7 +210,7 @@ export class BatchService {
     isSuperAdmin: boolean = false
   ): Promise<BatchListResponse> {
     try {
-      let query = this.supabase.from('batches').select(
+      let query = (this.supabase as any).from('batches').select(
         `
           *,
           institution:institutions (

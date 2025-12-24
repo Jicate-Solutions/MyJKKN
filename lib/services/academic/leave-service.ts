@@ -166,7 +166,7 @@ export class LeaveService {
     filters: LeaveFilters = {}
   ): Promise<LeaveListResponse> {
     try {
-      let query = this.supabase.from('institution_leaves').select(
+      let query = (this.supabase as any).from('institution_leaves').select(
         `
           *,
           leave_type:leave_types(id, leave_type_name, leave_type_code, color_code),
@@ -267,7 +267,7 @@ export class LeaveService {
     isSuperAdmin: boolean = false
   ): Promise<LeaveListResponse> {
     try {
-      let query = this.supabase.from('institution_leaves').select(
+      let query = (this.supabase as any).from('institution_leaves').select(
         `
           *,
           leave_type:leave_types(id, leave_type_name, leave_type_code, color_code),
@@ -382,7 +382,7 @@ export class LeaveService {
       if (error) throw error;
 
       // Create approval record
-      await this.supabase.from('leave_approvals').insert([
+      await (this.supabase as any).from('leave_approvals').insert([
         {
           leave_id: id,
           approver_id: approverId,
@@ -427,7 +427,7 @@ export class LeaveService {
       if (error) throw error;
 
       // Create approval record
-      await this.supabase.from('leave_approvals').insert([
+      await (this.supabase as any).from('leave_approvals').insert([
         {
           leave_id: id,
           approver_id: approverId,

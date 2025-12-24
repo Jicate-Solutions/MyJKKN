@@ -1,5 +1,5 @@
 // lib/auth/auth-service.ts
-import { Profile, ProfileUpdate } from '@/types/supabase';
+import { Profile, ProfileUpdate } from '@/types/auth';
 import { toast } from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { RoleService } from '../services/roles/role-service';
@@ -117,7 +117,7 @@ export class AuthService {
         throw new Error('No authenticated user');
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('profiles')
         .update({
           ...profileData,
@@ -152,7 +152,7 @@ export class AuthService {
       }
 
       // Update last login
-      await supabase
+      await (supabase as any)
         .from('profiles')
         .update({ last_login: new Date().toISOString() })
         .eq('id', data.user.id);
@@ -196,7 +196,7 @@ export class AuthService {
         .getPublicUrl(filePath);
 
       // Update the user's profile with the new avatar URL
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from('profiles')
         .update({ avatar_url: urlData.publicUrl })
         .eq('id', user.id);
@@ -227,9 +227,12 @@ export class AuthService {
         .eq('id', user.id)
         .single();
 
-      if (profile?.avatar_url) {
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const profileData = profile as { avatar_url: string | null } | null;
+
+      if (profileData?.avatar_url) {
         // Extract file name from URL
-        const fileName = profile.avatar_url.split('/').pop();
+        const fileName = profileData.avatar_url.split('/').pop();
 
         // Delete the file from storage
         const { error: deleteError } = await supabase.storage
@@ -240,7 +243,7 @@ export class AuthService {
       }
 
       // Remove avatar_url from profile
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from('profiles')
         .update({ avatar_url: null })
         .eq('id', user.id);

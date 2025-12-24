@@ -27,6 +27,22 @@ export enum MaintenancePriority {
 
 // ==================== INTERFACES ====================
 
+// Related entity types
+export interface MaintenanceResource {
+  id: string;
+  name: string;
+  resource_code: string;
+  parent_category_id?: string;
+  subcategory_id?: string;
+}
+
+export interface MaintenanceProfile {
+  id: string;
+  full_name: string;
+  email: string;
+  phone_number?: string;
+}
+
 export interface MaintenanceLog {
   id: string;
   resource_id: string;
@@ -46,9 +62,9 @@ export interface MaintenanceLog {
   updated_at: string;
 
   // Relations
-  resource?: any;
-  assigned_to?: any;
-  created_by_user?: any;
+  resource?: MaintenanceResource;
+  assigned_to?: MaintenanceProfile;
+  created_by_user?: MaintenanceProfile;
 }
 
 export interface MaintenanceSchedule {
@@ -67,8 +83,8 @@ export interface MaintenanceSchedule {
   updated_at: string;
 
   // Relations
-  resource?: any;
-  assigned_to?: any;
+  resource?: MaintenanceResource;
+  assigned_to?: MaintenanceProfile;
 }
 
 export interface MaintenanceStats {

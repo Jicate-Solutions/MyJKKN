@@ -23,7 +23,7 @@ export class CategoryService {
       if (!userData.user) throw new Error('No authenticated user');
 
       // Add created_by and updated_by to the data
-      const { data: category, error } = await this.supabase
+      const { data: category, error } = await (this.supabase as any)
         .from('employment_categories')
         .insert([
           {
@@ -56,7 +56,7 @@ export class CategoryService {
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
-      const { data: category, error } = await this.supabase
+      const { data: category, error } = await (this.supabase as any)
         .from('employment_categories')
         .update({
           ...data,
@@ -86,7 +86,7 @@ export class CategoryService {
       if (!userData.user) throw new Error('No authenticated user');
 
       // First check if category exists
-      const { data: existing, error: checkError } = await this.supabase
+      const { data: existing, error: checkError } = await (this.supabase as any)
         .from('employment_categories')
         .select('*')
         .eq('id', id)

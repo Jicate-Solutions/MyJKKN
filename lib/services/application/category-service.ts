@@ -25,17 +25,17 @@ export class CategoryService {
       if (categoriesError) throw categoriesError;
 
       const { data: subcategories, error: subcategoriesError } =
-        await this.supabase.from('subcategories').select('*').order('name');
+        await (this.supabase as any).from('subcategories').select('*').order('name');
 
       if (subcategoriesError) throw subcategoriesError;
 
       // Combine categories with their subcategories
-      return categories.map((category) => ({
+      return (categories || []).map((category: any) => ({
         ...category,
-        subcategories: subcategories.filter(
-          (sub) => sub.category_id === category.id
+        subcategories: (subcategories || []).filter(
+          (sub: any) => sub.category_id === category.id
         )
-      }));
+      })) as Category[];
     } catch (error) {
       console.error('Error fetching categories:', error);
       toast.error('Failed to load categories');
@@ -71,7 +71,8 @@ export class CategoryService {
         return null;
       }
 
-      console.log(`CategoryService: Found category: ${category.name}`);
+      const categoryTyped = category as any;
+      console.log(`CategoryService: Found category: ${categoryTyped.name}`);
 
       const { data: subcategories, error: subcategoriesError } =
         await this.supabase
@@ -89,13 +90,13 @@ export class CategoryService {
       }
 
       console.log(
-        `CategoryService: Found ${subcategories.length} subcategories`
+        `CategoryService: Found ${(subcategories || []).length} subcategories`
       );
 
       return {
-        ...category,
-        subcategories
-      };
+        ...categoryTyped,
+        subcategories: subcategories || []
+      } as Category;
     } catch (error) {
       console.error('Error fetching category:', error);
       toast.error('Failed to load category');
@@ -119,8 +120,9 @@ export class CategoryService {
         .eq('id', user.id)
         .single();
 
-      if (profileError || !profile) throw new Error('Profile not found');
-      if (!['super_admin', 'administrator'].includes(profile.role)) {
+      const profileTyped = profile as { role: string } | null;
+      if (profileError || !profileTyped) throw new Error('Profile not found');
+      if (!['super_admin', 'administrator'].includes(profileTyped.role)) {
         throw new Error('You do not have permission to create categories');
       }
 
@@ -131,7 +133,7 @@ export class CategoryService {
             ...data,
             created_by: user.id
           }
-        ])
+        ] as any)
         .select()
         .single();
 
@@ -142,11 +144,12 @@ export class CategoryService {
         throw error;
       }
 
+      const categoryTyped = category as any;
       toast.success('Category created successfully');
       return {
-        ...category,
+        ...categoryTyped,
         subcategories: []
-      };
+      } as Category;
     } catch (error) {
       console.error('Error creating category:', error);
       toast.error(
@@ -175,8 +178,9 @@ export class CategoryService {
         .eq('id', user.id)
         .single();
 
-      if (profileError || !profile) throw new Error('Profile not found');
-      if (!['super_admin', 'administrator'].includes(profile.role)) {
+      const profileTyped = profile as { role: string } | null;
+      if (profileError || !profileTyped) throw new Error('Profile not found');
+      if (!['super_admin', 'administrator'].includes(profileTyped.role)) {
         throw new Error('You do not have permission to update categories');
       }
 
@@ -186,7 +190,7 @@ export class CategoryService {
           ...data,
           updated_by: user.id,
           updated_at: new Date().toISOString()
-        })
+        } as any)
         .eq('id', id)
         .select()
         .single();
@@ -198,11 +202,12 @@ export class CategoryService {
         throw error;
       }
 
+      const categoryTyped = category as any;
       toast.success('Category updated successfully');
       return {
-        ...category,
+        ...categoryTyped,
         subcategories: [] // Subcategories will be fetched separately when needed
-      };
+      } as Category;
     } catch (error) {
       console.error('Error updating category:', error);
       toast.error(
@@ -228,8 +233,9 @@ export class CategoryService {
         .eq('id', user.id)
         .single();
 
-      if (profileError || !profile) throw new Error('Profile not found');
-      if (!['super_admin', 'administrator'].includes(profile.role)) {
+      const profileTyped = profile as { role: string } | null;
+      if (profileError || !profileTyped) throw new Error('Profile not found');
+      if (!['super_admin', 'administrator'].includes(profileTyped.role)) {
         throw new Error('You do not have permission to delete categories');
       }
 
@@ -268,8 +274,9 @@ export class CategoryService {
         .eq('id', user.id)
         .single();
 
-      if (profileError || !profile) throw new Error('Profile not found');
-      if (!['super_admin', 'administrator'].includes(profile.role)) {
+      const profileTyped = profile as { role: string } | null;
+      if (profileError || !profileTyped) throw new Error('Profile not found');
+      if (!['super_admin', 'administrator'].includes(profileTyped.role)) {
         throw new Error('You do not have permission to create subcategories');
       }
 
@@ -281,7 +288,7 @@ export class CategoryService {
             created_by: user.id,
             is_active: data.is_active ?? true
           }
-        ])
+        ] as any)
         .select()
         .single();
 
@@ -293,7 +300,7 @@ export class CategoryService {
       }
 
       toast.success('Subcategory created successfully');
-      return subcategory;
+      return subcategory as Subcategory;
     } catch (error) {
       console.error('Error creating subcategory:', error);
       toast.error(
@@ -322,8 +329,9 @@ export class CategoryService {
         .eq('id', user.id)
         .single();
 
-      if (profileError || !profile) throw new Error('Profile not found');
-      if (!['super_admin', 'administrator'].includes(profile.role)) {
+      const profileTyped = profile as { role: string } | null;
+      if (profileError || !profileTyped) throw new Error('Profile not found');
+      if (!['super_admin', 'administrator'].includes(profileTyped.role)) {
         throw new Error('You do not have permission to update subcategories');
       }
 
@@ -333,7 +341,7 @@ export class CategoryService {
           ...data,
           updated_by: user.id,
           updated_at: new Date().toISOString()
-        })
+        } as any)
         .eq('id', id)
         .select()
         .single();
@@ -346,7 +354,7 @@ export class CategoryService {
       }
 
       toast.success('Subcategory updated successfully');
-      return subcategory;
+      return subcategory as Subcategory;
     } catch (error) {
       console.error('Error updating subcategory:', error);
       toast.error(
@@ -372,8 +380,9 @@ export class CategoryService {
         .eq('id', user.id)
         .single();
 
-      if (profileError || !profile) throw new Error('Profile not found');
-      if (!['super_admin', 'administrator'].includes(profile.role)) {
+      const profileTyped = profile as { role: string } | null;
+      if (profileError || !profileTyped) throw new Error('Profile not found');
+      if (!['super_admin', 'administrator'].includes(profileTyped.role)) {
         throw new Error('You do not have permission to delete subcategories');
       }
 

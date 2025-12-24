@@ -224,13 +224,13 @@ export class UserDashboardService {
       > = {};
 
       data?.forEach((user) => {
-        const date = new Date(user.created_at).toISOString().split('T')[0];
+        const date = new Date((user as any).created_at).toISOString().split('T')[0];
         if (!trendData[date]) {
           trendData[date] = { count: 0, byRole: {} };
         }
         trendData[date].count++;
-        trendData[date].byRole[user.role] =
-          (trendData[date].byRole[user.role] || 0) + 1;
+        trendData[date].byRole[(user as any).role] =
+          (trendData[date].byRole[(user as any).role] || 0) + 1;
       });
 
       // Fill in missing dates with zero counts
@@ -394,7 +394,7 @@ export class UserDashboardService {
       if (error) throw error;
 
       return (
-        data?.map((user) => ({
+        data?.map((user: any) => ({
           id: user.id,
           name: user.full_name || 'Unknown',
           email: user.email,

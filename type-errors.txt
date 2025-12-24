@@ -1,0 +1,716 @@
+app/(routes)/learners/enquiries/_components/form-sections/basic-details.tsx(38,18): error TS2345: Argument of type 'number' is not assignable to parameter of type 'never'.
+app/(routes)/learners/enquiries/_components/form-sections/basic-details.tsx(123,56): error TS2339: Property 'toString' does not exist on type 'never'.
+app/(routes)/organizations/sections/_components/bulk-upload-sections.tsx(258,28): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+app/(routes)/staff/list/_components/bulk-upload-staff.tsx(147,5): error TS2322: Type 'Date' is not assignable to type 'null'.
+app/(routes)/staff/list/_components/bulk-upload-staff.tsx(148,16): error TS18047: 'validDate' is possibly 'null'.
+app/(routes)/staff/list/_components/bulk-upload-staff.tsx(171,9): error TS2322: Type 'Date' is not assignable to type 'null'.
+app/(routes)/staff/list/_components/bulk-upload-staff.tsx(194,11): error TS2322: Type 'Date' is not assignable to type 'null'.
+app/(routes)/staff/list/_components/bulk-upload-staff.tsx(216,11): error TS2322: Type 'Date' is not assignable to type 'null'.
+app/(routes)/staff/list/_components/bulk-upload-staff.tsx(240,11): error TS2322: Type 'Date' is not assignable to type 'null'.
+app/(routes)/staff/list/_components/bulk-upload-staff.tsx(249,32): error TS2339: Property 'getFullYear' does not exist on type 'never'.
+app/(routes)/staff/list/_components/bulk-upload-staff.tsx(791,22): error TS2345: Argument of type 'any[]' is not assignable to parameter of type 'never'.
+app/(routes)/staff/list/_components/bulk-upload-staff.tsx(802,32): error TS2339: Property 'map' does not exist on type 'never'.
+app/(routes)/users/role-management/_components/role-management-list.tsx(149,7): error TS2345: Argument of type 'Element' is not assignable to parameter of type 'never'.
+app/(routes)/users/role-management/_components/role-management-list.tsx(169,9): error TS2345: Argument of type 'Element' is not assignable to parameter of type 'never'.
+app/(routes)/users/role-management/_components/role-management-list.tsx(178,9): error TS2345: Argument of type 'Element' is not assignable to parameter of type 'never'.
+app/(routes)/users/role-management/_components/role-management-list.tsx(192,9): error TS2345: Argument of type 'Element' is not assignable to parameter of type 'never'.
+app/(routes)/users/role-management/_components/role-management-list.tsx(201,9): error TS2345: Argument of type 'Element' is not assignable to parameter of type 'never'.
+app/api/admin/notifications/[id]/route.ts(115,9): error TS2345: Argument of type 'PromiseLike<void>' is not assignable to parameter of type 'never'.
+app/api/admin/notifications/[id]/route.ts(129,9): error TS2345: Argument of type 'PromiseLike<void>' is not assignable to parameter of type 'never'.
+app/api/admin/notifications/[id]/route.ts(145,9): error TS2345: Argument of type 'PromiseLike<void>' is not assignable to parameter of type 'never'.
+app/api/api-management/applications/[id]/route.ts(182,9): error TS2322: Type '{ id: any; name: any; }' is not assignable to type 'null'.
+app/api/api-management/applications/route.ts(200,13): error TS2322: Type '{ id: any; name: any; }' is not assignable to type 'null'.
+app/api/api-management/organizations/courses/route.ts(32,7): error TS2322: Type 'string' is not assignable to type 'null'.
+app/api/api-management/organizations/courses/route.ts(34,7): error TS2322: Type 'string' is not assignable to type 'null'.
+app/api/api-management/organizations/courses/route.ts(36,7): error TS2322: Type 'string' is not assignable to type 'null'.
+app/api/bug-reports/[id]/messages/read/route.ts(44,7): error TS2322: Type '{ id: string; can_view_internal: boolean; }' is not assignable to type 'null'.
+app/api/bug-reports/[id]/messages/read/route.ts(105,13): error TS2322: Type '{ id: string; can_view_internal: boolean; }' is not assignable to type 'null'.
+app/api/bug-reports/[id]/messages/read/route.ts(108,13): error TS2322: Type '{ id: string; can_view_internal: boolean; }' is not assignable to type 'null'.
+app/api/bug-reports/[id]/messages/read/route.ts(149,24): error TS2339: Property 'can_view_internal' does not exist on type 'never'.
+app/api/bug-reports/[id]/messages/read/route.ts(205,49): error TS2339: Property 'id' does not exist on type 'never'.
+app/api/bug-reports/[id]/messages/read/route.ts(326,9): error TS2322: Type '{ can_view_internal: boolean; last_read_message_id: string | null; }' is not assignable to type 'null'.
+app/api/bug-reports/[id]/messages/read/route.ts(387,15): error TS2322: Type '{ can_view_internal: boolean; last_read_message_id: string | null; }' is not assignable to type 'null'.
+app/api/bug-reports/[id]/messages/read/route.ts(390,15): error TS2322: Type '{ can_view_internal: boolean; last_read_message_id: null; }' is not assignable to type 'null'.
+app/api/bug-reports/[id]/messages/read/route.ts(429,24): error TS2339: Property 'can_view_internal' does not exist on type 'never'.
+app/api/bug-reports/[id]/messages/read/route.ts(434,23): error TS2339: Property 'last_read_message_id' does not exist on type 'never'.
+app/api/bug-reports/[id]/messages/read/route.ts(438,33): error TS2339: Property 'last_read_message_id' does not exist on type 'never'.
+app/api/bug-reports/route.ts(172,9): error TS2322: Type 'PostgrestError' is not assignable to type 'null'.
+app/api/bug-reports/route.ts(176,13): error TS18047: 'insertError' is possibly 'null'.
+app/api/bug-reports/route.ts(197,23): error TS2339: Property 'message' does not exist on type 'never'.
+app/api/bug-reports/route.ts(209,32): error TS2339: Property 'message' does not exist on type 'never'.
+app/api/bug-reports/route.ts(211,29): error TS2339: Property 'hint' does not exist on type 'never'.
+app/api/bug-reports/route.ts(236,7): error TS2345: Argument of type 'Promise<null>' is not assignable to parameter of type 'never'.
+app/api/bug-reports/route.ts(241,40): error TS2339: Property 'id' does not exist on type 'never'.
+app/api/bug-reports/route.ts(264,9): error TS2345: Argument of type 'Promise<any>' is not assignable to parameter of type 'never'.
+app/api/bug-reports/route.ts(273,43): error TS2339: Property 'id' does not exist on type 'never'.
+app/api/bug-reports/route.ts(295,35): error TS2339: Property 'id' does not exist on type 'never'.
+app/api/learners/create-missing-profiles/route.ts(200,30): error TS2345: Argument of type '{ learner_id: any; name: string; email: any; temp_password: string; }' is not assignable to parameter of type 'never'.
+app/api/learners/create-missing-profiles/route.ts(207,29): error TS2345: Argument of type '{ learner_id: any; name: string; email: any; error: string; }' is not assignable to parameter of type 'never'.
+app/api/staff/check-missing-profiles/route.ts(127,35): error TS2345: Argument of type '{ id: any; first_name: any; last_name: any; institution_email: any; phone: any; institution_id: any; department_id: any; gender: any; designation: any; }' is not assignable to parameter of type 'never'.
+app/api/staff/check-missing-profiles/route.ts(158,42): error TS2345: Argument of type '{ id: any; first_name: any; last_name: any; institution_email: any; phone: any; institution_id: any; department_id: any; gender: any; designation: any; }' is not assignable to parameter of type 'never'.
+app/api/staff/check-missing-profiles/route.ts(161,44): error TS2345: Argument of type '{ current_role: any; current_institution_id: any; current_department_id: any; current_gender: any; current_phone_number: any; current_designation: any; has_valid_role: boolean; id: any; first_name: any; ... 6 more ...; designation: any; }' is not assignable to parameter of type 'never'.
+app/api/staff/check-missing-profiles/route.ts(176,36): error TS2339: Property 'institution_email' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(180,48): error TS2339: Property 'institution_email' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(200,22): error TS2339: Property 'first_name' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(200,38): error TS2339: Property 'last_name' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(201,20): error TS2339: Property 'institution_email' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(204,23): error TS2339: Property 'id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(205,22): error TS2339: Property 'first_name' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(205,38): error TS2339: Property 'last_name' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(206,20): error TS2339: Property 'institution_email' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(209,26): error TS2339: Property 'current_role' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(210,22): error TS2339: Property 'has_valid_role' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(210,41): error TS2339: Property 'current_role' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(211,27): error TS2339: Property 'has_valid_role' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(214,26): error TS2339: Property 'current_institution_id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(215,22): error TS2339: Property 'institution_id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(216,26): error TS2339: Property 'current_institution_id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(216,55): error TS2339: Property 'institution_id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(219,26): error TS2339: Property 'current_department_id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(220,22): error TS2339: Property 'department_id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(221,26): error TS2339: Property 'current_department_id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(221,54): error TS2339: Property 'department_id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(224,26): error TS2339: Property 'current_gender' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(225,22): error TS2339: Property 'gender' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(226,26): error TS2339: Property 'current_gender' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(226,47): error TS2339: Property 'gender' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(229,26): error TS2339: Property 'current_phone_number' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(230,22): error TS2339: Property 'phone' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(231,26): error TS2339: Property 'current_phone_number' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(231,53): error TS2339: Property 'phone' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(234,26): error TS2339: Property 'current_designation' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(235,22): error TS2339: Property 'designation' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(236,26): error TS2339: Property 'current_designation' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(236,52): error TS2339: Property 'designation' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(240,28): error TS2339: Property 'has_valid_role' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(241,37): error TS2339: Property 'current_institution_id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(242,36): error TS2339: Property 'current_department_id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(243,29): error TS2339: Property 'current_gender' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(243,50): error TS2339: Property 'gender' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(244,28): error TS2339: Property 'current_phone_number' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(244,55): error TS2339: Property 'phone' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(245,34): error TS2339: Property 'current_designation' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(245,60): error TS2339: Property 'designation' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(249,23): error TS2339: Property 'id' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(250,22): error TS2339: Property 'first_name' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(250,38): error TS2339: Property 'last_name' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(251,20): error TS2339: Property 'institution_email' does not exist on type 'never'.
+app/api/staff/check-missing-profiles/route.ts(252,51): error TS2339: Property 'institution_email' does not exist on type 'never'.
+app/api/staff/create-missing-profiles/route.ts(310,22): error TS2345: Argument of type '{ staff_id: string; email: string; full_name: string; user_id: string; action: string; temp_password: string; success: boolean; }' is not assignable to parameter of type 'never'.
+app/api/staff/create-missing-profiles/route.ts(325,21): error TS2345: Argument of type '{ staff_id: string; email: string; full_name: string; error: string; success: boolean; }' is not assignable to parameter of type 'never'.
+app/api/staff/create-missing-profiles/route.ts(402,26): error TS2345: Argument of type '{ staff_id: any; email: any; full_name: string; user_id: any; action: string; temp_password: string; success: boolean; }' is not assignable to parameter of type 'never'.
+app/api/staff/create-missing-profiles/route.ts(415,26): error TS2345: Argument of type '{ staff_id: any; email: any; full_name: string; user_id: any; action: string; temp_password: string; success: boolean; }' is not assignable to parameter of type 'never'.
+app/api/staff/create-missing-profiles/route.ts(463,22): error TS2345: Argument of type '{ staff_id: any; email: any; full_name: string; user_id: string; action: string; temp_password: string; success: boolean; }' is not assignable to parameter of type 'never'.
+app/api/staff/create-missing-profiles/route.ts(478,21): error TS2345: Argument of type '{ staff_id: any; email: any; full_name: string; error: string; success: boolean; }' is not assignable to parameter of type 'never'.
+app/api/users/[id]/route.ts(127,9): error TS2322: Type '{ id: any; department_name: any; department_code: any; }' is not assignable to type 'null'.
+app/api/users/check-email/route.ts(58,7): error TS2322: Type '{ id: any; email: any; fullName: any; role: any; isActive: any; isPreRegistered: boolean; createdAt: any; }' is not assignable to type 'null'.
+app/api/users/check-email/route.ts(76,9): error TS2322: Type '"The user can login with Google using this email address."' is not assignable to type 'null'.
+app/api/users/check-email/route.ts(79,9): error TS2322: Type '"Please use a different email address or check if you meant to update the existing user."' is not assignable to type 'null'.
+app/api/users/dashboard-stats/route.ts(338,31): error TS2345: Argument of type '{ date: string; count: number; cumulative: number; byRole: Record<string, number>; }' is not assignable to parameter of type 'never'.
+components/auth/google-one-tap.tsx(68,11): error TS2322: Type '{ app_id: string; redirect_uri: string; scope: string | undefined; state: string | undefined; }' is not assignable to type 'null'.
+components/auth/google-one-tap.tsx(120,34): error TS2339: Property 'app_id' does not exist on type 'never'.
+components/auth/google-one-tap.tsx(121,40): error TS2339: Property 'redirect_uri' does not exist on type 'never'.
+components/auth/google-one-tap.tsx(123,28): error TS2339: Property 'scope' does not exist on type 'never'.
+components/auth/google-one-tap.tsx(124,56): error TS2339: Property 'scope' does not exist on type 'never'.
+components/auth/google-one-tap.tsx(125,28): error TS2339: Property 'state' does not exist on type 'never'.
+components/auth/google-one-tap.tsx(126,56): error TS2339: Property 'state' does not exist on type 'never'.
+components/ui/digital-clock.tsx(110,11): error TS2345: Argument of type 'Element' is not assignable to parameter of type 'never'.
+components/ui/digital-clock.tsx(126,11): error TS2345: Argument of type 'Element' is not assignable to parameter of type 'never'.
+hooks/academic/use-attendance.ts(763,49): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+hooks/academic/use-attendance.ts(764,51): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+hooks/academic/use-attendance.ts(765,44): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+hooks/academic/use-attendance.ts(766,45): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+hooks/academic/use-attendance.ts(767,48): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+hooks/academic/use-attendance.ts(768,46): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+hooks/academic/use-attendance.ts(769,50): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+lib/services/academic/attendance-dashboard-service.ts(481,20): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+lib/services/academic/attendance-dashboard-service.ts(913,20): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+lib/services/academic/attendance-faculty-sync.ts(68,46): error TS2339: Property 'staff_ids' does not exist on type 'never'.
+lib/services/academic/attendance-faculty-sync.ts(74,47): error TS2339: Property 'staff_ids' does not exist on type 'never'.
+lib/services/academic/attendance-faculty-sync.ts(75,46): error TS2339: Property 'primary_staff_id' does not exist on type 'never'.
+lib/services/academic/attendance-faculty-sync.ts(293,27): error TS2339: Property 'staff_ids' does not exist on type 'never'.
+lib/services/academic/attendance-faculty-sync.ts(301,33): error TS2339: Property 'staff_ids' does not exist on type 'never'.
+lib/services/academic/attendance-faculty-sync.ts(314,27): error TS2339: Property 'staff_ids' does not exist on type 'never'.
+lib/services/academic/attendance-faculty-sync.ts(316,54): error TS2339: Property 'primary_staff_id' does not exist on type 'never'.
+lib/services/academic/attendance-report-service.ts(794,13): error TS2322: Type 'any' is not assignable to type 'never'.
+lib/services/academic/attendance-report-service.ts(892,28): error TS2345: Argument of type '{ period_id: any; period_number: number; period_name: any; start_time: any; end_time: any; course_code: any; course_name: any; faculty: never[]; marked_by_details: any; students: any; present_count: any; absent_count: number; total_count: any; attendance_percentage: number; }' is not assignable to parameter of type 'never'.
+lib/services/academic/attendance-service.ts(2113,25): error TS2322: Type 'string' is not assignable to type 'null'.
+lib/services/academic/attendance-service.ts(2114,25): error TS2322: Type 'string' is not assignable to type 'null'.
+lib/services/academic/attendance-service.ts(3408,59): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+lib/services/academic/attendance-service.ts(3409,64): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+lib/services/academic/attendance-service.ts(3410,57): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+lib/services/academic/attendance-service.ts(3411,58): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+lib/services/academic/attendance-service.ts(3412,61): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+lib/services/academic/batch-service.ts(48,17): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+lib/services/academic/faculty-attendance-service.ts(59,19): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(98,41): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(129,41): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(130,46): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(145,21): error TS2339: Property 'timetable_format' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(146,21): error TS2339: Property 'start_date' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(147,21): error TS2339: Property 'end_date' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(148,21): error TS2339: Property 'selected_dates' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(153,41): error TS2339: Property 'timetable_data' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(154,45): error TS2339: Property 'periods' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(162,23): error TS2339: Property 'timetable_format' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(168,25): error TS2339: Property 'selected_dates' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(168,67): error TS2339: Property 'selected_dates' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(171,46): error TS2339: Property 'selected_dates' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(308,71): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(313,41): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(319,44): error TS2339: Property 'section_id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(319,73): error TS2339: Property 'sections' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(320,41): error TS2339: Property 'degrees' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(321,42): error TS2339: Property 'programs' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(322,45): error TS2339: Property 'departments' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(323,43): error TS2339: Property 'semesters' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(324,45): error TS2339: Property 'sections' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(336,66): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(341,39): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(347,42): error TS2339: Property 'section_id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(347,71): error TS2339: Property 'sections' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(348,39): error TS2339: Property 'degrees' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(349,40): error TS2339: Property 'programs' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(350,43): error TS2339: Property 'departments' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(351,41): error TS2339: Property 'semesters' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(352,40): error TS2339: Property 'sections' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(366,57): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(373,35): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(374,44): error TS2339: Property 'course_code' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(375,44): error TS2339: Property 'course_name' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(399,35): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(400,40): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(525,41): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(554,41): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(555,46): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(575,43): error TS2339: Property 'timetable_data' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(576,47): error TS2339: Property 'periods' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(603,50): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(623,53): error TS2339: Property 'course_code' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(624,53): error TS2339: Property 'course_name' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(637,45): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(653,39): error TS2339: Property 'section' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(654,41): error TS2339: Property 'section' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(657,45): error TS2339: Property 'degrees' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(658,46): error TS2339: Property 'programs' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(660,49): error TS2339: Property 'departments' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(662,46): error TS2339: Property 'semester' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(663,45): error TS2339: Property 'section' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(701,47): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(707,39): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(717,37): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/academic/faculty-attendance-service.ts(718,42): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(78,41): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(82,97): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(139,31): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(140,43): error TS2339: Property 'timetable_name' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(141,45): error TS2339: Property 'timetable_format' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(143,30): error TS2339: Property 'institution' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(145,30): error TS2339: Property 'department' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(147,42): error TS2339: Property 'program' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(148,37): error TS2339: Property 'semester' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(178,87): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(270,72): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(297,41): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(301,97): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(366,31): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(367,43): error TS2339: Property 'timetable_name' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(368,45): error TS2339: Property 'timetable_format' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(370,30): error TS2339: Property 'institution' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(372,30): error TS2339: Property 'department' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(374,42): error TS2339: Property 'program' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(375,37): error TS2339: Property 'semester' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(405,87): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(470,31): error TS2339: Property 'period_name' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(471,30): error TS2339: Property 'start_time' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(472,28): error TS2339: Property 'end_time' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(499,37): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(500,27): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(501,32): error TS2339: Property 'first_name' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(501,52): error TS2339: Property 'last_name' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(514,25): error TS2339: Property 'timetable_format' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(518,43): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(528,43): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(551,47): error TS2339: Property 'timetable_name' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(574,51): error TS2339: Property 'timetable_name' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(588,98): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(608,29): error TS2339: Property 'period_name' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(609,28): error TS2339: Property 'start_time' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(610,26): error TS2339: Property 'end_time' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(648,19): error TS2339: Property 'role' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(761,22): error TS2339: Property 'first_name' does not exist on type 'never'.
+lib/services/academic/faculty-timetable-service.ts(761,42): error TS2339: Property 'last_name' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(36,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "leave_approval_chains", never, "POST">', gave the following error.
+    Argument of type 'CreateApprovalChainDto[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Type 'CreateApprovalChainDto' is not assignable to type 'never'.
+lib/services/academic/leave-approval-service.ts(62,17): error TS2345: Argument of type '{ updated_at: string; chain_order?: number; approver_role?: string; approver_scope?: string; is_required?: boolean; can_skip_if_approved_by_higher?: boolean; is_active?: boolean; }' is not assignable to parameter of type 'never'.
+lib/services/academic/leave-approval-service.ts(182,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "leave_approvals", never, "POST">', gave the following error.
+    Argument of type '{ leave_id: string; approver_id: string; action: "approved" | "rejected"; comments: string | undefined; acted_at: string; }[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Type '{ leave_id: string; approver_id: string; action: "approved" | "rejected"; comments: string | undefined; acted_at: string; }' is not assignable to type 'never'.
+lib/services/academic/leave-approval-service.ts(212,17): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+lib/services/academic/leave-approval-service.ts(310,21): error TS2339: Property 'leave_type_id' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(310,44): error TS2339: Property 'leave_type_id' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(310,68): error TS2339: Property 'leave_type_id' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(311,20): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(311,42): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(312,21): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(321,68): error TS2339: Property 'approver_role' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(325,38): error TS2339: Property 'approver_role' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(334,52): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(344,35): error TS2339: Property 'chain_order' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(391,17): error TS2339: Property 'status' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(403,19): error TS2339: Property 'is_super_admin' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(406,19): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(406,44): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(427,46): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-approval-service.ts(470,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "leave_approval_chains", never, "POST">', gave the following error.
+    Argument of type 'CreateApprovalChainDto[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Argument of type 'CreateApprovalChainDto[]' is not assignable to parameter of type 'never[]'.
+      Type 'CreateApprovalChainDto' is not assignable to type 'never'.
+lib/services/academic/leave-approval-service.ts(492,17): error TS2345: Argument of type '{ chain_order: number; updated_at: string; }' is not assignable to parameter of type 'never'.
+lib/services/academic/leave-attendance-integration.ts(157,37): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(158,39): error TS2339: Property 'leave_name' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(159,44): error TS2339: Property 'leave_type' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(160,39): error TS2339: Property 'leave_type' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(215,43): error TS2339: Property 'start_date' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(216,41): error TS2339: Property 'end_date' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(220,19): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(223,17): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(224,35): error TS2339: Property 'department_ids' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(228,17): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(229,33): error TS2339: Property 'semester_ids' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(233,17): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(234,32): error TS2339: Property 'section_ids' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(297,30): error TS2339: Property 'timetable' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(298,31): error TS2339: Property 'timetable' does not exist on type 'never'.
+lib/services/academic/leave-attendance-integration.ts(299,33): error TS2339: Property 'timetable' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(169,47): error TS2339: Property 'start_date' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(170,45): error TS2339: Property 'end_date' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(177,23): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(181,21): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(183,21): error TS2339: Property 'department_ids' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(188,21): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(190,21): error TS2339: Property 'semester_ids' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(195,21): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(197,21): error TS2339: Property 'section_ids' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(472,23): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(480,40): error TS2339: Property 'department_ids' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(487,38): error TS2339: Property 'semester_ids' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(494,37): error TS2339: Property 'section_ids' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(501,34): error TS2339: Property 'scope_level' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(502,31): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(510,29): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(511,31): error TS2339: Property 'leave_name' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(512,36): error TS2339: Property 'leave_type' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(513,31): error TS2339: Property 'leave_type' does not exist on type 'never'.
+lib/services/academic/leave-calendar-service.ts(518,54): error TS2339: Property 'leave_name' does not exist on type 'never'.
+lib/services/academic/leave-service.ts(43,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "institution_leaves", never, "POST">', gave the following error.
+    Argument of type 'CreateLeaveDto[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Type 'CreateLeaveDto' is not assignable to type 'never'.
+lib/services/academic/leave-service.ts(79,17): error TS2345: Argument of type '{ updated_at: string; leave_type_id?: string; leave_name?: string; description?: string; start_date?: string; end_date?: string; scope_level?: LeaveScopeLevel; ... 7 more ...; rejection_reason?: string; }' is not assignable to parameter of type 'never'.
+lib/services/academic/leave-service.ts(367,17): error TS2345: Argument of type '{ status: LeaveStatus; approved_by: string; approved_at: string; updated_at: string; }' is not assignable to parameter of type 'never'.
+lib/services/academic/leave-service.ts(413,17): error TS2345: Argument of type '{ status: LeaveStatus; rejection_reason: string; updated_at: string; }' is not assignable to parameter of type 'never'.
+lib/services/academic/leave-service.ts(454,17): error TS2345: Argument of type '{ status: LeaveStatus; updated_at: string; }' is not assignable to parameter of type 'never'.
+lib/services/academic/leave-type-service.ts(27,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "leave_types", never, "POST">', gave the following error.
+    Argument of type 'CreateLeaveTypeDto[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Type 'CreateLeaveTypeDto' is not assignable to type 'never'.
+lib/services/academic/leave-type-service.ts(58,17): error TS2345: Argument of type '{ updated_at: string; leave_type_code?: string; leave_type_name?: string; description?: string; color_code?: string; requires_approval?: boolean; is_active?: boolean; }' is not assignable to parameter of type 'never'.
+lib/services/academic/period-service.ts(23,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "periods", never, "POST">', gave the following error.
+    Argument of type 'CreatePeriodDto[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Type 'CreatePeriodDto' is not assignable to type 'never'.
+lib/services/academic/period-service.ts(52,17): error TS2345: Argument of type '{ updated_at: string; period_name?: string | undefined; start_time?: string | undefined; end_time?: string | undefined; is_break?: boolean | undefined; institution_id?: string | undefined; }' is not assignable to parameter of type 'never'.
+lib/services/academic/regulation-service.ts(19,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "regulations", never, "POST">', gave the following error.
+    Argument of type 'CreateRegulationDto[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Type 'CreateRegulationDto' is not assignable to type 'never'.
+lib/services/academic/regulation-service.ts(48,17): error TS2345: Argument of type '{ updated_at: string; institution_id?: string | undefined; regulation_year?: string | undefined; regulation_code?: string | undefined; is_active?: boolean | undefined; }' is not assignable to parameter of type 'never'.
+lib/services/academic/staff-plan-service.ts(42,69): error TS2339: Property 'course_id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(83,19): error TS2345: Argument of type '{ end_date: string; is_active: boolean; updated_at: string; }' is not assignable to parameter of type 'never'.
+lib/services/academic/staff-plan-service.ts(88,33): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(98,12): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "staff_plans", never, "POST">', gave the following error.
+    Argument of type '{ institution_id: string; degree_id: string; program_id: string; department_id: string; semester_id: string; academic_year_id: string; start_date: string; end_date: string; is_active: boolean; }[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Type '{ institution_id: string; degree_id: string; program_id: string; department_id: string; semester_id: string; academic_year_id: string; start_date: string; end_date: string; is_active: boolean; }' is not assignable to type 'never'.
+lib/services/academic/staff-plan-service.ts(129,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { onConflict?: string | undefined; ignoreDuplicates?: boolean | undefined; count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ ...; }, ... 5 more ..., "POST">', gave the following error.
+    Argument of type '{ course_id: string; staff_id: string; staff_type: string; staff_plan_id: any; }[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { onConflict?: string | undefined; ignoreDuplicates?: boolean | undefined; count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ course_id: string; staff_id: string; staff_type: string; staff_plan_id: any; }[]' is not assignable to parameter of type 'never[]'.
+      Type '{ course_id: string; staff_id: string; staff_type: string; staff_plan_id: any; }' is not assignable to type 'never'.
+lib/services/academic/staff-plan-service.ts(273,53): error TS2339: Property 'staff_plan_id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(338,39): error TS2339: Property 'staff_plan_id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(339,36): error TS2339: Property 'staff_plan_id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(344,49): error TS2339: Property 'staff_plan_id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(345,39): error TS2339: Property 'course_id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(346,37): error TS2339: Property 'staff_id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(469,38): error TS2339: Property 'course_id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(471,64): error TS2339: Property 'staff_id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(483,30): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+lib/services/academic/staff-plan-service.ts(602,17): error TS2345: Argument of type '{ institution_id: string; degree_id: string; department_id: string; program_id: string; semester_id: string; academic_year_id: string; start_date: string; end_date: string; is_active: boolean; updated_at: string; }' is not assignable to parameter of type 'never'.
+lib/services/academic/staff-plan-service.ts(639,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "staff_plan_courses", never, "POST">', gave the following error.
+    Argument of type '{ staff_plan_id: string; course_id: string; staff_id: string; staff_type: string; }[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Argument of type '{ staff_plan_id: string; course_id: string; staff_id: string; staff_type: string; }[]' is not assignable to parameter of type 'never[]'.
+      Type '{ staff_plan_id: string; course_id: string; staff_id: string; staff_type: string; }' is not assignable to type 'never'.
+lib/services/academic/staff-plan-service.ts(713,9): error TS2698: Spread types may only be created from object types.
+lib/services/academic/staff-plan-service.ts(814,56): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(840,62): error TS2339: Property 'course_id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(841,60): error TS2339: Property 'staff_id' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(845,9): error TS2698: Spread types may only be created from object types.
+lib/services/academic/staff-plan-service.ts(848,27): error TS2339: Property 'end_date' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(848,63): error TS2339: Property 'end_date' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(849,23): error TS2339: Property 'end_date' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(851,51): error TS2339: Property 'is_active' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(854,27): error TS2339: Property 'updated_at' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(855,22): error TS2339: Property 'updated_at' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(857,23): error TS2339: Property 'updated_at' does not exist on type 'never'.
+lib/services/academic/staff-plan-service.ts(1070,17): error TS2345: Argument of type '{ staff_id: string; staff_type: string; updated_at: string; }' is not assignable to parameter of type 'never'.
+lib/services/academic/timetable-service.ts(47,39): error TS2339: Property 'attendance_data' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(113,39): error TS2339: Property 'attendance_data' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(126,37): error TS2339: Property 'attendance_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(194,25): error TS2339: Property 'start_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(194,49): error TS2339: Property 'end_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(199,51): error TS2339: Property 'start_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(200,49): error TS2339: Property 'end_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(210,24): error TS2339: Property 'semesters' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(211,42): error TS2339: Property 'sections' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(220,23): error TS2339: Property 'timetable_name' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(221,26): error TS2339: Property 'start_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(222,43): error TS2339: Property 'end_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(332,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "timetables", never, "POST">', gave the following error.
+    Argument of type '{ created_by: string | undefined; institution_id: string; academic_year_id: string; degree_id: string; program_id: string; department_id: string; semester_id: string; section_id: string | null; ... 14 more ...; periods: any; }[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Type '{ created_by: string | undefined; institution_id: string; academic_year_id: string; degree_id: string; program_id: string; department_id: string; semester_id: string; section_id: string | null; ... 14 more ...; periods: any; }' is not assignable to type 'never'.
+lib/services/academic/timetable-service.ts(443,65): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(445,53): error TS2339: Property 'academic_year_id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(446,55): error TS2339: Property 'degree_id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(447,57): error TS2339: Property 'program_id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(448,63): error TS2339: Property 'department_id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(449,59): error TS2339: Property 'semester_id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(453,32): error TS2339: Property 'section_id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(454,57): error TS2339: Property 'start_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(455,53): error TS2339: Property 'end_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(535,17): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+lib/services/academic/timetable-service.ts(884,67): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(970,34): error TS2339: Property 'timetable_type' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(970,77): error TS2339: Property 'semester_id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(974,40): error TS2339: Property 'semester_id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(979,21): error TS2339: Property 'available_sections' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(987,34): error TS2339: Property 'timetable_data' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1065,61): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1088,38): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1489,41): error TS2339: Property 'attendance_data' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1505,39): error TS2339: Property 'attendance_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1690,45): error TS2339: Property 'attendance_data' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1693,27): error TS2339: Property 'attendance_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1699,164): error TS2339: Property 'attendance_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1792,41): error TS2339: Property 'attendance_data' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1808,39): error TS2339: Property 'attendance_date' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1943,52): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1947,31): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1948,33): error TS2339: Property 'period_name' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1949,32): error TS2339: Property 'start_time' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1950,30): error TS2339: Property 'end_time' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1951,30): error TS2339: Property 'is_break' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1953,36): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(1961,17): error TS2345: Argument of type '{ periods: ({ period_id: any; period_name: any; start_time: any; end_time: any; is_break: any; sort_order: number; institution_id: any; } | null)[]; }' is not assignable to parameter of type 'never'.
+lib/services/academic/timetable-service.ts(2018,17): error TS2345: Argument of type '{ is_template: boolean; template_name: string; template_description: string | null; updated_at: string; }' is not assignable to parameter of type 'never'.
+lib/services/academic/timetable-service.ts(2105,36): error TS2339: Property 'timetable_format' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(2106,27): error TS2339: Property 'periods' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(2107,34): error TS2339: Property 'timetable_data' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(2108,33): error TS2339: Property 'selected_days' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(2120,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "timetables", never, "POST">', gave the following error.
+    Argument of type '{ timetable_format: any; periods: any; timetable_data: any; selected_days: any; is_template: boolean; template_name: undefined; template_description: undefined; created_from_template_id: string; ... 15 more ...; selected_dates?: any; }[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Type '{ timetable_format: any; periods: any; timetable_data: any; selected_days: any; is_template: boolean; template_name: undefined; template_description: undefined; created_from_template_id: string; ... 15 more ...; selected_dates?: string[] | any; }' is not assignable to type 'never'.
+lib/services/academic/timetable-service.ts(2149,17): error TS2345: Argument of type '{ usage_count: any; }' is not assignable to parameter of type 'never'.
+lib/services/academic/timetable-service.ts(2150,34): error TS2339: Property 'usage_count' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(2156,20): error TS2339: Property 'template_name' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(2156,46): error TS2339: Property 'timetable_name' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(2280,21): error TS2339: Property 'is_template' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(2294,20): error TS2339: Property 'template_name' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(2294,46): error TS2339: Property 'timetable_name' does not exist on type 'never'.
+lib/services/academic/timetable-service.ts(2376,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "timetables", never, "POST">', gave the following error.
+    Argument of type '{ id: `${string}-${string}-${string}-${string}-${string}`; institution_id: string; academic_year_id: string | null; degree_id: string | null; program_id: string | null; department_id: string | null; ... 21 more ...; updated_at: string; }' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Argument of type '{ id: `${string}-${string}-${string}-${string}-${string}`; institution_id: string; academic_year_id: string | null; degree_id: string | null; program_id: string | null; department_id: string | null; ... 21 more ...; updated_at: string; }' is not assignable to parameter of type 'never[]'.
+      Type '{ id: `${string}-${string}-${string}-${string}-${string}`; institution_id: string; academic_year_id: string | null; degree_id: string | null; program_id: string | null; department_id: string | null; ... 21 more ...; updated_at: string; }' is missing the following properties from type 'never[]': length, pop, push, concat, and 35 more.
+lib/services/academic/timetable-service.ts(2412,17): error TS2345: Argument of type '{ updated_at: string; timetable_name?: string | undefined; template_name?: string | undefined; template_description?: string | undefined; template_category?: string | undefined; template_tags?: string[] | undefined; institution_id?: string | undefined; ... 9 more ...; selected_days?: DayOfWeek[] | undefined; }' is not assignable to parameter of type 'never'.
+lib/services/academic/timetable-service.ts(2467,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "timetables", never, "POST">', gave the following error.
+    Argument of type '{ id: `${string}-${string}-${string}-${string}-${string}`; template_name: string; timetable_name: string; usage_count: number; created_by: string; created_at: string; updated_at: string; institution_id: string; ... 29 more ...; periods?: any; }' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Argument of type '{ id: `${string}-${string}-${string}-${string}-${string}`; template_name: string; timetable_name: string; usage_count: number; created_by: string; created_at: string; updated_at: string; institution_id: string; ... 29 more ...; periods?: any; }' is not assignable to parameter of type 'never[]'.
+      Type '{ id: `${string}-${string}-${string}-${string}-${string}`; template_name: string; timetable_name: string; usage_count: number; created_by: string; created_at: string; updated_at: string; institution_id: string; ... 29 more ...; periods?: any; }' is missing the following properties from type 'never[]': length, pop, push, concat, and 35 more.
+lib/services/academic/timetable-staff-sync-service.ts(73,47): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/timetable-staff-sync-service.ts(74,47): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/academic/timetable-staff-sync-service.ts(87,33): error TS2339: Property 'course_name' does not exist on type 'never'.
+lib/services/academic/timetable-staff-sync-service.ts(90,38): error TS2339: Property 'first_name' does not exist on type 'never'.
+lib/services/academic/timetable-staff-sync-service.ts(90,68): error TS2339: Property 'last_name' does not exist on type 'never'.
+lib/services/academic/timetable-staff-sync-service.ts(91,38): error TS2339: Property 'first_name' does not exist on type 'never'.
+lib/services/academic/timetable-staff-sync-service.ts(91,68): error TS2339: Property 'last_name' does not exist on type 'never'.
+lib/services/application/category-service.ts(189,17): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+lib/services/application/category-service.ts(340,17): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+lib/services/billing/receipts/billing-receipt-service.ts(18,5): error TS2322: Type 'SupabaseClient<Database, "public", { Tables: { academic_years: { Row: { academic_year_name: string; created_at: string; end_date: string; id: string; institution_id: string; is_active: boolean; start_date: string; updated_at: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 70 more ...; we...' is not assignable to type 'SupabaseClient<any, "public", "public", any, any>'.
+  Type 'SupabaseClient<Database, "public", { Tables: { academic_years: { Row: { academic_year_name: string; created_at: string; end_date: string; id: string; institution_id: string; is_active: boolean; start_date: string; updated_at: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 70 more ...; we...' is not assignable to type 'SupabaseClient<any, "public", "public", any, any>'.
+    Type '{ Tables: { academic_years: { Row: { academic_year_name: string; created_at: string; end_date: string; id: string; institution_id: string; is_active: boolean; start_date: string; updated_at: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 70 more ...; webhook_logs: { ...; }; }; Views: { ....' is not assignable to type '"public"'.
+lib/services/billing/receipts/billing-receipt-service.ts(181,17): error TS2345: Argument of type 'UpdateReceiptDto' is not assignable to parameter of type 'never'.
+lib/services/billing/receipts/billing-receipt-service.ts(889,9): error TS2322: Type 'string' is not assignable to type 'null'.
+lib/services/billing/refunds/billing-refund-service.ts(31,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "billing_refunds", never, "POST">', gave the following error.
+    Argument of type '{ net_refund_amount: number; receipt_id: string; refund_category: RefundCategory; refund_amount: number; refund_date: string; refund_method: RefundMethod; bank_details?: any; refund_reason: string; supporting_documents?: any; processing_fee?: number; }' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Object literal may only specify known properties, and 'net_refund_amount' does not exist in type 'never[]'.
+lib/services/billing/refunds/billing-refund-service.ts(79,17): error TS2345: Argument of type 'UpdateRefundDto' is not assignable to parameter of type 'never'.
+lib/services/billing/refunds/billing-refund-service.ts(275,17): error TS2345: Argument of type '{ approval_status: string; approved_by: string | undefined; }' is not assignable to parameter of type 'never'.
+lib/services/billing/refunds/billing-refund-service.ts(324,17): error TS2345: Argument of type '{ approval_status: string; rejection_reason: string; }' is not assignable to parameter of type 'never'.
+lib/services/billing/refunds/billing-refund-service.ts(374,17): error TS2345: Argument of type '{ approval_status: string; }' is not assignable to parameter of type 'never'.
+lib/services/billing/refunds/billing-refund-service.ts(420,31): error TS2339: Property 'bill_id' does not exist on type 'never'.
+lib/services/billing/refunds/billing-refund-service.ts(451,24): error TS2345: Argument of type 'BillingRefund' is not assignable to parameter of type 'never'.
+lib/services/billing/refunds/billing-refund-service.ts(453,23): error TS2345: Argument of type '{ refund: CreateRefundDto; error: string; }' is not assignable to parameter of type 'never'.
+lib/services/billing/refunds/billing-refund-service.ts(461,39): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/billing/refunds/billing-refund-service.ts(463,17): error TS2339: Property 'refund' does not exist on type 'never'.
+lib/services/billing/refunds/billing-refund-service.ts(464,20): error TS2339: Property 'error' does not exist on type 'never'.
+lib/services/billing/schedule/student-bill-service.ts(30,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "billing_student_bills", never, "POST">', gave the following error.
+    Argument of type '{ final_amount: number; balance_amount: number; quantity: number; tax_amount: number; created_by: any; student_id: string; institution_id: string; item_category_id: string; bill_description?: string; ... 6 more ...; number_of_recurrences?: number; }' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Object literal may only specify known properties, and 'final_amount' does not exist in type 'never[]'.
+lib/services/billing/schedule/student-bill-service.ts(118,58): error TS2339: Property 'amount_paid' does not exist on type 'never'.
+lib/services/billing/schedule/student-bill-service.ts(129,47): error TS2339: Property 'receipt_id' does not exist on type 'never'.
+lib/services/billing/schedule/student-bill-service.ts(140,47): error TS2339: Property 'refund_amount' does not exist on type 'never'.
+lib/services/billing/schedule/student-bill-service.ts(173,17): error TS2345: Argument of type '{ balance_amount?: number; final_amount?: number | undefined; status?: BillStatus; payment_date?: string; student_id?: string | undefined; institution_id?: string | undefined; ... 10 more ...; number_of_recurrences?: number | undefined; }' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-bill-service.ts(731,52): error TS2339: Property 'balance_amount' does not exist on type 'never'.
+lib/services/billing/schedule/student-bill-service.ts(764,27): error TS2345: Argument of type '{ due_date: string; bill_description: string; is_recurring: boolean; recurrence_pattern: undefined; number_of_recurrences: undefined; student_id: string; institution_id: string; item_category_id: string; ... 5 more ...; remarks?: string; }' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-bill-service.ts(840,17): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(199,9): error TS2345: Argument of type 'PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, never[], "billing_item_categories", never, "GET">' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(212,21): error TS2345: Argument of type 'Promise<{ data: never[]; }>' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(218,9): error TS2345: Argument of type 'PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, never[], "billing_receipt_items", never, "GET">' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(224,21): error TS2345: Argument of type 'Promise<{ data: never[]; }>' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(230,9): error TS2345: Argument of type 'PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, never[], "billing_discounts", never, "GET">' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(248,21): error TS2345: Argument of type 'Promise<{ data: never[]; }>' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(254,9): error TS2345: Argument of type 'PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, never[], "billing_refunds", never, "GET">' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(272,21): error TS2345: Argument of type 'Promise<{ data: never[]; }>' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(278,9): error TS2345: Argument of type 'PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, never[], "billing_invoice_items", never, "GET">' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(284,21): error TS2345: Argument of type 'Promise<{ data: never[]; }>' is not assignable to parameter of type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(293,49): error TS2339: Property 'error' does not exist on type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(294,24): error TS2339: Property 'data' does not exist on type 'never'.
+lib/services/billing/schedule/student-search-service-optimized.ts(466,9): error TS2345: Argument of type '{ student_uuid: string; }' is not assignable to parameter of type 'undefined'.
+lib/services/billing/schedule/student-search-service-optimized.ts(492,50): error TS2339: Property 'balance_amount' does not exist on type 'never'.
+lib/services/billing/schedule/student-search-service.ts(307,49): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/billing/schedule/student-search-service.ts(327,61): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/billing/schedule/student-search-service.ts(367,58): error TS2339: Property 'payment_amount' does not exist on type 'never'.
+lib/services/billing/schedule/student-search-service.ts(382,35): error TS2339: Property 'status' does not exist on type 'never'.
+lib/services/billing/schedule/student-search-service.ts(383,45): error TS2339: Property 'balance_amount' does not exist on type 'never'.
+lib/services/billing/scholarship-permission-service.ts(102,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/billing/scholarship-permission-service.ts(109,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(64,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(105,16): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(138,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(176,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(196,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(239,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(257,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(276,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(317,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(370,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(402,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(410,12): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(432,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bug-reports/bug-report-service.ts(450,10): error TS2349: This expression is not callable.
+  Each member of the union type '{ <TableName extends string, Table extends never[TableName]>(relation: TableName): PostgrestQueryBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, Table, TableName, Table extends { ...; } ? R : unknown>; <ViewName extends string, View extends never[ViewName]>(relation: ViewName): PostgrestQueryBuilder<...>; ...' has signatures, but none of those signatures are compatible with each other.
+lib/services/bulk-learner-upload-service.ts(53,13): error TS2339: Property 'mobile' does not exist on type 'Partial<LearnerProfile>'.
+lib/services/learner-profile-service.ts(95,17): error TS2345: Argument of type '{ lifecycle_status: string; is_profile_complete: boolean; updated_at: string; updated_by: string | undefined; }' is not assignable to parameter of type 'never'.
+lib/services/learner-profile-service.ts(165,29): error TS2339: Property 'is_active' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(176,19): error TS2345: Argument of type '{ is_active: boolean; }' is not assignable to parameter of type 'never'.
+lib/services/learner-profile-service.ts(177,37): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(257,19): error TS2339: Property 'is_active' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(260,19): error TS2345: Argument of type '{ is_active: boolean; }' is not assignable to parameter of type 'never'.
+lib/services/learner-profile-service.ts(261,29): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(452,8): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "learners_profiles", never, "POST">', gave the following error.
+    Argument of type '{ lifecycle_status: LifecycleStatus; is_profile_complete: boolean; migration_source: string; created_by: string | undefined; accommodation_type: string; board_of_study: string; ... 57 more ...; application_id?: string; }' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Object literal may only specify known properties, and 'lifecycle_status' does not exist in type 'never[]'.
+lib/services/learner-profile-service.ts(487,15): error TS2345: Argument of type '{ updated_at: string; updated_by: string | undefined; category?: string | undefined; institution_id?: string | undefined; application_id?: string | undefined; department_id?: string | undefined; degree_id?: string | undefined; program_id?: string | undefined; ... 68 more ...; updated_by_user?: { id: string; email: s...' is not assignable to parameter of type 'never'.
+lib/services/learner-profile-service.ts(505,21): error TS2339: Property 'is_profile_complete' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(508,17): error TS2345: Argument of type '{ is_profile_complete: boolean; updated_at: string; }' is not assignable to parameter of type 'never'.
+lib/services/learner-profile-service.ts(520,21): error TS2339: Property 'is_profile_complete' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(570,74): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(744,28): error TS2339: Property 'lifecycle_status' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1251,65): error TS2339: Property 'created_at' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1252,66): error TS2339: Property 'created_at' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1254,25): error TS2339: Property 'created_at' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1254,67): error TS2339: Property 'created_at' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1258,16): error TS2339: Property 'lifecycle_status' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1258,60): error TS2339: Property 'updated_at' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1261,16): error TS2339: Property 'lifecycle_status' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1261,60): error TS2339: Property 'updated_at' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1264,16): error TS2339: Property 'lifecycle_status' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1265,20): error TS2339: Property 'updated_at' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1266,20): error TS2339: Property 'updated_at' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1281,53): error TS2339: Property 'lifecycle_status' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1284,40): error TS2339: Property 'created_at' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1285,40): error TS2339: Property 'updated_at' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1306,9): error TS2739: Type '{ totalProfiles: number; completeProfiles: number; incompleteProfiles: number; completionRate: number; awaitingActivation: number; missingCollegeEmail: number; missingAcademicYear: number; missingSemester: number; missingSection: number; }' is missing the following properties from type 'ProfileCompletionStats': excellent, good, needsWork, critical
+lib/services/learner-profile-service.ts(1638,13): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1639,20): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1640,17): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1641,19): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1642,22): error TS2339: Property 'institutions' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1646,15): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1683,13): error TS2339: Property 'department_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1684,20): error TS2339: Property 'department_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1685,17): error TS2339: Property 'department_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1686,19): error TS2339: Property 'department_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1687,22): error TS2339: Property 'departments' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1691,15): error TS2339: Property 'department_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1727,13): error TS2339: Property 'program_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1728,20): error TS2339: Property 'program_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1729,17): error TS2339: Property 'program_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1730,19): error TS2339: Property 'program_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1731,22): error TS2339: Property 'programs' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1735,15): error TS2339: Property 'program_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1771,13): error TS2339: Property 'semester_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1772,20): error TS2339: Property 'semester_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1773,17): error TS2339: Property 'semester_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1774,19): error TS2339: Property 'semester_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1775,22): error TS2339: Property 'semesters' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1779,15): error TS2339: Property 'semester_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1815,13): error TS2339: Property 'section_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1816,20): error TS2339: Property 'section_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1817,17): error TS2339: Property 'section_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1818,19): error TS2339: Property 'section_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1819,22): error TS2339: Property 'sections' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1823,15): error TS2339: Property 'section_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1885,13): error TS2339: Property 'academic_year_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1886,20): error TS2339: Property 'academic_year_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1887,17): error TS2339: Property 'academic_year_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1888,19): error TS2339: Property 'academic_year_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1889,22): error TS2339: Property 'academic_years' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1893,15): error TS2339: Property 'academic_year_id' does not exist on type 'never'.
+lib/services/learner-profile-service.ts(1912,91): error TS2345: Argument of type '{ lifecycleStatuses: string[]; institutionIds?: string[]; academicYearId?: string; degreeId?: string; departmentId?: string; programId?: string; semesterId?: string; sectionId?: string; isProfileComplete?: boolean; gender?: "male" | "female" | "other"; dateRange?: { from: Date; to: Date; }; daysSinceEnquiry?: number...' is not assignable to parameter of type 'LearnerDashboardFilters'.
+  Types of property 'lifecycleStatuses' are incompatible.
+    Type 'string[]' is not assignable to type 'LifecycleStatus[]'.
+      Type 'string' is not assignable to type 'LifecycleStatus'.
+lib/services/learner-profile-service.ts(1925,9): error TS2322: Type 'unknown' is not assignable to type 'number'.
+lib/services/learner-profile-service.ts(1935,91): error TS2345: Argument of type '{ lifecycleStatuses: string[]; institutionIds?: string[]; academicYearId?: string; degreeId?: string; departmentId?: string; programId?: string; semesterId?: string; sectionId?: string; isProfileComplete?: boolean; gender?: "male" | "female" | "other"; dateRange?: { from: Date; to: Date; }; daysSinceEnquiry?: number...' is not assignable to parameter of type 'LearnerDashboardFilters'.
+  Types of property 'lifecycleStatuses' are incompatible.
+    Type 'string[]' is not assignable to type 'LifecycleStatus[]'.
+      Type 'string' is not assignable to type 'LifecycleStatus'.
+lib/services/learner-profile-service.ts(1948,9): error TS2322: Type 'unknown' is not assignable to type 'number'.
+lib/services/learner-profile-service.ts(1958,91): error TS2345: Argument of type '{ lifecycleStatuses: string[]; institutionIds?: string[]; academicYearId?: string; degreeId?: string; departmentId?: string; programId?: string; semesterId?: string; sectionId?: string; isProfileComplete?: boolean; gender?: "male" | "female" | "other"; dateRange?: { from: Date; to: Date; }; daysSinceEnquiry?: number...' is not assignable to parameter of type 'LearnerDashboardFilters'.
+  Types of property 'lifecycleStatuses' are incompatible.
+    Type 'string[]' is not assignable to type 'LifecycleStatus[]'.
+      Type 'string' is not assignable to type 'LifecycleStatus'.
+lib/services/learner-profile-service.ts(1971,9): error TS2322: Type 'unknown' is not assignable to type 'number'.
+lib/services/reservation/reservation-service.ts(421,18): error TS2345: Argument of type '{ start_time: string; end_time: string; is_available: boolean; resource_id: string; }' is not assignable to parameter of type 'never'.
+lib/services/resource-management/maintenance-service.ts(108,72): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/resource-management/maintenance-service.ts(108,81): error TS2339: Property 'title' does not exist on type 'never'.
+lib/services/resource-management/maintenance-service.ts(121,8): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "resource_maintenance_logs", never, "POST">', gave the following error.
+    Argument of type '{ status: string; created_by: string; resource_id: string; maintenance_type: MaintenanceType; title: string; description: string; scheduled_date: string; ... 4 more ...; attachments?: string[]; }' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Object literal may only specify known properties, and 'status' does not exist in type 'never[]'.
+lib/services/resource-management/maintenance-service.ts(145,15): error TS2345: Argument of type 'UpdateMaintenanceLogDto' is not assignable to parameter of type 'never'.
+lib/services/resource-management/maintenance-service.ts(170,15): error TS2345: Argument of type '{ status: string; completed_date: string; notes?: string; cost?: number; }' is not assignable to parameter of type 'never'.
+lib/services/resource-management/maintenance-service.ts(194,15): error TS2345: Argument of type '{ status: string; notes: string | undefined; }' is not assignable to parameter of type 'never'.
+lib/services/resource-management/maintenance-service.ts(300,8): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "resource_maintenance_schedules", never, "POST">', gave the following error.
+    Argument of type '{ is_active: boolean; resource_id: string; maintenance_type: MaintenanceType; frequency_days: number; next_maintenance_date: string; reminder_days_before: number; assigned_to_user_id?: string; description?: string; estimated_cost?: number; }' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Object literal may only specify known properties, and 'is_active' does not exist in type 'never[]'.
+lib/services/resource-management/maintenance-service.ts(323,15): error TS2345: Argument of type 'UpdateMaintenanceScheduleDto' is not assignable to parameter of type 'never'.
+lib/services/resource-management/sub-category-service.ts(118,20): error TS2339: Property 'created_by' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(122,30): error TS2339: Property 'created_by' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(129,20): error TS2339: Property 'updated_by' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(133,30): error TS2339: Property 'updated_by' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(140,9): error TS2698: Spread types may only be created from object types.
+lib/services/resource-management/sub-category-service.ts(185,39): error TS2339: Property 'display_order' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(191,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "resource_sub_categories", never, "POST">', gave the following error.
+    Argument of type '{ name: string; description: string | undefined; image_url: string | undefined; parent_category_id: string; status: CategoryStatus; display_order: number | undefined; created_by: string; updated_by: string; }' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Object literal may only specify known properties, and 'name' does not exist in type 'never[]'.
+lib/services/resource-management/sub-category-service.ts(260,17): error TS2345: Argument of type '{ updated_by: string; updated_at: string; name?: string | undefined; parent_category_id?: string | undefined; description?: string | undefined; image_url?: string | undefined; status?: CategoryStatus | undefined; display_order?: number | undefined; }' is not assignable to parameter of type 'never'.
+lib/services/resource-management/sub-category-service.ts(305,50): error TS2339: Property 'name' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(332,20): error TS2339: Property 'image_url' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(338,68): error TS2339: Property 'image_url' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(347,86): error TS2339: Property 'image_url' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(458,17): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(459,19): error TS2339: Property 'name' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(460,33): error TS2339: Property 'parent_category_id' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(461,35): error TS2339: Property 'parent_category' does not exist on type 'never'.
+lib/services/resource-management/sub-category-service.ts(502,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "resource_attribute_definitions", never, "POST">', gave the following error.
+    Argument of type '{ subcategory_id: string; attribute_key: string; attribute_type: AttributeType; is_required: boolean; is_multiple: boolean; default_value: string | undefined; options: string[] | undefined; validation_rules: Record<...> | undefined; display_order: number; description: string | undefined; }[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Argument of type '{ subcategory_id: string; attribute_key: string; attribute_type: AttributeType; is_required: boolean; is_multiple: boolean; default_value: string | undefined; options: string[] | undefined; validation_rules: Record<...> | undefined; display_order: number; description: string | undefined; }[]' is not assignable to parameter of type 'never[]'.
+      Type '{ subcategory_id: string; attribute_key: string; attribute_type: AttributeType; is_required: boolean; is_multiple: boolean; default_value: string | undefined; options: string[] | undefined; validation_rules: Record<...> | undefined; display_order: number; description: string | undefined; }' is not assignable to type 'never'.
+lib/services/resource-management/sub-category-service.ts(566,17): error TS2345: Argument of type '{ updated_at: string; attribute_key?: string | undefined; attribute_type?: AttributeType | undefined; is_required?: boolean | undefined; is_multiple?: boolean | undefined; ... 4 more ...; description?: string | undefined; }' is not assignable to parameter of type 'never'.
+lib/services/resource-management/sub-category-service.ts(619,19): error TS2345: Argument of type '{ display_order: number; updated_at: string; }' is not assignable to parameter of type 'never'.
+lib/services/staff/staff-service.ts(1261,26): error TS2345: Argument of type '{ month: string; count: any; }' is not assignable to parameter of type 'never'.
+lib/services/users/user-dashboard-service.ts(242,21): error TS2345: Argument of type '{ date: string; count: number; byRole: Record<string, number>; }' is not assignable to parameter of type 'never'.
+lib/services/users/user-service.ts(104,21): error TS2339: Property 'role' does not exist on type 'never'.
+lib/services/users/user-service.ts(105,26): error TS2339: Property 'role' does not exist on type 'never'.
+lib/services/users/user-service.ts(105,50): error TS2339: Property 'role' does not exist on type 'never'.
+lib/services/users/user-service.ts(166,24): error TS2339: Property 'role' does not exist on type 'never'.
+lib/services/users/user-service.ts(174,44): error TS2339: Property 'institution_id' does not exist on type 'never'.
+lib/services/users/user-service.ts(182,39): error TS2339: Property 'email' does not exist on type 'never'.
+lib/services/users/user-service.ts(193,13): error TS2322: Type 'PostgrestError | null' is not assignable to type 'null'.
+  Type 'PostgrestError' is not assignable to type 'null'.
+lib/services/users/user-service.ts(201,34): error TS2339: Property 'full_name' does not exist on type 'never'.
+lib/services/users/user-service.ts(203,34): error TS2339: Property 'full_name' does not exist on type 'never'.
+lib/services/users/user-service.ts(218,47): error TS2339: Property 'full_name' does not exist on type 'never'.
+lib/services/users/user-service.ts(219,46): error TS2339: Property 'full_name' does not exist on type 'never'.
+lib/services/users/user-service.ts(244,41): error TS2339: Property 'email' does not exist on type 'never'.
+lib/services/users/user-service.ts(254,16): error TS2339: Property 'student_id' does not exist on type 'never'.
+lib/services/users/user-service.ts(254,41): error TS2339: Property 'id' does not exist on type 'never'.
+lib/services/users/user-service.ts(255,16): error TS2339: Property 'student_status' does not exist on type 'never'.
+lib/services/users/user-service.ts(255,45): error TS2339: Property 'status' does not exist on type 'never'.
+lib/services/users/user-service.ts(256,16): error TS2339: Property 'student_profile_complete' does not exist on type 'never'.
+lib/services/users/user-service.ts(256,55): error TS2339: Property 'is_profile_complete' does not exist on type 'never'.
+lib/services/users/user-service.ts(260,16): error TS2339: Property 'student_id' does not exist on type 'never'.
+lib/services/users/user-service.ts(261,16): error TS2339: Property 'student_status' does not exist on type 'never'.
+lib/services/users/user-service.ts(262,16): error TS2339: Property 'student_profile_complete' does not exist on type 'never'.
+lib/services/users/user-service.ts(406,18): error TS2339: Property 'role' does not exist on type 'never'.
+lib/services/users/user-service.ts(406,53): error TS2339: Property 'role' does not exist on type 'never'.
+lib/services/users/user-service.ts(455,17): error TS2345: Argument of type '{ updated_by: string; updated_at: string; email?: string | undefined; full_name?: string | null | undefined; phone_number?: string | null | undefined; institution_id?: (string | null) | undefined; ... 8 more ...; gender?: "male" | "female" | "other" | "prefer_not_to_say" | null; }' is not assignable to parameter of type 'never'.
+lib/services/users/user-service.ts(483,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "users", never, "POST">', gave the following error.
+    Argument of type '{ created_by: string; updated_by: string; email: string; full_name: string | null; phone_number: string | null; institution_id?: string | null | undefined; department_id?: string | null | undefined; role?: string | undefined; role_ids?: string[] | undefined; primary_role_id?: string | undefined; }[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, ... 5 more ..., "POST">', gave the following error.
+    Type '{ created_by: string; updated_by: string; email: string; full_name: string | null; phone_number: string | null; institution_id?: string | null; department_id?: string | null; role?: string; role_ids?: string[]; primary_role_id?: string; }' is not assignable to type 'never'.

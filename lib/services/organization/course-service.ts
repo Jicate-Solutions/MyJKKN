@@ -63,7 +63,7 @@ export class CourseService {
         course_code: data.course_code.toUpperCase()
       };
 
-      const { data: course, error } = await this.supabase
+      const { data: course, error } = await (this.supabase as any)
         .from('courses')
         .insert([courseData])
         .select()
@@ -101,7 +101,7 @@ export class CourseService {
         updated_at: new Date().toISOString()
       };
 
-      const { data: course, error } = await this.supabase
+      const { data: course, error } = await (this.supabase as any)
         .from('courses')
         .update(updateData)
         .eq('id', id)
@@ -120,7 +120,7 @@ export class CourseService {
 
   static async deleteCourse(id: string): Promise<void> {
     try {
-      const { error } = await this.supabase
+      const { error } = await (this.supabase as any)
         .from('courses')
         .delete()
         .eq('id', id);
@@ -136,7 +136,7 @@ export class CourseService {
     filters: CourseFilters = {}
   ): Promise<CourseListResponse> {
     try {
-      let query = this.supabase.from('courses').select(
+      let query = (this.supabase as any).from('courses').select(
         `
         *,
         institution:institutions (

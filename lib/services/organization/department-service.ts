@@ -38,7 +38,7 @@ export class DepartmentService {
     degreeId: string
   ): Promise<Department | null> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('departments')
         .select('*')
         .eq('degree_id', degreeId)
@@ -59,7 +59,7 @@ export class DepartmentService {
     data: CreateDepartmentDto
   ): Promise<Department> {
     try {
-      const { data: department, error } = await this.supabase
+      const { data: department, error } = await (this.supabase as any)
         .from('departments')
         .insert([
           {
@@ -96,7 +96,7 @@ export class DepartmentService {
     data: UpdateDepartmentDto
   ): Promise<Department> {
     try {
-      const { data: department, error } = await this.supabase
+      const { data: department, error } = await (this.supabase as any)
         .from('departments')
         .update({
           ...data,
@@ -120,7 +120,7 @@ export class DepartmentService {
 
   static async deleteDepartment(id: string): Promise<void> {
     try {
-      const { error } = await this.supabase
+      const { error } = await (this.supabase as any)
         .from('departments')
         .delete()
         .eq('id', id);
@@ -139,7 +139,7 @@ export class DepartmentService {
     filters: DepartmentFilters = {}
   ): Promise<DepartmentListResponse> {
     try {
-      let query = this.supabase.from('departments').select(
+      let query = (this.supabase as any).from('departments').select(
         `
           *,
           institution:institutions!inner (
@@ -224,7 +224,7 @@ export class DepartmentService {
 
   static async getDepartment(id: string): Promise<Department> {
     try {
-      const { data: department, error } = await this.supabase
+      const { data: department, error } = await (this.supabase as any)
         .from('departments')
         .select(
           `
@@ -258,7 +258,7 @@ export class DepartmentService {
     institutionId: string
   ): Promise<Department[]> {
     try {
-      const { data: departments, error } = await this.supabase
+      const { data: departments, error } = await (this.supabase as any)
         .from('departments')
         .select('*')
         .eq('institution_id', institutionId)
@@ -280,7 +280,7 @@ export class DepartmentService {
     degreeId: string
   ): Promise<Department[]> {
     try {
-      const { data: departments, error } = await this.supabase
+      const { data: departments, error } = await (this.supabase as any)
         .from('departments')
         .select('*')
         .eq('institution_id', institutionId)
@@ -309,7 +309,7 @@ export class DepartmentService {
 
       if (isUUID) {
         // If it's a UUID, use it directly with eq
-        query = this.supabase
+        query = (this.supabase as any)
           .from('departments')
           .select('*')
           .eq('degree_id', degreeId)
@@ -317,14 +317,14 @@ export class DepartmentService {
           .order('department_name');
       } else {
         // If it's not a UUID, try to find the degree by name first
-        const { data: degree } = await this.supabase
+        const { data: degree } = await (this.supabase as any)
           .from('degrees')
           .select('id')
           .ilike('degree_name', degreeId)
           .single();
 
         if (degree) {
-          query = this.supabase
+          query = (this.supabase as any)
             .from('departments')
             .select('*')
             .eq('degree_id', degree.id)

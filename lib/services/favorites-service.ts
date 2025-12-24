@@ -8,13 +8,13 @@ export class FavoritesService {
    * Add an application to user's favorites
    */
   static async addFavorite(applicationId: string): Promise<UserAppFavorite> {
-    const { data: user, error: userError } = await this.supabase.auth.getUser();
+    const { data: user, error: userError } = await (this.supabase as any).auth.getUser();
 
     if (userError || !user?.user) {
       throw new Error('User not authenticated');
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('user_app_favorites')
       .insert({
         user_id: user.user.id,
@@ -38,7 +38,7 @@ export class FavoritesService {
    * Remove an application from user's favorites
    */
   static async removeFavorite(applicationId: string): Promise<void> {
-    const { data: user, error: userError } = await this.supabase.auth.getUser();
+    const { data: user, error: userError } = await (this.supabase as any).auth.getUser();
 
     if (userError || !user?.user) {
       throw new Error('User not authenticated');
@@ -59,7 +59,7 @@ export class FavoritesService {
    * Get all user's favorite applications with app details
    */
   static async getFavoriteApps(): Promise<FavoriteApp[]> {
-    const { data: user, error: userError } = await this.supabase.auth.getUser();
+    const { data: user, error: userError } = await (this.supabase as any).auth.getUser();
 
     if (userError || !user?.user) {
       throw new Error('User not authenticated');
@@ -166,7 +166,7 @@ export class FavoritesService {
    * Get list of user's favorite application IDs
    */
   static async getFavoriteIds(): Promise<string[]> {
-    const { data: user, error: userError } = await this.supabase.auth.getUser();
+    const { data: user, error: userError } = await (this.supabase as any).auth.getUser();
 
     if (userError || !user?.user) {
       return [];
@@ -182,14 +182,14 @@ export class FavoritesService {
       return [];
     }
 
-    return data?.map(item => item.application_id) || [];
+    return data?.map((item: any) => item.application_id) || [];
   }
 
   /**
    * Check if an application is favorited by the user
    */
   static async isFavorite(applicationId: string): Promise<boolean> {
-    const { data: user, error: userError } = await this.supabase.auth.getUser();
+    const { data: user, error: userError } = await (this.supabase as any).auth.getUser();
 
     if (userError || !user?.user) {
       return false;
@@ -228,7 +228,7 @@ export class FavoritesService {
    * Get favorite count for a user
    */
   static async getFavoriteCount(): Promise<number> {
-    const { data: user, error: userError } = await this.supabase.auth.getUser();
+    const { data: user, error: userError } = await (this.supabase as any).auth.getUser();
 
     if (userError || !user?.user) {
       return 0;

@@ -151,7 +151,7 @@ export class StaffPlanService {
       }
 
       // Get consolidated staff plans by grouping duplicates
-      const { data: rawPlans, error } = await this.supabase.rpc(
+      const { data: rawPlans, error } = await (this.supabase as any).rpc(
         'get_consolidated_staff_plans',
         {
           p_institution_id: filters.institution_id || null,
@@ -198,7 +198,7 @@ export class StaffPlanService {
     filters: StaffPlanFilters = {}
   ): Promise<StaffPlanListResponse> {
     try {
-      let query = this.supabase.from('staff_plans').select(
+      let query = (this.supabase as any).from('staff_plans').select(
         `
         *,
         institution:institutions (

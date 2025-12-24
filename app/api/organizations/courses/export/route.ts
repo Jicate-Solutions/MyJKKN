@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Build query to fetch courses with related entities
-    let query = supabase.from('courses').select(`
+    let query = (supabase as any).from('courses').select(`
         *,
         institutions(name)
       `);
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Format the data for export
-    const formattedData = courses.map((course) => {
+    const formattedData = courses.map((course: any) => {
       return {
         id: course.id,
         courseCode: course.course_code,
@@ -157,7 +157,7 @@ export async function GET(request: NextRequest) {
       };
 
       // Add the data
-      formattedData.forEach((item) => {
+      formattedData.forEach((item: any) => {
         worksheet.addRow(item);
       });
 

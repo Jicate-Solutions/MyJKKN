@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Build query to fetch departments
-    let query = supabase.from('departments').select(`
+    let query = (supabase as any).from('departments').select(`
         *,
         institutions(name),
         degrees(degree_name)

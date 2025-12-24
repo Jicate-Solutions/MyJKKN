@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '10');
 
     // Start building the query with category join
-    let query = supabase.from('applications').select(
+    let query = (supabase as any).from('applications').select(
       `
       *,
       category:categories(id, name, description)
@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Process applications to ensure proper structure
-    const processedApplications = applications.map((app) => {
+    const processedApplications = applications.map((app: any) => {
       // Create a safe copy with guaranteed fields
       return {
         ...app,

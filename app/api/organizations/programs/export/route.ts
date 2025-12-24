@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Build query to fetch programs with related entities
-    let query = supabase.from('programs').select(`
+    let query = (supabase as any).from('programs').select(`
         *,
         institutions(name),
         degrees(degree_name),

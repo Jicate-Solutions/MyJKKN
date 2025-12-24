@@ -60,7 +60,7 @@ export class DashboardService {
     // filterInstitutionIds remains null, meaning "no filter / all institutions".
 
     const createQuery = (table: string) => {
-      let query = supabase.from(table).select('id', {
+      let query = (supabase as any).from(table).select('id', {
         count: 'exact',
         head: true
       });

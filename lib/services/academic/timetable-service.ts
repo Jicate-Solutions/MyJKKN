@@ -825,7 +825,7 @@ Please select a different date period that doesn't overlap.`
         throw new Error('User not authenticated');
       }
 
-      let query = this.supabase.from('timetables').select(
+      let query = (this.supabase as any).from('timetables').select(
         `
           *,
           institution:institution_id(id, name),
@@ -1338,7 +1338,7 @@ Please select a different date period that doesn't overlap.`
   ): Promise<any[]> {
     try {
       if (day || date) {
-        const { data, error } = await this.supabase.rpc(
+        const { data, error } = await (this.supabase as any).rpc(
           'get_timetable_slots_for_day_or_date',
           {
             p_timetable_id: timetableId,
@@ -1355,7 +1355,7 @@ Please select a different date period that doesn't overlap.`
         return data.map((item: any) => item.slot);
       } else {
         // New logic to fetch all slots if no day or date is provided
-        const { data, error } = await this.supabase.rpc(
+        const { data, error } = await (this.supabase as any).rpc(
           'get_all_timetable_slots',
           {
             p_timetable_id: timetableId
@@ -1380,7 +1380,7 @@ Please select a different date period that doesn't overlap.`
     date: string
   ): Promise<any> {
     try {
-      const { data, error } = await this.supabase.rpc('get_timetable_by_date', {
+      const { data, error } = await (this.supabase as any).rpc('get_timetable_by_date', {
         p_institution_id: institutionId,
         p_section_id: sectionId,
         p_date: date
@@ -1546,7 +1546,7 @@ Please select a different date period that doesn't overlap.`
         p_is_batch: isBatch
       };
 
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'update_timetable_slot',
         payload
       );
@@ -1606,7 +1606,7 @@ Please select a different date period that doesn't overlap.`
   }> {
     try {
       // Call the new batch RPC function
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'update_timetable_slots_batch',
         {
           p_timetable_id: timetableId,
@@ -1726,7 +1726,7 @@ Please select a different date period that doesn't overlap.`
 
           for (const date of dates) {
             try {
-              const { error } = await this.supabase.rpc('delete_timetable_slot', {
+              const { error } = await (this.supabase as any).rpc('delete_timetable_slot', {
                 p_timetable_id: timetableId,
                 p_day_of_week: date,
                 p_period_id: periodId,
@@ -1836,7 +1836,7 @@ Please select a different date period that doesn't overlap.`
         }
       }
 
-      const { error } = await this.supabase.rpc('delete_timetable_slot', {
+      const { error } = await (this.supabase as any).rpc('delete_timetable_slot', {
         p_timetable_id: timetableId,
         p_day_of_week: day,
         p_period_id: periodId,
@@ -2176,7 +2176,7 @@ Please select a different date period that doesn't overlap.`
     filters: TemplateFilters = {}
   ): Promise<TemplateListResponse> {
     try {
-      let query = this.supabase.from('timetables').select(
+      let query = (this.supabase as any).from('timetables').select(
         `
           *,
           institution:institution_id(id, name),

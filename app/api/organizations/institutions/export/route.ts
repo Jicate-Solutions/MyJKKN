@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     const includeInactive = url.searchParams.get('includeInactive') === 'true';
 
     // Start building the query
-    let query = supabase.from('institutions').select('*');
+    let query = (supabase as any).from('institutions').select('*');
 
     // Apply filters
     if (!includeInactive) {
