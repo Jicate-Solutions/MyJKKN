@@ -106,6 +106,12 @@ export interface ProfileCompletionStats {
   missingAcademicYear: number;
   missingSemester: number;
   missingSection: number;
+
+  // Completion tiers (by percentage)
+  excellent: number;   // 100% complete
+  good: number;        // 80-99% complete
+  needsWork: number;   // 50-79% complete
+  critical: number;    // <50% complete
 }
 
 /**

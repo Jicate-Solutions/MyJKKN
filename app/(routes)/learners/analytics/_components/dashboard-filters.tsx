@@ -106,7 +106,7 @@ export function DashboardFilters({
   });
 
   // Fetch academic years
-  const { data: academicYears = [] } = useQuery({
+  const { data: academicYears = [] } = useQuery<{ id: string; academic_year_name: string; is_active: boolean }[]>({
     queryKey: ['academic_years'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -119,7 +119,7 @@ export function DashboardFilters({
   });
 
   // Fetch degrees (filtered by institutions if selected)
-  const { data: degrees = [] } = useQuery({
+  const { data: degrees = [] } = useQuery<{ id: string; degree_name: string; institution_id: string }[]>({
     queryKey: ['degrees', selectedInstitutionIds],
     queryFn: async () => {
       let query = supabase
@@ -139,7 +139,7 @@ export function DashboardFilters({
   });
 
   // Fetch departments (filtered by degree if selected)
-  const { data: departments = [] } = useQuery({
+  const { data: departments = [] } = useQuery<{ id: string; department_name: string; degree_id: string }[]>({
     queryKey: ['departments', selectedDegreeId],
     queryFn: async () => {
       let query = supabase
@@ -159,7 +159,7 @@ export function DashboardFilters({
   });
 
   // Fetch programs (filtered by department if selected)
-  const { data: programs = [] } = useQuery({
+  const { data: programs = [] } = useQuery<{ id: string; program_name: string; department_id: string }[]>({
     queryKey: ['programs', selectedDepartmentId],
     queryFn: async () => {
       let query = supabase
@@ -179,7 +179,7 @@ export function DashboardFilters({
   });
 
   // Fetch semesters
-  const { data: semesters = [] } = useQuery({
+  const { data: semesters = [] } = useQuery<{ id: string; semester_name: string; semester_code: string }[]>({
     queryKey: ['semesters'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -192,7 +192,7 @@ export function DashboardFilters({
   });
 
   // Fetch sections (filtered by semester if selected)
-  const { data: sections = [] } = useQuery({
+  const { data: sections = [] } = useQuery<{ id: string; section_name: string; semester_id: string }[]>({
     queryKey: ['sections', selectedSemesterId],
     queryFn: async () => {
       let query = supabase

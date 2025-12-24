@@ -56,7 +56,7 @@ const lookupInstitutionId = async (institutionName: string): Promise<string | nu
     .select('id, name')
     .ilike('name', trimmedName)
     .limit(1)
-    .maybeSingle();
+    .maybeSingle() as { data: { id: string; name: string } | null; error: any };
 
   if (error) {
     console.error('[enquiries/bulk-upload] Institution lookup error:', {
@@ -85,7 +85,7 @@ const lookupProgramId = async (programName: string): Promise<string | null> => {
     .select('id, program_name')
     .ilike('program_name', trimmedName)
     .limit(1)
-    .maybeSingle();
+    .maybeSingle() as { data: { id: string; program_name: string } | null; error: any };
 
   if (error) {
     console.error('[enquiries/bulk-upload] Program lookup error:', {
@@ -114,7 +114,7 @@ const lookupDegreeId = async (degreeName: string): Promise<string | null> => {
     .select('id, degree_name')
     .ilike('degree_name', trimmedName)
     .limit(1)
-    .maybeSingle();
+    .maybeSingle() as { data: { id: string; degree_name: string } | null; error: any };
 
   if (error) {
     console.error('[enquiries/bulk-upload] Degree lookup error:', {
@@ -143,7 +143,7 @@ const lookupDepartmentId = async (departmentName: string): Promise<string | null
     .select('id, department_name')
     .ilike('department_name', trimmedName)
     .limit(1)
-    .maybeSingle();
+    .maybeSingle() as { data: { id: string; department_name: string } | null; error: any };
 
   if (error) {
     console.error('[enquiries/bulk-upload] Department lookup error:', {
@@ -172,7 +172,7 @@ const lookupAcademicYearId = async (academicYearName: string): Promise<string | 
     .select('id, academic_year_name')
     .ilike('academic_year_name', trimmedName)
     .limit(1)
-    .maybeSingle();
+    .maybeSingle() as { data: { id: string; academic_year_name: string } | null; error: any };
 
   if (error) {
     console.error('[enquiries/bulk-upload] Academic Year lookup error:', {
@@ -201,7 +201,7 @@ const lookupSemesterId = async (semesterName: string): Promise<string | null> =>
     .select('id, semester_name')
     .ilike('semester_name', trimmedName)
     .limit(1)
-    .maybeSingle();
+    .maybeSingle() as { data: { id: string; semester_name: string } | null; error: any };
 
   if (error) {
     console.error('[enquiries/bulk-upload] Semester lookup error:', {
@@ -230,7 +230,7 @@ const lookupSectionId = async (sectionName: string): Promise<string | null> => {
     .select('id, section_name')
     .ilike('section_name', trimmedName)
     .limit(1)
-    .maybeSingle();
+    .maybeSingle() as { data: { id: string; section_name: string } | null; error: any };
 
   if (error) {
     console.error('[enquiries/bulk-upload] Section lookup error:', {
@@ -259,7 +259,7 @@ const lookupRegulationId = async (regulationName: string): Promise<string | null
     .select('id, regulation_code')
     .ilike('regulation_code', trimmedName)
     .limit(1)
-    .maybeSingle();
+    .maybeSingle() as { data: { id: string; regulation_code: string } | null; error: any };
 
   if (error) {
     console.error('[enquiries/bulk-upload] Regulation lookup error:', {
@@ -288,7 +288,7 @@ const lookupBatchId = async (batchName: string): Promise<string | null> => {
     .select('id, batch_name')
     .ilike('batch_name', trimmedName)
     .limit(1)
-    .maybeSingle();
+    .maybeSingle() as { data: { id: string; batch_name: string } | null; error: any };
 
   if (error) {
     console.error('[enquiries/bulk-upload] Batch lookup error:', {
