@@ -39,6 +39,10 @@ import { format } from 'date-fns';
 import { PracticalPeriodConfigForm } from './practical-period-config-form';
 import { AlertCircle } from 'lucide-react';
 
+function isSemesterIdObject(value: unknown): value is { id: string } {
+  return value !== null && value !== undefined && typeof value === 'object' && 'id' in value;
+}
+
 interface SlotDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -460,20 +464,25 @@ export function SlotDialog({
         setLoadingCourseStaff(true);
         setCourseStaffError(null);
 
-        const filters = {
+        const semesterId = timetable?.semester_id;
+        let semesterIdValue: string | undefined;
+        if (isSemesterIdObject(semesterId)) {
+          semesterIdValue = semesterId.id;
+        } else if (typeof semesterId === 'string') {
+          semesterIdValue = semesterId;
+        }
+        const filters: any = {
           is_active: true,
-          ...(timetable?.institution_id && {
+          ...(timetable?.institution_id ? {
             institution_id: timetable.institution_id
-          }),
-          ...(timetable?.semester_id &&
-            typeof timetable.semester_id === 'object' &&
-            'id' in timetable.semester_id && {
-              semester_id: (timetable.semester_id as { id: string }).id
-            }),
-          ...(timetable?.department_id && {
+          } : {}),
+          ...(semesterIdValue ? {
+              semester_id: semesterIdValue
+            } : {}),
+          ...(timetable?.department_id ? {
             department_id: timetable.department_id
-          }),
-          ...(timetable?.program_id && { program_id: timetable.program_id })
+          } : {}),
+          ...(timetable?.program_id ? { program_id: timetable.program_id } : {})
         };
 
         const assignedStaff = await StaffPlanService.getStaffAssignedToCourse(
@@ -506,20 +515,25 @@ export function SlotDialog({
       try {
         setLoadingSubSlotStaff((prev) => ({ ...prev, [subSlotIndex]: true }));
 
-        const filters = {
+        const semesterId = timetable?.semester_id;
+        let semesterIdValue: string | undefined;
+        if (isSemesterIdObject(semesterId)) {
+          semesterIdValue = semesterId.id;
+        } else if (typeof semesterId === 'string') {
+          semesterIdValue = semesterId;
+        }
+        const filters: any = {
           is_active: true,
-          ...(timetable?.institution_id && {
+          ...(timetable?.institution_id ? {
             institution_id: timetable.institution_id
-          }),
-          ...(timetable?.semester_id &&
-            typeof timetable.semester_id === 'object' &&
-            'id' in timetable.semester_id && {
-              semester_id: (timetable.semester_id as { id: string }).id
-            }),
-          ...(timetable?.department_id && {
+          } : {}),
+          ...(semesterIdValue ? {
+              semester_id: semesterIdValue
+            } : {}),
+          ...(timetable?.department_id ? {
             department_id: timetable.department_id
-          }),
-          ...(timetable?.program_id && { program_id: timetable.program_id })
+          } : {}),
+          ...(timetable?.program_id ? { program_id: timetable.program_id } : {})
         };
 
         const assignedStaff = await StaffPlanService.getStaffAssignedToCourse(
@@ -637,20 +651,25 @@ export function SlotDialog({
 
       setLoadingPracticalStaff(true);
       try {
-        const filters = {
+        const semesterId = timetable?.semester_id;
+        let semesterIdValue: string | undefined;
+        if (isSemesterIdObject(semesterId)) {
+          semesterIdValue = semesterId.id;
+        } else if (typeof semesterId === 'string') {
+          semesterIdValue = semesterId;
+        }
+        const filters: any = {
           is_active: true,
-          ...(timetable?.institution_id && {
+          ...(timetable?.institution_id ? {
             institution_id: timetable.institution_id
-          }),
-          ...(timetable?.semester_id &&
-            typeof timetable.semester_id === 'object' &&
-            'id' in timetable.semester_id && {
-              semester_id: (timetable.semester_id as { id: string }).id
-            }),
-          ...(timetable?.department_id && {
+          } : {}),
+          ...(semesterIdValue ? {
+              semester_id: semesterIdValue
+            } : {}),
+          ...(timetable?.department_id ? {
             department_id: timetable.department_id
-          }),
-          ...(timetable?.program_id && { program_id: timetable.program_id })
+          } : {}),
+          ...(timetable?.program_id ? { program_id: timetable.program_id } : {})
         };
 
         // Get staff for all courses and combine into unique list

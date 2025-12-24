@@ -143,7 +143,12 @@ export function LeaveTypeFormDialog({
           return;
         }
         await createLeaveType({
-          ...data,
+          leave_type_code: data.leave_type_code,
+          leave_type_name: data.leave_type_name,
+          description: data.description,
+          color_code: data.color_code,
+          requires_approval: data.requires_approval,
+          is_active: data.is_active,
           institution_id: institutionId,
           created_by: userProfile?.id
         });
