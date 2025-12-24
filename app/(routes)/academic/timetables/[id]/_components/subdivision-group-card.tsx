@@ -65,16 +65,26 @@ export function SubdivisionGroupCard({
 
       try {
         setLoadingCourseStaff(true);
+        let semesterId: string | undefined = undefined;
+        const semesterIdValue = timetable.semester_id;
+        if (
+          semesterIdValue !== null &&
+          semesterIdValue !== undefined &&
+          typeof semesterIdValue === 'object' &&
+          !Array.isArray(semesterIdValue) &&
+          'id' in semesterIdValue
+        ) {
+          semesterId = (semesterIdValue as { id: string }).id;
+        }
+
         const filters = {
           is_active: true,
           ...(timetable.institution_id && {
             institution_id: timetable.institution_id
           }),
-          ...(timetable.semester_id &&
-            typeof timetable.semester_id === 'object' &&
-            'id' in timetable.semester_id && {
-              semester_id: (timetable.semester_id as { id: string }).id
-            }),
+          ...(semesterId && {
+            semester_id: semesterId
+          }),
           ...(timetable.department_id && {
             department_id: timetable.department_id
           }),
