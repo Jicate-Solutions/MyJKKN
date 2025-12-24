@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
     const isProfileComplete = url.searchParams.get('is_profile_complete');
 
     // Build query - specify the foreign key relationship to avoid ambiguity
-    let query = supabase.from('learners_profiles').select(
+    let query = (supabase as any).from('learners_profiles').select(
       `
       *,
       institution:institutions!students_institution_id_fkey(id, name),

@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search');
 
-    let query = supabase.from('notifications').select(`
+    let query = (supabase as any).from('notifications').select(`
         id, title, body, url, icon, priority, category, sent_at,
         expires_at, targeting, created_by, created_at
       `);

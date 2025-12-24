@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { Database } from '@/types/database.types';
 import {
   CustomRole,
   CustomRoleCreate,
@@ -8,8 +9,30 @@ import {
 import { toast } from 'react-hot-toast';
 import { DEFAULT_ROLE_PERMISSIONS } from '@/lib/constants/permissions';
 
+// Database types for custom_roles table
+type CustomRoleRow = Database['public']['Tables']['custom_roles']['Row'];
+type CustomRoleInsert = Database['public']['Tables']['custom_roles']['Insert'];
+type CustomRoleDbUpdate = Database['public']['Tables']['custom_roles']['Update'];
+
 export class RoleService {
   private static supabase = createClientSupabaseClient();
+
+  /**
+   * Convert database row to CustomRole format
+   */
+  private static toCustomRole(row: CustomRoleRow): CustomRole {
+    return {
+      id: row.id,
+      role_key: row.role_key,
+      role_name: row.role_name,
+      description: row.description,
+      is_system_role: row.is_system_role ?? false,
+      permissions: (row.permissions as Record<string, boolean>) || {},
+      created_at: row.created_at ?? new Date().toISOString(),
+      updated_at: row.updated_at ?? new Date().toISOString(),
+      created_by: row.created_by
+    };
+  }
 
   /**
    * Ensures that the super_admin role exists with all permissions enabled
@@ -32,60 +55,71 @@ export class RoleService {
         const allPermissions: Record<string, boolean> = {};
 
         // Set all permissions to true
-        const { data: permissions } = await this.supabase
+        const { data: permissions } = await (this.supabase as any)
           .from('permissions')
           .select('permission_key');
 
         if (permissions) {
-          permissions.forEach((perm) => {
+          permissions.forEach((perm: any) => {
             allPermissions[perm.permission_key] = true;
           });
         }
 
         // Create super_admin role
-        const superAdminRole: CustomRoleCreate = {
+        const insertData: CustomRoleInsert = {
           role_key: SYSTEM_ROLES.SUPER_ADMIN,
           role_name: 'Super Administrator',
           description: 'Full system access with all permissions',
-          permissions: allPermissions,
+          permissions: allPermissions as any,
           is_system_role: true
         };
 
-        const { error: createError } = await this.supabase
+        const { error: createError } = await (this.supabase as any)
           .from('custom_roles')
-          .insert([superAdminRole]);
+          .insert([insertData]);
 
-        if (createError) throw createError;
+        if (createError) {
+          console.error('[RoleService] Error creating super_admin role:', createError);
+          throw createError;
+        }
       }
       // If role exists but doesn't have permissions set correctly, update them
-      else if (
-        existingSuperAdmin &&
-        (!existingSuperAdmin.permissions ||
-          Object.values(existingSuperAdmin.permissions).some(
-            (p) => p === false
-          ))
-      ) {
-        // Get all permission keys
-        const allPermissions: Record<string, boolean> = {};
+      else if (existingSuperAdmin) {
+        const currentPermissions = (existingSuperAdmin as any).permissions as Record<string, boolean> | null;
+        
+        if (
+          !currentPermissions ||
+          Object.values(currentPermissions).some((p) => p === false)
+        ) {
+          // Get all permission keys
+          const allPermissions: Record<string, boolean> = {};
 
-        // Set all permissions to true
-        const { data: permissions } = await this.supabase
-          .from('permissions')
-          .select('permission_key');
+          // Set all permissions to true
+          const { data: permissions } = await (this.supabase as any)
+            .from('permissions')
+            .select('permission_key');
 
-        if (permissions) {
-          permissions.forEach((perm) => {
-            allPermissions[perm.permission_key] = true;
-          });
+          if (permissions) {
+            permissions.forEach((perm: any) => {
+              allPermissions[perm.permission_key] = true;
+            });
+          }
+
+          // Update super_admin role permissions
+          const updateData: CustomRoleDbUpdate = {
+            permissions: allPermissions as any
+          };
+
+          const { error: updateError } = await (this.supabase as any)
+            .from('custom_roles')
+            .update(updateData)
+            .eq('role_key', SYSTEM_ROLES.SUPER_ADMIN);
+
+          if (updateError) {
+            console.error('[RoleService] Error updating super_admin role:', updateError);
+            throw updateError;
+          }
         }
-
-        // Update super_admin role permissions
-        const { error: updateError } = await this.supabase
-          .from('custom_roles')
-          .update({ permissions: allPermissions })
-          .eq('role_key', SYSTEM_ROLES.SUPER_ADMIN);
-
-        if (updateError) throw updateError;
       }
     } catch (error) {
       console.error('Error ensuring super_admin role:', error);
@@ -102,10 +136,14 @@ export class RoleService {
         .select('*')
         .order('role_name');
 
-      if (error) throw error;
-      return data || [];
+      if (error) {
+        console.error('[RoleService] Error fetching roles:', error);
+        throw error;
+      }
+      
+      return data ? data.map(row => this.toCustomRole(row)) : [];
     } catch (error) {
-      console.error('Error fetching roles:', error);
+      console.error('[RoleService] Error in getAllRoles:', error);
       throw error;
     }
   }
@@ -118,15 +156,15 @@ export class RoleService {
       .from('custom_roles')
       .select('*')
       .eq('role_key', key)
-      .limit(1) // Fetch the first match
-      .maybeSingle(); // Use maybeSingle to return null if no rows are found
+      .limit(1)
+      .maybeSingle();
 
     if (error) {
-      console.error(`Error fetching role by key "${key}":`, error);
-      // Don't throw the error, just return null to be handled by the caller
+      console.error(`[RoleService] Error fetching role by key "${key}":`, error);
       return null;
     }
-    return data;
+    
+    return data ? this.toCustomRole(data) : null;
   }
 
   /**
@@ -135,22 +173,29 @@ export class RoleService {
   static async createRole(role: CustomRoleCreate): Promise<CustomRole> {
     try {
       // Set default permissions if not provided
-      const roleData = {
-        ...role,
-        permissions: role.permissions || DEFAULT_ROLE_PERMISSIONS
+      const insertData: CustomRoleInsert = {
+        role_key: role.role_key,
+        role_name: role.role_name,
+        description: role.description ?? null,
+        permissions: (role.permissions || DEFAULT_ROLE_PERMISSIONS) as any,
+        is_system_role: role.is_system_role ?? false
       };
 
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('custom_roles')
-        .insert([roleData])
+        .insert([insertData])
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('[RoleService] Error creating role:', error);
+        throw error;
+      }
+      
       toast.success(`Role ${role.role_name} created successfully`);
-      return data;
+      return this.toCustomRole(data);
     } catch (error) {
-      console.error('Error creating role:', error);
+      console.error('[RoleService] Error in createRole:', error);
       toast.error(
         error instanceof Error ? error.message : 'Failed to create role'
       );
@@ -203,31 +248,30 @@ export class RoleService {
       if (roleKey === 'super_admin') {
         // For super_admin, we don't allow permission changes
         // Only allow name and description updates
-        const filteredUpdates: CustomRoleUpdate = {
+        const updateData: CustomRoleDbUpdate = {
           role_name: updates.role_name,
-          description: updates.description
+          description: updates.description ?? null
         };
 
-        const { data, error } = await this.supabase
+        const { data, error } = await (this.supabase as any)
           .from('custom_roles')
-          .update(filteredUpdates)
+          .update(updateData)
           .eq('role_key', roleKey)
           .select()
           .single();
 
         if (error) {
-          console.error('Error updating super admin role:', error);
+          console.error('[RoleService] Error updating super admin role:', error);
           throw error;
         }
 
         toast.success(`Super Admin role details updated`);
-        return data;
+        return this.toCustomRole(data);
       }
 
       // For all other roles, proceed with the update
 
-      // First do a direct check of the role existence
-
+      // First check if role exists
       const { data: existingRole, error: fetchError } = await this.supabase
         .from('custom_roles')
         .select('*')
@@ -235,7 +279,7 @@ export class RoleService {
         .single();
 
       if (fetchError) {
-        console.error('Error fetching role:', fetchError);
+        console.error('[RoleService] Error fetching role:', fetchError);
         throw new Error(`Role ${roleKey} not found or could not be accessed`);
       }
 
@@ -243,21 +287,21 @@ export class RoleService {
         throw new Error(`Role with key ${roleKey} not found`);
       }
 
-      // Create a clean basic update
-      const basicUpdates: any = {
-        role_name: updates.role_name || existingRole.role_name,
-        description: updates.description || existingRole.description
+      // Create basic update
+      const existingRoleData = this.toCustomRole(existingRole);
+      const basicUpdateData: CustomRoleDbUpdate = {
+        role_name: updates.role_name ?? existingRoleData.role_name,
+        description: updates.description ?? existingRoleData.description
       };
 
-      // First update the basic info
-
-      const { error: basicUpdateError } = await this.supabase
+      // Update the basic info
+      const { error: basicUpdateError } = await (this.supabase as any)
         .from('custom_roles')
-        .update(basicUpdates)
+        .update(basicUpdateData)
         .eq('role_key', roleKey);
 
       if (basicUpdateError) {
-        console.error('Error updating basic role info:', basicUpdateError);
+        console.error('[RoleService] Error updating basic role info:', basicUpdateError);
         throw basicUpdateError;
       }
 
@@ -270,19 +314,18 @@ export class RoleService {
           cleanPermissions[key] = Boolean(value);
         });
 
-        // Create a simple clean object for the permissions update
-        const permissionUpdate = {
-          permissions: cleanPermissions
+        // Update just the permissions
+        const permUpdateData: CustomRoleDbUpdate = {
+          permissions: cleanPermissions as any
         };
 
-        // Update just the permissions
-        const { error: permUpdateError } = await this.supabase
+        const { error: permUpdateError } = await (this.supabase as any)
           .from('custom_roles')
-          .update(permissionUpdate)
+          .update(permUpdateData)
           .eq('role_key', roleKey);
 
         if (permUpdateError) {
-          console.error('Error updating permissions:', permUpdateError);
+          console.error('[RoleService] Error updating permissions:', permUpdateError);
           throw permUpdateError;
         }
       }
@@ -295,13 +338,13 @@ export class RoleService {
         .single();
 
       if (finalFetchError) {
-        console.error('Error fetching updated role:', finalFetchError);
+        console.error('[RoleService] Error fetching updated role:', finalFetchError);
         throw finalFetchError;
       }
 
-      return updatedRole;
+      return this.toCustomRole(updatedRole);
     } catch (error) {
-      console.error(`Error updating role ${roleKey}:`, error);
+      console.error(`[RoleService] Error updating role ${roleKey}:`, error);
       toast.error(
         error instanceof Error ? error.message : 'Failed to update role'
       );
@@ -315,21 +358,31 @@ export class RoleService {
   static async deleteRole(roleKey: string): Promise<void> {
     try {
       // First check if it's a system role
-      const { data: role } = await this.supabase
+      const { data: role, error: roleError } = await (this.supabase as any)
         .from('custom_roles')
         .select('is_system_role')
         .eq('role_key', roleKey)
         .single();
+
+      if (roleError) {
+        console.error('[RoleService] Error fetching role for deletion:', roleError);
+        throw roleError;
+      }
 
       if (role?.is_system_role) {
         throw new Error('Cannot delete system roles');
       }
 
       // Check if any users have this role
-      const { count } = await this.supabase
+      const { count, error: countError } = await this.supabase
         .from('profiles')
         .select('id', { count: 'exact' })
         .eq('role', roleKey);
+
+      if (countError) {
+        console.error('[RoleService] Error checking role usage:', countError);
+        throw countError;
+      }
 
       if (count && count > 0) {
         throw new Error(
@@ -342,10 +395,14 @@ export class RoleService {
         .delete()
         .eq('role_key', roleKey);
 
-      if (error) throw error;
+      if (error) {
+        console.error('[RoleService] Error deleting role:', error);
+        throw error;
+      }
+      
       toast.success('Role deleted successfully');
     } catch (error) {
-      console.error(`Error deleting role ${roleKey}:`, error);
+      console.error(`[RoleService] Error in deleteRole ${roleKey}:`, error);
       toast.error(
         error instanceof Error ? error.message : 'Failed to delete role'
       );
@@ -363,10 +420,14 @@ export class RoleService {
         .select('*')
         .order('role_name');
 
-      if (error) throw error;
-      return data || [];
+      if (error) {
+        console.error('[RoleService] Error fetching assignable roles:', error);
+        throw error;
+      }
+      
+      return data ? data.map(row => this.toCustomRole(row)) : [];
     } catch (error) {
-      console.error('Error fetching assignable roles:', error);
+      console.error('[RoleService] Error in getAssignableRoles:', error);
       throw error;
     }
   }
@@ -435,7 +496,8 @@ export class RoleService {
 
       // Update each role
       for (const role of roles) {
-        const oldPermissions = role.permissions || {};
+        const currentPerms = (role as any).permissions as Record<string, boolean> | null;
+        const oldPermissions = currentPerms || {};
         const newPermissions: Record<string, boolean> = { ...oldPermissions };
 
         // Add new permissions based on old ones
@@ -458,15 +520,23 @@ export class RoleService {
         }
 
         // Update the role with new permissions
-        await this.supabase
+        const updateData: CustomRoleDbUpdate = {
+          permissions: newPermissions as any
+        };
+
+        const { error: updateError } = await (this.supabase as any)
           .from('custom_roles')
-          .update({ permissions: newPermissions })
-          .eq('id', role.id);
+          .update(updateData)
+          .eq('id', (role as any).id);
+
+        if (updateError) {
+          console.error(`[RoleService] Error migrating role ${(role as any).id}:`, updateError);
+        }
       }
 
       toast.success('Permissions successfully migrated to new format');
     } catch (error) {
-      console.error('Error migrating permissions:', error);
+      console.error('[RoleService] Error migrating permissions:', error);
       toast.error('Failed to migrate permissions');
     }
   }
@@ -481,17 +551,21 @@ export class RoleService {
   ): Promise<boolean> {
     try {
       // Get user's role
-      const { data: profile, error: profileError } = await this.supabase
+      const { data: profile, error: profileError } = await (this.supabase as any)
         .from('profiles')
         .select('role')
         .eq('id', userId)
         .single();
 
-      if (profileError) throw profileError;
-      if (!profile) return false;
+      if (profileError) {
+        console.error('[RoleService] Error fetching profile:', profileError);
+        throw profileError;
+      }
+      
+      if (!profile || !(profile as any).role) return false;
 
       // Get role permissions
-      const role = await this.getRoleByKey(profile.role);
+      const role = await this.getRoleByKey((profile as any).role);
       if (!role) return false;
 
       // Check for super admin (has all permissions)
@@ -503,7 +577,7 @@ export class RoleService {
       // Check for specific permission
       return !!permissions[permissionKey];
     } catch (error) {
-      console.error('Error checking permission:', error);
+      console.error('[RoleService] Error checking permission:', error);
       return false;
     }
   }

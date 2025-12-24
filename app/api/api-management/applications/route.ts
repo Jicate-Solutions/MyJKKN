@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
       url.searchParams.get('skipRoleFiltering') === 'true';
 
     // Start building the query
-    let query = supabase.from('applications').select(
+    let query = (supabase as any).from('applications').select(
       `
         *,
         category:categories(id, name, description)
@@ -186,7 +186,7 @@ export async function GET(request: NextRequest) {
 
     // Process applications and fetch subcategory information
     const processedApplications = await Promise.all(
-      applications.map(async (app) => {
+      applications.map(async (app: any) => {
         // Fetch subcategory if ID is provided
         let subcategory = null;
         if (app.subcategory_id) {

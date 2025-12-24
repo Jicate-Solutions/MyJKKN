@@ -173,7 +173,7 @@ export async function GET(request: NextRequest) {
     console.log('5. Total count:', totalCount, 'Error:', countError?.message);
 
     // Build query
-    let query = supabase.from('courses').select(
+    let query = (supabase as any).from('courses').select(
       `
         *,
         institution:institutions (

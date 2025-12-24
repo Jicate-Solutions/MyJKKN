@@ -270,8 +270,8 @@ export class DashboardService {
   ): Promise<void> {
     try {
       const updatePromises = widgets.map((widget) =>
-        this.supabase
-          .from('dashboard_widgets')
+        (this.supabase
+          .from('dashboard_widgets') as any)
           .update({
             position_x: widget.position_x,
             position_y: widget.position_y,

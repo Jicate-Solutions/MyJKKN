@@ -129,7 +129,7 @@ export async function createNotification(
 
   const { data, error } = await supabase
     .from('notifications')
-    .insert(notificationData)
+    .insert(notificationData as any)
     .select()
     .single();
 
@@ -155,8 +155,8 @@ export async function updateNotification(
     updateData.archived_at = new Date().toISOString();
   }
 
-  const { data, error } = await supabase
-    .from('notifications')
+  const { data, error } = await (supabase
+    .from('notifications') as any)
     .update(updateData)
     .eq('id', id)
     .select()
@@ -167,7 +167,7 @@ export async function updateNotification(
 }
 
 export async function deleteNotification(id: string): Promise<void> {
-  const { error } = await supabase.from('notifications').delete().eq('id', id);
+  const { error } = await (supabase as any).from('notifications').delete().eq('id', id);
 
   if (error) throw error;
 }
@@ -193,8 +193,8 @@ export async function bulkUpdateNotifications(
     }
   }
 
-  const { error } = await supabase
-    .from('notifications')
+  const { error } = await (supabase
+    .from('notifications') as any)
     .update(updateData)
     .in('id', dto.notification_ids);
 
@@ -202,8 +202,8 @@ export async function bulkUpdateNotifications(
 }
 
 export async function markAsRead(notificationId: string): Promise<void> {
-  const { error } = await supabase
-    .from('user_notifications')
+  const { error } = await (supabase
+    .from('user_notifications') as any)
     .update({ read_at: new Date().toISOString() })
     .eq('id', notificationId);
 
@@ -211,8 +211,8 @@ export async function markAsRead(notificationId: string): Promise<void> {
 }
 
 export async function markAllAsRead(userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('user_notifications')
+  const { error } = await (supabase
+    .from('user_notifications') as any)
     .update({
       read_at: new Date().toISOString()
     })
@@ -256,8 +256,8 @@ export async function getNotificationStats(
   const stats: NotificationStats = {
     total_notifications: userNotifications?.length || 0,
     unread_count:
-      userNotifications?.filter((n) => !n.read_at).length || 0,
-    read_count: userNotifications?.filter((n) => n.read_at).length || 0,
+      userNotifications?.filter((n: any) => !n.read_at).length || 0,
+    read_count: userNotifications?.filter((n: any) => n.read_at).length || 0,
     archived_count: 0,
     by_category: [],
     by_type: [],
@@ -312,8 +312,8 @@ export async function getUserPreferences(
 export async function createPreference(
   dto: CreateNotificationPreferenceDto
 ): Promise<NotificationPreference> {
-  const { data, error } = await supabase
-    .from('notification_preferences')
+  const { data, error } = await (supabase
+    .from('notification_preferences') as any)
     .insert({
       ...dto,
       enabled: dto.enabled !== undefined ? dto.enabled : true
@@ -329,8 +329,8 @@ export async function updatePreference(
   id: string,
   dto: UpdateNotificationPreferenceDto
 ): Promise<NotificationPreference> {
-  const { data, error } = await supabase
-    .from('notification_preferences')
+  const { data, error } = await (supabase
+    .from('notification_preferences') as any)
     .update(dto)
     .eq('id', id)
     .select()

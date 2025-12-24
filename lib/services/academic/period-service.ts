@@ -119,7 +119,7 @@ export class PeriodService {
     filters: PeriodFilters = {}
   ): Promise<PeriodListResponse> {
     try {
-      let query = this.supabase.from('periods').select(
+      let query = (this.supabase as any).from('periods').select(
         `
           *,
           institution:institutions(id, name)
@@ -202,7 +202,7 @@ export class PeriodService {
     endTime: string
   ): Promise<Period[]> {
     try {
-      const { data: periods, error } = await this.supabase.rpc(
+      const { data: periods, error } = await (this.supabase as any).rpc(
         'get_periods_in_range',
         {
           p_start_time: startTime,
@@ -237,7 +237,7 @@ export class PeriodService {
     isSuperAdmin: boolean = false
   ): Promise<PeriodListResponse> {
     try {
-      let query = this.supabase.from('periods').select(
+      let query = (this.supabase as any).from('periods').select(
         `
           *,
           institution:institutions (

@@ -74,7 +74,7 @@ export class FacultyTimetableService {
         try {
           // Use RPC to get all slots for this timetable
           const { data: timetableSlots, error: slotsError } =
-            await this.supabase.rpc('get_all_timetable_slots', {
+            await (this.supabase as any).rpc('get_all_timetable_slots', {
               p_timetable_id: timetable.id
             });
 
@@ -293,7 +293,7 @@ export class FacultyTimetableService {
       for (const timetable of timetables) {
         try {
           const { data: timetableSlots, error: slotsError } =
-            await this.supabase.rpc('get_all_timetable_slots', {
+            await (this.supabase as any).rpc('get_all_timetable_slots', {
               p_timetable_id: timetable.id
             });
 
@@ -514,7 +514,7 @@ export class FacultyTimetableService {
           if (timetable.timetable_format === 'batch') {
             // For batch mode, check specific date
             const { data: batchSlots, error: batchError } =
-              await this.supabase.rpc('get_timetable_slots_for_day_or_date', {
+              await (this.supabase as any).rpc('get_timetable_slots_for_day_or_date', {
                 p_timetable_id: timetable.id,
                 p_day_of_week: null,
                 p_slot_date: date
@@ -524,7 +524,7 @@ export class FacultyTimetableService {
           } else {
             // For regular mode, check day of week
             const { data: regularSlots, error: regularError } =
-              await this.supabase.rpc('get_timetable_slots_for_day_or_date', {
+              await (this.supabase as any).rpc('get_timetable_slots_for_day_or_date', {
                 p_timetable_id: timetable.id,
                 p_day_of_week: dayOfWeek,
                 p_slot_date: null

@@ -147,10 +147,17 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
       setIsSubmitting(true);
 
       const payload = {
-        ...data,
+        leave_type_id: data.leave_type_id,
+        leave_name: data.leave_name,
+        description: data.description,
         institution_id: institutionId!,
         start_date: format(data.start_date, 'yyyy-MM-dd'),
         end_date: format(data.end_date, 'yyyy-MM-dd'),
+        scope_level: data.scope_level,
+        department_ids: data.department_ids,
+        semester_ids: data.semester_ids,
+        section_ids: data.section_ids,
+        is_recurring: data.is_recurring,
         requested_by: userProfile?.id || ''
       };
 

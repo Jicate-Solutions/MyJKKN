@@ -127,7 +127,7 @@ export async function POST(
 
     // Insert the message
     const { data: message, error: insertError } = await (
-      supabase.from('bug_report_messages') as any
+      (supabase as any).from('bug_report_messages') as any
     )
       .insert({
         bug_report_id: reportId,

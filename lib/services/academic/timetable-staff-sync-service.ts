@@ -45,7 +45,7 @@ export class TimetableStaffSyncService {
   ): Promise<StaffPlanningChange | null> {
     try {
       // Find all timetables that have this course assigned to the old staff
-      const { data: conflictingSlots, error } = await this.supabase.rpc(
+      const { data: conflictingSlots, error } = await (this.supabase as any).rpc(
         'find_timetable_staff_conflicts_for_course',
         {
           p_course_id: courseId,
@@ -107,7 +107,7 @@ export class TimetableStaffSyncService {
    */
   static async getAllTimetableStaffConflicts(): Promise<TimetableStaffConflict[]> {
     try {
-      const { data: conflicts, error } = await this.supabase.rpc(
+      const { data: conflicts, error } = await (this.supabase as any).rpc(
         'get_all_timetable_staff_conflicts'
       );
 
@@ -135,7 +135,7 @@ export class TimetableStaffSyncService {
 
     for (const timetable of affectedTimetables) {
       try {
-        const { error } = await this.supabase.rpc('sync_timetable_staff_assignment', {
+        const { error } = await (this.supabase as any).rpc('sync_timetable_staff_assignment', {
           p_timetable_id: timetable.id,
           p_course_id: courseId,
           p_old_staff_id: oldStaffId,

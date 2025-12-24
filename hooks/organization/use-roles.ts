@@ -26,7 +26,7 @@ export function useRoles({
   return useQuery({
     queryKey: ['roles', { includeSystemRoles, isActive }],
     queryFn: async () => {
-      let query = supabase.from('custom_roles').select('*').order('role_name');
+      let query = (supabase as any).from('custom_roles').select('*').order('role_name');
 
       // Filter by system roles if specified
       if (!includeSystemRoles) {

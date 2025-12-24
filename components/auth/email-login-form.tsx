@@ -45,11 +45,14 @@ export function EmailLoginForm({ returnTo }: EmailLoginFormProps) {
           .single();
 
         // Determine destination based on role
+        // Type cast to fix TypeScript inference after React 19 upgrade
+        const profileData = profile as { role: string } | null;
+
         let destination = returnTo || '/';
         if (!returnTo) {
-          if (profile?.role === 'guest') {
+          if (profileData?.role === 'guest') {
             destination = '/guest';
-          } else if (profile?.role === 'student') {
+          } else if (profileData?.role === 'student') {
             // Students are not allowed - sign out and stay on login page
             await supabase.auth.signOut();
             // Add reason to URL without redirecting
@@ -58,7 +61,7 @@ export function EmailLoginForm({ returnTo }: EmailLoginFormProps) {
             window.history.replaceState({}, '', newUrl.toString());
             window.location.reload();
             return;
-          } else if (profile?.role === 'driver') {
+          } else if (profileData?.role === 'driver') {
             destination = '/driver/dashboard';
           }
         }

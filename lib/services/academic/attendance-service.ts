@@ -103,7 +103,7 @@ export class AttendanceService {
       }
 
       // STEP 4: Check if user is marked as super admin in profiles table
-      if (profileData.is_super_admin) {
+      if ((profileData as any).is_super_admin) {
         return { isAuthorized: true, reason: 'Profile super admin access' };
       }
 
@@ -113,11 +113,11 @@ export class AttendanceService {
       const { data: staffRecord } = await this.supabase
         .from('staff')
         .select('id')
-        .eq('institution_email', profileData.email)
+        .eq('institution_email', (profileData as any).email)
         .eq('institution_id', institutionId)
         .maybeSingle();
 
-      const userStaffId = staffRecord?.id;
+      const userStaffId = (staffRecord as any)?.id;
 
       // STEP 6: Get timetable data to extract staff assignments
       const { data: timetableData, error: timetableError } = await this.supabase
@@ -134,7 +134,7 @@ export class AttendanceService {
       }
 
       // STEP 7: Extract all assigned staff AND profile IDs from timetable
-      const timetableDataObj = timetableData.timetable_data || {};
+      const timetableDataObj = (timetableData as any).timetable_data || {};
       const allAssignedIds = new Set<string>();
 
       // Search through all days and periods to collect assignments
@@ -233,7 +233,7 @@ export class AttendanceService {
 
       return {
         isAuthorized: false,
-        reason: `User ${profileData.email} is not authorized to mark attendance for this timetable`,
+        reason: `User ${(profileData as any).email} is not authorized to mark attendance for this timetable`,
         assignedStaff: assignedStaff || undefined
       };
     } catch (error) {
@@ -348,11 +348,11 @@ export class AttendanceService {
         groupPeriods.forEach((period) => {
           let isMarked = false;
 
-          if (data?.attendance_data) {
+          if ((data as any)?.attendance_data) {
             // Updated: 2025-10-09 - Check ONLY this specific slot, not any other slots
             // Even for multi-section records, we should only mark a period as complete
             // if THIS specific slot has attendance data
-            const slotData = data.attendance_data[period.timetable_slot_id];
+            const slotData = (data as any).attendance_data[period.timetable_slot_id];
             if (slotData && slotData.students && slotData.students.length > 0) {
               isMarked = true;
             }
@@ -360,7 +360,7 @@ export class AttendanceService {
 
           attendanceMap.set(period.timetable_slot_id, {
             isMarked,
-            recordId: isMarked ? data?.id : undefined
+            recordId: isMarked ? (data as any)?.id : undefined
           });
         });
       }
@@ -401,7 +401,7 @@ export class AttendanceService {
       const { data: sectionData, error: sectionError } = await this.supabase
         .from('sections')
         .select('id')
-        .eq('program_id', timetableData.program_id)
+        .eq('program_id', (timetableData as any).program_id)
         .eq('section_name', resolvedSectionId)
         .limit(1)
         .single();
@@ -411,7 +411,7 @@ export class AttendanceService {
         return null; // Return null to avoid crash
       }
 
-      resolvedSectionId = sectionData.id;
+      resolvedSectionId = (sectionData as any).id;
     }
 
     if (!resolvedSectionId) {
@@ -444,30 +444,30 @@ export class AttendanceService {
 
     if (data) {
       // If period_id is provided, check if this specific period has already been marked
-      if (period_id && data.attendance_data) {
+      if (period_id && (data as any).attendance_data) {
         // First check if period_id matches a slot key directly
-        const periodData = data.attendance_data[period_id];
+        const periodData = (data as any).attendance_data[period_id];
         if (
           periodData &&
           periodData.students &&
           periodData.students.length > 0
         ) {
           return {
-            ...data,
+            ...(data as any),
             marked_by: '', // Add missing required property
             marked_by_profile: undefined
           } as ConsolidatedStudentAttendance;
         }
 
         // If not found by slot ID, search by period_id within the attendance data
-        for (const [slotId, slotData] of Object.entries(data.attendance_data)) {
+        for (const [slotId, slotData] of Object.entries((data as any).attendance_data)) {
           if (
             (slotData as any).period_id === period_id &&
             (slotData as any).students &&
             (slotData as any).students.length > 0
           ) {
             return {
-              ...data,
+              ...(data as any),
               marked_by: '', // Add missing required property
               marked_by_profile: undefined
             } as ConsolidatedStudentAttendance;
@@ -488,7 +488,7 @@ export class AttendanceService {
 
     return data
       ? ({
-          ...data,
+          ...(data as any),
           marked_by: '', // Add missing required property
           marked_by_profile: undefined
         } as ConsolidatedStudentAttendance)
@@ -528,7 +528,7 @@ export class AttendanceService {
       }
 
       return data.map((record) => ({
-        ...record,
+        ...(record as any),
         marked_by: '', // Add missing required property
         marked_by_profile: undefined
       })) as unknown as ConsolidatedStudentAttendance[];
@@ -553,7 +553,7 @@ export class AttendanceService {
         .eq('slot_id', slot_id)
         .single();
 
-      if (checkError || !continuityCheck?.continuity_group_id) {
+      if (checkError || !(continuityCheck as any)?.continuity_group_id) {
         // No continuity tracking for this slot
         return {
           hasVersions: false,
@@ -567,7 +567,7 @@ export class AttendanceService {
       const { data: continuityData, error } = await this.supabase
         .from('timetable_slot_continuity')
         .select('*')
-        .eq('continuity_group_id', continuityCheck.continuity_group_id)
+        .eq('continuity_group_id', (continuityCheck as any).continuity_group_id)
         .order('version_number', { ascending: false });
 
       if (error || !continuityData || continuityData.length === 0) {
@@ -580,15 +580,15 @@ export class AttendanceService {
       }
 
       const currentSlot = continuityData.find(
-        (c) => c.timetable_slot_id === slot_id
+        (c: any) => c.timetable_slot_id === slot_id
       );
-      const currentVersion = currentSlot?.version_number || 1;
+      const currentVersion = (currentSlot as any)?.version_number || 1;
 
       return {
         hasVersions: true,
         currentVersion,
         totalVersions: continuityData.length,
-        changeHistory: continuityData.map((c) => ({
+        changeHistory: continuityData.map((c: any) => ({
           version: c.version_number,
           validFrom: c.valid_from,
           validUntil: c.valid_until,
@@ -641,7 +641,7 @@ export class AttendanceService {
         const { data: sectionData, error: sectionError } = await this.supabase
           .from('sections')
           .select('id')
-          .eq('program_id', timetableData.program_id)
+          .eq('program_id', (timetableData as any).program_id)
           .eq('section_name', resolvedSectionId)
           .limit(1)
           .single();
@@ -650,7 +650,7 @@ export class AttendanceService {
           logger.error('academic/attendance', `Could not resolve section name "${resolvedSectionId}"`, sectionError);
           return []; // Return empty to avoid crash
         }
-        resolvedSectionId = sectionData.id;
+        resolvedSectionId = (sectionData as any).id;
       }
 
       if (!resolvedSectionId) {
@@ -669,12 +669,12 @@ export class AttendanceService {
 
       let hasVersions = false;
 
-      if (!continuityError && continuityData?.continuity_group_id) {
+      if (!continuityError && (continuityData as any)?.continuity_group_id) {
         // Check if there are multiple slots in this continuity group
         const { data: groupSlots, error: groupError } = await this.supabase
           .from('timetable_slot_continuity')
           .select('id')
-          .eq('continuity_group_id', continuityData.continuity_group_id);
+          .eq('continuity_group_id', (continuityData as any).continuity_group_id);
 
         if (!groupError && groupSlots && groupSlots.length > 1) {
           hasVersions = true;
@@ -767,7 +767,7 @@ export class AttendanceService {
 
       const attendanceRecords: any[] = [];
 
-      data.forEach((record) => {
+      data.forEach((record: any) => {
         const attendanceData = record.attendance_data as any;
 
         // Check if this slot exists in the attendance data
@@ -846,14 +846,14 @@ export class AttendanceService {
             .select('id')
             .eq('institution_id', data.institution_id)
             .eq('section_name', resolvedSectionId)
-            .eq('program_id', timetableData.program_id)
-            .eq('department_id', timetableData.department_id)
-            .eq('degree_id', timetableData.degree_id)
+            .eq('program_id', (timetableData as any).program_id)
+            .eq('department_id', (timetableData as any).department_id)
+            .eq('degree_id', (timetableData as any).degree_id)
             .eq('is_active', true)
             .maybeSingle();
 
           if (sectionData) {
-            resolvedSectionId = sectionData.id;
+            resolvedSectionId = (sectionData as any).id;
           } else {
             const errorMessage = `Cannot resolve section name "${resolvedSectionId}" to a valid UUID`;
             logger.error('academic/attendance', errorMessage);
@@ -915,7 +915,7 @@ export class AttendanceService {
         const { data: currentRecord, error: fetchError } = await this.supabase
           .from('student_attendance')
           .select('attendance_data')
-          .eq('id', existingRecord.id)
+          .eq('id', (existingRecord as any).id)
           .single();
 
         if (fetchError) {
@@ -925,21 +925,21 @@ export class AttendanceService {
 
         // Merge new attendance data with existing data
         const existingAttendanceData =
-          (currentRecord?.attendance_data as ConsolidatedAttendanceData) || {};
+          ((currentRecord as any)?.attendance_data as ConsolidatedAttendanceData) || {};
         const mergedAttendanceData = {
           ...existingAttendanceData, // Keep existing periods
           ...data.attendance_data // Add/update new periods
         };
 
         // Updated: 2025-10-09 - Update section_ids array for multi-section support
-        const { data: updateResult, error: updateError } = await this.supabase
-          .from('student_attendance')
+        const { data: updateResult, error: updateError } = await (this.supabase
+          .from('student_attendance') as any)
           .update({
             attendance_data: mergedAttendanceData, // Use merged data instead of overwriting
             section_ids: data.section_ids || null, // Update section_ids array if provided
             updated_at: new Date().toISOString()
           })
-          .eq('id', existingRecord.id)
+          .eq('id', (existingRecord as any).id)
           .select(
             `
             id,
@@ -987,14 +987,14 @@ export class AttendanceService {
           if (!timetableError && timetableData) {
             // Use semester_id from data or timetableData (should always be available now)
             const resolvedSemesterId =
-              data.semester_id || timetableData.semester_id;
+              data.semester_id || (timetableData as any).semester_id;
 
             academicFields = {
               academic_year_id:
-                data.academic_year_id || timetableData.academic_year_id,
-              degree_id: data.degree_id || timetableData.degree_id,
-              program_id: data.program_id || timetableData.program_id,
-              department_id: data.department_id || timetableData.department_id,
+                data.academic_year_id || (timetableData as any).academic_year_id,
+              degree_id: data.degree_id || (timetableData as any).degree_id,
+              program_id: data.program_id || (timetableData as any).program_id,
+              department_id: data.department_id || (timetableData as any).department_id,
               semester_id: resolvedSemesterId
             };
           }
@@ -1039,7 +1039,7 @@ export class AttendanceService {
             department_id: academicFields.department_id,
             semester_id: academicFields.semester_id,
             updated_at: new Date().toISOString()
-          })
+          } as any)
           .select(
             `
             id,
@@ -1209,12 +1209,12 @@ export class AttendanceService {
             for (const [, periodData] of Object.entries(attendanceData)) {
               const studentRecord = (periodData as any).students?.find(
                 (s: ConsolidatedAttendanceStudent) =>
-                  s.student_id === student.id
+                  s.student_id === (student as any).id
               );
 
               if (studentRecord) {
                 status = studentRecord.status;
-                attendance_id = consolidatedRecord.id;
+                attendance_id = (consolidatedRecord as any).id;
                 break; // Found the student, use their status
               }
             }
@@ -1229,11 +1229,11 @@ export class AttendanceService {
           }
 
           return {
-            id: student.id,
-            first_name: student.first_name || 'Unknown',
-            last_name: student.last_name || '',
-            roll_number: student.roll_number,
-            student_photo_url: student.student_photo_url,
+            id: (student as any).id,
+            first_name: (student as any).first_name || 'Unknown',
+            last_name: (student as any).last_name || '',
+            roll_number: (student as any).roll_number,
+            student_photo_url: (student as any).student_photo_url,
             status,
             attendance_id
           };
@@ -1328,7 +1328,7 @@ export class AttendanceService {
       let totalStudents = 0;
       const uniqueDates = new Set<string>();
 
-      (data || []).forEach((record) => {
+      (data || []).forEach((record: any) => {
         uniqueDates.add(record.attendance_date);
         const attendanceData =
           record.attendance_data as ConsolidatedAttendanceData;
@@ -1379,10 +1379,10 @@ export class AttendanceService {
 
       // Search through all timetables to find the one containing this slot ID
       for (const timetable of data) {
-        if (!timetable.timetable_data) continue;
+        if (!(timetable as any).timetable_data) continue;
 
         // Search through all days and periods in the JSON structure
-        for (const [, dayData] of Object.entries(timetable.timetable_data)) {
+        for (const [, dayData] of Object.entries((timetable as any).timetable_data)) {
           if (typeof dayData === 'object' && dayData !== null) {
             for (const [, slotData] of Object.entries(
               dayData as Record<string, any>
@@ -1392,7 +1392,7 @@ export class AttendanceService {
                 slotData !== null &&
                 (slotData as any).slot_id === slotId
               ) {
-                return timetable.id;
+                return (timetable as any).id;
               }
             }
           }
@@ -1423,13 +1423,13 @@ export class AttendanceService {
         .eq('id', timetableId)
         .single();
 
-      if (timetableError || !timetableData?.timetable_data) {
+      if (timetableError || !(timetableData as any)?.timetable_data) {
         logger.error('academic/attendance', 'Error fetching timetable data', timetableError);
         return null;
       }
 
       // Search through the JSON structure to find the slot
-      const timetableJson = timetableData.timetable_data;
+      const timetableJson = (timetableData as any).timetable_data;
       for (const [dayKey, dayData] of Object.entries(timetableJson)) {
         if (typeof dayData === 'object' && dayData !== null) {
           for (const [, slotData] of Object.entries(
@@ -1551,12 +1551,12 @@ export class AttendanceService {
 
       // Check if user meets RLS policy requirements
       const hasInstitutionAccess =
-        profileData.institution_id === filters.institution_id;
+        (profileData as any).institution_id === filters.institution_id;
       const hasDepartmentAccess =
-        profileData.department_id === filters.department_id;
-      const isSuperAdmin = profileData.is_super_admin === true;
+        (profileData as any).department_id === filters.department_id;
+      const isSuperAdmin = (profileData as any).is_super_admin === true;
       const isPrivilegedRole = ['admission', 'administrator'].includes(
-        profileData.role
+        (profileData as any).role
       );
 
       let query = this.supabase
@@ -1683,7 +1683,7 @@ export class AttendanceService {
         return [];
       }
 
-      const timetableId = timetables[0].id;
+      const timetableId = (timetables[0] as any).id;
 
       // Determine day of week from date
       const dayOfWeek = this.getDayOfWeekFromDate(date);
@@ -1702,8 +1702,8 @@ export class AttendanceService {
       }
 
       let slots: any[] = [];
-      if (timetableData?.timetable_data) {
-        const daySlots = timetableData.timetable_data[dayOfWeek];
+      if ((timetableData as any)?.timetable_data) {
+        const daySlots = (timetableData as any).timetable_data[dayOfWeek];
         if (daySlots && typeof daySlots === 'object') {
           // Convert JSON structure to array format
           slots = Object.entries(daySlots).map(
@@ -1805,7 +1805,7 @@ export class AttendanceService {
           logger.error('academic/attendance', `Could not resolve section name "${resolvedSectionId}"`, sectionError);
           // Proceed with original (likely incorrect) ID, or could throw error
         } else {
-          resolvedSectionId = sectionData.id;
+          resolvedSectionId = (sectionData as any).id;
         }
       }
 
@@ -1901,7 +1901,7 @@ export class AttendanceService {
 
       // Build roster students with attendance status
       const rosterStudents: AttendanceRosterStudent[] = (students || []).map(
-        (student) => {
+        (student: any) => {
           const attendanceRecord = attendanceMap.get(student.id);
           return {
             id: student.id,
@@ -2033,10 +2033,10 @@ export class AttendanceService {
 
       for (const timetable of timetables) {
         // Check date range for ALL timetable formats (both regular and batch)
-        if (timetable.start_date && timetable.end_date) {
+        if ((timetable as any).start_date && (timetable as any).end_date) {
           const searchDate = new Date(date);
-          const startDate = new Date(timetable.start_date);
-          const endDate = new Date(timetable.end_date);
+          const startDate = new Date((timetable as any).start_date);
+          const endDate = new Date((timetable as any).end_date);
 
           // Skip this timetable if the date is outside its range
           if (searchDate < startDate || searchDate > endDate) {
@@ -2045,14 +2045,14 @@ export class AttendanceService {
         }
 
         // Additional checks for batch timetables
-        if (timetable.timetable_format === 'batch') {
+        if ((timetable as any).timetable_format === 'batch') {
           // Also check if the date is in the selected_dates array
-          if (timetable.selected_dates) {
+          if ((timetable as any).selected_dates) {
             let dateIsInRange = false;
             const dateStr = date;
 
             // Check if date is covered by any of the date ranges
-            for (const item of timetable.selected_dates) {
+            for (const item of (timetable as any).selected_dates) {
               if (typeof item === 'string' && item.startsWith('RANGE:')) {
                 const parts = item.split(':');
                 if (parts.length === 3) {
@@ -2079,7 +2079,7 @@ export class AttendanceService {
         try {
           const timetableData = (timetable as any).timetable_data;
           if (timetableData && typeof timetableData === 'object') {
-            if (timetable.timetable_format === 'batch') {
+            if ((timetable as any).timetable_format === 'batch') {
               if (!date) {
                 logger.error('academic/attendance', 'Date is required for batch timetables');
                 continue;
@@ -2094,12 +2094,12 @@ export class AttendanceService {
               let matchingRangeEnd = null;
 
               if (
-                timetable.selected_dates &&
-                Array.isArray(timetable.selected_dates)
+                (timetable as any).selected_dates &&
+                Array.isArray((timetable as any).selected_dates)
               ) {
                 const queryDate = new Date(date);
 
-                for (const dateItem of timetable.selected_dates) {
+                for (const dateItem of (timetable as any).selected_dates) {
                   if (
                     typeof dateItem === 'string' &&
                     dateItem.startsWith('RANGE:')
@@ -2287,7 +2287,7 @@ export class AttendanceService {
                   .from('courses')
                   .select('*')
                   .in('id', uniqueCourseIds);
-                courses?.forEach((course) => coursesMap.set(course.id, course));
+                courses?.forEach((course: any) => coursesMap.set(course.id, course));
               } catch (error) {
                 logger.error('academic/attendance', 'Error fetching courses', error);
               }
@@ -2301,7 +2301,7 @@ export class AttendanceService {
                   .from('staff')
                   .select('*')
                   .in('id', uniqueStaffIds);
-                staff?.forEach((s) => staffMap.set(s.id, s));
+                staff?.forEach((s: any) => staffMap.set(s.id, s));
               } catch (error) {
                 logger.error('academic/attendance', 'Error fetching staff', error);
               }
@@ -2315,7 +2315,7 @@ export class AttendanceService {
                   .from('sections')
                   .select('*')
                   .in('id', uniqueSectionIds);
-                sections?.forEach((section) =>
+                sections?.forEach((section: any) =>
                   sectionsMap.set(section.id, section)
                 );
               } catch (error) {
@@ -2329,7 +2329,7 @@ export class AttendanceService {
               // For semester-level timetables, get from slot.section_ids
               let sectionName = '';
               if (
-                timetable.timetable_type === 'section' &&
+                (timetable as any).timetable_type === 'section' &&
                 (timetable as any).sections?.section_name
               ) {
                 sectionName = (timetable as any).sections.section_name;
@@ -2386,7 +2386,7 @@ export class AttendanceService {
 
           if (!staffIdForFiltering) {
             // Check if user is HOD - HOD users don't have staff records but should see their department's periods
-            const { data: userData } = await this.supabase.auth.getUser();
+            const { data: userData } = await (this.supabase as any).auth.getUser();
             if (userData.user) {
               const { data: profile } = await this.supabase
                 .from('profiles')
@@ -2395,8 +2395,8 @@ export class AttendanceService {
                 .single();
 
               if (
-                profile?.role === 'hod' &&
-                profile.department_id === filters.department_id
+                (profile as any)?.role === 'hod' &&
+                (profile as any).department_id === filters.department_id
               ) {
                 isHODUser = true;
               } else {
@@ -2459,7 +2459,7 @@ export class AttendanceService {
               logger.warn('academic/attendance', 'All slots filtered out for staff - possible duplicate staff record', {
                 userStaffId: staffIdForFiltering,
                 sampleSlotStaffIds: slots[0]?.staff_ids || [],
-                timetableId: timetable.id
+                timetableId: (timetable as any).id
               });
             }
           }
@@ -2468,7 +2468,7 @@ export class AttendanceService {
           // Updated: 2025-10-13 - Include staff filtering info for subdivision expansion
           const slotsWithTimetableId = filteredSlots.map((slot: any) => ({
             ...slot,
-            timetable_id: timetable.id,
+            timetable_id: (timetable as any).id,
             _staff_filter_id: staffIdForFiltering, // Track staff ID for subdivision filtering
             _is_hod_user: isHODUser, // Track if user is HOD
             _is_super_admin: options.isSuperAdmin // Track if user is super admin
@@ -2540,18 +2540,18 @@ export class AttendanceService {
             end_time: periodData?.end_time || '',
             is_break: periodData?.is_break || false,
             // Add the hierarchy names from timetable relations
-            degree_name: Array.isArray(timetableData?.degrees)
-              ? timetableData.degrees[0]?.degree_name || ''
-              : (timetableData?.degrees as any)?.degree_name || '',
-            program_name: Array.isArray(timetableData?.programs)
-              ? timetableData.programs[0]?.program_name || ''
-              : (timetableData?.programs as any)?.program_name || '',
-            department_name: Array.isArray(timetableData?.departments)
-              ? timetableData.departments[0]?.department_name || ''
-              : (timetableData?.departments as any)?.department_name || '',
-            semester_name: Array.isArray(timetableData?.semesters)
-              ? timetableData.semesters[0]?.semester_name || ''
-              : (timetableData?.semesters as any)?.semester_name || '',
+            degree_name: Array.isArray((timetableData as any)?.degrees)
+              ? (timetableData as any).degrees[0]?.degree_name || ''
+              : ((timetableData as any)?.degrees as any)?.degree_name || '',
+            program_name: Array.isArray((timetableData as any)?.programs)
+              ? (timetableData as any).programs[0]?.program_name || ''
+              : ((timetableData as any)?.programs as any)?.program_name || '',
+            department_name: Array.isArray((timetableData as any)?.departments)
+              ? (timetableData as any).departments[0]?.department_name || ''
+              : ((timetableData as any)?.departments as any)?.department_name || '',
+            semester_name: Array.isArray((timetableData as any)?.semesters)
+              ? (timetableData as any).semesters[0]?.semester_name || ''
+              : ((timetableData as any)?.semesters as any)?.semester_name || '',
             // Updated: 2025-10-09 - Fix section name for section-level timetables
             // Priority 1: slot.section_name (direct property from slot data)
             // Priority 2: timetableData.sections from join (section-level timetables)
@@ -2559,7 +2559,7 @@ export class AttendanceService {
             // Priority 4: slot.sections array with 'section_name' property (fallback)
             section_name:
               slot.section_name ||
-              (timetableData?.sections as any)?.section_name ||
+              ((timetableData as any)?.sections as any)?.section_name ||
               (Array.isArray(slot.sections) && slot.sections.length > 0
                 ? slot.sections[0]?.name || slot.sections[0]?.section_name || ''
                 : ''),
@@ -2727,7 +2727,7 @@ export class AttendanceService {
       // Use upsert to create or update attendance records
       const { error } = await this.supabase
         .from('student_attendance')
-        .upsert(data.records, {
+        .upsert(data.records as any, {
           onConflict: 'student_id,timetable_slot_id,attendance_date'
         });
 
@@ -2764,12 +2764,12 @@ export class AttendanceService {
       }
 
       // HOD users don't have staff records - return null immediately to avoid RLS issues
-      if (profile.role === 'hod') {
+      if ((profile as any).role === 'hod') {
         return null;
       }
 
       // Normalize email for matching
-      const profileEmail = profile.email?.trim().toLowerCase();
+      const profileEmail = (profile as any).email?.trim().toLowerCase();
       const authEmail = userData.user.email?.trim().toLowerCase();
 
       if (!profileEmail && !authEmail) {
@@ -2788,7 +2788,7 @@ export class AttendanceService {
           .maybeSingle();
 
         if (staff) {
-          return staff.id;
+          return (staff as any).id;
         }
 
         // 2. Fallback: Try matching on personal email field
@@ -2800,7 +2800,7 @@ export class AttendanceService {
           .maybeSingle();
 
         if (staffByPersonalEmail) {
-          return staffByPersonalEmail.id;
+          return (staffByPersonalEmail as any).id;
         }
       }
 
@@ -2814,7 +2814,7 @@ export class AttendanceService {
           .maybeSingle();
 
         if (staffByAuthEmail) {
-          return staffByAuthEmail.id;
+          return (staffByAuthEmail as any).id;
         }
       }
 
@@ -2866,7 +2866,7 @@ export class AttendanceService {
         return null;
       }
 
-      const timetableType = data.timetable_type as 'semester' | 'section';
+      const timetableType = (data as any).timetable_type as 'semester' | 'section';
       return timetableType;
     } catch (error) {
       logger.error('academic/attendance', 'Error in getTimetableTypeForSemester', error);
@@ -2894,14 +2894,14 @@ export class AttendanceService {
         .eq('id', timetableId)
         .single();
 
-      if (slotsError || !timetableData?.timetable_data) {
+      if (slotsError || !(timetableData as any)?.timetable_data) {
         logger.error('academic/attendance', 'Error fetching timetable data for staff assignment check', slotsError);
         return false;
       }
 
       // Extract all slots from JSON structure
       const slots: any[] = [];
-      const timetableJson = timetableData.timetable_data;
+      const timetableJson = (timetableData as any).timetable_data;
       for (const [dayKey, dayData] of Object.entries(timetableJson)) {
         if (typeof dayData === 'object' && dayData !== null) {
           for (const [periodKey, slotData] of Object.entries(
@@ -3034,7 +3034,7 @@ export class AttendanceService {
       const { data: roleData, error: roleError } = await this.supabase
         .from('custom_roles')
         .select('permissions')
-        .eq('role_key', profile.role)
+        .eq('role_key', (profile as any).role)
         .single();
 
       if (roleError || !roleData) {
@@ -3042,7 +3042,7 @@ export class AttendanceService {
       }
 
       // Check if role has attendance marking permission
-      const permissions = roleData.permissions as any;
+      const permissions = (roleData as any).permissions as any;
       return permissions && permissions['academic.attendance.mark'] === true;
     } catch (error) {
       logger.error('academic/attendance', 'Error checking faculty attendance permission', error);
@@ -3074,12 +3074,12 @@ export class AttendanceService {
       }
 
       // Only check for HOD role
-      if (profile.role !== 'hod' || profile.is_super_admin) {
+      if ((profile as any).role !== 'hod' || (profile as any).is_super_admin) {
         return false;
       }
 
       // HOD must have a department assigned
-      if (!profile.department_id) {
+      if (!(profile as any).department_id) {
         return false;
       }
 
@@ -3096,7 +3096,7 @@ export class AttendanceService {
           await this.supabase
             .from('timetables')
             .select('id, department_id, timetable_data')
-            .eq('department_id', profile.department_id)
+            .eq('department_id', (profile as any).department_id)
             .eq('is_active', true);
 
         if (allTimetablesError || !allTimetables) {
@@ -3104,7 +3104,7 @@ export class AttendanceService {
         }
 
         // Check if any timetable in the department contains this slot
-        const hasSlot = allTimetables.some((timetable) => {
+        const hasSlot = allTimetables.some((timetable: any) => {
           const timetableData = timetable.timetable_data as any;
           if (!timetableData) return false;
 
@@ -3128,7 +3128,7 @@ export class AttendanceService {
 
       // Check if the timetable belongs to the HOD's department
       const belongsToHODDepartment =
-        timetableData.department_id === profile.department_id;
+        (timetableData as any).department_id === (profile as any).department_id;
 
       return belongsToHODDepartment;
     } catch (error) {
@@ -3164,12 +3164,12 @@ export class AttendanceService {
         .eq('id', attendanceData.marked_by)
         .single();
 
-      let markerName = profileData?.full_name || 'Unknown User';
-      let markerEmail = profileData?.email || '';
-      const markerRole = profileData?.role || 'faculty';
+      let markerName = (profileData as any)?.full_name || 'Unknown User';
+      let markerEmail = (profileData as any)?.email || '';
+      const markerRole = (profileData as any)?.role || 'faculty';
 
       // Try to get better name from staff table if user is faculty
-      if (profileData?.role === 'faculty') {
+      if ((profileData as any)?.role === 'faculty') {
         const { data: staffData } = await this.supabase
           .from('staff')
           .select('staff_name, staff_email')
@@ -3179,8 +3179,8 @@ export class AttendanceService {
           .maybeSingle();
 
         if (staffData) {
-          markerName = staffData.staff_name;
-          markerEmail = staffData.staff_email || markerEmail;
+          markerName = (staffData as any).staff_name;
+          markerEmail = (staffData as any).staff_email || markerEmail;
         }
       }
 
@@ -3240,10 +3240,10 @@ export class AttendanceService {
     data: UpdateStudentAttendanceDto
   ): Promise<StudentAttendance> {
     try {
-      const { data: updatedRecord, error } = await this.supabase
-        .from('student_attendance')
+      const { data: updatedRecord, error } = await (this.supabase
+        .from('student_attendance') as any)
         .update({
-          ...data,
+          ...(data as any),
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -3405,55 +3405,55 @@ export class AttendanceService {
       if (record) {
         // Check for null values
         const nullFields = [];
-        if (!record.semester_id) nullFields.push('semester_id');
-        if (!record.academic_year_id) nullFields.push('academic_year_id');
-        if (!record.degree_id) nullFields.push('degree_id');
-        if (!record.program_id) nullFields.push('program_id');
-        if (!record.department_id) nullFields.push('department_id');
+        if (!(record as any).semester_id) nullFields.push('semester_id');
+        if (!(record as any).academic_year_id) nullFields.push('academic_year_id');
+        if (!(record as any).degree_id) nullFields.push('degree_id');
+        if (!(record as any).program_id) nullFields.push('program_id');
+        if (!(record as any).department_id) nullFields.push('department_id');
 
         if (nullFields.length > 0) {
           issues.push(`Null fields detected: ${nullFields.join(', ')}`);
         }
 
         // Fetch timetable information
-        if (record.timetable_id) {
+        if ((record as any).timetable_id) {
           const { data: timetableData, error: timetableError } =
             await this.supabase
               .from('timetables')
               .select(
                 'id, semester, semester_id, section, section_id, degree_id, program_id, department_id, academic_year_id'
               )
-              .eq('id', record.timetable_id)
+              .eq('id', (record as any).timetable_id)
               .single();
 
           if (!timetableError && timetableData) {
             timetableInfo = timetableData;
 
             // Check if timetable has missing semester_id
-            if (!timetableData.semester_id) {
+            if (!(timetableData as any).semester_id) {
               issues.push(
-                `Timetable ${record.timetable_id} is missing semester_id`
+                `Timetable ${(record as any).timetable_id} is missing semester_id`
               );
               suggestions.push(
-                `Update timetable ${record.timetable_id} with correct semester_id`
+                `Update timetable ${(record as any).timetable_id} with correct semester_id`
               );
             }
 
             // Check if record fields match timetable
             if (
-              timetableData.degree_id &&
-              record.degree_id !== timetableData.degree_id
+              (timetableData as any).degree_id &&
+              (record as any).degree_id !== (timetableData as any).degree_id
             ) {
               issues.push(
-                `Degree mismatch: record=${record.degree_id}, timetable=${timetableData.degree_id}`
+                `Degree mismatch: record=${(record as any).degree_id}, timetable=${(timetableData as any).degree_id}`
               );
             }
             if (
-              timetableData.program_id &&
-              record.program_id !== timetableData.program_id
+              (timetableData as any).program_id &&
+              (record as any).program_id !== (timetableData as any).program_id
             ) {
               issues.push(
-                `Program mismatch: record=${record.program_id}, timetable=${timetableData.program_id}`
+                `Program mismatch: record=${(record as any).program_id}, timetable=${(timetableData as any).program_id}`
               );
             }
           }
@@ -3461,31 +3461,31 @@ export class AttendanceService {
 
         // Try to find correct semester_id if missing
         if (
-          !record.semester_id &&
-          timetableInfo?.semester &&
-          timetableInfo?.degree_id &&
-          timetableInfo?.program_id
+          !(record as any).semester_id &&
+          (timetableInfo as any)?.semester &&
+          (timetableInfo as any)?.degree_id &&
+          (timetableInfo as any)?.program_id
         ) {
           const { data: semesterData, error: semesterError } =
             await this.supabase
               .from('semesters')
               .select('id, semester_name')
-              .eq('semester_name', timetableInfo.semester)
-              .eq('degree_id', timetableInfo.degree_id)
-              .eq('program_id', timetableInfo.program_id)
+              .eq('semester_name', (timetableInfo as any).semester)
+              .eq('degree_id', (timetableInfo as any).degree_id)
+              .eq('program_id', (timetableInfo as any).program_id)
               .single();
 
           if (!semesterError && semesterData) {
             semesterInfo = semesterData;
             suggestions.push(
-              `Record should have semester_id: ${semesterData.id} (${semesterData.semester_name})`
+              `Record should have semester_id: ${(semesterData as any).id} (${(semesterData as any).semester_name})`
             );
             suggestions.push(
-              `UPDATE student_attendance SET semester_id = '${semesterData.id}' WHERE id = '${record.id}'`
+              `UPDATE student_attendance SET semester_id = '${(semesterData as any).id}' WHERE id = '${(record as any).id}'`
             );
           } else {
             issues.push(
-              `Cannot resolve semester_id for semester '${timetableInfo.semester}'`
+              `Cannot resolve semester_id for semester '${(timetableInfo as any).semester}'`
             );
           }
         }
@@ -3558,28 +3558,28 @@ export class AttendanceService {
       // Process each record
       for (const record of recordsToFix) {
         try {
-          const debugResult = await this.debugAttendanceRecord(record.id);
+          const debugResult = await this.debugAttendanceRecord((record as any).id);
 
-          if (debugResult.semesterInfo && debugResult.semesterInfo.id) {
+          if (debugResult.semesterInfo && (debugResult.semesterInfo as any).id) {
             const recordSummary = {
-              record_id: record.id,
-              attendance_date: record.attendance_date,
-              timetable_id: record.timetable_id,
-              resolved_semester_id: debugResult.semesterInfo.id,
-              semester_name: debugResult.semesterInfo.semester_name,
+              record_id: (record as any).id,
+              attendance_date: (record as any).attendance_date,
+              timetable_id: (record as any).timetable_id,
+              resolved_semester_id: (debugResult.semesterInfo as any).id,
+              semester_name: (debugResult.semesterInfo as any).semester_name,
               action: dryRun ? 'would_fix' : 'fixed'
             };
 
             if (!dryRun) {
               // Actually update the record
-              const { error: updateError } = await this.supabase
-                .from('student_attendance')
-                .update({ semester_id: debugResult.semesterInfo.id })
-                .eq('id', record.id);
+              const { error: updateError } = await (this.supabase
+                .from('student_attendance') as any)
+                .update({ semester_id: (debugResult.semesterInfo as any).id })
+                .eq('id', (record as any).id);
 
               if (updateError) {
                 errors.push(
-                  `Failed to fix record ${record.id}: ${updateError.message}`
+                  `Failed to fix record ${(record as any).id}: ${updateError.message}`
                 );
                 recordSummary.action = 'failed';
               } else {
@@ -3590,16 +3590,16 @@ export class AttendanceService {
             summary.push(recordSummary);
           } else {
             summary.push({
-              record_id: record.id,
-              attendance_date: record.attendance_date,
-              timetable_id: record.timetable_id,
+              record_id: (record as any).id,
+              attendance_date: (record as any).attendance_date,
+              timetable_id: (record as any).timetable_id,
               action: 'cannot_resolve',
               issues: debugResult.issues
             });
           }
         } catch (error) {
           errors.push(
-            `Error processing record ${record.id}: ${
+            `Error processing record ${(record as any).id}: ${
               error instanceof Error ? error.message : 'Unknown error'
             }`
           );
@@ -3660,7 +3660,7 @@ export class AttendanceService {
       // Check if any record has this batch_id in attendance_data
       if (existingAttendance && existingAttendance.length > 0) {
         for (const record of existingAttendance) {
-          const attendanceData = record.attendance_data as any;
+          const attendanceData = (record as any).attendance_data as any;
           const periodData = attendanceData[period_slot_id];
 
           if (periodData && periodData.period_mode === 'practical') {
@@ -3673,7 +3673,7 @@ export class AttendanceService {
                 existingRecord: {
                   lab: periodData.lab_selected || 'Unknown Lab',
                   course: periodData.course_selected || 'Unknown Course',
-                  time: new Date(record.created_at).toLocaleTimeString()
+                  time: new Date((record as any).created_at).toLocaleTimeString()
                 }
               };
             }
@@ -3710,7 +3710,7 @@ export class AttendanceService {
         return null;
       }
 
-      const timetableDataObj = timetableData.timetable_data || {};
+      const timetableDataObj = (timetableData as any).timetable_data || {};
 
       // Search through all days to find the period slot
       for (const day of Object.keys(timetableDataObj)) {

@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
 
     // Build query
 
-    let query = supabase.from('programs').select(
+    let query = (supabase as any).from('programs').select(
       `
       *,
       institution:institutions (

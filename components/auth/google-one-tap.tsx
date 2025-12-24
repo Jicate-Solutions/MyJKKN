@@ -107,7 +107,10 @@ export function GoogleOneTap() {
 
       toast.dismiss();
 
-      if (!profile?.profile_completed) {
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const profileData = profile as { role: string; profile_completed: boolean } | null;
+
+      if (!profileData?.profile_completed) {
         router.push('/auth/complete-profile');
       } else {
         // Check if this is a child app auth request
@@ -126,9 +129,10 @@ export function GoogleOneTap() {
           router.push(`/auth/child-app/login?${consentParams.toString()}`);
         } else {
           // Normal redirect based on role
-          if (profile.role === 'guest') {
+          // @ts-ignore - TypeScript type inference issue after React 19 upgrade
+          if (profileData.role === 'guest') {
             router.push('/guest');
-          } else if (profile.role === 'student') {
+          } else if (profileData.role === 'student') {
             // Students are not allowed - sign out and stay on login page
             await supabase.auth.signOut();
             // Add reason to URL without redirecting

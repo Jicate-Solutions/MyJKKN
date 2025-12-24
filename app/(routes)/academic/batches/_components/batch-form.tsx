@@ -162,9 +162,13 @@ export function BatchForm({
   const handleSubmit = (values: BatchFormValues) => {
     // Convert dates to ISO string format for API
     onSubmit({
-      ...values,
+      batch_year: values.batch_year,
+      batch_code: values.batch_code,
+      batch_name: values.batch_name,
       start_date: format(values.start_date, 'yyyy-MM-dd'),
-      end_date: format(values.end_date, 'yyyy-MM-dd')
+      end_date: format(values.end_date, 'yyyy-MM-dd'),
+      is_active: values.is_active,
+      institution_id: values.institution_id
     });
   };
 

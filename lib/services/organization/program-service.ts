@@ -36,7 +36,7 @@ export class ProgramService {
     departmentId: string
   ): Promise<Program | null> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('programs')
         .select('*')
         .eq('department_id', departmentId)
@@ -56,7 +56,7 @@ export class ProgramService {
 
   static async createProgram(data: CreateProgramDto): Promise<Program> {
     try {
-      const { data: program, error } = await this.supabase
+      const { data: program, error } = await (this.supabase as any)
         .from('programs')
         .insert([
           {
@@ -87,7 +87,7 @@ export class ProgramService {
     data: UpdateProgramDto
   ): Promise<Program> {
     try {
-      const { data: program, error } = await this.supabase
+      const { data: program, error } = await (this.supabase as any)
         .from('programs')
         .update({
           ...data,
@@ -110,7 +110,7 @@ export class ProgramService {
 
   static async deleteProgram(id: string): Promise<void> {
     try {
-      const { error } = await this.supabase
+      const { error } = await (this.supabase as any)
         .from('programs')
         .delete()
         .eq('id', id);
@@ -128,7 +128,7 @@ export class ProgramService {
     filters: ProgramFilters = {}
   ): Promise<ProgramListResponse> {
     try {
-      let query = this.supabase.from('programs').select(
+      let query = (this.supabase as any).from('programs').select(
         `
         *,
         institution:institutions (
@@ -222,7 +222,7 @@ export class ProgramService {
 
   static async getProgram(id: string): Promise<Program> {
     try {
-      const { data: program, error } = await this.supabase
+      const { data: program, error } = await (this.supabase as any)
         .from('programs')
         .select(
           `
@@ -268,7 +268,7 @@ export class ProgramService {
 
       if (isUUID) {
         // If it's a UUID, use it directly with eq
-        query = this.supabase
+        query = (this.supabase as any)
           .from('programs')
           .select('*')
           .eq('department_id', departmentId)
@@ -276,14 +276,14 @@ export class ProgramService {
           .order('program_name');
       } else {
         // If it's not a UUID, try to find the department by name first
-        const { data: department } = await this.supabase
+        const { data: department } = await (this.supabase as any)
           .from('departments')
           .select('id')
           .ilike('department_name', departmentId)
           .single();
 
         if (department) {
-          query = this.supabase
+          query = (this.supabase as any)
             .from('programs')
             .select('*')
             .eq('department_id', department.id)

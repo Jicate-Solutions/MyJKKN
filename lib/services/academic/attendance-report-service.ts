@@ -85,7 +85,7 @@ export class AttendanceReportService {
           .from('profiles')
           .select('role, is_super_admin, department_id')
           .eq('id', userId)
-          .single();
+          .single() as { data: { role: string; is_super_admin: boolean; department_id: string } | null };
 
         // Allow full access if user is super admin or admin
         if (profileData?.is_super_admin || profileData?.role === 'admin') {
@@ -105,7 +105,7 @@ export class AttendanceReportService {
             .from('staff')
             .select('id')
             .eq('profile_id', userId)
-            .single();
+            .single() as { data: { id: string } | null };
 
           if (!staffData) {
             logger.error('academic/attendance-reports', 'Staff record not found for faculty user', { userId });
@@ -177,22 +177,22 @@ export class AttendanceReportService {
 
       // Fetch related data in batch for better performance
       const sectionIds = [
-        ...new Set(data?.map((r) => r.section_id).filter(Boolean) || [])
+        ...new Set(data?.map((r: any) => r.section_id).filter(Boolean) || [])
       ];
       const semesterIds = [
-        ...new Set(data?.map((r) => r.semester_id).filter(Boolean) || [])
+        ...new Set(data?.map((r: any) => r.semester_id).filter(Boolean) || [])
       ];
       const programIds = [
-        ...new Set(data?.map((r) => r.program_id).filter(Boolean) || [])
+        ...new Set(data?.map((r: any) => r.program_id).filter(Boolean) || [])
       ];
       const departmentIds = [
-        ...new Set(data?.map((r) => r.department_id).filter(Boolean) || [])
+        ...new Set(data?.map((r: any) => r.department_id).filter(Boolean) || [])
       ];
       const degreeIds = [
-        ...new Set(data?.map((r) => r.degree_id).filter(Boolean) || [])
+        ...new Set(data?.map((r: any) => r.degree_id).filter(Boolean) || [])
       ];
       const institutionIds = [
-        ...new Set(data?.map((r) => r.institution_id).filter(Boolean) || [])
+        ...new Set(data?.map((r: any) => r.institution_id).filter(Boolean) || [])
       ];
 
       // Fetch all related data in parallel
@@ -209,62 +209,62 @@ export class AttendanceReportService {
               .from('sections')
               .select('id, section_name')
               .in('id', sectionIds)
-          : { data: [] },
+          : Promise.resolve({ data: [] as Array<{ id: string; section_name: string }> }),
         semesterIds.length > 0
           ? this.supabase
               .from('semesters')
               .select('id, semester_name')
               .in('id', semesterIds)
-          : { data: [] },
+          : Promise.resolve({ data: [] as Array<{ id: string; semester_name: string }> }),
         programIds.length > 0
           ? this.supabase
               .from('programs')
               .select('id, program_name')
               .in('id', programIds)
-          : { data: [] },
+          : Promise.resolve({ data: [] as Array<{ id: string; program_name: string }> }),
         departmentIds.length > 0
           ? this.supabase
               .from('departments')
               .select('id, department_name')
               .in('id', departmentIds)
-          : { data: [] },
+          : Promise.resolve({ data: [] as Array<{ id: string; department_name: string }> }),
         degreeIds.length > 0
           ? this.supabase
               .from('degrees')
               .select('id, degree_name')
               .in('id', degreeIds)
-          : { data: [] },
+          : Promise.resolve({ data: [] as Array<{ id: string; degree_name: string }> }),
         institutionIds.length > 0
           ? this.supabase
               .from('institutions')
               .select('id, name')
               .in('id', institutionIds)
-          : { data: [] }
+          : Promise.resolve({ data: [] as Array<{ id: string; name: string }> })
       ]);
 
       // Create lookup maps
       const sectionMap = new Map(
-        (sections.data || []).map((s) => [s.id, s.section_name])
+        (sections.data || []).map((s: any) => [s.id, s.section_name])
       );
       const semesterMap = new Map(
-        (semesters.data || []).map((s) => [s.id, s.semester_name])
+        (semesters.data || []).map((s: any) => [s.id, s.semester_name])
       );
       const programMap = new Map(
-        (programs.data || []).map((p) => [p.id, p.program_name])
+        (programs.data || []).map((p: any) => [p.id, p.program_name])
       );
       const departmentMap = new Map(
-        (departments.data || []).map((d) => [d.id, d.department_name])
+        (departments.data || []).map((d: any) => [d.id, d.department_name])
       );
       const degreeMap = new Map(
-        (degrees.data || []).map((d) => [d.id, d.degree_name])
+        (degrees.data || []).map((d: any) => [d.id, d.degree_name])
       );
       const institutionMap = new Map(
-        (institutions.data || []).map((i) => [i.id, i.name])
+        (institutions.data || []).map((i: any) => [i.id, i.name])
       );
 
       // Process data with related information
       const processedReports: AttendanceReport[] = (data || []).map(
-        (record) => {
+        (record: any) => {
           const attendanceData = record.attendance_data as any;
           // Convert object to array of periods (attendance_data is an object with timetable_slot_id as keys)
           const periods = attendanceData ? Object.values(attendanceData) : [];
@@ -379,7 +379,7 @@ export class AttendanceReportService {
       const offset = (page - 1) * limit;
 
       // Call the RPC function with all filters
-      const { data: rpcData, error } = await this.supabase.rpc(
+      const { data: rpcData, error } = await (this.supabase as any).rpc(
         'get_faculty_attendance_reports',
         {
           faculty_staff_id: staffId,
@@ -460,7 +460,7 @@ export class AttendanceReportService {
                   logger.error('academic/attendance-reports', 'Error fetching sections', result.error);
                 return result;
               })
-          : Promise.resolve({ data: [] }),
+          : Promise.resolve({ data: [] as Array<{ id: string; section_name: string }> }),
         semesterIds.length > 0
           ? this.supabase
               .from('semesters')
@@ -471,7 +471,7 @@ export class AttendanceReportService {
                   logger.error('academic/attendance-reports', 'Error fetching semesters', result.error);
                 return result;
               })
-          : Promise.resolve({ data: [] }),
+          : Promise.resolve({ data: [] as Array<{ id: string; semester_name: string }> }),
         programIds.length > 0
           ? this.supabase
               .from('programs')
@@ -482,7 +482,7 @@ export class AttendanceReportService {
                   logger.error('academic/attendance-reports', 'Error fetching programs', result.error);
                 return result;
               })
-          : Promise.resolve({ data: [] }),
+          : Promise.resolve({ data: [] as Array<{ id: string; program_name: string }> }),
         departmentIds.length > 0
           ? this.supabase
               .from('departments')
@@ -493,7 +493,7 @@ export class AttendanceReportService {
                   logger.error('academic/attendance-reports', 'Error fetching departments', result.error);
                 return result;
               })
-          : Promise.resolve({ data: [] }),
+          : Promise.resolve({ data: [] as Array<{ id: string; department_name: string }> }),
         degreeIds.length > 0
           ? this.supabase
               .from('degrees')
@@ -504,7 +504,7 @@ export class AttendanceReportService {
                   logger.error('academic/attendance-reports', 'Error fetching degrees', result.error);
                 return result;
               })
-          : Promise.resolve({ data: [] }),
+          : Promise.resolve({ data: [] as Array<{ id: string; degree_name: string }> }),
         institutionIds.length > 0
           ? this.supabase
               .from('institutions')
@@ -515,27 +515,27 @@ export class AttendanceReportService {
                   logger.error('academic/attendance-reports', 'Error fetching institutions', result.error);
                 return result;
               })
-          : Promise.resolve({ data: [] })
+          : Promise.resolve({ data: [] as Array<{ id: string; name: string }> })
       ]);
 
     // Create lookup maps
     const sectionMap = new Map(
-      (sections.data || []).map((s) => [s.id, s.section_name])
+      (sections.data || []).map((s: any) => [s.id, s.section_name])
     );
     const semesterMap = new Map(
-      (semesters.data || []).map((s) => [s.id, s.semester_name])
+      (semesters.data || []).map((s: any) => [s.id, s.semester_name])
     );
     const programMap = new Map(
-      (programs.data || []).map((p) => [p.id, p.program_name])
+      (programs.data || []).map((p: any) => [p.id, p.program_name])
     );
     const departmentMap = new Map(
-      (departments.data || []).map((d) => [d.id, d.department_name])
+      (departments.data || []).map((d: any) => [d.id, d.department_name])
     );
     const degreeMap = new Map(
-      (degrees.data || []).map((d) => [d.id, d.degree_name])
+      (degrees.data || []).map((d: any) => [d.id, d.degree_name])
     );
     const institutionMap = new Map(
-      (institutions.data || []).map((i) => [i.id, i.name])
+      (institutions.data || []).map((i: any) => [i.id, i.name])
     );
 
     // Process each record
@@ -655,7 +655,7 @@ export class AttendanceReportService {
           .from('profiles')
           .select('role, is_super_admin')
           .eq('id', userId)
-          .single();
+          .single() as { data: { role: string; is_super_admin: boolean } | null };
 
         // Allow access if user is super admin or admin
         if (profileData?.is_super_admin || profileData?.role === 'admin') {
@@ -666,7 +666,7 @@ export class AttendanceReportService {
             .from('staff')
             .select('id')
             .eq('profile_id', userId)
-            .single();
+            .single() as { data: { id: string } | null };
 
           if (!staffData) {
             logger.warn('academic/attendance-reports', 'Faculty profile not found in staff table', { userId });
@@ -674,7 +674,7 @@ export class AttendanceReportService {
             // This handles cases where faculty users don't have corresponding staff records
           } else {
             // Check if faculty is assigned to any period
-            const attendanceData = data.attendance_data as any;
+            const attendanceData = (data as any).attendance_data as any;
             // attendance_data is an object with timetable_slot_id as keys and period data as values
             const periods = Object.values(attendanceData || {});
 
@@ -689,7 +689,7 @@ export class AttendanceReportService {
               logger.error('academic/attendance-reports', 'Faculty not assigned to this report', {
                 userId,
                 staffId: staffData.id,
-                reportId: data.id
+                reportId: (data as any).id
               });
               // Deny access - faculty can only view reports they are assigned to
               return {
@@ -702,7 +702,7 @@ export class AttendanceReportService {
       }
 
       // Process attendance data for detailed view
-      const attendanceData = data.attendance_data as any;
+      const attendanceData = (data as any).attendance_data as any;
       // Convert object to array of periods (attendance_data is an object with timetable_slot_id as keys)
       const periodsObject = attendanceData || {};
       let periods = Object.entries(periodsObject).map(
@@ -720,14 +720,14 @@ export class AttendanceReportService {
           .from('profiles')
           .select('role, is_super_admin')
           .eq('id', userId)
-          .single();
+          .single() as { data: { role: string; is_super_admin: boolean } | null };
 
         if (!profileData?.is_super_admin && profileData?.role !== 'admin') {
           const { data: staffData } = await this.supabase
             .from('staff')
             .select('id')
             .eq('profile_id', userId)
-            .single();
+            .single() as { data: { id: string } | null };
 
           if (staffData) {
             facultyStaffId = staffData.id;
@@ -769,10 +769,10 @@ export class AttendanceReportService {
         const { data: coursesData } = await this.supabase
           .from('courses')
           .select('id, course_code')
-          .in('id', courseIds);
+          .in('id', courseIds) as { data: Array<{ id: string; course_code: string }> | null };
 
         if (coursesData) {
-          coursesData.forEach((course) => {
+          coursesData.forEach((course: any) => {
             courseCodeMap.set(course.id, course.course_code);
           });
         }
@@ -838,10 +838,10 @@ export class AttendanceReportService {
           const { data: sectionsData } = await this.supabase
             .from('sections')
             .select('id, section_name')
-            .in('id', Array.from(sectionIdsToFetch));
+            .in('id', Array.from(sectionIdsToFetch)) as { data: Array<{ id: string; section_name: string }> | null };
 
           if (sectionsData) {
-            sectionsData.forEach((section) => {
+            sectionsData.forEach((section: any) => {
               sectionNamesMap.set(section.id, section.section_name);
             });
           }
@@ -962,6 +962,7 @@ export class AttendanceReportService {
 
       // Fetch related data including academic_year
       // Updated: 2025-10-09 - Fetch all sections from section_ids array for multi-section support
+      const dataTyped = data as any;
       const [
         sectionData,
         allSectionsData,
@@ -973,101 +974,101 @@ export class AttendanceReportService {
         academicYearData,
         timetableData
       ] = await Promise.all([
-        data.section_id
+        dataTyped.section_id
           ? this.supabase
               .from('sections')
               .select('section_name')
-              .eq('id', data.section_id)
+              .eq('id', dataTyped.section_id)
               .single()
-          : { data: null },
+          : Promise.resolve({ data: null as { section_name: string } | null }),
         // Fetch all sections for multi-section timetables
-        data.section_ids && Array.isArray(data.section_ids) && data.section_ids.length > 0
+        dataTyped.section_ids && Array.isArray(dataTyped.section_ids) && dataTyped.section_ids.length > 0
           ? this.supabase
               .from('sections')
               .select('id, section_name')
-              .in('id', data.section_ids)
-          : { data: [] },
-        data.semester_id
+              .in('id', dataTyped.section_ids)
+          : Promise.resolve({ data: [] as Array<{ id: string; section_name: string }> }),
+        dataTyped.semester_id
           ? this.supabase
               .from('semesters')
               .select('semester_name')
-              .eq('id', data.semester_id)
+              .eq('id', dataTyped.semester_id)
               .single()
-          : { data: null },
-        data.program_id
+          : Promise.resolve({ data: null as { semester_name: string } | null }),
+        dataTyped.program_id
           ? this.supabase
               .from('programs')
               .select('program_name')
-              .eq('id', data.program_id)
+              .eq('id', dataTyped.program_id)
               .single()
-          : { data: null },
-        data.department_id
+          : Promise.resolve({ data: null as { program_name: string } | null }),
+        dataTyped.department_id
           ? this.supabase
               .from('departments')
               .select('department_name')
-              .eq('id', data.department_id)
+              .eq('id', dataTyped.department_id)
               .single()
-          : { data: null },
-        data.degree_id
+          : Promise.resolve({ data: null as { department_name: string } | null }),
+        dataTyped.degree_id
           ? this.supabase
               .from('degrees')
               .select('degree_name')
-              .eq('id', data.degree_id)
+              .eq('id', dataTyped.degree_id)
               .single()
-          : { data: null },
-        data.institution_id
+          : Promise.resolve({ data: null as { degree_name: string } | null }),
+        dataTyped.institution_id
           ? this.supabase
               .from('institutions')
               .select('name')
-              .eq('id', data.institution_id)
+              .eq('id', dataTyped.institution_id)
               .single()
-          : { data: null },
-        data.academic_year_id
+          : Promise.resolve({ data: null as { name: string } | null }),
+        dataTyped.academic_year_id
           ? this.supabase
               .from('academic_years')
               .select('academic_year_name')
-              .eq('id', data.academic_year_id)
+              .eq('id', dataTyped.academic_year_id)
               .single()
-          : { data: null },
-        data.timetable_id
+          : Promise.resolve({ data: null as { academic_year_name: string } | null }),
+        dataTyped.timetable_id
           ? this.supabase
               .from('timetables')
               .select('timetable_name, timetable_type') // Updated: 2025-10-08
-              .eq('id', data.timetable_id)
+              .eq('id', dataTyped.timetable_id)
               .single()
-          : { data: null }
+          : Promise.resolve({ data: null as { timetable_name: string; timetable_type: string } | null })
       ]);
 
       // Build the detailed report
       // Updated: 2025-10-08 - Added timetable_type
       // Updated: 2025-10-09 - Added section_ids and section_names for multi-section support
       const detailedReport = {
-        id: data.id,
-        attendance_date: data.attendance_date,
-        institution_id: data.institution_id,
-        institution_name: institutionData.data?.name,
-        department_id: data.department_id,
-        department_name: departmentData.data?.department_name,
-        program_id: data.program_id,
-        program_name: programData.data?.program_name,
-        degree_id: data.degree_id,
-        degree_name: degreeData.data?.degree_name,
-        semester_id: data.semester_id,
-        semester_name: semesterData.data?.semester_name,
-        section_id: data.section_id,
-        section_name: sectionData.data?.section_name
-          ? `Section ${sectionData.data.section_name}`
+        id: dataTyped.id,
+        attendance_date: dataTyped.attendance_date,
+        institution_id: dataTyped.institution_id,
+        institution_name: (institutionData.data as any)?.name,
+        department_id: dataTyped.department_id,
+        department_name: (departmentData.data as any)?.department_name,
+        program_id: dataTyped.program_id,
+        program_name: (programData.data as any)?.program_name,
+        degree_id: dataTyped.degree_id,
+        degree_name: (degreeData.data as any)?.degree_name,
+        semester_id: dataTyped.semester_id,
+        semester_name: (semesterData.data as any)?.semester_name,
+        section_id: dataTyped.section_id,
+        section_name: (sectionData.data as any)?.section_name
+          ? `Section ${(sectionData.data as any).section_name}`
           : undefined,
-        section_ids: data.section_ids || undefined,
-        section_names: allSectionsData.data && allSectionsData.data.length > 0
-          ? allSectionsData.data.map((s: any) => s.section_name)
+        section_ids: dataTyped.section_ids || undefined,
+        section_names: allSectionsData.data && (allSectionsData.data as any).length > 0
+          ? (allSectionsData.data as any).map((s: any) => s.section_name)
           : undefined,
-        academic_year_id: data.academic_year_id,
+        academic_year_id: dataTyped.academic_year_id,
         academic_year_name:
-          academicYearData.data?.academic_year_name || 'Unknown Academic Year',
-        timetable_id: data.timetable_id,
-        timetable_name: timetableData.data?.timetable_name,
-        timetable_type: timetableData.data?.timetable_type,
+          (academicYearData.data as any)?.academic_year_name || 'Unknown Academic Year',
+        timetable_id: dataTyped.timetable_id,
+        timetable_name: (timetableData.data as any)?.timetable_name,
+        timetable_type: (timetableData.data as any)?.timetable_type,
         marked_by_id: markedByDetails.marked_by_id,
         marked_by_name: markedByDetails.marked_by_name,
         marked_by_email: markedByDetails.marked_by_email,
@@ -1077,8 +1078,8 @@ export class AttendanceReportService {
         total_present: presentStudents,
         total_absent: totalStudents - presentStudents,
         average_attendance: averageAttendance,
-        created_at: data.created_at,
-        updated_at: data.updated_at
+        created_at: dataTyped.created_at,
+        updated_at: dataTyped.updated_at
       };
 
       return {
@@ -1111,7 +1112,7 @@ export class AttendanceReportService {
 
       // For faculty users, use the same RPC function as the table to ensure consistency
       if (level === 'faculty' && facultyStaffId) {
-        const { data: rpcData, error } = await this.supabase.rpc(
+        const { data: rpcData, error } = await (this.supabase as any).rpc(
           'get_faculty_attendance_reports',
           {
             faculty_staff_id: facultyStaffId,
@@ -1363,19 +1364,23 @@ export class AttendanceReportService {
     }
 
     if (userRole === 'faculty' && userId) {
-      const { data: report } = await this.supabase
+      const reportResult = await this.supabase
         .from('student_attendance')
         .select('attendance_data')
         .eq('id', reportId)
         .single();
 
+      const report = reportResult.data as { attendance_data: any } | null;
+
       if (!report) return false;
 
-      const { data: staffData } = await this.supabase
+      const staffResult = await this.supabase
         .from('staff')
         .select('id')
         .eq('profile_id', userId)
         .single();
+
+      const staffData = staffResult.data as { id: string } | null;
 
       if (!staffData) return false;
 

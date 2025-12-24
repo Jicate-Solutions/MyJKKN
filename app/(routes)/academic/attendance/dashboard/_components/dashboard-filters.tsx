@@ -157,7 +157,7 @@ export function DashboardFilters({
   };
 
   const getFilterDisplayText = () => {
-    const parts = [];
+    const parts: string[] = [];
 
     if (filters.institutionId) {
       const institution = institutions.find(

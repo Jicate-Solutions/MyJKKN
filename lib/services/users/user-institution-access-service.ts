@@ -37,7 +37,7 @@ export class UserInstitutionAccessService {
     userId: string
   ): Promise<AccessibleInstitution[]> {
     try {
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'get_user_accessible_institutions',
         {
           target_user_id: userId
@@ -60,7 +60,7 @@ export class UserInstitutionAccessService {
     institutionId: string
   ): Promise<boolean> {
     try {
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'user_has_institution_access',
         {
           target_user_id: userId,
@@ -86,7 +86,7 @@ export class UserInstitutionAccessService {
     grantedBy?: string
   ): Promise<void> {
     try {
-      const { error } = await this.supabase.rpc(
+      const { error } = await (this.supabase as any).rpc(
         'grant_user_institution_access',
         {
           target_user_id: userId,
@@ -111,7 +111,7 @@ export class UserInstitutionAccessService {
     institutionId: string
   ): Promise<void> {
     try {
-      const { error } = await this.supabase.rpc(
+      const { error } = await (this.supabase as any).rpc(
         'revoke_user_institution_access',
         {
           target_user_id: userId,
@@ -139,7 +139,7 @@ export class UserInstitutionAccessService {
     })[]
   > {
     try {
-      let query = this.supabase.from('user_institution_access').select(`
+      let query = (this.supabase as any).from('user_institution_access').select(`
           *,
           institution:institutions(
             id,

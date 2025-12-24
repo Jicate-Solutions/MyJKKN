@@ -303,7 +303,7 @@ export function NotificationForm() {
   };
 
   const getTargetSummary = () => {
-    const targets = [];
+    const targets: string[] = [];
 
     if (watchedValues.institution_id) {
       const institution = institutions.find(

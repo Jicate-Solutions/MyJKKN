@@ -31,8 +31,11 @@ export class AttendanceFacultySync {
         return { success: false, error: fetchError };
       }
 
-      const timetableData = attendance.timetables.timetable_data;
-      const attendanceDate = attendance.attendance_date;
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const attendanceData = attendance as { timetables: { timetable_data: any }; attendance_date: string; attendance_data: any };
+
+      const timetableData = attendanceData.timetables.timetable_data;
+      const attendanceDate = attendanceData.attendance_date;
       const dayOfWeek = new Date(attendanceDate)
         .toLocaleDateString('en-US', { weekday: 'long' })
         .toUpperCase();
@@ -42,7 +45,7 @@ export class AttendanceFacultySync {
       let hasChanges = false;
 
       for (const [periodId, periodData] of Object.entries(
-        attendance.attendance_data
+        attendanceData.attendance_data
       )) {
         const updatedPeriodData = { ...(periodData as any) };
 
@@ -77,13 +80,16 @@ export class AttendanceFacultySync {
           .select('id, first_name, last_name, institution_email')
           .in('id', currentStaffIds);
 
-        if (!staffMembers?.length) {
+        // Type cast to fix TypeScript inference after React 19 upgrade
+        const staffData = staffMembers as { id: string; first_name: string; last_name: string; institution_email: string }[] | null;
+
+        if (!staffData?.length) {
           updatedAttendanceData[periodId] = periodData;
           continue;
         }
 
         // Build faculty data
-        const facultyData = staffMembers.map((staff) => ({
+        const facultyData = staffData.map((staff) => ({
           faculty_id: staff.id,
           faculty_name: `${staff.first_name} ${staff.last_name}`.trim(),
           faculty_email: staff.institution_email,
@@ -128,7 +134,7 @@ export class AttendanceFacultySync {
 
       // Update only if there are changes
       if (!updateOnlyIfChanged || hasChanges) {
-        const { error: updateError } = await this.supabase
+        const { error: updateError } = await (this.supabase as any)
           .from('student_attendance')
           .update({
             attendance_data: updatedAttendanceData,
@@ -167,7 +173,7 @@ export class AttendanceFacultySync {
     sectionId?: string;
   }) {
     try {
-      let query = this.supabase.from('student_attendance').select('id');
+      let query = (this.supabase as any).from('student_attendance').select('id');
 
       if (filters.timetableId) {
         query = query.eq('timetable_id', filters.timetableId);
@@ -183,12 +189,15 @@ export class AttendanceFacultySync {
 
       const { data: records, error } = await query;
 
-      if (error || !records) {
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const recordsData = records as { id: string }[] | null;
+
+      if (error || !recordsData) {
         return { success: false, error };
       }
 
       const results = {
-        total: records.length,
+        total: recordsData.length,
         synced: 0,
         changed: 0,
         failed: 0
@@ -196,10 +205,10 @@ export class AttendanceFacultySync {
 
       // Process in batches to avoid overwhelming the system
       const batchSize = 10;
-      for (let i = 0; i < records.length; i += batchSize) {
-        const batch = records.slice(i, i + batchSize);
+      for (let i = 0; i < recordsData.length; i += batchSize) {
+        const batch = recordsData.slice(i, i + batchSize);
         const promises = batch.map((record) =>
-          this.syncFacultyForAttendanceRecord(record.id)
+          this.syncFacultyForAttendanceRecord(record.id as string)
         );
 
         const batchResults = await Promise.allSettled(promises);
@@ -244,11 +253,18 @@ export class AttendanceFacultySync {
         .eq('id', attendanceId)
         .single();
 
-      if (!attendance) {
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const attendanceRecord = attendance as {
+        attendance_data: any;
+        attendance_date: string;
+        timetables: { timetable_data: any };
+      } | null;
+
+      if (!attendanceRecord) {
         return { hasChanges: false };
       }
 
-      const periodData = attendance.attendance_data[periodId];
+      const periodData = attendanceRecord.attendance_data[periodId as string];
       if (!periodData) {
         return { hasChanges: false };
       }
@@ -256,11 +272,11 @@ export class AttendanceFacultySync {
       const currentFaculty = periodData.assigned_faculty;
 
       // Get day and find slot
-      const dayOfWeek = new Date(attendance.attendance_date)
+      const dayOfWeek = new Date(attendanceRecord.attendance_date)
         .toLocaleDateString('en-US', { weekday: 'long' })
         .toUpperCase();
 
-      const dayData = (attendance.timetables as any).timetable_data[dayOfWeek];
+      const dayData = attendanceRecord.timetables.timetable_data[dayOfWeek];
       if (!dayData) {
         return { hasChanges: false, currentFaculty };
       }
@@ -284,11 +300,14 @@ export class AttendanceFacultySync {
         .select('id, first_name, last_name, institution_email')
         .in('id', timetableSlot.staff_ids);
 
-      if (!staffMembers?.length) {
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const staffList = staffMembers as { id: string; first_name: string; last_name: string; institution_email: string }[] | null;
+
+      if (!staffList?.length) {
         return { hasChanges: false, currentFaculty };
       }
 
-      const newFaculty = staffMembers.map((staff) => ({
+      const newFaculty = staffList.map((staff) => ({
         faculty_id: staff.id,
         faculty_name: `${staff.first_name} ${staff.last_name}`.trim(),
         faculty_email: staff.institution_email,

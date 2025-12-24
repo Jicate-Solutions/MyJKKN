@@ -72,7 +72,7 @@ export class StorageService {
         .from(BUCKETS.AVATARS)
         .getPublicUrl(filePath);
 
-      const { error: updateError } = await this.supabase
+      const { error: updateError } = await (this.supabase as any)
         .from('profiles')
         .update({
           avatar_url: urlData.publicUrl,
@@ -114,7 +114,7 @@ export class StorageService {
     try {
       await this.deleteOldAvatar(userId);
 
-      const { error: updateError } = await this.supabase
+      const { error: updateError } = await (this.supabase as any)
         .from('profiles')
         .update({
           avatar_url: null,
@@ -254,12 +254,12 @@ export class StorageService {
         throw new Error('Student not found or missing institution details');
       }
 
-      if (!student.roll_number) {
+      if (!((student as any).roll_number)) {
         throw new Error('Student roll number is required for photo upload');
       }
 
       // PostgREST institutions(name) returns: { institutions: { name: "..." } }
-      const institutionName = (student.institutions as any)?.name;
+      const institutionName = ((student as any).institutions as any)?.name;
 
       if (!institutionName) {
         throw new Error('Student institution is required for photo upload');
@@ -269,13 +269,13 @@ export class StorageService {
       await this.deleteOldStudentPhoto(
         studentId,
         institutionName,
-        student.roll_number
+        (student as any).roll_number
       );
 
       const fileExt = file.name.split('.').pop()?.toLowerCase();
       // Create institution-based path: institution-name/roll-number.extension
       const sanitizedInstitutionName = this.sanitizePathName(institutionName);
-      const filePath = `${sanitizedInstitutionName}/${student.roll_number}.${fileExt}`;
+      const filePath = `${sanitizedInstitutionName}/((student as any).roll_number).${fileExt}`;
 
       const { error: uploadError } = await this.supabase.storage
         .from(BUCKETS.STUDENT_PHOTOS)
@@ -374,7 +374,7 @@ export class StorageService {
 
       // Create lookup map for students
       const studentMap = new Map(
-        students?.map((s) => [s.roll_number, s]) || []
+        students?.map((s) => [(s as any).roll_number, s]) || []
       );
 
       // Process files in batches
@@ -409,7 +409,7 @@ export class StorageService {
               }
 
               // PostgREST institutions(name) returns: { institutions: { name: "..." } }
-              const studentInstitutionName = (student.institutions as any)
+              const studentInstitutionName = ((student as any).institutions as any)
                 ?.name;
 
               if (!studentInstitutionName) {
@@ -426,7 +426,7 @@ export class StorageService {
 
               // Delete old photos
               await this.deleteOldStudentPhoto(
-                student.id,
+                (student as any).id,
                 studentInstitutionName,
                 rollNumber
               );
@@ -452,10 +452,10 @@ export class StorageService {
                 .getPublicUrl(filePath);
 
               // Update student record with new photo URL
-              const { error: updateError } = await this.supabase
+              const { error: updateError } = await (this.supabase as any)
                 .from('learners_profiles')
                 .update({ student_photo_url: urlData.publicUrl })
-                .eq('id', student.id);
+                .eq('id', (student as any).id);
 
               if (updateError) {
                 console.warn(
@@ -465,7 +465,7 @@ export class StorageService {
 
               results.success.push({
                 roll_number: rollNumber,
-                student_name: student.student_name,
+                student_name: (student as any).student_name,
                 image_url: urlData.publicUrl
               });
             } catch (error) {
@@ -597,7 +597,7 @@ export class StorageService {
       }
 
       // Create lookup map for staff
-      const staffMap = new Map(staff?.map((s) => [s.staff_id, s]) || []);
+      const staffMap = new Map(staff?.map((s) => [(s as any).staff_id, s]) || []);
 
       // Process files in batches
       const batchSize = 10;
@@ -629,7 +629,7 @@ export class StorageService {
                 return;
               }
 
-              const institutionName = (staffMember.institution as any)?.name;
+              const institutionName = ((staffMember as any).institution as any)?.name;
               if (!institutionName) {
                 results.failed.push({
                   filename: file.name,
@@ -659,14 +659,14 @@ export class StorageService {
                 .from(BUCKETS.STAFF_PHOTOS) // This now correctly points to 'staff-images'
                 .getPublicUrl(filePath);
 
-              await this.supabase
+              await (this.supabase as any)
                 .from('staff')
                 .update({ profile_picture: urlData.publicUrl })
-                .eq('id', staffMember.id);
+                .eq('id', (staffMember as any).id);
 
               results.success.push({
                 staff_id: staffId,
-                staff_name: `${staffMember.first_name} ${staffMember.last_name}`,
+                staff_name: `${(staffMember as any).first_name} ${(staffMember as any).last_name}`,
                 image_url: urlData.publicUrl
               });
             } catch (error) {
@@ -765,7 +765,7 @@ export class StorageService {
   ): Promise<{ error: Error | null }> {
     try {
       // Get student details to delete from new path structure
-      const { data: student } = await this.supabase
+      const { data: student } = await (this.supabase as any)
         .from('learners_profiles')
         .select(
           `
@@ -778,7 +778,7 @@ export class StorageService {
 
       await this.deleteOldStudentPhoto(
         studentId,
-        student?.institutions?.[0]?.name,
+        (student as any)?.institutions?.[0]?.name,
         student?.roll_number
       );
 

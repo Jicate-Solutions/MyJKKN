@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get consistency report
-    const { data: reportData, error: reportError } = await supabase.rpc(
+    const { data: reportData, error: reportError } = await (supabase as any).rpc(
       'get_user_consistency_report'
     );
 
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     // Get orphaned auth users
     const { data: orphanedAuthUsers, error: orphanedAuthError } =
-      await supabase.rpc('check_orphaned_auth_users');
+      await (supabase as any).rpc('check_orphaned_auth_users');
 
     if (orphanedAuthError) {
       console.error('Error checking orphaned auth users:', orphanedAuthError);
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
 
     // Get orphaned profiles
     const { data: orphanedProfiles, error: orphanedProfilesError } =
-      await supabase.rpc('check_orphaned_profiles');
+      await (supabase as any).rpc('check_orphaned_profiles');
 
     if (orphanedProfilesError) {
       console.error('Error checking orphaned profiles:', orphanedProfilesError);
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
 
     if (action === 'sync_orphaned_auth_users') {
       // Sync orphaned auth users to profiles
-      const { data: syncResults, error: syncError } = await supabase.rpc(
+      const { data: syncResults, error: syncError } = await (supabase as any).rpc(
         'sync_orphaned_auth_users'
       );
 

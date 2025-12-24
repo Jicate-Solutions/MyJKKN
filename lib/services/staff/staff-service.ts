@@ -94,7 +94,7 @@ export class StaffService {
       }
 
       // First attempt: Try with regular authenticated client
-      let { data: staff, error } = await this.supabase
+      let { data: staff, error } = await (this.supabase as any) 
         .from('staff')
         .insert([
           {
@@ -141,7 +141,7 @@ export class StaffService {
 
       // Profile auto-creation is handled by the database trigger (sync_staff_to_profiles)
       // The trigger creates/updates a profile when staff with institution_email is created
-      if (staff.institution_email) {
+      if (staff?.institution_email) {
         console.log(
           `✓ Staff created successfully. Profile will be auto-created by database trigger for ${staff.institution_email}`
         );
@@ -184,8 +184,8 @@ export class StaffService {
 
       if (fetchError) throw fetchError;
 
-      const { data: staff, error } = await this.supabase
-        .from('staff')
+      const { data: staff, error } = await (this.supabase
+        .from('staff') as any)
         .update({
           ...data,
           updated_by: userData.user.id,
@@ -198,12 +198,12 @@ export class StaffService {
       if (error) throw error;
 
       // If institution_id was updated and staff has an institution_email, update the profile
-      if (data.institution_id && currentStaff.institution_email) {
+      if (data.institution_id && (currentStaff as any).institution_email) {
         try {
-          const { error: profileUpdateError } = await this.supabase
-            .from('profiles')
+          const { error: profileUpdateError } = await (this.supabase
+            .from('profiles') as any)
             .update({ institution_id: data.institution_id })
-            .eq('email', currentStaff.institution_email);
+            .eq('email', (currentStaff as any).institution_email);
 
           if (profileUpdateError) {
             console.warn(
@@ -215,7 +215,7 @@ export class StaffService {
             );
           } else {
             console.log(
-              `Updated institution_id in profile for ${currentStaff.institution_email}`
+              `Updated institution_id in profile for ${(currentStaff as any).institution_email}`
             );
           }
         } catch (profileError) {
@@ -237,7 +237,7 @@ export class StaffService {
       // Delete the staff record
       // The database trigger (trg_delete_staff_profile) will automatically delete
       // the corresponding profile from the profiles table
-      const { error } = await this.supabase.from('staff').delete().eq('id', id);
+      const { error } = await (this.supabase as any).from('staff').delete().eq('id', id);
 
       if (error) throw error;
 
@@ -280,7 +280,7 @@ export class StaffService {
 
       // OPTIMIZATION: Use 'estimated' count instead of 'exact' for better performance
       // 'estimated' uses Postgres statistics instead of counting all rows
-      let query = this.supabase.from('staff').select(
+      let query = (this.supabase as any).from('staff').select(
         `
           *,
           category:employment_categories(
@@ -422,7 +422,7 @@ export class StaffService {
       console.log('[staff-service] Using optimized HOD query for institution:', institutionId);
 
       // OPTIMIZATION: Use 'estimated' count instead of 'exact' for better performance
-      let query = this.supabase.from('staff').select(
+      let query = (this.supabase as any).from('staff').select(
         `
           *,
           category:employment_categories(
@@ -656,39 +656,39 @@ export class StaffService {
           const { data: profile, error: profileError } = await this.supabase
             .from('profiles')
             .select('id, institution_id')
-            .eq('email', staff.institution_email)
+            .eq('email', (staff as any).institution_email)
             .single();
 
           if (profileError) {
             failed.push({
-              staff_id: staff.id,
-              email: staff.institution_email,
+              staff_id: (staff as any).id,
+              email: (staff as any).institution_email,
               error: `Profile not found: ${profileError.message}`
             });
             continue;
           }
 
           // Update profile if institution_id is null
-          if (!profile.institution_id && staff.institution_id) {
-            const { error: updateError } = await this.supabase
-              .from('profiles')
-              .update({ institution_id: staff.institution_id })
-              .eq('email', staff.institution_email);
+          if (!(profile as any).institution_id && (staff as any).institution_id) {
+            const { error: updateError } = await (this.supabase
+              .from('profiles') as any)
+              .update({ institution_id: (staff as any).institution_id })
+              .eq('email', (staff as any).institution_email);
 
             if (updateError) {
               failed.push({
-                staff_id: staff.id,
-                email: staff.institution_email,
+                staff_id: (staff as any).id,
+                email: (staff as any).institution_email,
                 error: `Update failed: ${updateError.message}`
               });
             } else {
-              success.push(staff.id);
+              success.push((staff as any).id);
             }
           }
         } catch (error) {
           failed.push({
-            staff_id: staff.id,
-            email: staff.institution_email,
+            staff_id: (staff as any).id,
+            email: (staff as any).institution_email,
             error: error instanceof Error ? error.message : 'Unknown error'
           });
         }
@@ -754,7 +754,7 @@ export class StaffService {
     filters: StaffDashboardFilters,
     supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffOverviewStats> {
-    let query = supabase.from('staff').select('*');
+    let query = (supabase as any).from('staff').select('*');
 
     // Apply filters
     if (filters.institutionId) {
@@ -784,11 +784,11 @@ export class StaffService {
     );
 
     const totalStaff = staff?.length || 0;
-    const activeStaff = staff?.filter((s) => s.is_active).length || 0;
+    const activeStaff = staff?.filter((s: any) => s.is_active).length || 0;
     const inactiveStaff = totalStaff - activeStaff;
 
     const newHires =
-      staff?.filter((s) => {
+      staff?.filter((s: any) => {
         const joiningDate = new Date(s.date_of_joining);
         return joiningDate >= currentMonth;
       }).length || 0;
@@ -816,7 +816,7 @@ export class StaffService {
     let totalFieldsExpected = 0;
     let totalFieldsCompleted = 0;
 
-    staff?.forEach((s) => {
+    staff?.forEach((s: any) => {
       requiredFields.forEach((field) => {
         totalFieldsExpected++;
         if (s[field as keyof Staff]) totalFieldsCompleted++;
@@ -832,7 +832,7 @@ export class StaffService {
 
     // Calculate average tenure
     const totalTenure =
-      staff?.reduce((sum, s) => {
+      staff?.reduce((sum: any, s: any) => {
         const joiningDate = new Date(s.date_of_joining);
         const tenure =
           (currentDate.getTime() - joiningDate.getTime()) /
@@ -849,10 +849,10 @@ export class StaffService {
 
     if (profileError) throw profileError;
 
-    const profileEmails = new Set(profiles?.map((p) => p.email) || []);
+    const profileEmails = new Set(profiles?.map((p: any) => p.email) || []);
     const staffWithProfiles =
       staff?.filter(
-        (s) => s.institution_email && profileEmails.has(s.institution_email)
+        (s: any) => s.institution_email && profileEmails.has(s.institution_email)
       ).length || 0;
     const staffWithoutProfiles = totalStaff - staffWithProfiles;
 
@@ -872,7 +872,7 @@ export class StaffService {
     filters: StaffDashboardFilters,
     supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffRegistrationTrend[]> {
-    let query = supabase.from('staff').select('date_of_joining');
+    let query = (supabase as any).from('staff').select('date_of_joining');
 
     // Apply filters
     if (filters.institutionId) {
@@ -906,7 +906,7 @@ export class StaffService {
     }
 
     // Count staff joined on each date
-    staff?.forEach((s) => {
+    staff?.forEach((s: any) => {
       const joiningDate = new Date(s.date_of_joining);
       if (joiningDate >= startDate && joiningDate <= endDate) {
         const dateStr = joiningDate.toISOString().split('T')[0];
@@ -928,7 +928,7 @@ export class StaffService {
     filters: StaffDashboardFilters,
     supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffInstitutionStats[]> {
-    let query = supabase.from('staff').select(`
+    let query = (supabase as any).from('staff').select(`
         institution_id,
         is_active,
         institution:institutions(id, name)
@@ -956,10 +956,10 @@ export class StaffService {
       ...stat,
       staffCount: stat.count, // Map count to staffCount
       activeCount:
-        staff?.filter((s) => s.institution_id === stat.id && s.is_active)
+        staff?.filter((s: any) => s.institution_id === stat.id && s.is_active)
           .length || 0,
       inactiveCount:
-        staff?.filter((s) => s.institution_id === stat.id && !s.is_active)
+        staff?.filter((s: any) => s.institution_id === stat.id && !s.is_active)
           .length || 0
     }));
   }
@@ -968,7 +968,7 @@ export class StaffService {
     filters: StaffDashboardFilters,
     supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffDepartmentStats[]> {
-    let query = supabase.from('staff').select(`
+    let query = (supabase as any).from('staff').select(`
         department_id,
         institution_id,
         is_active,
@@ -1000,10 +1000,10 @@ export class StaffService {
       ...stat,
       staffCount: stat.count, // Map count to staffCount
       activeCount:
-        staff?.filter((s) => s.department_id === stat.id && s.is_active)
+        staff?.filter((s: any) => s.department_id === stat.id && s.is_active)
           .length || 0,
       inactiveCount:
-        staff?.filter((s) => s.department_id === stat.id && !s.is_active)
+        staff?.filter((s: any) => s.department_id === stat.id && !s.is_active)
           .length || 0
     }));
   }
@@ -1012,7 +1012,7 @@ export class StaffService {
     filters: StaffDashboardFilters,
     supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffCategoryStats[]> {
-    let query = supabase.from('staff').select(`
+    let query = (supabase as any).from('staff').select(`
         category_id,
         is_active,
         date_of_joining,
@@ -1041,8 +1041,8 @@ export class StaffService {
       })
     ).map((stat: any) => {
       const categoryStaff =
-        staff?.filter((s) => s.category_id === stat.id) || [];
-      const totalTenure = categoryStaff.reduce((sum, s) => {
+        staff?.filter((s: any) => s.category_id === stat.id) || [];
+      const totalTenure = categoryStaff.reduce((sum: any, s: any) => {
         const joiningDate = new Date(s.date_of_joining);
         const tenure =
           (currentDate.getTime() - joiningDate.getTime()) /
@@ -1053,8 +1053,8 @@ export class StaffService {
       return {
         ...stat,
         staffCount: stat.count, // Map count to staffCount
-        activeCount: categoryStaff.filter((s) => s.is_active).length,
-        inactiveCount: categoryStaff.filter((s) => !s.is_active).length,
+        activeCount: categoryStaff.filter((s: any) => s.is_active).length,
+        inactiveCount: categoryStaff.filter((s: any) => !s.is_active).length,
         averageTenure:
           categoryStaff.length > 0 ? totalTenure / categoryStaff.length : 0
       };
@@ -1065,7 +1065,7 @@ export class StaffService {
     filters: StaffDashboardFilters,
     supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffGeographicStats> {
-    let query = supabase.from('staff').select('state, district');
+    let query = (supabase as any).from('staff').select('state, district');
 
     // Apply filters
     if (filters.institutionId) {
@@ -1127,7 +1127,7 @@ export class StaffService {
     filters: StaffDashboardFilters,
     supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffTenureAnalytics> {
-    let query = supabase.from('staff').select(`
+    let query = (supabase as any).from('staff').select(`
         date_of_joining,
         category:employment_categories(category_name),
         department:departments(department_name),
@@ -1164,7 +1164,7 @@ export class StaffService {
       percentage: 0
     }));
 
-    staff?.forEach((s) => {
+    staff?.forEach((s: any) => {
       const joiningDate = new Date(s.date_of_joining);
       const tenure =
         (currentDate.getTime() - joiningDate.getTime()) /
@@ -1185,7 +1185,7 @@ export class StaffService {
     // Calculate average tenure by category
     const categoryTenure: { [key: string]: { total: number; count: number } } =
       {};
-    staff?.forEach((s) => {
+    staff?.forEach((s: any) => {
       const categoryName = (s.category as any)?.category_name || 'Unknown';
       const joiningDate = new Date(s.date_of_joining);
       const tenure =
@@ -1210,7 +1210,7 @@ export class StaffService {
     const departmentTenure: {
       [key: string]: { total: number; count: number; institutionName: string };
     } = {};
-    staff?.forEach((s) => {
+    staff?.forEach((s: any) => {
       const departmentName =
         (s.department as any)?.department_name || 'Unknown';
       const institutionName = (s.institution as any)?.name || 'Unknown';
@@ -1253,7 +1253,7 @@ export class StaffService {
       );
 
       const count =
-        staff?.filter((s) => {
+        staff?.filter((s: any) => {
           const joiningDate = new Date(s.date_of_joining);
           return joiningDate >= month && joiningDate < nextMonth;
         }).length || 0;
@@ -1279,7 +1279,7 @@ export class StaffService {
     filters: StaffDashboardFilters,
     supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffProfileAnalytics> {
-    let query = supabase.from('staff').select(`
+    let query = (supabase as any).from('staff').select(`
         *,
         category:employment_categories(category_name)
       `);
@@ -1322,7 +1322,7 @@ export class StaffService {
     // Profile completion breakdown
     const profileCompletionBreakdown = allFields.map((field) => {
       const completedCount =
-        staff?.filter((s) => s[field as keyof Staff]).length || 0;
+        staff?.filter((s: any) => s[field as keyof Staff]).length || 0;
       const totalCount = staff?.length || 0;
       return {
         field,
@@ -1336,7 +1336,7 @@ export class StaffService {
     const categoryCompletion: {
       [key: string]: { completed: number; total: number };
     } = {};
-    staff?.forEach((s) => {
+    staff?.forEach((s: any) => {
       const categoryName = s.category?.category_name || 'Unknown';
       if (!categoryCompletion[categoryName]) {
         categoryCompletion[categoryName] = { completed: 0, total: 0 };
@@ -1365,7 +1365,7 @@ export class StaffService {
     const missingFields = allFields
       .map((field) => {
         const missingCount =
-          staff?.filter((s) => !s[field as keyof Staff]).length || 0;
+          staff?.filter((s: any) => !s[field as keyof Staff]).length || 0;
         const totalCount = staff?.length || 0;
         return {
           field,

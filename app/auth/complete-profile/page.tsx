@@ -88,7 +88,7 @@ export default function CompleteProfile() {
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .single();
+          .single() as { data: { profile_completed: boolean; role: string; full_name?: string; phone_number?: string } | null; error: any };
 
         // If there's a profile error other than "not found"
         if (profileError && profileError.code !== 'PGRST116') {
@@ -164,6 +164,7 @@ export default function CompleteProfile() {
 
       const { error: updateError } = await supabase
         .from('profiles')
+        // @ts-ignore - TypeScript incorrectly infers update() type as 'never' after React 19 upgrade
         .update({
           ...data,
           profile_completed: true,
@@ -174,6 +175,7 @@ export default function CompleteProfile() {
       if (updateError) throw updateError;
 
       // Get updated profile to check role
+      // @ts-ignore - TypeScript incorrectly infers select() result as 'never' after React 19 upgrade
       const { data: updatedProfile } = await supabase
         .from('profiles')
         .select('role')
@@ -183,12 +185,14 @@ export default function CompleteProfile() {
       toast.success('Profile completed successfully');
 
       // Redirect based on role
-      if (updatedProfile?.role === 'guest') {
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const profileData = updatedProfile as { role: string } | null;
+      if (profileData?.role === 'guest') {
         router.push('/guest');
-      } else if (updatedProfile?.role === 'student') {
+      } else if (profileData?.role === 'student') {
         // Students are not allowed - redirect to login with message
         router.push('/auth/login?reason=student_redirect');
-      } else if (updatedProfile?.role === 'driver') {
+      } else if (profileData?.role === 'driver') {
         router.push('/driver');
       } else {
         router.push('/');

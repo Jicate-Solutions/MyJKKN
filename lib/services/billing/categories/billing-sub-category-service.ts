@@ -53,8 +53,8 @@ export class BillingSubCategoryService {
         );
       }
 
-      const { data: subCategory, error } = await this.supabase
-        .from('billing_sub_categories')
+      const { data: subCategory, error } = await (this.supabase
+        .from('billing_sub_categories') as any)
         .insert([
           {
             institution_id: data.institution_id,
@@ -126,8 +126,8 @@ export class BillingSubCategoryService {
         updateData.sub_category_name = data.sub_category_name.trim();
       if (data.is_active !== undefined) updateData.is_active = data.is_active;
 
-      const { data: subCategory, error } = await this.supabase
-        .from('billing_sub_categories')
+      const { data: subCategory, error } = await (this.supabase
+        .from('billing_sub_categories') as any)
         .update(updateData)
         .eq('id', id)
         .select(
@@ -207,7 +207,7 @@ export class BillingSubCategoryService {
         limit = 10
       } = filters;
 
-      let query = this.supabase.from('billing_sub_categories').select(
+      let query = (this.supabase as any).from('billing_sub_categories').select(
         `
           *,
           institution:institutions(

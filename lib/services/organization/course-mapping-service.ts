@@ -57,7 +57,7 @@ export class CourseMappingService {
         .single();
 
       if (error) throw error;
-      return data?.department_id || null;
+      return (data as any)?.department_id || null;
     } catch (error) {
       console.error('Error getting user department ID:', error);
       return null;
@@ -105,7 +105,7 @@ export class CourseMappingService {
     // Use Promise.allSettled to handle individual errors without stopping the whole process
     const results = await Promise.allSettled(
       mappings.map((mapping) =>
-        this.supabase.from('course_mappings').insert([
+        (this.supabase.from('course_mappings') as any).insert([
           {
             institution_id: mapping.institution_id,
             degree_id: mapping.degree_id,
@@ -152,8 +152,8 @@ export class CourseMappingService {
         is_active: data.is_active
       };
 
-      const { data: courseMapping, error } = await this.supabase
-        .from('course_mappings')
+      const { data: courseMapping, error } = await (this.supabase
+        .from('course_mappings') as any)
         .insert([insertData])
         .select()
         .single();
@@ -180,8 +180,8 @@ export class CourseMappingService {
     data: UpdateCourseMappingDto
   ): Promise<CourseMapping> {
     try {
-      const { data: courseMapping, error } = await this.supabase
-        .from('course_mappings')
+      const { data: courseMapping, error } = await (this.supabase
+        .from('course_mappings') as any)
         .update({
           ...data,
           updated_at: new Date().toISOString()
@@ -217,7 +217,7 @@ export class CourseMappingService {
     filters: CourseMappingFilters = {}
   ): Promise<CourseMappingListResponse> {
     try {
-      let query = this.supabase.from('course_mappings').select(
+      let query = (this.supabase as any).from('course_mappings').select(
         `
         *,
         institution:institutions (
@@ -260,7 +260,7 @@ export class CourseMappingService {
           );
 
         if (matchingCourses && matchingCourses.length > 0) {
-          const courseIds = matchingCourses.map((course) => course.id);
+          const courseIds = matchingCourses.map((course: any) => course.id);
           query = query.in('course_id', courseIds);
         } else {
           // No matching courses found, return empty result
@@ -409,7 +409,7 @@ export class CourseMappingService {
     searchTerm?: string
   ): Promise<{ id: string; course_name: string; course_code: string }[]> {
     try {
-      const { data, error } = await this.supabase.rpc(
+      const { data, error } = await (this.supabase as any).rpc(
         'get_institution_courses',
         {
           p_institution_id: institutionId,

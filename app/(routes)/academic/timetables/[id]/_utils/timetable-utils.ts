@@ -144,7 +144,7 @@ export function calculateDaysInRange(startDate: string, endDate: string): number
 export async function exportTimetableToPDF(
   timetable: any,
   timetableFormat: 'regular' | 'batch',
-  timetableGridRef: React.RefObject<HTMLDivElement>
+  timetableGridRef: React.RefObject<HTMLDivElement | null>
 ): Promise<void> {
   if (!timetableGridRef.current) {
     throw new Error('Timetable grid not found');

@@ -36,7 +36,7 @@ export class SemesterService {
     programId: string
   ): Promise<Semester | null> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('semesters')
         .select('*')
         .eq('program_id', programId)
@@ -55,7 +55,7 @@ export class SemesterService {
 
   static async createSemester(data: CreateSemesterDto): Promise<Semester> {
     try {
-      const { data: semester, error } = await this.supabase
+      const { data: semester, error } = await (this.supabase as any)
         .from('semesters')
         .insert([
           {
@@ -87,7 +87,7 @@ export class SemesterService {
     data: UpdateSemesterDto
   ): Promise<Semester> {
     try {
-      const { data: semester, error } = await this.supabase
+      const { data: semester, error } = await (this.supabase as any)
         .from('semesters')
         .update({
           ...data,
@@ -109,7 +109,7 @@ export class SemesterService {
 
   static async deleteSemester(id: string): Promise<void> {
     try {
-      const { error } = await this.supabase
+      const { error } = await (this.supabase as any)
         .from('semesters')
         .delete()
         .eq('id', id);
@@ -125,7 +125,7 @@ export class SemesterService {
     filters: SemesterFilters = {}
   ): Promise<SemesterListResponse> {
     try {
-      let query = this.supabase.from('semesters').select(
+      let query = (this.supabase as any).from('semesters').select(
         `
         *,
         institution:institutions (
@@ -183,7 +183,7 @@ export class SemesterService {
       // Apply institution filtering based on user access if userId is provided
       if (filters.userId && !filters.bypassInstitutionFilter) {
         const accessibleInstitutionIds =
-          await this.getUserAccessibleInstitutionIds(filters.userId);
+          await (this.getUserAccessibleInstitutionIds(filters.userId) as any);
         if (accessibleInstitutionIds.length > 0) {
           query = query.in('institution_id', accessibleInstitutionIds);
         } else {
@@ -229,7 +229,7 @@ export class SemesterService {
 
   static async getSemester(id: string): Promise<Semester> {
     try {
-      const { data: semester, error } = await this.supabase
+      const { data: semester, error } = await (this.supabase as any)
         .from('semesters')
         .select(
           `
@@ -274,7 +274,7 @@ export class SemesterService {
    */
   static async getSemestersByProgram(programId: string) {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('semesters')
         .select('*')
         .eq('program_id', programId)
@@ -308,7 +308,7 @@ export class SemesterService {
     
     try {
       // Fetch semesters that actually have students in the selected program
-      const { data: students, error } = await this.supabase
+      const { data: students, error } = await (this.supabase as any)
         .from('learners_profiles')
         .select(
           `
@@ -366,7 +366,7 @@ export class SemesterService {
   static async getSemestersByCourse(courseId: string) {
     try {
       // Use course mappings to find semesters related to this course
-      const { data, error } = await this.supabase
+      const { data, error } = await ((this.supabase as any) as any)  
         .from('course_mappings')
         .select(
           `
@@ -387,8 +387,8 @@ export class SemesterService {
 
       // Transform the data to return just the semester objects
       const semesters = (data || [])
-        .filter((item) => item.semester)
-        .map((item) => {
+        .filter((item: any) => item.semester)
+        .map((item: any) => {
           const semester = item.semester as any;
           return {
             id: semester.id,

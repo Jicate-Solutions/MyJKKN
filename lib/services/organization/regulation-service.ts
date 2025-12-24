@@ -76,7 +76,7 @@ export class RegulationService {
     filters: RegulationFilters = {}
   ): Promise<Regulation[]> {
     try {
-      let query = this.supabase.from('regulations').select('*');
+      let query = (this.supabase as any).from('regulations').select('*');
 
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);

@@ -74,7 +74,7 @@ export class SectionService {
 
   static async createSection(data: CreateSectionDto): Promise<Section> {
     try {
-      const { data: section, error } = await this.supabase
+      const { data: section, error } = await (this.supabase as any)
         .from('sections')
         .insert([data])
         .select()
@@ -133,7 +133,7 @@ export class SectionService {
     data: UpdateSectionDto
   ): Promise<Section> {
     try {
-      const { data: section, error } = await this.supabase
+      const { data: section, error } = await (this.supabase as any)
         .from('sections')
         .update({
           ...data,
@@ -155,7 +155,7 @@ export class SectionService {
 
   static async deleteSection(id: string): Promise<void> {
     try {
-      const { error } = await this.supabase
+      const { error } = await (this.supabase as any)
         .from('sections')
         .delete()
         .eq('id', id);
@@ -171,7 +171,7 @@ export class SectionService {
     filters: SectionFilters = {}
   ): Promise<SectionListResponse> {
     try {
-      let query = this.supabase.from('sections').select(
+      let query = (this.supabase as any).from('sections').select(
         `
           *,
           institution:institutions!institution_id(
@@ -232,7 +232,7 @@ export class SectionService {
       // Apply institution filtering based on user access if userId is provided
       if (filters.userId && !filters.bypassInstitutionFilter) {
         const accessibleInstitutionIds =
-          await this.getUserAccessibleInstitutionIds(filters.userId);
+          await (this.getUserAccessibleInstitutionIds(filters.userId) as any);
         if (accessibleInstitutionIds.length > 0) {
           query = query.in('institution_id', accessibleInstitutionIds);
         } else {

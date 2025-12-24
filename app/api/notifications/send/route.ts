@@ -211,7 +211,7 @@ async function findTargetUsers(
   }
 
   // For department/program/semester/section targeting, use students table
-  let query = supabase.from('learners_profiles').select('college_email');
+  let query = (supabase as any).from('learners_profiles').select('college_email');
 
   if (targeting.institution_id) {
     query = query.eq('institution_id', targeting.institution_id);

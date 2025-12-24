@@ -158,7 +158,16 @@
       "Bash(bun run build:*)",
       "Bash(timeout 60 node_modules/.bin/tsc:*)",
       "Bash(timeout 90 node_modules/.bin/tsc:*)",
-      "Bash(tar:*)"
+      "Bash(tar:*)",
+      "Bash(printf:*)",
+      "Bash({ echo \"\")",
+      "Bash(})",
+      "Bash(yes:*)",
+      "Bash(npm run clean:*)",
+      "Bash(timeout 180 npm run build:*)",
+      "Bash(tee:*)",
+      "Bash(bash:*)",
+      "Bash(timeout 120 npm run build:*)"
     ],
     "deny": [],
     "ask": []

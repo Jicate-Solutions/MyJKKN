@@ -127,7 +127,7 @@ export class LeaveTypeService {
     filters: LeaveTypeFilters = {}
   ): Promise<LeaveTypeListResponse> {
     try {
-      let query = this.supabase.from('leave_types').select('*', { count: 'exact' });
+      let query = (this.supabase as any).from('leave_types').select('*', { count: 'exact' });
 
       // Apply filters
       if (filters.search) {
@@ -187,7 +187,7 @@ export class LeaveTypeService {
     isSuperAdmin: boolean = false
   ): Promise<LeaveTypeListResponse> {
     try {
-      let query = this.supabase.from('leave_types').select('*', { count: 'exact' });
+      let query = (this.supabase as any).from('leave_types').select('*', { count: 'exact' });
 
       // Apply institution filter based on user permissions
       if (!isSuperAdmin && userInstitutionId) {

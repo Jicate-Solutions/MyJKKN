@@ -33,7 +33,7 @@ export function BasicDetailsSection({ form, onImageFileChange }: BasicDetailsPro
   // Generate year options (current year - 10 to current year + 5)
   const yearOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
-    const years = [];
+    const years: number[] = [];
     for (let i = currentYear - 10; i <= currentYear + 5; i++) {
       years.push(i);
     }

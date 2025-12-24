@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Build query to fetch semesters with related entities
-    let query = supabase.from('semesters').select(`
+    let query = (supabase as any).from('semesters').select(`
         *,
         institutions(name),
         degrees(degree_name),

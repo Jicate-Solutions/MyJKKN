@@ -39,7 +39,7 @@ export class AIQueryService {
    * Get the current user's context for AI queries
    */
   static async getUserContext(userId: string): Promise<AIUserContext | null> {
-    const { data, error } = await this.supabase.rpc('ai_rpc_user_context', {
+    const { data, error } = await (this.supabase as any).rpc('ai_rpc_user_context', {
       p_user_id: userId,
     });
 
@@ -55,7 +55,7 @@ export class AIQueryService {
    * Get the user's accessible data scope
    */
   static async getAccessibleScope(userId: string): Promise<DataScope | null> {
-    const { data, error } = await this.supabase.rpc('ai_rpc_accessible_scope', {
+    const { data, error } = await (this.supabase as any).rpc('ai_rpc_accessible_scope', {
       p_user_id: userId,
     });
 
@@ -74,7 +74,7 @@ export class AIQueryService {
     userId: string,
     permission: string
   ): Promise<boolean> {
-    const { data, error } = await this.supabase.rpc('ai_rpc_validate_permission', {
+    const { data, error } = await (this.supabase as any).rpc('ai_rpc_validate_permission', {
       p_user_id: userId,
       p_permission: permission,
     });
@@ -95,7 +95,7 @@ export class AIQueryService {
    * Check rate limit for a user
    */
   static async checkRateLimit(userId: string): Promise<RateLimitResult> {
-    const { data, error } = await this.supabase.rpc('check_ai_query_rate_limit', {
+    const { data, error } = await (this.supabase as any).rpc('check_ai_query_rate_limit', {
       p_user_id: userId,
     });
 
@@ -118,7 +118,7 @@ export class AIQueryService {
    * Increment query count for rate limiting
    */
   static async incrementQueryCount(userId: string): Promise<void> {
-    const { error } = await this.supabase.rpc('increment_ai_query_count', {
+    const { error } = await (this.supabase as any).rpc('increment_ai_query_count', {
       p_user_id: userId,
     });
 
@@ -146,7 +146,7 @@ export class AIQueryService {
     ipAddress?: string;
     userAgent?: string;
   }): Promise<string | null> {
-    const { data, error } = await this.supabase.rpc('log_ai_query', {
+    const { data, error } = await (this.supabase as any).rpc('log_ai_query', {
       p_user_id: params.userId,
       p_institution_id: params.institutionId,
       p_query_text: params.queryText,
@@ -182,7 +182,7 @@ export class AIQueryService {
     const rpcName = `ai_rpc_${toolName}`;
 
     try {
-      const { data, error } = await this.supabase.rpc(rpcName, {
+      const { data, error } = await (this.supabase as any).rpc(rpcName, {
         p_user_id: userId,
         ...params,
       });
@@ -607,7 +607,7 @@ export class AIQueryService {
     userId: string,
     notificationIds: string[]
   ): Promise<ActionExecutionResult> {
-    const { data, error } = await this.supabase.rpc('ai_rpc_mark_notification_read', {
+    const { data, error } = await (this.supabase as any).rpc('ai_rpc_mark_notification_read', {
       p_user_id: userId,
       p_notification_ids: notificationIds,
     });
@@ -633,7 +633,7 @@ export class AIQueryService {
     type?: string;
     priority?: string;
   }): Promise<ActionExecutionResult> {
-    const { data, error } = await this.supabase.rpc('ai_rpc_send_notification', {
+    const { data, error } = await (this.supabase as any).rpc('ai_rpc_send_notification', {
       p_user_id: userId,
       p_recipient_ids: params.recipientIds,
       p_title: params.title,
@@ -663,7 +663,7 @@ export class AIQueryService {
     type?: string;
     priority?: string;
   }): Promise<ActionExecutionResult> {
-    const { data, error } = await this.supabase.rpc('ai_rpc_bulk_notification', {
+    const { data, error } = await (this.supabase as any).rpc('ai_rpc_bulk_notification', {
       p_user_id: userId,
       p_recipient_ids: params.recipientIds,
       p_title: params.title,

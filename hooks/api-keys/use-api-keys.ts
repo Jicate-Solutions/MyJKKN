@@ -21,7 +21,7 @@ export function useApiKeys() {
         setIsLoading(true);
         const supabase = getSupabaseClient();
 
-        const { data: apiKeys, error } = await supabase
+        const { data: apiKeys, error } = await (supabase as any)
           .from('api_keys')
           .select('*')
           .eq('is_active', true)

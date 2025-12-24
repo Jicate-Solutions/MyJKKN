@@ -22,7 +22,7 @@ export class AcademicYearService {
     data: CreateAcademicYearDto
   ): Promise<AcademicYear> {
     try {
-      const { data: academicYear, error } = await this.supabase
+      const { data: academicYear, error } = await (this.supabase as any)
         .from('academic_years')
         .insert([data])
         .select()
@@ -50,7 +50,7 @@ export class AcademicYearService {
     data: UpdateAcademicYearDto
   ): Promise<AcademicYear> {
     try {
-      const { data: academicYear, error } = await this.supabase
+      const { data: academicYear, error } = await (this.supabase as any)
         .from('academic_years')
         .update({
           ...data,
@@ -128,7 +128,7 @@ export class AcademicYearService {
     isSuperAdmin: boolean = false
   ): Promise<AcademicYearListResponse> {
     try {
-      let query = this.supabase.from('academic_years').select(
+      let query = (this.supabase as any).from('academic_years').select(
         `
           *,
           institution:institutions (
@@ -246,7 +246,7 @@ export class AcademicYearService {
     filters: AcademicYearFilters = {}
   ): Promise<AcademicYearListResponse> {
     try {
-      let query = this.supabase.from('academic_years').select(
+      let query = (this.supabase as any).from('academic_years').select(
         `
           *,
           institution:institutions (

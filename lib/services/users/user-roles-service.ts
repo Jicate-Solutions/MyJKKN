@@ -26,7 +26,7 @@ export class UserRolesService {
       const supabase = createClientSupabaseClient();
 
       // Use the database function for optimized query
-      const { data, error } = await supabase.rpc(
+      const { data, error } = await (supabase as any).rpc(
         'get_user_roles_with_details',
         {
           p_user_id: userId
@@ -112,7 +112,7 @@ export class UserRolesService {
 
       // Populate with fetched data
       if (data) {
-        for (const item of data) {
+        for (const item of data as any) {
           const customRole = item.custom_roles as any;
           const assignment: UserRoleAssignment = {
             id: item.id,
@@ -191,9 +191,9 @@ export class UserRolesService {
         assigned_by: assignedBy || null
       }));
 
-      const { error: insertError } = await supabase
+      const { error: insertError } = await supabase 
         .from('user_roles')
-        .insert(assignments);
+        .insert(assignments as any);
 
       if (insertError) {
         console.error('[users/roles] Error inserting new roles:', insertError);
@@ -223,14 +223,14 @@ export class UserRolesService {
 
       // If this should be primary, unset other primary roles first
       if (isPrimary) {
-        await supabase
+        await (supabase as any)
           .from('user_roles')
           .update({ is_primary: false })
           .eq('user_id', userId)
           .eq('is_primary', true);
       }
 
-      const { error } = await supabase.from('user_roles').insert({
+      const { error } = await (supabase as any).from('user_roles').insert({
         user_id: userId,
         role_id: roleId,
         is_primary: isPrimary,
@@ -293,7 +293,7 @@ export class UserRolesService {
       if (deleteError) throw deleteError;
 
       // If we removed the primary role, set another role as primary
-      if (roleToRemove?.is_primary) {
+      if ((roleToRemove as any)?.is_primary) {
         const { data: remainingRoles, error: remainingError } = await supabase
           .from('user_roles')
           .select('id')
@@ -304,10 +304,10 @@ export class UserRolesService {
         if (remainingError) throw remainingError;
 
         if (remainingRoles && remainingRoles.length > 0) {
-          await supabase
+          await (supabase as any)
             .from('user_roles')
             .update({ is_primary: true })
-            .eq('id', remainingRoles[0].id);
+            .eq('id', (remainingRoles as any)[0].id);
         }
       }
 
@@ -338,13 +338,13 @@ export class UserRolesService {
       }
 
       // Unset all primary flags for this user
-      await supabase
+      await (supabase as any)
         .from('user_roles')
         .update({ is_primary: false })
         .eq('user_id', userId);
 
       // Set the new primary role
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from('user_roles')
         .update({ is_primary: true })
         .eq('user_id', userId)
@@ -376,7 +376,7 @@ export class UserRolesService {
 
       if (useDbFunction) {
         // Use the optimized database function
-        const { data, error } = await supabase.rpc(
+        const { data, error } = await (supabase as any).rpc(
           'get_user_merged_permissions',
           {
             p_user_id: userId

@@ -23,7 +23,7 @@ export class SubCategoryService {
     filters: SubCategoryFilters = {}
   ): Promise<SubCategoryListResponse> {
     try {
-      let query = this.supabase.from('resource_sub_categories').select(
+      let query = (this.supabase as any).from('resource_sub_categories').select(
         `
           *,
           parent_category:resource_parent_categories(

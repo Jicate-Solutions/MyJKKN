@@ -55,7 +55,7 @@ export function NotificationsDataTable({
     // Handle both the new targeting object structure and legacy individual fields
     const targeting = notification.targeting || {};
 
-    const parts = [];
+    const parts: string[] = [];
     if (targeting.institution_id || notification.target_institution_id)
       parts.push('Institution');
     if (targeting.department_id || notification.target_department_id)

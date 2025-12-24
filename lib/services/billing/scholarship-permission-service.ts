@@ -160,7 +160,7 @@ export class ScholarshipPermissionService {
   ): Promise<ScholarshipPermissions | null> {
     try {
       const supabase = getSupabaseClient();
-      const { data, error } = await supabase.rpc(
+      const { data, error } = await (supabase as any).rpc(
         'get_scholarship_permissions',
         {
           target_role_key: roleKey
@@ -191,7 +191,7 @@ export class ScholarshipPermissionService {
   ): Promise<void> {
     try {
       const supabase = getSupabaseClient();
-      const { error } = await supabase.rpc('update_scholarship_permissions', {
+      const { error } = await (supabase as any).rpc('update_scholarship_permissions', {
         target_role_key: roleKey,
         ...permissions
       });
@@ -243,7 +243,7 @@ export class ScholarshipPermissionService {
       }
 
       const supabase = getSupabaseClient();
-      const { error } = await supabase.rpc(functionName, {
+      const { error } = await (supabase as any).rpc(functionName, {
         target_role_key: roleKey
       });
 

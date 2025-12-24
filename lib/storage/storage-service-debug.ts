@@ -319,16 +319,16 @@ export class StorageServiceDebug {
           students_found: students?.length || 0,
           queried_roll_numbers: validRollNumbers.length,
           students: students?.map((s) => ({
-            roll_number: s.roll_number,
-            name: s.student_name,
-            institution: s.institutions?.[0]?.name
+            roll_number: (s as any).roll_number,
+            name: (s as any).student_name,
+            institution: (s as any).institutions?.[0]?.name
           }))
         }
       );
 
       // Create lookup map for students
       const studentMap = new Map(
-        students?.map((s) => [s.roll_number, s]) || []
+        students?.map((s) => [(s as any).roll_number, s]) || []
       );
 
       this.addDiagnostic(
@@ -430,25 +430,25 @@ export class StorageServiceDebug {
                 timestamp: new Date().toISOString(),
                 step: 'student_lookup',
                 status: 'success',
-                message: `Found student: ${student.student_name}`,
+                message: `Found student: ${(student as any).student_name}`,
                 data: {
                   roll_number: rollNumber,
-                  student_name: student.student_name,
-                  student_id: student.id,
-                  institution: student.institutions?.[0]?.name
+                  student_name: (student as any).student_name,
+                  student_id: (student as any).id,
+                  institution: (student as any).institutions?.[0]?.name
                 }
               });
 
               // Validate institution
-              if (!student.institutions?.[0]?.name) {
+              if (!((student as any).institutions?.[0]?.name)) {
                 fileDiagnostics.push({
                   timestamp: new Date().toISOString(),
                   step: 'institution_validation',
                   status: 'error',
                   message: 'Student institution not found',
                   data: {
-                    student_id: student.id,
-                    student_name: student.student_name
+                    student_id: (student as any).id,
+                    student_name: (student as any).student_name
                   }
                 });
 
@@ -465,8 +465,8 @@ export class StorageServiceDebug {
                 timestamp: new Date().toISOString(),
                 step: 'institution_validation',
                 status: 'success',
-                message: `Institution validated: ${student.institutions[0].name}`,
-                data: { institution_name: student.institutions[0].name }
+                message: `Institution validated: ${(student as any).institutions[0].name}`,
+                data: { institution_name: (student as any).institutions[0].name }
               });
 
               // Enhanced file validation
@@ -509,15 +509,15 @@ export class StorageServiceDebug {
                 status: 'success',
                 message: 'Attempting to delete old photos',
                 data: {
-                  student_id: student.id,
-                  institution_name: student.institutions[0].name,
+                  student_id: (student as any).id,
+                  institution_name: (student as any).institutions[0].name,
                   roll_number: rollNumber
                 }
               });
 
               await this.deleteOldStudentPhoto(
-                student.id,
-                student.institutions[0].name,
+                (student as any).id,
+                (student as any).institutions[0].name,
                 rollNumber
               );
 
@@ -526,13 +526,13 @@ export class StorageServiceDebug {
                 step: 'delete_old_photos',
                 status: 'success',
                 message: 'Old photos deletion completed',
-                data: { student_id: student.id }
+                data: { student_id: (student as any).id }
               });
 
               // Upload new photo
               const fileExt = file.name.split('.').pop()?.toLowerCase();
               const institutionName = this.sanitizePathName(
-                student.institutions[0].name
+                (student as any).institutions[0].name
               );
               const filePath = `${institutionName}/${rollNumber}.${fileExt}`;
 
@@ -543,7 +543,7 @@ export class StorageServiceDebug {
                 message: 'Prepared upload path',
                 data: {
                   file_path: filePath,
-                  original_institution_name: student.institutions[0].name,
+                  original_institution_name: (student as any).institutions[0].name,
                   sanitized_institution_name: institutionName,
                   file_extension: fileExt
                 }
@@ -591,10 +591,10 @@ export class StorageServiceDebug {
               });
 
               // Update student record
-              const { error: updateError } = await this.supabase
+              const { error: updateError } = await (this.supabase as any)
                 .from('learners_profiles')
                 .update({ student_photo_url: urlData.publicUrl })
-                .eq('id', student.id);
+                .eq('id', (student as any).id);
 
               if (updateError) {
                 fileDiagnostics.push({
@@ -603,7 +603,7 @@ export class StorageServiceDebug {
                   status: 'warning',
                   message: 'Failed to update student photo URL in database',
                   data: {
-                    student_id: student.id,
+                    student_id: (student as any).id,
                     photo_url: urlData.publicUrl
                   },
                   error: updateError
@@ -617,13 +617,13 @@ export class StorageServiceDebug {
                   step: 'database_update',
                   status: 'success',
                   message: 'Successfully updated student photo URL in database',
-                  data: { student_id: student.id, photo_url: urlData.publicUrl }
+                  data: { student_id: (student as any).id, photo_url: urlData.publicUrl }
                 });
               }
 
               results.success.push({
                 roll_number: rollNumber,
-                student_name: student.student_name,
+                student_name: (student as any).student_name,
                 image_url: urlData.publicUrl,
                 diagnostics: fileDiagnostics
               });

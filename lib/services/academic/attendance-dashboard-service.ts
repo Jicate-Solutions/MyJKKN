@@ -550,11 +550,14 @@ export class AttendanceDashboardService {
         throw timetableError;
       }
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const timetablesData = timetables as { timetable_data: any }[] | null;
+
       // Step 2: Get courses and staff data for enrichment
       const courseIds = new Set<string>();
       const staffIds = new Set<string>();
 
-      timetables?.forEach((timetable) => {
+      timetablesData?.forEach((timetable) => {
         const timetableData = timetable.timetable_data as any;
         if (timetableData) {
           Object.values(timetableData).forEach((daySlots: any) => {
@@ -587,13 +590,17 @@ export class AttendanceDashboardService {
           : { data: [] }
       ]);
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const coursesResult = (coursesData as any).data || [];
+      const staffResult = (staffData as any).data || [];
+
       // Create lookup maps
-      const courseLookup = (coursesData.data || []).reduce((acc, course) => {
+      const courseLookup = (coursesResult as any[]).reduce((acc, course) => {
         acc[course.id] = course;
         return acc;
       }, {} as Record<string, any>);
 
-      const staffLookup = (staffData.data || []).reduce((acc, staff) => {
+      const staffLookup = (staffResult as any[]).reduce((acc, staff) => {
         acc[staff.id] = staff;
         return acc;
       }, {} as Record<string, any>);
@@ -607,7 +614,7 @@ export class AttendanceDashboardService {
           .toLocaleDateString('en-US', { weekday: 'long' })
           .toUpperCase();
 
-        timetables?.forEach((timetable) => {
+        timetablesData?.forEach((timetable: any) => {
           // Check if timetable is valid for the current date
           const isValidForDate =
             (!timetable.start_date || timetable.start_date <= date) &&
@@ -746,11 +753,14 @@ export class AttendanceDashboardService {
         throw attendanceError;
       }
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const markedAttendanceData = markedAttendance as { attendance_date: string; timetable_id: string; attendance_data: any; updated_at: string }[] | null;
+
       // Create set of marked periods with enhanced validation
       const markedPeriods = new Set<string>();
       const markedPeriodsDetails = new Map<string, any>(); // For debugging
 
-      markedAttendance?.forEach((record) => {
+      markedAttendanceData?.forEach((record) => {
         const attendanceData = record.attendance_data as any;
         if (attendanceData && typeof attendanceData === 'object') {
           Object.keys(attendanceData).forEach((periodId) => {
@@ -912,10 +922,13 @@ export class AttendanceDashboardService {
 
       if (error) throw error;
 
+      // Type cast to fix TypeScript inference after React 19 upgrade
+      const attendanceRecords = attendanceData as { attendance_date: string; attendance_data: any }[] | null;
+
       // Calculate daily percentages
       const dailyStats = dates.map((date) => {
         const dayRecords =
-          attendanceData?.filter((record) => record.attendance_date === date) ||
+          attendanceRecords?.filter((record) => record.attendance_date === date) ||
           [];
 
         let totalPresent = 0;

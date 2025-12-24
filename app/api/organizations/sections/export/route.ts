@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Build query to fetch sections with related entities
-    let query = supabase.from('sections').select(`
+    let query = (supabase as any).from('sections').select(`
         *,
         institutions(name),
         degrees(degree_name),

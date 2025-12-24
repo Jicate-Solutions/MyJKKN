@@ -137,7 +137,7 @@ export async function DELETE(
     }
 
     // Delete API key
-    const { error } = await supabase.from('api_keys').delete().eq('id', id);
+    const { error } = await (supabase as any).from('api_keys').delete().eq('id', id);
 
     if (error) {
       throw error;

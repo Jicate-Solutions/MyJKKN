@@ -229,7 +229,7 @@ export default function AttendanceMarkPage() {
         // Extract section information from timetable data
         // Updated: 2025-10-08 - Fixed priority to use URL sectionId first for multi-section support
         let resolvedSectionId = sectionId;
-        let sectionData = null;
+        let sectionData: { id: string; section_name: string; degree_id: string; program_id: string; department_id: string; semester_id: string } | null = null;
 
         // Priority 1: Use sectionId from URL (user's selection when clicking "Mark Attendance")
         // This is CRITICAL for multi-section slots where user selects which section to mark
@@ -317,7 +317,7 @@ export default function AttendanceMarkPage() {
         }
 
         // Updated: 2025-10-08 - Fetch semester name from timetable or section
-        let semesterName = null;
+        let semesterName: string | null = null;
         const semesterId =
           sectionData?.semester_id || timetable.semester_id;
 
@@ -1167,12 +1167,12 @@ export default function AttendanceMarkPage() {
       // NEW: For practical periods, use course from practical selection (Updated: 2025-10-25)
       const correctCourseInfo = practicalSelection
         ? {
-            course_id: practicalSelection.course_id,
-            course_name: practicalSelection.course_name,
+            course_id: practicalSelection.course_id || '',
+            course_name: practicalSelection.course_name || 'Unknown Course',
             course_code: 'N/A' // Course code may not be available from practical selection
           }
         : {
-            course_id: courseDetails?.id || courseId || null,
+            course_id: courseDetails?.id || courseId || '',
             course_name:
               courseDetails?.course_name || courseName || 'Unknown Course',
             course_code: courseDetails?.course_code || 'N/A'

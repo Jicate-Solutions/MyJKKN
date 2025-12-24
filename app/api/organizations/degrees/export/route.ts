@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     const includeInactive = url.searchParams.get('includeInactive') === 'true';
 
     // Start building the query - include join with institutions to get institution name
-    let query = supabase.from('degrees').select(`
+    let query = (supabase as any).from('degrees').select(`
         *,
         institutions:institution_id(id, name)
       `);
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Process data for export - create a flat structure with institution name
-    const exportableData = degrees.map((degree) => ({
+    const exportableData = degrees.map((degree: any) => ({
       id: degree.id,
       institution_id: degree.institution_id,
       institution_name: degree.institutions?.name || '',

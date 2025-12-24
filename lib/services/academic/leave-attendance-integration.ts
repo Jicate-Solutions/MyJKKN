@@ -25,7 +25,7 @@ export class LeaveAttendanceIntegration {
   ): Promise<AttendanceLeaveResult> {
     try {
       // Use the database function for efficient checking
-      const { data, error } = await this.supabase.rpc('is_date_blocked_by_leave', {
+      const { data, error } = await (this.supabase as any).rpc('is_date_blocked_by_leave', {
         p_institution_id: params.institution_id,
         p_date: params.date,
         p_department_id: params.department_id || null,

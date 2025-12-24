@@ -283,9 +283,12 @@ export function DebugBulkUpload() {
               .eq('roll_number', rollNumber)
               .single();
 
-            validation.student_found = !studentError && !!student;
+            // Type cast to fix TypeScript inference after React 19 upgrade
+            const studentData = student as { institutions: { name: string }[] } | null;
+
+            validation.student_found = !studentError && !!studentData;
             validation.institution_found =
-              validation.student_found && !!student?.institutions?.[0]?.name;
+              validation.student_found && !!studentData?.institutions?.[0]?.name;
           }
         } catch (error) {
           addLog('error', `Validation failed for ${file.name}`, error);

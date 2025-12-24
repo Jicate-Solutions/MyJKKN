@@ -65,7 +65,10 @@ class MaintenanceService {
 
     const { data, error } = await query;
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error fetching logs:', error);
+      throw error;
+    }
     return data || [];
   }
 
@@ -123,7 +126,10 @@ class MaintenanceService {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error creating log:', error);
+      throw error;
+    }
     return data;
   }
 
@@ -141,7 +147,10 @@ class MaintenanceService {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error updating log:', error);
+      throw error;
+    }
     return data;
   }
 
@@ -166,7 +175,10 @@ class MaintenanceService {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error completing log:', error);
+      throw error;
+    }
     return data;
   }
 
@@ -187,7 +199,10 @@ class MaintenanceService {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error cancelling log:', error);
+      throw error;
+    }
     return data;
   }
 
@@ -200,7 +215,10 @@ class MaintenanceService {
       .delete()
       .eq('id', id);
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error deleting log:', error);
+      throw error;
+    }
   }
 
   // ==================== MAINTENANCE SCHEDULES ====================
@@ -241,7 +259,10 @@ class MaintenanceService {
 
     const { data, error } = await query;
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error fetching schedules:', error);
+      throw error;
+    }
     return data || [];
   }
 
@@ -261,7 +282,10 @@ class MaintenanceService {
       .eq('id', id)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error fetching schedule:', error);
+      throw error;
+    }
     return data;
   }
 
@@ -280,7 +304,10 @@ class MaintenanceService {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error creating schedule:', error);
+      throw error;
+    }
     return data;
   }
 
@@ -298,7 +325,10 @@ class MaintenanceService {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error updating schedule:', error);
+      throw error;
+    }
     return data;
   }
 
@@ -311,7 +341,10 @@ class MaintenanceService {
       .delete()
       .eq('id', id);
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error deleting schedule:', error);
+      throw error;
+    }
   }
 
   // ==================== ANALYTICS ====================
@@ -320,7 +353,9 @@ class MaintenanceService {
    * Get maintenance statistics
    */
   async getMaintenanceStats(resourceId?: string): Promise<MaintenanceStats> {
-    let query = this.supabase.from('resource_maintenance_logs').select('*');
+    let query = this.supabase
+      .from('resource_maintenance_logs')
+      .select('*');
 
     if (resourceId) {
       query = query.eq('resource_id', resourceId);
@@ -328,7 +363,10 @@ class MaintenanceService {
 
     const { data: logs, error } = await query;
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error fetching stats:', error);
+      throw error;
+    }
 
     const total = logs?.length || 0;
     const completed =
@@ -416,7 +454,10 @@ class MaintenanceService {
       .in('status', ['scheduled', 'in_progress'])
       .order('scheduled_date', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error fetching upcoming maintenance:', error);
+      throw error;
+    }
     return data || [];
   }
 
@@ -439,7 +480,10 @@ class MaintenanceService {
       .in('status', ['scheduled', 'in_progress'])
       .order('scheduled_date', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error fetching overdue maintenance:', error);
+      throw error;
+    }
     return data || [];
   }
 }

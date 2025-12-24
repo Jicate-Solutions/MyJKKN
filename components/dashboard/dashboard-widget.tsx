@@ -958,6 +958,7 @@ function WelcomeWidget({
             .single();
 
           setCurrentUser(
+            // @ts-ignore - TypeScript type inference issue after React 19 upgrade
             profile?.full_name || user.email?.split('@')[0] || 'User'
           );
         }

@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
     const isActive = url.searchParams.get('is_active');
 
     // Build query
-    let query = supabase.from('sections').select(
+    let query = (supabase as any).from('sections').select(
       `
       *,
       institution:institutions (
