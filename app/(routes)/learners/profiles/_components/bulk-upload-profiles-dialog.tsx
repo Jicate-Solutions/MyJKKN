@@ -570,7 +570,7 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
               <div className="flex items-center gap-3 p-4 bg-muted rounded-lg">
                 <FileText className="h-6 w-6 text-muted-foreground flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate">{selectedFile.name}</p>
+                  <p className="font-semibold truncate">{selectedFile?.name}</p>
                   <p className="text-sm text-muted-foreground">
                     Ready to upload
                   </p>

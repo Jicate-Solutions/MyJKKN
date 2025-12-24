@@ -19,9 +19,9 @@ export async function GET(request: NextRequest) {
       .from('profiles')
       .select('role')
       .eq('id', data.user.id)
-      .single();
+      .single() as { data: { role: string } | null; error: any };
 
-    if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
+    if (profileError || !profile || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
       return NextResponse.json(
         { error: 'Only super admins can manage roles' },
         { status: 403 }
@@ -67,9 +67,9 @@ export async function POST(request: NextRequest) {
       .from('profiles')
       .select('role')
       .eq('id', data.user.id)
-      .single();
+      .single() as { data: { role: string } | null; error: any };
 
-    if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
+    if (profileError || !profile || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
       return NextResponse.json(
         { error: 'Only super admins can manage roles' },
         { status: 403 }
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
           is_system_role: false,
           created_by: data.user.id
         }
-      ])
+      ] as any)
       .select()
       .single();
 

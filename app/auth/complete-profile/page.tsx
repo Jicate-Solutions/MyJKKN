@@ -106,7 +106,7 @@ export default function CompleteProfile() {
                 role: 'student',
                 profile_completed: false
               }
-            ]);
+            ] as any);
 
           if (insertError) throw insertError;
         } else {
