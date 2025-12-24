@@ -6,7 +6,7 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
-import { StaffPlan } from '@/types/staff-planning';
+import { StaffAssignment, StaffPlan } from '@/types/staff-planning';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
@@ -873,8 +873,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                               <StaffSearchSelector
                                 institutionId={watchedInstitutionId || ''}
                                 departmentId={watchedDepartmentId || ''}
-                                value={field.value}
-                                onChange={field.onChange}
+                                value={field.value as StaffAssignment[]}
+                                onChange={field.onChange as (value: StaffAssignment[]) => void}
                                 courseName={courseName}
                                 placeholder='Search and assign staff members to this course...'
                               />
