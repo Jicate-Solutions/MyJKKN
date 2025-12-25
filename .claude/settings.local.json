@@ -170,7 +170,10 @@
       "Bash(timeout 120 npm run build:*)",
       "Bash(timeout 180 npx tsc:*)",
       "Bash(cut:*)",
-      "Bash(timeout 120 npx tsc:*)"
+      "Bash(timeout 120 npx tsc:*)",
+      "Bash(for dir in \"D:\\\\JKKN\\\\MYJKKN Portal\\\\MyJKKN\\\\app\\\\\\(routes\\)\"/*)",
+      "Bash(do if [ -d \"$dir\" ])",
+      "Bash(for dir in \"D:\\\\JKKN\\\\MYJKKN Portal\\\\MyJKKN\\\\app\\\\api\"/*)"
     ],
     "deny": [],
     "ask": []
@@ -183,5 +186,40 @@
     "actor-critic-thinking",
     "chrome-devtools",
     "next-devtools"
-  ]
+  ],
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \".claude\\hooks\\hook-permission.ps1\"",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \".claude\\hooks\\hook-stop.ps1\"",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \".claude\\hooks\\hook-subagent-stop.ps1\"",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
 }

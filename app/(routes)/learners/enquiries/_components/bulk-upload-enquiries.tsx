@@ -6,6 +6,8 @@
 // Based on: bulk-upload-admissions.tsx
 // ============================================
 
+'use client';
+
 import { useState, useRef } from 'react';
 import {
   Dialog,

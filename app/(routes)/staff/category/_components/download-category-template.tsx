@@ -93,7 +93,7 @@ export default function DownloadCategoryTemplateButton() {
 
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().split('T')[0];
-      const fileName = `staff_category_template_${timestamp}.xlsx`;
+      const fileName = `employment_category_template_${timestamp}.xlsx`;
 
       // Save the file
       XLSX.writeFile(wb, fileName);

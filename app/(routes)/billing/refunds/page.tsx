@@ -1,96 +1,79 @@
-'use client';
+/**
+ * Billing Refunds List Page - Server Component
+ *
+ * Server-rendered page with cached data fetching.
+ * Uses URL search params for filtering instead of client state.
+ */
 
-import { useEffect } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
-import { Plus, RefreshCw, CreditCard, TrendingUp } from 'lucide-react';
+import { Plus, CreditCard, TrendingUp, RefreshCw } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { BeatLoader } from 'react-spinners';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
-import { useBillingRefunds } from '@/hooks/billing/use-billing-refunds';
-import { RefundFilters } from './_components/refund-filters';
-import { RefundList } from './_components/refund-list';
+import { TableSkeleton } from '@/components/Loading';
+import { getRefunds } from './_data/get-refunds';
+import { RefundsTableServer } from './_components/refunds-table-server';
+import { RefundsFiltersClient } from './_components/refunds-filters-client';
+import { RefundsPaginationClient } from './_components/refunds-pagination-client';
 
-export default function BillingRefundsPage() {
-  const {
-    refunds,
-    loading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    fetchRefunds
-  } = useBillingRefunds();
+interface SearchParams {
+  page?: string;
+  limit?: string;
+  search?: string;
+  institution_id?: string;
+  student_id?: string;
+  receipt_id?: string;
+  approval_status?: string;
+  refund_category?: string;
+  refund_method?: string;
+  refund_date_from?: string;
+  refund_date_to?: string;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+}
 
-  const {
-    canAccess,
-    isSuperAdmin,
-    isLoading: permissionsLoading
-  } = usePermissions();
+interface BillingRefundsPageProps {
+  searchParams: Promise<SearchParams>;
+}
 
-  const canViewRefunds = isSuperAdmin || canAccess('billing.refunds', 'view');
-  const canCreateRefunds =
-    isSuperAdmin || canAccess('billing.refunds', 'create');
+export default async function BillingRefundsPage({
+  searchParams
+}: BillingRefundsPageProps) {
+  const params = await searchParams;
 
-  useEffect(() => {
-    fetchRefunds();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Build filters from URL params
+  const filters = {
+    page: params.page ? parseInt(params.page) : 1,
+    limit: params.limit ? parseInt(params.limit) : 10,
+    search: params.search,
+    institution_id: params.institution_id,
+    student_id: params.student_id,
+    receipt_id: params.receipt_id,
+    approval_status: params.approval_status,
+    refund_category: params.refund_category,
+    refund_method: params.refund_method,
+    refund_date_from: params.refund_date_from,
+    refund_date_to: params.refund_date_to,
+    sortBy: params.sortBy || 'refund_date',
+    sortDirection: (params.sortDirection as 'asc' | 'desc') || 'desc'
+  };
 
-  // Show loading state while permissions are loading
-  if (permissionsLoading) {
-    return (
-      <ContentLayout title='Refund Management'>
-        <div className='flex items-center justify-center min-h-[400px]'>
-          <BeatLoader color='#00e902' />
-        </div>
-      </ContentLayout>
-    );
-  }
+  // Fetch data server-side with caching
+  const { data: refunds, metadata } = await getRefunds(filters);
 
-  if (!canViewRefunds) {
-    return (
-      <ContentLayout title='Refund Management'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>
-            You don&apos;t have permission to view billing refunds.
-          </p>
-        </div>
-      </ContentLayout>
-    );
-  }
-
-  if (error) {
-    return (
-      <ContentLayout title='Refund Management'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchRefunds()}
-            className='mt-4'
-            disabled={!canViewRefunds}
-          >
-            Try Again
-          </Button>
-        </div>
-      </ContentLayout>
-    );
-  }
-
-  // Calculate summary statistics
-  const totalRefunds = refunds.length;
+  // Calculate summary statistics from metadata or current page data
+  const totalRefunds = metadata?.total || refunds.length;
   const pendingApprovals = refunds.filter(
-    (r: any) => r.approval_status === 'pending'
+    (r) => r.approval_status === 'pending'
   ).length;
   const totalRefundAmount = refunds.reduce(
-    (sum: number, r: any) => sum + r.net_refund_amount,
+    (sum, r) => sum + (r.net_refund_amount || r.refund_amount),
     0
   );
   const completedRefunds = refunds.filter(
-    (r: any) => r.approval_status === 'completed'
+    (r) => r.approval_status === 'processed'
   ).length;
 
   return (
@@ -111,23 +94,12 @@ export default function BillingRefundsPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            {canCreateRefunds ? (
-              <Button className='w-full sm:w-auto' asChild>
-                <Link href='/billing/refunds/new'>
-                  <Plus className='mr-2 h-4 w-4' />
-                  Process Refund
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                className='w-full sm:w-auto opacity-50'
-                disabled
-                variant='outline'
-              >
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/billing/refunds/new'>
                 <Plus className='mr-2 h-4 w-4' />
                 Process Refund
-              </Button>
-            )}
+              </Link>
+            </Button>
             <Button variant='outline' asChild>
               <Link href='/billing/refunds/policies'>
                 <CreditCard className='mr-2 h-4 w-4' />
@@ -154,7 +126,9 @@ export default function BillingRefundsPage() {
             </CardHeader>
             <CardContent>
               <div className='text-2xl font-bold'>{totalRefunds}</div>
-              <p className='text-xs text-muted-foreground'>All time refunds</p>
+              <p className='text-xs text-muted-foreground'>
+                {metadata?.total ? 'All time' : 'Current page'} refunds
+              </p>
             </CardContent>
           </Card>
 
@@ -175,16 +149,16 @@ export default function BillingRefundsPage() {
 
           <Card>
             <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium'>
-                Total Amount
-              </CardTitle>
+              <CardTitle className='text-sm font-medium'>Total Amount</CardTitle>
               <TrendingUp className='h-4 w-4 text-muted-foreground' />
             </CardHeader>
             <CardContent>
               <div className='text-2xl font-bold text-red-600'>
                 ₹{totalRefundAmount.toLocaleString()}
               </div>
-              <p className='text-xs text-muted-foreground'>Total refunded</p>
+              <p className='text-xs text-muted-foreground'>
+                {metadata?.total ? 'All time' : 'Current page'} refunded
+              </p>
             </CardContent>
           </Card>
 
@@ -209,24 +183,20 @@ export default function BillingRefundsPage() {
           </Card>
         </div>
 
-        <Card>
-          <CardContent className='p-6'>
-            <RefundFilters filters={filters} onFilterChange={updateFilters} />
+        {/* Filters (Client Component) */}
+        <RefundsFiltersClient />
 
-            {loading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <RefundList
-                refunds={refunds}
-                metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchRefunds}
-              />
-            )}
-          </CardContent>
-        </Card>
+        {/* Data Table (Server Component with Suspense) */}
+        <Suspense fallback={<TableSkeleton rows={10} columns={6} />}>
+          <RefundsTableServer refunds={refunds} metadata={metadata} />
+        </Suspense>
+
+        {/* Pagination (Client Component) */}
+        <RefundsPaginationClient
+          currentPage={metadata.page}
+          totalPages={metadata.totalPages}
+          totalItems={metadata.total}
+        />
       </div>
     </ContentLayout>
   );

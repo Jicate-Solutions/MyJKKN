@@ -1,51 +1,16 @@
-'use client';
-
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { CourseMappingsDataTable } from './_components/course-mappings-data-table';
-import { CourseMappingFilters } from './_components/course-mapping-filters';
+import { CourseMappingFiltersClient } from './_components/course-mapping-filters-client';
 import { courseMappingsSearchParamsSchema } from './_components/data-table-schema';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
 
-export default function CourseMappingsPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+interface CourseMappingsPageProps {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
 
-  // Parse current search parameters
-  const search = courseMappingsSearchParamsSchema.parse(
-    Object.fromEntries(searchParams.entries())
-  );
-
-  // Handle filter changes by updating URL
-  const handleFilterChange = useCallback(
-    (key: string, value: string | undefined) => {
-      const params = new URLSearchParams(searchParams);
-
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
-      }
-
-      // Reset page to 1 when filters change
-      params.set('page', '1');
-
-      router.push(`/organizations/courses/mappings?${params.toString()}`);
-    },
-    [router, searchParams]
-  );
-
-  // Handle clearing all filters
-  const handleClearFilters = useCallback(() => {
-    const params = new URLSearchParams();
-    // Keep only page and pageSize
-    params.set('page', '1');
-    if (searchParams.get('pageSize')) {
-      params.set('pageSize', searchParams.get('pageSize')!);
-    }
-    router.push(`/organizations/courses/mappings?${params.toString()}`);
-  }, [router, searchParams]);
+export default async function CourseMappingsPage({ searchParams }: CourseMappingsPageProps) {
+  const params = await searchParams;
+  const search = courseMappingsSearchParamsSchema.parse(params);
 
   return (
     <ContentLayout title='Course Mappings'>
@@ -65,14 +30,8 @@ export default function CourseMappingsPage() {
           </p>
         </div>
 
-        {/* Filters */}
-        <CourseMappingFilters
-          searchParams={search}
-          onFilterChange={handleFilterChange}
-          onClearFilters={handleClearFilters}
-        />
+        <CourseMappingFiltersClient searchParams={search} />
 
-        {/* Data Table */}
         <CourseMappingsDataTable search={search} />
       </div>
     </ContentLayout>

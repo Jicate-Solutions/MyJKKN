@@ -5,7 +5,6 @@ import type { NextRequest } from 'next/server';
 import { Database } from '@/types/auth';
 import { UserDashboardStats, UserDashboardFilters } from '@/types/users';
 
-export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {

@@ -3,7 +3,6 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { StaffService } from '@/lib/services/staff/staff-service';
 
-export const dynamic = 'force-dynamic';
 
 export async function POST() {
   try {

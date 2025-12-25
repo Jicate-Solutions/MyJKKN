@@ -1,53 +1,18 @@
 // app/(routes)/organizations/degrees/page.tsx
 
-'use client';
-
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { DegreesDataTable } from './_components/degrees-data-table';
-import { DegreeFilters } from './_components/degree-filters';
+import { DegreesFiltersClient } from './_components/degrees-filters-client';
 import { degreesSearchParamsSchema } from './_components/data-table-schema';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
 
-export default function DegreesPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+interface DegreesPageProps {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
 
-  // Parse current search parameters
-  const search = degreesSearchParamsSchema.parse(
-    Object.fromEntries(searchParams.entries())
-  );
-
-  // Handle filter changes by updating URL
-  const handleFilterChange = useCallback(
-    (key: string, value: string | undefined) => {
-      const params = new URLSearchParams(searchParams);
-
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
-      }
-
-      // Reset page to 1 when filters change
-      params.set('page', '1');
-
-      router.push(`/organizations/degrees?${params.toString()}`);
-    },
-    [router, searchParams]
-  );
-
-  // Handle clearing all filters
-  const handleClearFilters = useCallback(() => {
-    const params = new URLSearchParams();
-    // Keep only page and pageSize
-    params.set('page', '1');
-    if (searchParams.get('pageSize')) {
-      params.set('pageSize', searchParams.get('pageSize')!);
-    }
-    router.push(`/organizations/degrees?${params.toString()}`);
-  }, [router, searchParams]);
+export default async function DegreesPage({ searchParams }: DegreesPageProps) {
+  const params = await searchParams;
+  const search = degreesSearchParamsSchema.parse(params);
 
   return (
     <ContentLayout title='Degrees'>
@@ -66,14 +31,8 @@ export default function DegreesPage() {
           </p>
         </div>
 
-        {/* Filters */}
-        <DegreeFilters
-          searchParams={search}
-          onFilterChange={handleFilterChange}
-          onClearFilters={handleClearFilters}
-        />
+        <DegreesFiltersClient searchParams={search} />
 
-        {/* Data Table */}
         <DegreesDataTable search={search} />
       </div>
     </ContentLayout>

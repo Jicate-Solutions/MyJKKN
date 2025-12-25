@@ -2,12 +2,12 @@
 > my-jkkn@0.1.0 build
 > next build
 
-▲ Next.js 16.1.1 (Turbopack)
+▲ Next.js 16.1.1 (Turbopack, Cache Components)
 - Environments: .env
 - Experiments (use with caution):
   · cpus: 1
 
   Creating an optimized production build ...
-✓ Compiled successfully in 2.3min
+✓ Compiled successfully in 106s
   Running TypeScript ...
 Next.js build worker exited with code: 143 and signal: null

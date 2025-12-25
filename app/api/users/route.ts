@@ -8,7 +8,6 @@ import { CreateUserRequest } from '@/types/users';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { RESOURCE_TYPES } from '@/types/activity';
 
-export const dynamic = 'force-dynamic';
 
 // Create admin client for database operations
 const supabaseAdmin = createClient(

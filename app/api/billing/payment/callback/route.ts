@@ -9,7 +9,6 @@ import { PaymentGatewayService } from '@/lib/services/billing/payment-gateway-se
 import { PaymentAuditService } from '@/lib/services/billing/security/payment-audit-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
-export const dynamic = 'force-dynamic';
 
 /**
  * SECURE Payment Callback Handler

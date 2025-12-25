@@ -13,7 +13,6 @@ import { LearnerValidationService } from '@/lib/services/learner-validation-serv
 import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
 import * as XLSX from 'xlsx';
 
-export const dynamic = 'force-dynamic';
 
 /**
  * Column mapping for bulk upload template

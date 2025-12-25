@@ -1,112 +1,89 @@
 // ============================================
-// ENQUIRY DETAIL PAGE
+// ENQUIRY DETAIL PAGE (SERVER COMPONENT)
 // ============================================
 // Created: 2025-01-18
-// Updated: 2025-01-19 - Comprehensive layout matching student details
-// Purpose: View learner enquiry details with sidebar navigation
+// Updated: 2025-12-25 - Converted to server component with Cache Components
+// Purpose: Display comprehensive enquiry details
 // ============================================
 
-'use client';
-
-import { use } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft, Loader2 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
-import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
-import { useLearnerProfile } from '@/hooks/use-learner-profiles';
-import EnquiryDetailSkeleton from '../_components/enquiry-detail-skeleton';
-import { EnquiryDetailActions } from '../_components/enquiry-detail-actions';
+import { ArrowLeft } from 'lucide-react';
+import { getEnquiry } from '../_data/get-enquiry';
 import { EnquiryDetail } from '../_components/enquiry-detail';
-import { usePermissions } from '@/hooks/use-permissions';
-import { useEffect } from 'react';
+import { EnquiryDetailActions } from '../_components/enquiry-detail-actions';
 
 interface EnquiryDetailPageProps {
   params: Promise<{ id: string }>;
 }
 
 /**
- * EnquiryDetailPage Component
+ * Enquiry Detail Page - Server Component
  *
- * Displays complete details of a learner enquiry with comprehensive sidebar navigation
- *
- * Features:
- * - Sidebar navigation with sections (Personal, Academic, Qualifications, Contact, Accommodation, Enquiry)
- * - Comprehensive detail view for all enquiry information
- * - Edit and Delete actions with permission checks
- * - Responsive layout matching student details page
+ * Performance improvements:
+ * - Data fetched on server (faster TTI)
+ * - Cached with 5 minute TTL (warm cache)
+ * - No client-side loading states
  */
-export default function EnquiryDetailPage({ params }: EnquiryDetailPageProps) {
-  const { id } = use(params);
-  const router = useRouter();
-  const { data: enquiry, isLoading, error } = useLearnerProfile(id);
-  const {
-    canAccess,
-    isSuperAdmin,
-    isLoading: permissionsLoading
-  } = usePermissions();
+export default async function EnquiryDetailPage({ params }: EnquiryDetailPageProps) {
+  // Await params as per Next.js 16 async API
+  const { id } = await params;
 
-  const fullName = enquiry
-    ? `${enquiry.first_name} ${enquiry.last_name || ''}`.trim()
-    : '';
+  // UUID validation
+  const isValidUUID = (str: string) => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(str);
+  };
 
-  // Check for permission to view enquiry details
-  useEffect(() => {
-    // Skip permission check while permissions are still loading
-    if (permissionsLoading) {
-      console.log('Permissions are still loading...');
-      return;
-    }
-
-    const shouldRedirect = !isSuperAdmin && !canAccess('learners', 'view');
-
-    if (shouldRedirect) {
-      console.log('Access denied for enquiry details page');
-      router.push('/unauthorized');
-    }
-  }, [isSuperAdmin, canAccess, router, permissionsLoading]);
-
-  // Loading state
-  if (isLoading) {
+  if (!isValidUUID(id)) {
     return (
-      <ContentLayout title='Enquiry Details'>
-        <div className='flex items-center justify-center min-h-[400px]'>
-          <Loader2 className='h-8 w-8 animate-spin' />
-        </div>
-      </ContentLayout>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <ContentLayout title='Enquiry Details'>
-        <div className='flex flex-col items-center justify-center p-8 text-center'>
-          <h2 className='text-xl font-semibold mb-2'>Error Loading Enquiry</h2>
-          <p className='text-muted-foreground mb-4'>
-            {error instanceof Error ? error.message : 'Failed to fetch enquiry details'}
+      <ContentLayout title="Enquiry Details">
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <h2 className="text-xl font-semibold mb-2">Page Not Found</h2>
+          <p className="text-muted-foreground mb-4">
+            Invalid enquiry ID format. The page "{id}" does not exist.
           </p>
           <Button asChild>
-            <Link href='/learners/enquiries'>Back to Enquiries</Link>
+            <Link href="/learners/enquiries">Back to Enquiries</Link>
           </Button>
         </div>
       </ContentLayout>
     );
   }
 
-  // Not found state
+  // Fetch data on server with caching
+  let enquiry;
+  try {
+    enquiry = await getEnquiry(id);
+  } catch (error) {
+    console.error('[learners/enquiries/[id]] Error fetching enquiry:', error);
+    return (
+      <ContentLayout title="Enquiry Details">
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <h2 className="text-xl font-semibold mb-2">Error Loading Enquiry</h2>
+          <p className="text-muted-foreground mb-4">
+            {error instanceof Error ? error.message : 'Failed to fetch enquiry details'}
+          </p>
+          <Button asChild>
+            <Link href="/learners/enquiries">Back to Enquiries</Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   if (!enquiry) {
     return (
-      <ContentLayout title='Enquiry Details'>
-        <div className='flex flex-col items-center justify-center p-8 text-center'>
-          <h2 className='text-xl font-semibold mb-2'>Enquiry Not Found</h2>
-          <p className='text-muted-foreground mb-4'>
+      <ContentLayout title="Enquiry Details">
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <h2 className="text-xl font-semibold mb-2">Enquiry Not Found</h2>
+          <p className="text-muted-foreground mb-4">
             The requested enquiry could not be found.
           </p>
           <Button asChild>
-            <Link href='/learners/enquiries'>Back to Enquiries</Link>
+            <Link href="/learners/enquiries">Back to Enquiries</Link>
           </Button>
         </div>
       </ContentLayout>
@@ -114,33 +91,33 @@ export default function EnquiryDetailPage({ params }: EnquiryDetailPageProps) {
   }
 
   return (
-    <ContentLayout title={`Enquiry: ${fullName}`}>
-      <div className='space-y-6'>
+    <ContentLayout
+      title={`Enquiry: ${enquiry.first_name} ${enquiry.last_name || ''}`.trim()}
+    >
+      <div className="space-y-6">
         <PageBreadcrumb
           items={[
             { label: 'Home', href: '/' },
-            { label: 'Learners', href: '/learners' },
             { label: 'Enquiries', href: '/learners/enquiries' },
-            { label: fullName }
+            {
+              label: `${enquiry.first_name} ${enquiry.last_name || ''}`.trim(),
+            },
           ]}
         />
 
-        <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6'>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
-            <div className='flex items-center gap-3'>
-              <h1 className='text-2xl font-bold tracking-tight'>{fullName}</h1>
-              <LifecycleStatusBadge status={enquiry.lifecycle_status} showIcon />
-            </div>
-            <p className='text-muted-foreground'>
-              {enquiry.application_id
-                ? `Application ID: ${enquiry.application_id}`
-                : 'No Application ID'}
+            <h1 className="text-2xl font-bold tracking-tight">
+              {`${enquiry.first_name} ${enquiry.last_name || ''}`.trim()}
+            </h1>
+            <p className="text-muted-foreground">
+              {enquiry.application_id || 'No Application ID'}
             </p>
           </div>
-          <div className='flex items-center gap-2'>
-            <Button variant='outline' asChild>
-              <Link href='/learners/enquiries'>
-                <ArrowLeft className='mr-2 h-4 w-4' />
+          <div className="flex items-center gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/learners/enquiries">
+                <ArrowLeft className="mr-2 h-4 w-4" />
                 Back
               </Link>
             </Button>
@@ -148,7 +125,7 @@ export default function EnquiryDetailPage({ params }: EnquiryDetailPageProps) {
           </div>
         </div>
 
-        <div className='flex flex-col lg:flex-row gap-8'>
+        <div className="flex flex-col lg:flex-row gap-8">
           <EnquiryDetail enquiry={enquiry} />
         </div>
       </div>

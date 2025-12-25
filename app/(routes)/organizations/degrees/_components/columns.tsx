@@ -26,7 +26,10 @@ export const columns: ColumnDef<Degree>[] = [
       />
     ),
     enableSorting: false,
-    enableHiding: false
+    enableHiding: false,
+    size: 40,
+    minSize: 40,
+    maxSize: 40
   },
   {
     accessorKey: 'degree_id',

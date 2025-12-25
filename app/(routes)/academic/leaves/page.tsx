@@ -1,7 +1,3 @@
-'use client';
-
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -15,46 +11,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { LeavesDataTable } from './_components/leave-data-table';
 import { leavesSearchParamsSchema } from './_components/data-table-schema';
-import { LeaveFiltersComponent } from './_components/leave-filters';
+import { LeaveFiltersClient } from './_components/leave-filters-client';
 
-export default function LeavesPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+interface LeavesPageProps {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
 
-  // Parse current search parameters
-  const search = leavesSearchParamsSchema.parse(
-    Object.fromEntries(searchParams.entries())
-  );
-
-  // Handle filter changes by updating URL
-  const handleFilterChange = useCallback(
-    (key: string, value: string | undefined) => {
-      const params = new URLSearchParams(searchParams);
-
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
-      }
-
-      // Reset page to 1 when filters change
-      params.set('page', '1');
-
-      router.push(`/academic/leaves?${params.toString()}`);
-    },
-    [router, searchParams]
-  );
-
-  // Handle clearing all filters
-  const handleClearFilters = useCallback(() => {
-    const params = new URLSearchParams();
-    // Keep only page and pageSize
-    params.set('page', '1');
-    if (searchParams.get('pageSize')) {
-      params.set('pageSize', searchParams.get('pageSize')!);
-    }
-    router.push(`/academic/leaves?${params.toString()}`);
-  }, [router, searchParams]);
+export default async function LeavesPage({ searchParams }: LeavesPageProps) {
+  const params = await searchParams;
+  const search = leavesSearchParamsSchema.parse(params);
 
   return (
     <PermissionGuard module='academic.leaves' action='view'>
@@ -82,11 +47,7 @@ export default function LeavesPage() {
             <CardContent className='p-6'>
               <div className='space-y-6'>
                 {/* Filters */}
-                <LeaveFiltersComponent
-                  searchParams={search}
-                  onFilterChange={handleFilterChange}
-                  onClearFilters={handleClearFilters}
-                />
+                <LeaveFiltersClient searchParams={search} />
 
                 {/* Data Table */}
                 <LeavesDataTable search={search} />

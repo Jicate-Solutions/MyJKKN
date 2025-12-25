@@ -1,115 +1,73 @@
 // ============================================
-// LEARNER DETAIL PAGE
+// LEARNER DETAIL PAGE (SERVER COMPONENT)
 // ============================================
 // Created: 2025-01-19
+// Updated: 2025-12-25 - Converted to server component with Cache Components
 // Purpose: Display comprehensive learner profile details
 // ============================================
 
-'use client';
-
-import { use } from 'react';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft, Loader2 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
-import { LearnerProfileService } from '@/lib/services/learner-profile-service';
+import { ArrowLeft } from 'lucide-react';
+import { getLearnerProfile } from '../_data/get-learner-profile';
 import { LearnerDetail } from '../_components/learner-detail';
 import { LearnerDetailActions } from '../_components/learner-detail-actions';
-import type { LearnerProfile } from '@/types/learner-profile';
-import { usePermissions } from '@/hooks/use-permissions';
 
 interface LearnerDetailPageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function LearnerDetailPage({ params }: LearnerDetailPageProps) {
-  const { id } = use(params);
-  const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [learner, setLearner] = useState<LearnerProfile | null>(null);
-  const {
-    canAccess,
-    isSuperAdmin,
-    isLoading: permissionsLoading,
-  } = usePermissions();
+/**
+ * Learner Detail Page - Server Component
+ *
+ * Performance improvements:
+ * - Data fetched on server (faster TTI)
+ * - Cached with 5 minute TTL (warm cache for student data)
+ * - No client-side loading states
+ * - Automatic revalidation on data changes
+ */
+export default async function LearnerDetailPage({ params }: LearnerDetailPageProps) {
+  // Await params as per Next.js 16 async API
+  const { id } = await params;
 
-  // Check for permission to view learner details
-  useEffect(() => {
-    // Skip permission check while permissions are still loading
-    if (permissionsLoading) {
-      console.log('[learners/profiles/[id]] Permissions are still loading...');
-      return;
-    }
+  // UUID validation regex
+  const isValidUUID = (str: string) => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(str);
+  };
 
-    const shouldRedirect = !isSuperAdmin && !canAccess('learners', 'view');
-
-    if (shouldRedirect) {
-      console.log('[learners/profiles/[id]] Access denied for learner details page');
-      router.push('/unauthorized');
-    }
-  }, [isSuperAdmin, canAccess, router, permissionsLoading]);
-
-  useEffect(() => {
-    // UUID validation regex
-    const isValidUUID = (str: string) => {
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      return uuidRegex.test(str);
-    };
-
-    async function fetchLearner() {
-      // Check if ID is a valid UUID
-      if (!isValidUUID(id)) {
-        console.warn(`[learners/profiles/[id]] Invalid UUID format: "${id}"`);
-        setLoading(false);
-        setError(`Invalid learner ID format. The page "${id}" does not exist.`);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await LearnerProfileService.getLearnerProfile(id);
-        setLearner(data);
-      } catch (err) {
-        console.error('[learners/profiles/[id]] Error fetching learner:', err);
-        setError(
-          err instanceof Error ? err.message : 'Failed to fetch learner details'
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchLearner();
-  }, [id]);
-
-  if (loading) {
+  // Check if ID is a valid UUID
+  if (!isValidUUID(id)) {
     return (
       <ContentLayout title="Learner Details">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <Loader2 className="h-8 w-8 animate-spin" />
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <h2 className="text-xl font-semibold mb-2">Page Not Found</h2>
+          <p className="text-muted-foreground mb-4">
+            Invalid learner ID format. The page "{id}" does not exist.
+          </p>
+          <Button asChild>
+            <Link href="/learners/profiles">Back to Learners</Link>
+          </Button>
         </div>
       </ContentLayout>
     );
   }
 
-  if (error) {
+  // Fetch data on server with caching
+  let learner;
+  try {
+    learner = await getLearnerProfile(id);
+  } catch (error) {
+    console.error('[learners/profiles/[id]] Error fetching learner:', error);
     return (
       <ContentLayout title="Learner Details">
         <div className="flex flex-col items-center justify-center p-8 text-center">
-          <h2 className="text-xl font-semibold mb-2">
-            {error.includes('Invalid learner ID format') ? 'Page Not Found' : 'Error Loading Learner'}
-          </h2>
-          <p className="text-muted-foreground mb-4">{error}</p>
-          {error.includes('bulk-edit') && (
-            <p className="text-sm text-amber-600 mb-4">
-              The Bulk Edit feature is coming soon. Please use individual edit for now.
-            </p>
-          )}
+          <h2 className="text-xl font-semibold mb-2">Error Loading Learner</h2>
+          <p className="text-muted-foreground mb-4">
+            {error instanceof Error ? error.message : 'Failed to fetch learner details'}
+          </p>
           <Button asChild>
             <Link href="/learners/profiles">Back to Learners</Link>
           </Button>

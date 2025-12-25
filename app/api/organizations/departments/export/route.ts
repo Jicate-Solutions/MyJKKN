@@ -6,7 +6,6 @@ import { Parser } from 'json2csv';
 
 import { Database } from '@/types/supabase';
 
-export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
