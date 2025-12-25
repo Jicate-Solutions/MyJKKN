@@ -40,7 +40,7 @@ export class LeaveService {
 
       const { data: leave, error } = await this.supabase
         .from('institution_leaves')
-        .insert([data])
+        .insert([data] as any)
         .select(
           `
           *,
@@ -59,7 +59,7 @@ export class LeaveService {
         throw enhancedError;
       }
 
-      return leave;
+      return leave as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error creating leave', error);
       throw error;
@@ -74,7 +74,7 @@ export class LeaveService {
     data: UpdateLeaveDto
   ): Promise<InstitutionLeave> {
     try {
-      const { data: leave, error } = await this.supabase
+      const { data: leave, error } = await (this.supabase as any)
         .from('institution_leaves')
         .update({
           ...data,
@@ -99,7 +99,7 @@ export class LeaveService {
         throw enhancedError;
       }
 
-      return leave;
+      return leave as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error updating leave', error);
       throw error;
@@ -152,7 +152,7 @@ export class LeaveService {
 
       if (error) throw error;
 
-      return leave;
+      return leave as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching leave', error);
       throw error;
@@ -244,7 +244,7 @@ export class LeaveService {
       if (error) throw error;
 
       return {
-        data: data || [],
+        data: (data || []) as InstitutionLeave[],
         metadata: {
           total: count || 0,
           page,
@@ -338,7 +338,7 @@ export class LeaveService {
       const totalPages = Math.ceil(total / limit);
 
       return {
-        data: data || [],
+        data: (data || []) as InstitutionLeave[],
         metadata: {
           total,
           page,
@@ -362,7 +362,7 @@ export class LeaveService {
   ): Promise<InstitutionLeave> {
     try {
       // Update the leave status
-      const { data: leave, error } = await this.supabase
+      const { data: leave, error } = await (this.supabase as any)
         .from('institution_leaves')
         .update({
           status: 'approved' as LeaveStatus,
@@ -392,7 +392,7 @@ export class LeaveService {
         }
       ]);
 
-      return leave;
+      return leave as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error approving leave', error);
       throw error;
@@ -408,7 +408,7 @@ export class LeaveService {
     reason: string
   ): Promise<InstitutionLeave> {
     try {
-      const { data: leave, error } = await this.supabase
+      const { data: leave, error } = await (this.supabase as any)
         .from('institution_leaves')
         .update({
           status: 'rejected' as LeaveStatus,
@@ -437,7 +437,7 @@ export class LeaveService {
         }
       ]);
 
-      return leave;
+      return leave as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error rejecting leave', error);
       throw error;
@@ -449,7 +449,7 @@ export class LeaveService {
    */
   static async cancelLeave(id: string): Promise<InstitutionLeave> {
     try {
-      const { data: leave, error } = await this.supabase
+      const { data: leave, error } = await (this.supabase as any)
         .from('institution_leaves')
         .update({
           status: 'cancelled' as LeaveStatus,
@@ -466,7 +466,7 @@ export class LeaveService {
 
       if (error) throw error;
 
-      return leave;
+      return leave as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error cancelling leave', error);
       throw error;
@@ -507,7 +507,7 @@ export class LeaveService {
 
       if (error) throw error;
 
-      return (data?.length || 0) > 0;
+      return ((data as any[])?.length || 0) > 0;
     } catch (error) {
       logger.error('academic/leaves', 'Error checking overlapping leaves', error);
       throw error;
@@ -537,7 +537,7 @@ export class LeaveService {
 
       if (error) throw error;
 
-      return data || [];
+      return (data || []) as InstitutionLeave[];
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching pending leaves', error);
       throw error;
@@ -573,7 +573,7 @@ export class LeaveService {
 
       if (error) throw error;
 
-      return data || [];
+      return (data || []) as InstitutionLeave[];
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching upcoming leaves', error);
       throw error;

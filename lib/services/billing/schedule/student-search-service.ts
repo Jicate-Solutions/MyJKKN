@@ -257,7 +257,7 @@ export class StudentSearchService {
       const student = await this.getStudentForBilling(studentId);
 
       // Get all bills for the student
-      const { data: bills, error: billsError } = await this.supabase
+      const billsQuery: any = this.supabase
         .from('billing_student_bills')
         .select(
           `
@@ -282,11 +282,12 @@ export class StudentSearchService {
         )
         .eq('student_id', studentId)
         .order('due_date', { ascending: false });
+      const { data: bills, error: billsError } = await billsQuery;
 
       if (billsError) throw billsError;
 
       // Get all receipts for the student
-      const { data: receipts, error: receiptsError } = await this.supabase
+      const receiptsQuery: any = this.supabase
         .from('billing_receipts')
         .select(
           `
@@ -300,11 +301,12 @@ export class StudentSearchService {
         )
         .eq('student_id', studentId)
         .order('receipt_date', { ascending: false });
+      const { data: receipts, error: receiptsError } = await receiptsQuery;
 
       if (receiptsError) throw receiptsError;
 
       // Get all discounts for the student's bills
-      const billIds = bills?.map((bill) => bill.id) || [];
+      const billIds = (bills as any[])?.map((bill) => bill.id) || [];
       let discounts: any[] = [];
       if (billIds.length > 0) {
         const { data: discountData, error: discountsError } =
@@ -324,7 +326,7 @@ export class StudentSearchService {
       }
 
       // Get all refunds for the student's receipts
-      const receiptIds = receipts?.map((receipt) => receipt.id) || [];
+      const receiptIds = (receipts as any[])?.map((receipt) => receipt.id) || [];
       let refunds: any[] = [];
       if (receiptIds.length > 0) {
         const { data: refundData, error: refundsError } = await this.supabase
@@ -364,7 +366,7 @@ export class StudentSearchService {
 
       // Calculate total paid amount from receipts
       const totalReceiptAmount =
-        receipts?.reduce((sum, receipt) => sum + receipt.payment_amount, 0) ||
+        (receipts as any[])?.reduce((sum, receipt) => sum + receipt.payment_amount, 0) ||
         0;
 
       // Calculate total processed refunds amount
@@ -378,7 +380,7 @@ export class StudentSearchService {
 
       const outstandingAmount = student.outstanding_amount;
       const overdueAmount =
-        bills
+        (bills as any[])
           ?.filter((bill) => bill.status === 'overdue')
           .reduce((sum, bill) => sum + bill.balance_amount, 0) || 0;
       const discountAmount =

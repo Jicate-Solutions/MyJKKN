@@ -14,8 +14,8 @@ export class RegulationService {
 
   static async createRegulation(data: CreateRegulationDto): Promise<Regulation> {
     try {
-      const { data: regulation, error } = await this.supabase
-        .from('regulations')
+      const insertQuery: any = this.supabase.from('regulations');
+      const { data: regulation, error } = await insertQuery
         .insert([data])
         .select()
         .single();
@@ -43,12 +43,12 @@ export class RegulationService {
     data: UpdateRegulationDto
   ): Promise<Regulation> {
     try {
-      const { data: regulation, error } = await this.supabase
-        .from('regulations')
+      const updateQuery: any = this.supabase.from('regulations');
+      const { data: regulation, error } = await updateQuery
         .update({
           ...data,
           updated_at: new Date().toISOString()
-        })
+        } as any)
         .eq('id', id)
         .select()
         .single();

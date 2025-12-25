@@ -25,10 +25,13 @@ export class TimetableService {
     markedPeriods: string[];
   }> {
     try {
-      const { data: attendanceRecords, error } = await this.supabase
+      const { data: attendanceRecords, error } = (await this.supabase
         .from('student_attendance')
         .select('id, attendance_data')
-        .eq('timetable_id', timetableId);
+        .eq('timetable_id', timetableId)) as {
+        data: Array<{ id: string; attendance_data: any }> | null;
+        error: any;
+      };
 
       if (error) {
         logger.error('academic/timetables', 'Error checking attendance', error);
@@ -76,7 +79,7 @@ export class TimetableService {
     attendanceDate?: string;
   }> {
     try {
-      let attendanceQuery = this.supabase
+      let attendanceQuery: any = this.supabase
         .from('student_attendance')
         .select('id, attendance_data, attendance_date')
         .eq('timetable_id', timetableId);
@@ -93,7 +96,10 @@ export class TimetableService {
         }
       }
 
-      const { data: attendanceCheck, error } = await attendanceQuery;
+      const { data: attendanceCheck, error } = (await attendanceQuery) as {
+        data: Array<{ id: string; attendance_data: any; attendance_date: string }> | null;
+        error: any;
+      };
 
       if (error) {
         logger.error('academic/timetables', 'Error checking period lock status', error);
@@ -165,7 +171,7 @@ export class TimetableService {
       }
 
       // Get all active timetables for the same semester and section
-      let query = this.supabase
+      let query: any = this.supabase
         .from('timetables')
         .select('*')
         .eq('institution_id', data.institution_id)
@@ -183,7 +189,17 @@ export class TimetableService {
         query = query.is('section_id', null);
       }
 
-      const { data: existingTimetables, error } = await query;
+      const { data: existingTimetables, error } = (await query) as {
+        data: Array<{
+          id: string;
+          start_date: string;
+          end_date: string;
+          timetable_name: string;
+          semesters?: { semester_name: string };
+          sections?: { section_name: string };
+        }> | null;
+        error: any;
+      };
 
       if (error) throw error;
 
@@ -212,7 +228,7 @@ export class TimetableService {
 
             return {
               exists: true,
-              existingTimetable: existing,
+              existingTimetable: existing as any,
               message: `A timetable already exists for ${semesterName}${
                 sectionName ? ` - Section ${sectionName}` : ''
               } with overlapping date period.
@@ -327,16 +343,16 @@ Please select a different date period that doesn't overlap.`
         periods: periods || [] // Provide empty array as default for periods
       };
 
-      const { data: timetable, error } = await this.supabase
+      const insertData: any = {
+        ...timetableData,
+        created_by: (await this.supabase.auth.getUser()).data.user?.id
+      };
+
+      const { data: timetable, error } = (await (this.supabase as any)
         .from('timetables')
-        .insert([
-          {
-            ...timetableData,
-            created_by: (await this.supabase.auth.getUser()).data.user?.id
-          }
-        ])
+        .insert([insertData])
         .select('*')
-        .single();
+        .single()) as { data: Timetable | null; error: any };
 
       if (error) {
         logger.error('academic/timetables', 'Error creating timetable', error);
@@ -397,12 +413,14 @@ Please select a different date period that doesn't overlap.`
       );
 
       // First check if this timetable has any attendance records
-      const { data: attendanceRecords, error: attendanceCheckError } =
-        await this.supabase
-          .from('student_attendance')
-          .select('id')
-          .eq('timetable_id', id)
-          .limit(1);
+      const { data: attendanceRecords, error: attendanceCheckError } = (await this.supabase
+        .from('student_attendance')
+        .select('id')
+        .eq('timetable_id', id)
+        .limit(1)) as {
+        data: Array<{ id: string }> | null;
+        error: any;
+      };
 
       if (attendanceCheckError) {
         logger.error('academic/timetables', 'Error checking attendance records', attendanceCheckError);
@@ -430,13 +448,17 @@ Please select a different date period that doesn't overlap.`
       }
 
       // Get current timetable info for conflict checking
-      const { data: currentTimetable, error: fetchError } = await this.supabase
+      const { data: currentTimetable, error: fetchError } = (await this.supabase
         .from('timetables')
         .select('*')
         .eq('id', id)
-        .single();
+        .single()) as {
+        data: any | null;
+        error: any;
+      };
 
       if (fetchError) throw fetchError;
+      if (!currentTimetable) throw new Error('Timetable not found');
 
       // Build the updated timetable data by merging current with updates
       const updatedTimetableData = {
@@ -465,7 +487,7 @@ Please select a different date period that doesn't overlap.`
           // Filter out the current timetable from conflicts
           if (
             existingCheck.exists &&
-            existingCheck.existingTimetable?.id !== id
+            (existingCheck.existingTimetable as any)?.id !== id
           ) {
             toast.error(
               `⚠️ Date Period Conflict Detected!\n\n${existingCheck.message}`,
@@ -530,12 +552,12 @@ Please select a different date period that doesn't overlap.`
         }
       }
 
-      const { data: timetable, error } = await this.supabase
+      const { data: timetable, error } = (await (this.supabase as any)
         .from('timetables')
         .update(updateData)
         .eq('id', id)
         .select()
-        .single();
+        .single()) as { data: Timetable | null; error: any };
 
       if (error) {
         if (error.code === '23505') {
@@ -580,12 +602,14 @@ Please select a different date period that doesn't overlap.`
   static async deleteTimetable(id: string, showToast = true): Promise<void> {
     try {
       // First check if this timetable has any attendance records
-      const { data: attendanceRecords, error: attendanceCheckError } =
-        await this.supabase
-          .from('student_attendance')
-          .select('id')
-          .eq('timetable_id', id)
-          .limit(1);
+      const { data: attendanceRecords, error: attendanceCheckError } = (await this.supabase
+        .from('student_attendance')
+        .select('id')
+        .eq('timetable_id', id)
+        .limit(1)) as {
+        data: Array<{ id: string }> | null;
+        error: any;
+      };
 
       if (attendanceCheckError) {
         logger.error('academic/timetables', 'Error checking attendance records', attendanceCheckError);
@@ -875,10 +899,13 @@ Please select a different date period that doesn't overlap.`
         try {
           // Frontend sends section.section_name (string "A", "B", etc.)
           // We need to convert this to section IDs first
-          const sectionsResponse = await this.supabase
+          const sectionsResponse = (await this.supabase
             .from('sections')
             .select('id')
-            .eq('section_name', filters.section);
+            .eq('section_name', filters.section)) as {
+            data: Array<{ id: string }> | null;
+            error: any;
+          };
 
           if (sectionsResponse.data && sectionsResponse.data.length > 0) {
             const sectionIds = sectionsResponse.data.map((s) => s.id);
@@ -947,7 +974,7 @@ Please select a different date period that doesn't overlap.`
 
   static async getTimetable(id: string): Promise<Timetable> {
     try {
-      const { data: timetable, error } = await this.supabase
+      const { data: timetable, error } = (await this.supabase
         .from('timetables')
         .select(
           `
@@ -962,18 +989,22 @@ Please select a different date period that doesn't overlap.`
         `
         )
         .eq('id', id)
-        .single();
+        .single()) as { data: any | null; error: any };
 
       if (error) throw error;
+      if (!timetable) throw new Error('Timetable not found');
 
       // Updated: 2025-10-08 - For semester-level timetables, fetch all available sections
       if (timetable && timetable.timetable_type === 'semester' && timetable.semester_id) {
-        const { data: semesterSections, error: sectionsError } = await this.supabase
+        const { data: semesterSections, error: sectionsError } = (await this.supabase
           .from('sections')
           .select('id, section_name, student_count:students(count)')
           .eq('semester_id', timetable.semester_id)
           .eq('is_active', true)
-          .order('section_name');
+          .order('section_name')) as {
+          data: any[] | null;
+          error: any;
+        };
 
         if (!sectionsError && semesterSections) {
           timetable.available_sections = semesterSections.map((s: any) => ({
@@ -1053,11 +1084,14 @@ Please select a different date period that doesn't overlap.`
       if (courseIds.size > 0) {
         const courseIdsArray = Array.from(courseIds);
 
-        const { data: courses, error: coursesError } = await this.supabase
+        const { data: courses, error: coursesError } = (await this.supabase
           .from('courses')
           .select('id, course_name, course_code, institution_id, is_active')
           .in('id', courseIdsArray)
-          .eq('institution_id', timetable.institution_id);
+          .eq('institution_id', timetable.institution_id)) as {
+          data: Array<{ id: string; course_name: string; course_code: string; institution_id: string; is_active: boolean }> | null;
+          error: any;
+        };
 
         if (coursesError) {
           logger.error('academic/timetables', 'Error fetching courses', { error: coursesError, courseIdsArray });
@@ -1073,13 +1107,16 @@ Please select a different date period that doesn't overlap.`
 
         // RLS policy has been updated to allow students to view staff
 
-        const { data: staff, error: staffError } = await this.supabase
+        const { data: staff, error: staffError } = (await this.supabase
           .from('staff')
           .select(
             'id, first_name, last_name, email, phone, staff_id, institution_id'
           )
           .in('id', staffIdsArray)
-          .eq('institution_id', timetable.institution_id);
+          .eq('institution_id', timetable.institution_id)) as {
+          data: Array<{ id: string; first_name: string; last_name: string; email: string; phone: string; staff_id: string; institution_id: string }> | null;
+          error: any;
+        };
 
         if (staffError) {
           logger.error('academic/timetables', 'Error fetching staff', { error: staffError, staffIdsArray, institutionId: timetable.institution_id });
@@ -1456,7 +1493,7 @@ Please select a different date period that doesn't overlap.`
     try {
       // For batch mode, we need to check attendance for the specific date
       // For regular mode, we check for the day/period combination
-      let attendanceQuery = this.supabase
+      let attendanceQuery: any = this.supabase
         .from('student_attendance')
         .select('id, attendance_data, attendance_date')
         .eq('timetable_id', timetableId);
@@ -1473,8 +1510,10 @@ Please select a different date period that doesn't overlap.`
         }
       }
 
-      const { data: attendanceCheck, error: checkError } =
-        await attendanceQuery;
+      const { data: attendanceCheck, error: checkError } = (await attendanceQuery) as {
+        data: Array<{ id: string; attendance_data: any; attendance_date: string }> | null;
+        error: any;
+      };
 
       if (checkError) {
         logger.error('academic/timetables', 'Error checking attendance for slot', checkError);
@@ -1674,11 +1713,14 @@ Please select a different date period that doesn't overlap.`
           }
 
           // Check attendance for all dates in the range
-          const { data: attendanceCheck, error: checkError } = await this.supabase
+          const { data: attendanceCheck, error: checkError } = (await this.supabase
             .from('student_attendance')
             .select('id, attendance_data, attendance_date')
             .eq('timetable_id', timetableId)
-            .in('attendance_date', dates);
+            .in('attendance_date', dates)) as {
+            data: Array<{ id: string; attendance_data: any; attendance_date: string }> | null;
+            error: any;
+          };
 
           if (checkError) {
             logger.error('academic/timetables', 'Error checking attendance for range deletion', checkError);
@@ -1758,7 +1800,7 @@ Please select a different date period that doesn't overlap.`
 
       // For batch mode, we need to check attendance for the specific date
       // For regular mode, we check for the day/period combination
-      let attendanceQuery = this.supabase
+      let attendanceQuery: any = this.supabase
         .from('student_attendance')
         .select('id, attendance_data, attendance_date')
         .eq('timetable_id', timetableId);
@@ -1775,8 +1817,10 @@ Please select a different date period that doesn't overlap.`
         }
       }
 
-      const { data: attendanceCheck, error: checkError } =
-        await attendanceQuery;
+      const { data: attendanceCheck, error: checkError } = (await attendanceQuery) as {
+        data: Array<{ id: string; attendance_data: any; attendance_date: string }> | null;
+        error: any;
+      };
 
       if (checkError) {
         logger.error('academic/timetables', 'Error checking attendance for slot deletion', checkError);
@@ -1926,14 +1970,28 @@ Please select a different date period that doesn't overlap.`
   ): Promise<void> {
     try {
       // First, fetch the full period objects from the period IDs
-      const { data: periodsData, error: periodsError } = await this.supabase
+      const { data: periodsData, error: periodsError } = (await this.supabase
         .from('periods')
         .select('*')
-        .in('id', periodIds);
+        .in('id', periodIds)) as {
+        data: Array<{
+          id: string;
+          period_name: string;
+          start_time: string;
+          end_time: string;
+          is_break: boolean;
+          institution_id: string;
+        }> | null;
+        error: any;
+      };
 
       if (periodsError) {
         logger.error('academic/timetables', 'Error fetching period data', periodsError);
         throw periodsError;
+      }
+
+      if (!periodsData) {
+        throw new Error('No period data found');
       }
 
       // Map the periods to the format expected by the timetable
@@ -1956,7 +2014,7 @@ Please select a different date period that doesn't overlap.`
         .filter(Boolean); // Remove any null values
 
       // Save the complete period objects to the timetable
-      const { error } = await this.supabase
+      const { error } = await (this.supabase as any)
         .from('timetables')
         .update({ periods: orderedPeriods })
         .eq('id', timetableId);
@@ -2013,7 +2071,7 @@ Please select a different date period that doesn't overlap.`
       if (fetchError) throw fetchError;
 
       // Update the timetable to mark it as a template
-      const { error: updateError } = await this.supabase
+      const { error: updateError } = await (this.supabase as any)
         .from('timetables')
         .update({
           is_template: true,
@@ -2049,12 +2107,15 @@ Please select a different date period that doesn't overlap.`
   ): Promise<Timetable> {
     try {
       // Get the template timetable
-      const { data: template, error: templateError } = await this.supabase
+      const { data: template, error: templateError } = (await this.supabase
         .from('timetables')
         .select('*')
         .eq('id', templateId)
         .eq('is_template', true)
-        .single();
+        .single()) as {
+        data: any | null;
+        error: any;
+      };
 
       if (templateError) throw templateError;
 
@@ -2115,11 +2176,11 @@ Please select a different date period that doesn't overlap.`
         created_by: (await this.supabase.auth.getUser()).data.user?.id
       };
 
-      const { data: newTimetable, error: createError } = await this.supabase
+      const { data: newTimetable, error: createError } = (await (this.supabase as any)
         .from('timetables')
         .insert([newTimetableData])
         .select('*')
-        .single();
+        .single()) as { data: Timetable | null; error: any };
 
       if (createError) {
         logger.error('academic/timetables', 'Error creating timetable from template', createError);
@@ -2144,10 +2205,10 @@ Please select a different date period that doesn't overlap.`
       }
 
       // Update template usage count (optional analytics)
-      await this.supabase
+      await (this.supabase as any)
         .from('timetables')
         .update({
-          usage_count: (template.usage_count || 0) + 1
+          usage_count: ((template as any).usage_count || 0) + 1
         })
         .eq('id', templateId);
 
@@ -2269,13 +2330,17 @@ Please select a different date period that doesn't overlap.`
   static async deleteTemplate(id: string): Promise<void> {
     try {
       // First check if this is actually a template
-      const { data: template, error: fetchError } = await this.supabase
+      const { data: template, error: fetchError } = (await this.supabase
         .from('timetables')
         .select('is_template, template_name, timetable_name')
         .eq('id', id)
-        .single();
+        .single()) as {
+        data: { is_template: boolean; template_name?: string; timetable_name: string } | null;
+        error: any;
+      };
 
       if (fetchError) throw fetchError;
+      if (!template) throw new Error('Template not found');
 
       if (!template.is_template) {
         throw new Error('This is not a template timetable');
@@ -2371,9 +2436,9 @@ Please select a different date period that doesn't overlap.`
         updated_at: new Date().toISOString()
       };
 
-      const { data: template, error } = await this.supabase
+      const { data: template, error } = (await this.supabase
         .from('timetables')
-        .insert(templateData)
+        .insert(templateData as any)
         .select(
           `
           *,
@@ -2386,7 +2451,7 @@ Please select a different date period that doesn't overlap.`
           sections:section_id(id, section_name)
         `
         )
-        .single();
+        .single()) as { data: Timetable | null; error: any };
 
       if (error) throw error;
 
@@ -2407,7 +2472,7 @@ Please select a different date period that doesn't overlap.`
         updated_at: new Date().toISOString()
       };
 
-      const { data: template, error } = await this.supabase
+      const { data: template, error } = (await (this.supabase as any)
         .from('timetables')
         .update(updateData)
         .eq('id', id)
@@ -2424,7 +2489,7 @@ Please select a different date period that doesn't overlap.`
           sections:section_id(id, section_name)
         `
         )
-        .single();
+        .single()) as { data: Timetable | null; error: any };
 
       if (error) throw error;
       if (!template) throw new Error('Template not found');
@@ -2462,9 +2527,9 @@ Please select a different date period that doesn't overlap.`
       delete duplicateData.program;
       delete duplicateData.department;
 
-      const { data: template, error } = await this.supabase
+      const { data: template, error } = (await this.supabase
         .from('timetables')
-        .insert(duplicateData)
+        .insert(duplicateData as any)
         .select(
           `
           *,
@@ -2477,7 +2542,7 @@ Please select a different date period that doesn't overlap.`
           sections:section_id(id, section_name)
         `
         )
-        .single();
+        .single()) as { data: Timetable | null; error: any };
 
       if (error) throw error;
 

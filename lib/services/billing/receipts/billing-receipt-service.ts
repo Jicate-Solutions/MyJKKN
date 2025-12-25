@@ -14,7 +14,7 @@ export class BillingReceiptService {
   private static supabase = createClientSupabaseClient();
 
   // Get the appropriate Supabase client (passed or default)
-  private static getClient(providedClient?: SupabaseClient): SupabaseClient {
+  private static getClient(providedClient?: SupabaseClient): any {
     return providedClient || this.supabase;
   }
 
@@ -176,9 +176,9 @@ export class BillingReceiptService {
     receiptData: UpdateReceiptDto
   ): Promise<BillingReceipt> {
     try {
-      const { data, error } = await this.supabase
-        .from('billing_receipts')
-        .update(receiptData)
+      const updateQuery: any = this.supabase.from('billing_receipts');
+      const { data, error } = await updateQuery
+        .update(receiptData as any)
         .eq('id', id)
         .select(
           `

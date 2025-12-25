@@ -167,7 +167,10 @@
       "Bash(timeout 180 npm run build:*)",
       "Bash(tee:*)",
       "Bash(bash:*)",
-      "Bash(timeout 120 npm run build:*)"
+      "Bash(timeout 120 npm run build:*)",
+      "Bash(timeout 180 npx tsc:*)",
+      "Bash(cut:*)",
+      "Bash(timeout 120 npx tsc:*)"
     ],
     "deny": [],
     "ask": []

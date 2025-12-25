@@ -167,9 +167,9 @@ export function InstitutionForm({
       setIsSubmitting(true);
 
       if (isEditing && institution) {
-        await OrganizationService.updateInstitution(institution.id, values);
+        await OrganizationService.updateInstitution(institution.id, values as any);
       } else {
-        await OrganizationService.createInstitution(values);
+        await OrganizationService.createInstitution(values as any);
       }
 
       toast.success(

@@ -25,8 +25,8 @@ export class StudentBillService {
         billData.final_amount ||
         billData.total_amount + (billData.tax_amount || 0);
 
-      const { data, error } = await this.supabase
-        .from('billing_student_bills')
+      const query: any = this.supabase.from('billing_student_bills');
+      const { data, error } = await query
         .insert({
           ...billData,
           final_amount: finalAmount,
@@ -109,34 +109,37 @@ export class StudentBillService {
       let balanceAmount = billData.balance_amount;
       if (finalAmount !== undefined) {
         // Get total payments for this bill
-        const { data: receiptItems } = await this.supabase
+        const receiptQuery: any = this.supabase
           .from('billing_receipt_items')
           .select('amount_paid')
           .eq('bill_id', id);
+        const { data: receiptItems } = await receiptQuery;
 
         const totalPaid =
-          receiptItems?.reduce((sum, item) => sum + item.amount_paid, 0) || 0;
+          (receiptItems as any[])?.reduce((sum, item) => sum + item.amount_paid, 0) || 0;
 
         // Get total processed refunds for this bill
         let totalRefunded = 0;
         if (receiptItems && receiptItems.length > 0) {
-          const { data: receiptIdData } = await this.supabase
+          const receiptIdQuery: any = this.supabase
             .from('billing_receipt_items')
             .select('receipt_id')
             .eq('bill_id', id);
+          const { data: receiptIdData } = await receiptIdQuery;
 
           const receiptIdList =
-            receiptIdData?.map((item) => item.receipt_id) || [];
+            (receiptIdData as any[])?.map((item) => item.receipt_id) || [];
 
           if (receiptIdList.length > 0) {
-            const { data: refundData } = await this.supabase
+            const refundQuery: any = this.supabase
               .from('billing_refunds')
               .select('refund_amount')
               .in('receipt_id', receiptIdList)
               .eq('approval_status', 'processed');
+            const { data: refundData } = await refundQuery;
 
             totalRefunded =
-              refundData?.reduce(
+              (refundData as any[])?.reduce(
                 (sum, refund) => sum + refund.refund_amount,
                 0
               ) || 0;
@@ -168,8 +171,8 @@ export class StudentBillService {
         ...(balanceAmount !== undefined && { balance_amount: balanceAmount })
       };
 
-      const { data, error } = await this.supabase
-        .from('billing_student_bills')
+      const updateQuery: any = this.supabase.from('billing_student_bills');
+      const { data, error } = await updateQuery
         .update(updateData)
         .eq('id', id)
         .select(
@@ -721,14 +724,15 @@ export class StudentBillService {
 
       // Fallback: calculate from bill balances directly
       try {
-        const { data: bills } = await this.supabase
+        const fallbackQuery: any = this.supabase
           .from('billing_student_bills')
           .select('balance_amount')
           .eq('student_id', studentId)
           .in('status', ['unpaid', 'partially_paid', 'overdue']);
+        const { data: bills } = await fallbackQuery;
 
         return (
-          bills?.reduce((sum, bill) => sum + (bill.balance_amount || 0), 0) || 0
+          (bills as any[])?.reduce((sum, bill) => sum + (bill.balance_amount || 0), 0) || 0
         );
       } catch (fallbackError) {
         console.error('Error in fallback calculation:', fallbackError);
@@ -774,9 +778,8 @@ export class StudentBillService {
     }
 
     if (recurringBills.length > 0) {
-      const { error } = await this.supabase
-        .from('billing_student_bills')
-        .insert(recurringBills);
+      const insertQuery: any = this.supabase.from('billing_student_bills');
+      const { error } = await insertQuery.insert(recurringBills);
 
       if (error) throw error;
     }
@@ -835,8 +838,8 @@ export class StudentBillService {
         updateData.payment_date = null; // Clear payment date if bill becomes unpaid due to refund
       }
 
-      const { error } = await this.supabase
-        .from('billing_student_bills')
+      const statusUpdateQuery: any = this.supabase.from('billing_student_bills');
+      const { error } = await statusUpdateQuery
         .update(updateData)
         .eq('id', billId);
 

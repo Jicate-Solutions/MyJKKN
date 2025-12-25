@@ -187,7 +187,7 @@ export default function BulkCreateBillsPage() {
 
       await bulkCreateBills.mutateAsync({
         student_ids: selectedStudents,
-        bills: [billData]
+        bills: [billData as any]
       });
 
       router.push('/billing/schedule');

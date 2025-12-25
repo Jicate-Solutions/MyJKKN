@@ -60,8 +60,8 @@ export class BugReportService {
         metadata: payload.metadata
       };
 
-      const { data: newReport, error: insertError } = await supabase
-        .from('bug_reports')
+      const insertQuery: any = (supabase as any).from('bug_reports');
+      const { data: newReport, error: insertError } = await insertQuery
         .insert(initialReport)
         .select()
         .single();
@@ -101,8 +101,8 @@ export class BugReportService {
               .from(BUG_REPORTS_BUCKET)
               .getPublicUrl(filePath);
 
-            const { data: updatedReport, error: updateError } = await supabase
-              .from('bug_reports')
+            const updateQuery: any = (supabase as any).from('bug_reports');
+            const { data: updatedReport, error: updateError } = await updateQuery
               .update({ screenshot_url: urlData.publicUrl })
               .eq('id', newReport.id)
               .select()
@@ -113,7 +113,7 @@ export class BugReportService {
               // Don't fail the whole operation, return the original report
               logger.warn('bug-reports', 'Returning report without screenshot URL');
             } else {
-              return updatedReport;
+              return updatedReport as BugReport;
             }
           }
         } catch (screenshotError) {
@@ -134,11 +134,14 @@ export class BugReportService {
   ): Promise<DetailedBugReport | null> {
     const supabase = this.getSupabase(true); // Use admin client
     try {
-      const { data, error } = await supabase
+      const { data, error } = (await (supabase as any)
         .from('bug_reports_with_details')
         .select('*')
         .eq('id', reportId)
-        .single();
+        .single()) as {
+        data: any | null;
+        error: any;
+      };
 
       if (error) throw error;
 
@@ -172,11 +175,14 @@ export class BugReportService {
     if (!user) return [];
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = (await (supabase as any)
         .from('bug_reports')
         .select('*')
         .eq('reporter_user_id', user.id)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })) as {
+        data: BugReport[] | null;
+        error: any;
+      };
 
       if (error) throw error;
       return data || [];
@@ -192,7 +198,7 @@ export class BugReportService {
   ): Promise<{ data: BugReport[]; count: number }> {
     const supabase = this.getSupabase(true); // Use admin client
     try {
-      let query = supabase
+      let query: any = (supabase as any)
         .from('bug_reports_with_details')
         .select('*', { count: 'exact' });
 
@@ -214,7 +220,11 @@ export class BugReportService {
 
       query = query.order('created_at', { ascending: false });
 
-      const { data, error, count } = await query;
+      const { data, error, count } = (await query) as {
+        data: BugReport[] | null;
+        error: any;
+        count: number | null;
+      };
       if (error) throw error;
 
       return { data: data || [], count: count || 0 };
@@ -235,15 +245,15 @@ export class BugReportService {
         updateData.resolved_at = new Date().toISOString();
       }
 
-      const { data, error } = await supabase
-        .from('bug_reports')
+      const updateQuery: any = (supabase as any).from('bug_reports');
+      const { data, error } = await updateQuery
         .update(updateData)
         .eq('id', reportId)
         .select()
         .single();
 
       if (error) throw error;
-      return data;
+      return data as BugReport;
     } catch (error) {
       logger.error('bug-reports', 'Error updating bug report status', error);
       throw error;
@@ -253,10 +263,13 @@ export class BugReportService {
   static async getLeaderboard(): Promise<BugReportLeaderboardEntry[]> {
     const supabase = this.getSupabase();
     try {
-      const { data, error } = await supabase
+      const { data, error } = (await (supabase as any)
         .from('bug_reporters_leaderboard')
         .select('*')
-        .limit(100);
+        .limit(100)) as {
+        data: BugReportLeaderboardEntry[] | null;
+        error: any;
+      };
 
       if (error) throw error;
       return data || [];
@@ -272,7 +285,7 @@ export class BugReportService {
   ): Promise<BugReportMessage[]> {
     const supabase = this.getSupabase(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = (await (supabase as any)
         .from('bug_report_messages')
         .select(
           `
@@ -287,7 +300,10 @@ export class BugReportService {
         )
         .eq('bug_report_id', reportId)
         .eq('is_deleted', false)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })) as {
+        data: BugReportMessage[] | null;
+        error: any;
+      };
 
       if (error) throw error;
       return data || [];
@@ -313,8 +329,8 @@ export class BugReportService {
         throw new Error('User must be authenticated to send a message.');
       }
 
-      const { data, error } = await supabase
-        .from('bug_report_messages')
+      const insertQuery: any = (supabase as any).from('bug_report_messages');
+      const { data, error } = await insertQuery
         .insert({
           ...payload,
           sender_user_id: user.id
@@ -354,7 +370,7 @@ export class BugReportService {
         // Don't fail the message sending if notification fails
       }
 
-      return data;
+      return data as BugReportMessage;
     } catch (error) {
       logger.error('bug-reports', 'Error sending bug report message', error);
       throw error;
@@ -366,7 +382,7 @@ export class BugReportService {
   ): Promise<BugReportParticipant[]> {
     const supabase = this.getSupabase(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = (await (supabase as any)
         .from('bug_report_participants')
         .select(
           `
@@ -380,7 +396,10 @@ export class BugReportService {
         `
         )
         .eq('bug_report_id', reportId)
-        .eq('is_active', true);
+        .eq('is_active', true)) as {
+        data: BugReportParticipant[] | null;
+        error: any;
+      };
 
       if (error) throw error;
       return data || [];
@@ -398,16 +417,19 @@ export class BugReportService {
     const supabase = this.getSupabase(true);
     try {
       // Check if participant already exists
-      const { data: existing } = await supabase
+      const { data: existing } = (await (supabase as any)
         .from('bug_report_participants')
         .select('id')
         .eq('bug_report_id', reportId)
         .eq('user_id', userId)
-        .single();
+        .single()) as {
+        data: any | null;
+        error: any;
+      };
 
       if (!existing) {
-        const { error } = await supabase
-          .from('bug_report_participants')
+        const insertQuery: any = (supabase as any).from('bug_report_participants');
+        const { error } = await insertQuery
           .insert({
             bug_report_id: reportId,
             user_id: userId,
@@ -428,10 +450,13 @@ export class BugReportService {
   static async getInstitutions(): Promise<{ id: string; name: string }[]> {
     const supabase = this.getSupabase();
     try {
-      const { data, error } = await supabase
+      const { data, error } = (await (supabase as any)
         .from('institutions')
         .select('id, name')
-        .order('name');
+        .order('name')) as {
+        data: { id: string; name: string }[] | null;
+        error: any;
+      };
 
       if (error) throw error;
       return data || [];
@@ -446,7 +471,7 @@ export class BugReportService {
   ): Promise<{ id: string; name: string }[]> {
     const supabase = this.getSupabase();
     try {
-      let query = supabase
+      let query: any = (supabase as any)
         .from('departments')
         .select('id, department_name')
         .order('department_name');
@@ -455,10 +480,13 @@ export class BugReportService {
         query = query.eq('institution_id', institutionId);
       }
 
-      const { data, error } = await query;
+      const { data, error } = (await query) as {
+        data: { id: string; department_name: string }[] | null;
+        error: any;
+      };
 
       if (error) throw error;
-      return data.map((d) => ({ id: d.id, name: d.department_name })) || [];
+      return data?.map((d) => ({ id: d.id, name: d.department_name })) || [];
     } catch (error) {
       logger.error('bug-reports', 'Error fetching departments', error);
       throw error;

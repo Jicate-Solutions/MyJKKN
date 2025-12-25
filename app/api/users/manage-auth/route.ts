@@ -105,8 +105,7 @@ export async function PATCH(request: NextRequest) {
     console.log('Attempting to list users with admin client...');
 
     // Find the user by email
-    const { data: users, error: listError } =
-      await supabaseAdmin.auth.admin.listUsers();
+    const { data: users, error: listError } = (await supabaseAdmin.auth.admin.listUsers()) as { data: { users: any[] } | null; error: any };
 
     if (listError) {
       console.error('Error listing users with admin client:', listError);
@@ -116,9 +115,9 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    console.log('Successfully listed users, count:', users.users.length);
+    console.log('Successfully listed users, count:', users?.users.length);
 
-    const targetUser = users.users.find((u) => u.email === email);
+    const targetUser = users?.users.find((u: any) => u.email === email);
 
     if (!targetUser) {
       console.error('Target user not found:', email);

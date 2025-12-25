@@ -323,22 +323,105 @@ export type CreateLearnerProfileDto = z.infer<typeof learnerProfileSchema> & {
 
 /**
  * DTO for updating learner profile
+ * Explicit optional fields to avoid TypeScript errors
  */
-export interface UpdateLearnerProfileDto
-  extends Partial<
-    Omit<
-      LearnerProfile,
-      | 'id'
-      | 'original_admission_id'
-      | 'original_student_id'
-      | 'migrated_at'
-      | 'migration_source'
-      | 'created_at'
-      | 'updated_at'
-      | 'created_by'
-      | 'updated_by'
-    >
-  > {}
+export interface UpdateLearnerProfileDto {
+  // Lifecycle
+  lifecycle_status?: LifecycleStatus;
+  application_id?: string;
+  enquiry_date?: string;
+
+  // Personal Information
+  first_name?: string;
+  last_name?: string | null;
+  date_of_birth?: string;
+  gender?: string;
+  religion?: string;
+  community?: string;
+  caste?: string | null;
+  aadhar_number?: string | null;
+  blood_group?: string | null;
+  admission_year?: number | null;
+
+  // Parent/Guardian Information
+  father_name?: string;
+  father_occupation?: string | null;
+  father_mobile?: string;
+  mother_name?: string;
+  mother_occupation?: string | null;
+  mother_mobile?: string;
+  annual_income?: string | null;
+
+  // Previous Education
+  last_school?: string;
+  board_of_study?: string;
+  tenth_marks?: {
+    max_marks?: string;
+    obtained_marks?: string;
+    percentage?: string;
+  };
+  twelfth_marks?: {
+    group?: string;
+    max_marks?: string;
+    obtained_marks?: string;
+    percentage?: string;
+    subjects?: Record<string, string>;
+  };
+  medical_cutoff_marks?: string | null;
+  engineering_cutoff_marks?: string | null;
+  neet_roll_number?: string | null;
+  neet_score?: string | null;
+
+  // Admission/Counseling Information
+  counseling_applied?: boolean | null;
+  counseling_number?: string | null;
+  first_graduate?: boolean | null;
+  quota?: string | null;
+  category?: string | null;
+  entry_type?: string;
+
+  // Contact Information
+  student_mobile?: string;
+  student_email?: string;
+
+  // Address Information
+  permanent_address_street?: string;
+  permanent_address_taluk?: string | null;
+  permanent_address_district?: string;
+  permanent_address_pin_code?: string;
+  permanent_address_state?: string;
+
+  // Campus Life
+  accommodation_type?: string;
+  hostel_type?: string | null;
+  food_type?: string | null;
+  bus_required?: boolean | null;
+  bus_route?: string | null;
+  bus_pickup_location?: string | null;
+
+  // Reference Information
+  reference_type?: string | null;
+  reference_name?: string | null;
+  reference_contact?: string | null;
+
+  // Academic Assignment
+  institution_id?: string | null;
+  degree_id?: string | null;
+  department_id?: string | null;
+  program_id?: string | null;
+  semester_id?: string | null;
+  section_id?: string | null;
+  academic_year_id?: string | null;
+  regulation_id?: string | null;
+  batch_id?: string | null;
+
+  // Student-specific fields
+  roll_number?: string | null;
+  register_number?: string | null;
+  college_email?: string | null;
+  student_photo_url?: string | null;
+  is_profile_complete?: boolean;
+}
 
 /**
  * DTO for lifecycle status transitions

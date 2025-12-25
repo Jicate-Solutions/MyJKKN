@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = createAuditLogSchema.parse(body);
-    const log = await createAuditLog(validatedData);
+    const log = await createAuditLog(validatedData as any);
 
     return NextResponse.json({
       data: log,

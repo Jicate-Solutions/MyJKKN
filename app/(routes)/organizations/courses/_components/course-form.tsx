@@ -86,9 +86,9 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
       setIsSubmitting(true);
 
       if (isEditing && course) {
-        await CourseService.updateCourse(course.id, values);
+        await CourseService.updateCourse(course.id, values as any);
       } else {
-        await CourseService.createCourse(values);
+        await CourseService.createCourse(values as any);
       }
 
       // Invalidate and refetch course queries

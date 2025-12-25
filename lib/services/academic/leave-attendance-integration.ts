@@ -79,6 +79,22 @@ export class LeaveAttendanceIntegration {
       const minDate = dates.reduce((a, b) => (a < b ? a : b));
       const maxDate = dates.reduce((a, b) => (a > b ? a : b));
 
+      // Define type for leave data
+      interface LeaveData {
+        id: string;
+        leave_name: string;
+        start_date: string;
+        end_date: string;
+        scope_level: string;
+        department_ids?: string[];
+        semester_ids?: string[];
+        section_ids?: string[];
+        leave_type?: {
+          leave_type_name: string;
+          color_code: string;
+        };
+      }
+
       const { data: leaves, error } = await this.supabase
         .from('institution_leaves')
         .select(
@@ -106,11 +122,13 @@ export class LeaveAttendanceIntegration {
         return results;
       }
 
+      const typedLeaves = (leaves || []) as LeaveData[];
+
       // Check each date against the leaves
       for (const date of dates) {
         const dateObj = new Date(date);
 
-        const blockingLeave = (leaves || []).find((leave: any) => {
+        const blockingLeave = typedLeaves.find((leave) => {
           const leaveStart = new Date(leave.start_date);
           const leaveEnd = new Date(leave.end_date);
 
@@ -185,6 +203,16 @@ export class LeaveAttendanceIntegration {
     sectionId?: string
   ): Promise<string[]> {
     try {
+      // Define type for leave data
+      interface BlockedLeaveData {
+        start_date: string;
+        end_date: string;
+        scope_level: string;
+        department_ids?: string[];
+        semester_ids?: string[];
+        section_ids?: string[];
+      }
+
       const { data: leaves, error } = await this.supabase
         .from('institution_leaves')
         .select(
@@ -207,11 +235,12 @@ export class LeaveAttendanceIntegration {
         return [];
       }
 
+      const typedLeaves = (leaves || []) as BlockedLeaveData[];
       const blockedDates: Set<string> = new Set();
       const start = new Date(startDate);
       const end = new Date(endDate);
 
-      for (const leave of leaves || []) {
+      for (const leave of typedLeaves) {
         const leaveStart = new Date(leave.start_date);
         const leaveEnd = new Date(leave.end_date);
 
@@ -265,6 +294,23 @@ export class LeaveAttendanceIntegration {
     timetableSlotId: string
   ): Promise<AttendanceLeaveResult> {
     try {
+      // Define type for timetable slot data
+      interface TimetableSlotData {
+        id: string;
+        timetable?: {
+          id: string;
+          section_id?: string;
+          section?: {
+            id: string;
+            semester_id?: string;
+            semester?: {
+              id: string;
+              department_id?: string;
+            };
+          };
+        };
+      }
+
       // First, get the timetable slot to determine scope
       const { data: slot, error: slotError } = await this.supabase
         .from('timetable_slots')
@@ -293,10 +339,12 @@ export class LeaveAttendanceIntegration {
         return { allowed: true };
       }
 
+      const typedSlot = slot as TimetableSlotData;
+
       // Extract scope IDs
-      const sectionId = slot.timetable?.section_id;
-      const semesterId = slot.timetable?.section?.semester_id;
-      const departmentId = slot.timetable?.section?.semester?.department_id;
+      const sectionId = typedSlot.timetable?.section_id;
+      const semesterId = typedSlot.timetable?.section?.semester_id;
+      const departmentId = typedSlot.timetable?.section?.semester?.department_id;
 
       // Check if blocked
       return this.canMarkAttendance({

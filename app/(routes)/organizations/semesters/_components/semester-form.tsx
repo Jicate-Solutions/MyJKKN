@@ -171,10 +171,10 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
       setIsSubmitting(true);
 
       if (isEditing && semester) {
-        await SemesterService.updateSemester(semester.id, values);
+        await SemesterService.updateSemester(semester.id, values as any);
         toast.success('Semester updated successfully');
       } else {
-        await SemesterService.createSemester(values);
+        await SemesterService.createSemester(values as any);
         toast.success('Semester created successfully');
       }
 

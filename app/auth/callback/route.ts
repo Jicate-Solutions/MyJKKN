@@ -64,11 +64,20 @@ export async function GET(request: NextRequest) {
 
     try {
       // First check if a profile exists with this Google user ID
-      const { data: existingProfile } = await supabase
+      const { data: existingProfile } = (await supabase
         .from('profiles')
         .select('profile_completed, full_name, role, institution_id, is_active')
         .eq('id', user.id)
-        .single();
+        .single()) as {
+        data: {
+          profile_completed: boolean | null;
+          full_name: string | null;
+          role: string | null;
+          institution_id: string | null;
+          is_active: boolean | null;
+        } | null;
+        error: any;
+      };
 
       // If no profile with this ID, check if one exists with this email (for pre-registered or migrating users)
       let migratedProfile: Profile | null = null;
@@ -246,9 +255,8 @@ export async function GET(request: NextRequest) {
           is_active: true
         };
 
-        const { error: insertError } = await supabase
-          .from('profiles')
-          .insert([newProfile]);
+        const insertQuery: any = supabase.from('profiles');
+        const { error: insertError } = await insertQuery.insert([newProfile]);
         if (insertError) throw insertError;
 
         // Log login activity for new user

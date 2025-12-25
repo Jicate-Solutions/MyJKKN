@@ -98,14 +98,14 @@ export class ScholarshipPermissionService {
       const supabase = getSupabaseClient();
 
       // Get all roles with their scholarship permissions
-      const { data: rolesData, error: rolesError } = await supabase
+      const { data: rolesData, error: rolesError } = await (supabase as any)
         .from('custom_roles')
         .select('role_key, role_name, permissions');
 
       if (rolesError) throw rolesError;
 
       // Get user counts for each role
-      const { data: userCounts, error: countsError } = await supabase
+      const { data: userCounts, error: countsError } = await (supabase as any)
         .from('profiles')
         .select('role')
         .neq('role', null);

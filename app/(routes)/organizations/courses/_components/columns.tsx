@@ -2,6 +2,7 @@
 
 import { ColumnDef } from '@tanstack/react-table';
 import { Checkbox } from '@/components/ui/checkbox';
+import type { CheckedState } from '@radix-ui/react-checkbox';
 import { Badge } from '@/components/ui/badge';
 import { DataTableRowActions } from './row-actions';
 import { Course } from '@/types/organizations';
@@ -15,8 +16,11 @@ export const columns: ColumnDef<Course>[] = [
     header: ({ table }) => (
       <Checkbox
         checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && 'indeterminate')
+          table.getIsAllPageRowsSelected()
+            ? true
+            : table.getIsSomePageRowsSelected()
+            ? 'indeterminate'
+            : false
         }
         onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
         aria-label='Select all'

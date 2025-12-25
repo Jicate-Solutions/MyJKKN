@@ -24,13 +24,21 @@ export class StaffPlanService {
   }[]> {
     try {
       // First get all course IDs that have staff plans for this institution
-      const { data: staffPlanCourses, error: spError } = await this.supabase
+      interface StaffPlanCourseRelation {
+        course_id: string;
+        staff_plans: { institution_id: string } | null;
+      }
+
+      const { data: staffPlanCourses, error: spError } = (await this.supabase
         .from('staff_plan_courses')
         .select(`
           course_id,
           staff_plans!inner(institution_id)
         `)
-        .eq('staff_plans.institution_id', institutionId);
+        .eq('staff_plans.institution_id', institutionId)) as {
+          data: StaffPlanCourseRelation[] | null;
+          error: any
+        };
 
       if (spError) throw spError;
 
@@ -62,24 +70,33 @@ export class StaffPlanService {
       const { courses, ...staffPlanData } = data;
 
       // Check if a staff plan already exists for this semester hierarchy
-      const { data: existingPlans, error: checkError } = await this.supabase
+      interface ExistingPlanResult {
+        id: string;
+        is_active: boolean;
+        end_date: string;
+      }
+
+      const { data: existingPlans, error: checkError } = (await this.supabase
         .from('staff_plans')
         .select('id, is_active, end_date')
         .eq('institution_id', staffPlanData.institution_id)
         .eq('program_id', staffPlanData.program_id)
         .eq('semester_id', staffPlanData.semester_id)
-        .eq('academic_year_id', staffPlanData.academic_year_id);
+        .eq('academic_year_id', staffPlanData.academic_year_id)) as {
+          data: ExistingPlanResult[] | null;
+          error: any
+        };
 
       if (checkError) throw checkError;
 
-      let staffPlan: any;
+      let staffPlan: StaffPlan;
 
       if (existingPlans && existingPlans.length > 0) {
         // Update existing plan instead of creating duplicate
         const primaryPlan = existingPlans[0];
 
-        const { data: updatedPlan, error: updateError } = await this.supabase
-          .from('staff_plans')
+        const query: any = this.supabase.from('staff_plans');
+        const { data: updatedPlan, error: updateError } = await query
           .update({
             end_date: staffPlanData.end_date,
             is_active: staffPlanData.is_active,
@@ -90,11 +107,11 @@ export class StaffPlanService {
           .single();
 
         if (updateError) throw updateError;
-        staffPlan = updatedPlan;
+        staffPlan = updatedPlan as StaffPlan;
       } else {
         // Create new staff plan
-        const { data: newPlan, error: planError } = await this.supabase
-          .from('staff_plans')
+        const query: any = this.supabase.from('staff_plans');
+        const { data: newPlan, error: planError } = await query
           .insert([
             {
               ...staffPlanData,
@@ -113,7 +130,7 @@ export class StaffPlanService {
           .single();
 
         if (planError) throw planError;
-        staffPlan = newPlan;
+        staffPlan = newPlan as StaffPlan;
       }
 
       // Insert course assignments if courses exist and is not empty
@@ -124,8 +141,8 @@ export class StaffPlanService {
         }));
 
         // Use upsert to handle potential duplicates
-        const { error: coursesError } = await this.supabase
-          .from('staff_plan_courses')
+        const query: any = this.supabase.from('staff_plan_courses');
+        const { error: coursesError } = await query
           .upsert(courseAssignments, {
             onConflict: 'staff_id,course_id,staff_plan_id',
             ignoreDuplicates: false
@@ -262,10 +279,17 @@ export class StaffPlanService {
       if (filters.course_id) {
         // We need to filter staff plans that have assignments for the specific course
         // This requires a different approach since we need to check the relationship table
-        const { data: staffPlanIds, error: courseFilterError } = await this.supabase
+        interface StaffPlanIdResult {
+          staff_plan_id: string;
+        }
+
+        const { data: staffPlanIds, error: courseFilterError } = (await this.supabase
           .from('staff_plan_courses')
           .select('staff_plan_id')
-          .eq('course_id', filters.course_id);
+          .eq('course_id', filters.course_id)) as {
+            data: StaffPlanIdResult[] | null;
+            error: any
+          };
 
         if (courseFilterError) {
           logger.warn('academic/staff-planning', 'Error filtering by course', { error: courseFilterError });
@@ -317,11 +341,19 @@ export class StaffPlanService {
 
         try {
           // Fetch all course assignments for all plans in one query
-          const { data: allCourseCounts, error: countError } =
-            await this.supabase
-              .from('staff_plan_courses')
-              .select('staff_plan_id, course_id, staff_id')
-              .in('staff_plan_id', planIds);
+          interface CourseCountItem {
+            staff_plan_id: string;
+            course_id: string;
+            staff_id: string;
+          }
+
+          const { data: allCourseCounts, error: countError } = (await this.supabase
+            .from('staff_plan_courses')
+            .select('staff_plan_id, course_id, staff_id')
+            .in('staff_plan_id', planIds)) as {
+              data: CourseCountItem[] | null;
+              error: any
+            };
 
           if (countError) {
             logger.warn('academic/staff-planning', 'Error fetching course counts', { error: countError });
@@ -453,10 +485,18 @@ export class StaffPlanService {
     for (const [key, consolidatedPlan] of consolidatedMap) {
       try {
         // Get all course assignments for all plans in this semester
-        const { data: allCourses, error: coursesError } = await this.supabase
+        interface ConsolidationCourseItem {
+          course_id: string;
+          staff_id: string;
+        }
+
+        const { data: allCourses, error: coursesError } = (await this.supabase
           .from('staff_plan_courses')
           .select('course_id, staff_id')
-          .in('staff_plan_id', consolidatedPlan.plan_ids);
+          .in('staff_plan_id', consolidatedPlan.plan_ids)) as {
+            data: ConsolidationCourseItem[] | null;
+            error: any
+          };
 
         if (coursesError) {
           logger.warn('academic/staff-planning', 'Error fetching courses for consolidation', { error: coursesError });
@@ -597,8 +637,8 @@ export class StaffPlanService {
       const { courses, ...staffPlanData } = data;
 
       // First update the staff plan
-      const { data: staffPlan, error: planError } = await this.supabase
-        .from('staff_plans')
+      const query: any = this.supabase.from('staff_plans');
+      const { data: staffPlan, error: planError } = await query
         .update({
           institution_id: staffPlanData.institution_id,
           degree_id: staffPlanData.degree_id,
@@ -634,14 +674,13 @@ export class StaffPlanService {
           staff_type: course.staff_type
         }));
 
-        const { error: insertError } = await this.supabase
-          .from('staff_plan_courses')
-          .insert(courseAssignments);
+        const insertQuery: any = this.supabase.from('staff_plan_courses');
+        const { error: insertError } = await insertQuery.insert(courseAssignments);
 
         if (insertError) throw insertError;
       }
 
-      return staffPlan;
+      return staffPlan as StaffPlan;
     } catch (error) {
       logger.error('academic/staff-planning', 'Error updating staff plan', error);
       throw error;
@@ -650,7 +689,16 @@ export class StaffPlanService {
 
   static async getStaffPlan(id: string): Promise<StaffPlan> {
     try {
-      const { data: staffPlan, error } = await this.supabase
+      interface StaffPlanWithRelations extends StaffPlan {
+        institution?: { id: string; name: string } | null;
+        degree?: { id: string; degree_name: string } | null;
+        program?: { id: string; program_name: string } | null;
+        department?: { id: string; department_name: string } | null;
+        semester?: { id: string; semester_name: string } | null;
+        academic_year?: { id: string; academic_year_name: string } | null;
+      }
+
+      const { data: staffPlan, error } = (await this.supabase
         .from('staff_plans')
         .select(
           `
@@ -682,9 +730,10 @@ export class StaffPlanService {
         `
         )
         .eq('id', id)
-        .single();
+        .single()) as { data: StaffPlanWithRelations | null; error: any };
 
       if (error) throw error;
+      if (!staffPlan) throw new Error('Staff plan not found');
 
       // Get course assignments with related data
       const { data: courses, error: coursesError } = await this.supabase
@@ -712,7 +761,7 @@ export class StaffPlanService {
       return {
         ...staffPlan,
         courses: courses || []
-      };
+      } as StaffPlan;
     } catch (error) {
       logger.error('academic/staff-planning', 'Error fetching staff plan', error);
       throw error;
@@ -738,7 +787,16 @@ export class StaffPlanService {
   > {
     try {
       // Get all staff plans for this semester hierarchy
-      const { data: staffPlans, error: plansError } = await this.supabase
+      interface StaffPlanWithRelations extends StaffPlan {
+        institution?: { id: string; name: string } | null;
+        degree?: { id: string; degree_name: string } | null;
+        program?: { id: string; program_name: string } | null;
+        department?: { id: string; department_name: string } | null;
+        semester?: { id: string; semester_name: string } | null;
+        academic_year?: { id: string; academic_year_name: string } | null;
+      }
+
+      const { data: staffPlans, error: plansError } = (await this.supabase
         .from('staff_plans')
         .select(
           `
@@ -773,7 +831,10 @@ export class StaffPlanService {
         .eq('program_id', programId)
         .eq('semester_id', semesterId)
         .eq('academic_year_id', academicYearId)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })) as {
+          data: StaffPlanWithRelations[] | null;
+          error: any
+        };
 
       if (plansError) throw plansError;
 
@@ -814,7 +875,12 @@ export class StaffPlanService {
       const allPlanIds = staffPlans.map((plan) => plan.id);
 
       // Get all course assignments for all plans in this semester
-      const { data: allCourses, error: coursesError } = await this.supabase
+      interface ConsolidatedCourseItem extends StaffPlanCourse {
+        course_id: string;
+        staff_id: string;
+      }
+
+      const { data: allCourses, error: coursesError } = (await this.supabase
         .from('staff_plan_courses')
         .select(
           `
@@ -832,7 +898,10 @@ export class StaffPlanService {
           )
         `
         )
-        .in('staff_plan_id', allPlanIds);
+        .in('staff_plan_id', allPlanIds)) as {
+          data: ConsolidatedCourseItem[] | null;
+          error: any
+        };
 
       if (coursesError) throw coursesError;
 
@@ -860,6 +929,10 @@ export class StaffPlanService {
         total_staff: uniqueStaff.size,
         all_courses: allCourses || [],
         courses: allCourses || [] // For backward compatibility
+      } as StaffPlan & {
+        total_courses: number;
+        total_staff: number;
+        all_courses: StaffPlanCourse[];
       };
 
       return consolidatedPlan;
@@ -1065,8 +1138,8 @@ export class StaffPlanService {
       );
 
       // Update the staff plan assignment
-      const { error: updateError } = await this.supabase
-        .from('staff_plan_courses')
+      const query: any = this.supabase.from('staff_plan_courses');
+      const { error: updateError } = await query
         .update({
           staff_id: newStaffId,
           staff_type: staffType,

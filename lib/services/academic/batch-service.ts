@@ -43,12 +43,12 @@ export class BatchService {
     data: UpdateBatchDto
   ): Promise<Batch> {
     try {
-      const { data: batch, error } = await this.supabase
-        .from('batches')
+      const query: any = this.supabase.from('batches');
+      const { data: batch, error } = await query
         .update({
           ...data,
           updated_at: new Date().toISOString()
-        } as any)
+        })
         .eq('id', id)
         .select()
         .single();

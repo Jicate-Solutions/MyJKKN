@@ -159,9 +159,9 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
       setIsSubmitting(true);
 
       if (isEditing && program) {
-        await ProgramService.updateProgram(program.id, values);
+        await ProgramService.updateProgram(program.id, values as any);
       } else {
-        await ProgramService.createProgram(values);
+        await ProgramService.createProgram(values as any);
       }
 
       // Invalidate and refetch program queries

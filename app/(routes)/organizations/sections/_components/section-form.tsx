@@ -443,13 +443,13 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
       }
 
       if (isEditing && section) {
-        await SectionService.updateSection(section.id, submitValues);
+        await SectionService.updateSection(section.id, submitValues as any);
 
         await queryClient.invalidateQueries({
           queryKey: ['section', section.id]
         });
       } else {
-        await SectionService.createSection(submitValues);
+        await SectionService.createSection(submitValues as any);
         toast.success('Section created successfully');
       }
 
