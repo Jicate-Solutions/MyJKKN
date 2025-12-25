@@ -184,8 +184,8 @@ export class CategoryService {
         throw new Error('You do not have permission to update categories');
       }
 
-      const { data: category, error } = await this.supabase
-        .from('categories')
+      const updateQuery: any = this.supabase.from('categories');
+      const { data: category, error } = await updateQuery
         .update({
           ...data,
           updated_by: user.id,
@@ -335,8 +335,8 @@ export class CategoryService {
         throw new Error('You do not have permission to update subcategories');
       }
 
-      const { data: subcategory, error } = await this.supabase
-        .from('subcategories')
+      const updateQuery: any = this.supabase.from('subcategories');
+      const { data: subcategory, error} = await updateQuery
         .update({
           ...data,
           updated_by: user.id,

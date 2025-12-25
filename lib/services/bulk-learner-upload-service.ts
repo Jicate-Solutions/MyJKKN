@@ -50,7 +50,7 @@ function isProfileComplete(profile: Partial<LearnerProfile>): boolean {
   return !!(
     profile.first_name &&
     profile.college_email &&
-    profile.mobile &&
+    profile.student_mobile &&
     profile.institution_id &&
     profile.department_id &&
     profile.program_id &&

@@ -125,9 +125,9 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
       setIsSubmitting(true);
 
       if (isEditing && department) {
-        await DepartmentService.updateDepartment(department.id, values);
+        await DepartmentService.updateDepartment(department.id, values as any);
       } else {
-        await DepartmentService.createDepartment(values);
+        await DepartmentService.createDepartment(values as any);
       }
 
       // Invalidate and refetch department queries

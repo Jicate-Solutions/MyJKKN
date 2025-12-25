@@ -10,6 +10,11 @@ import type {
 } from '@/types/faculty-calendar';
 import type { DayOfWeek } from '@/types/academics';
 import { logger } from '@/lib/utils/enhanced-logger';
+import type {
+  TimetableWithRelations,
+  PeriodBasic,
+  StaffBasic,
+} from '@/types/academic/timetable-queries';
 
 export class FacultyTimetableService {
   private static supabase = createClientSupabaseClient();
@@ -56,7 +61,7 @@ export class FacultyTimetableService {
         .lte('start_date', dateRange.to.toISOString().split('T')[0])
         .gte('end_date', dateRange.from.toISOString().split('T')[0]);
 
-      const { data: timetables, error: timetableError } = await timetableQuery;
+      const { data: timetables, error: timetableError } = (await timetableQuery) as { data: TimetableWithRelations[] | null; error: any };
 
       if (timetableError) {
         logger.error('academic/timetables', 'Error fetching timetables', timetableError);
@@ -138,7 +143,7 @@ export class FacultyTimetableService {
               timetable: {
                 id: timetable.id,
                 timetable_name: timetable.timetable_name,
-                timetable_format: timetable.timetable_format,
+                timetable_format: timetable.timetable_format as 'regular' | 'batch',
                 institution_name:
                   (timetable.institution as any)?.name || 'Unknown Institution',
                 department_name:
@@ -260,11 +265,11 @@ export class FacultyTimetableService {
       }
       if (filters.section_name) {
         // Convert section_name to section_id first
-        const { data: sectionData } = await this.supabase
+        const { data: sectionData } = (await this.supabase
           .from('sections')
           .select('id')
           .eq('section_name', filters.section_name)
-          .single();
+          .single()) as { data: { id: string } | null; error: any };
 
         if (sectionData) {
           timetableQuery = timetableQuery.eq('section_id', sectionData.id);
@@ -276,7 +281,7 @@ export class FacultyTimetableService {
         .lte('start_date', dateRange.to.toISOString().split('T')[0])
         .gte('end_date', dateRange.from.toISOString().split('T')[0]);
 
-      const { data: timetables, error: timetableError } = await timetableQuery;
+      const { data: timetables, error: timetableError } = (await timetableQuery) as { data: TimetableWithRelations[] | null; error: any };
 
       if (timetableError) {
         logger.error('academic/timetables', 'Error fetching timetables for admin', timetableError);
@@ -365,7 +370,7 @@ export class FacultyTimetableService {
               timetable: {
                 id: timetable.id,
                 timetable_name: timetable.timetable_name,
-                timetable_format: timetable.timetable_format,
+                timetable_format: timetable.timetable_format as 'regular' | 'batch',
                 institution_name:
                   (timetable.institution as any)?.name || 'Unknown Institution',
                 department_name:
@@ -428,11 +433,11 @@ export class FacultyTimetableService {
   ): Promise<FacultyAvailabilityApiResponse> {
     try {
       // Get period details
-      const { data: period, error: periodError } = await this.supabase
+      const { data: period, error: periodError } = (await this.supabase
         .from('periods')
         .select('period_name, start_time, end_time')
         .eq('id', periodId)
-        .single();
+        .single()) as { data: PeriodBasic | null; error: any };
 
       if (periodError || !period) {
         throw new Error('Period not found');
@@ -456,7 +461,7 @@ export class FacultyTimetableService {
         staffQuery = staffQuery.eq('department_id', filters.department_id);
       }
 
-      const { data: allStaff, error: staffError } = await staffQuery;
+      const { data: allStaff, error: staffError } = (await staffQuery) as { data: StaffBasic[] | null; error: any };
 
       if (staffError) {
         logger.error('academic/timetables', 'Error fetching staff', staffError);
@@ -479,13 +484,13 @@ export class FacultyTimetableService {
       const dayOfWeek = this.getDayOfWeekFromDate(date);
 
       // Get all timetables that might have conflicts
-      const { data: timetables, error: timetableError } = await this.supabase
+      const { data: timetables, error: timetableError } = (await this.supabase
         .from('timetables')
         .select('id, timetable_name, timetable_format')
         .eq('is_active', true)
         .eq('institution_id', filters.institution_id)
         .lte('start_date', date)
-        .gte('end_date', date);
+        .gte('end_date', date)) as { data: TimetableWithRelations[] | null; error: any };
 
       if (timetableError) {
         logger.error('academic/timetables', 'Error fetching timetables', timetableError);
@@ -633,11 +638,11 @@ export class FacultyTimetableService {
       }
 
       // Get user profile to check role
-      const { data: profile, error: profileError } = await this.supabase
+      const { data: profile, error: profileError } = (await this.supabase
         .from('profiles')
         .select('role, full_name')
         .eq('id', user.id)
-        .single();
+        .single()) as { data: { role: string; full_name: string } | null; error: any };
 
       if (profileError || !profile) {
         logger.warn('academic/timetables', 'Profile lookup failed', { message: profileError?.message });
@@ -650,7 +655,7 @@ export class FacultyTimetableService {
       }
 
       // Find staff record by matching email and name
-      const { data: staffRecord, error: staffError } = await this.supabase
+      const { data: staffRecord, error: staffError } = (await this.supabase
         .from('staff')
         .select(
           `
@@ -667,7 +672,7 @@ export class FacultyTimetableService {
         )
         .or(`email.eq.${user.email},institution_email.eq.${user.email}`)
         .eq('is_active', true)
-        .single();
+        .single()) as { data: any | null; error: any };
 
       if (staffError || !staffRecord) {
         logger.warn('academic/timetables', 'No staff record found for faculty user', {
@@ -751,11 +756,11 @@ export class FacultyTimetableService {
         }
 
         // Get staff name
-        const { data: staff } = await this.supabase
+        const { data: staff } = (await this.supabase
           .from('staff')
           .select('first_name, last_name')
           .eq('id', staffId)
-          .single();
+          .single()) as { data: { first_name: string; last_name: string } | null; error: any };
 
         const staffName = staff
           ? `${staff.first_name} ${staff.last_name}`

@@ -177,7 +177,7 @@ export default function NewUserPage() {
         phone_number: data.phone_number || null
       };
 
-      const result = await createUser(userData);
+      const result = await createUser(userData as any);
       if (result.error) throw result.error;
       toast.success('User pre-registered successfully. They can now login with Google.');
       clearValidation(); // Clear validation state

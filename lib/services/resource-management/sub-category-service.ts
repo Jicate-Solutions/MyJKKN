@@ -114,33 +114,34 @@ export class SubCategoryService {
       if (!category) throw new Error('Sub category not found');
 
       // Fetch created by user separately
+      const categoryData = category as any;
       let createdByUser = null;
-      if (category.created_by) {
+      if (categoryData.created_by) {
         const { data: createdUser } = await this.supabase
           .from('profiles')
           .select('id, full_name, email')
-          .eq('id', category.created_by)
+          .eq('id', categoryData.created_by)
           .maybeSingle();
         createdByUser = createdUser;
       }
 
       // Fetch updated by user separately
       let updatedByUser = null;
-      if (category.updated_by) {
+      if (categoryData.updated_by) {
         const { data: updatedUser } = await this.supabase
           .from('profiles')
           .select('id, full_name, email')
-          .eq('id', category.updated_by)
+          .eq('id', categoryData.updated_by)
           .maybeSingle();
         updatedByUser = updatedUser;
       }
 
       // Return category with user data
       return {
-        ...category,
+        ...categoryData,
         created_by_user: createdByUser,
         updated_by_user: updatedByUser
-      };
+      } as SubCategory;
     } catch (error) {
       console.error('Error fetching sub category:', error);
       throw new Error(
@@ -182,12 +183,14 @@ export class SubCategoryService {
           .limit(1)
           .maybeSingle();
 
-        displayOrder = (lastCategory?.display_order || 0) + 1;
+        displayOrder = ((lastCategory as any)?.display_order || 0) + 1;
       }
 
       // Start a transaction
-      const { data: category, error } = await this.supabase
-        .from('resource_sub_categories')
+      const query: any = this.supabase
+        .from('resource_sub_categories');
+
+      const { data: category, error } = await query
         .insert({
           name: categoryData.name.trim(),
           description: categoryData.description,
@@ -255,8 +258,10 @@ export class SubCategoryService {
         updated_at: new Date().toISOString()
       };
 
-      const { data: category, error } = await this.supabase
-        .from('resource_sub_categories')
+      const query: any = this.supabase
+        .from('resource_sub_categories');
+
+      const { data: category, error } = await query
         .update(updateData)
         .eq('id', id)
         .select()
@@ -293,6 +298,8 @@ export class SubCategoryService {
         throw new Error('Subcategory not found');
       }
 
+      const categoryData = category as any;
+
       // Check if category has any resources
       const { data: resources } = await this.supabase
         .from('resources')
@@ -302,7 +309,7 @@ export class SubCategoryService {
 
       if (resources && resources.length > 0) {
         throw new Error(
-          `Cannot delete subcategory "${category.name}" because it has ${resources.length} resource(s). Please delete or move them first.`
+          `Cannot delete subcategory "${categoryData.name}" because it has ${resources.length} resource(s). Please delete or move them first.`
         );
       }
 
@@ -329,13 +336,13 @@ export class SubCategoryService {
 
       // Delete the category image from storage if it exists
       // Note: Subcategory images would be stored in the same bucket as parent categories
-      if (category.image_url) {
+      if (categoryData.image_url) {
         try {
           const { StorageService } = await import(
             '@/lib/storage/storage-service'
           );
           const { error: deleteError } =
-            await StorageService.deleteCategoryImageByUrl(category.image_url);
+            await StorageService.deleteCategoryImageByUrl(categoryData.image_url);
           if (deleteError) {
             console.error(
               `Storage deletion error for subcategory ${id}:`,
@@ -344,7 +351,7 @@ export class SubCategoryService {
             // Don't throw here, just log the error
           } else {
             console.log(
-              `Successfully deleted image for subcategory ${id} from URL: ${category.image_url}`
+              `Successfully deleted image for subcategory ${id} from URL: ${categoryData.image_url}`
             );
           }
         } catch (imageError) {
@@ -454,7 +461,7 @@ export class SubCategoryService {
 
       if (error) throw error;
 
-      return (categories || []).map((cat) => ({
+      return (categories || []).map((cat: any) => ({
         id: cat.id,
         name: cat.name,
         parent_category_id: cat.parent_category_id,
@@ -497,8 +504,10 @@ export class SubCategoryService {
         description: attr.description
       }));
 
-      const { data: attributes, error } = await this.supabase
-        .from('resource_attribute_definitions')
+      const query: any = this.supabase
+        .from('resource_attribute_definitions');
+
+      const { data: attributes, error } = await query
         .insert(attributesData)
         .select();
 
@@ -561,8 +570,10 @@ export class SubCategoryService {
         updated_at: new Date().toISOString()
       };
 
-      const { data: attribute, error } = await this.supabase
-        .from('resource_attribute_definitions')
+      const query: any = this.supabase
+        .from('resource_attribute_definitions');
+
+      const { data: attribute, error } = await query
         .update(updateData)
         .eq('id', id)
         .select()
@@ -613,15 +624,16 @@ export class SubCategoryService {
     attributeOrders: Array<{ id: string; display_order: number }>
   ): Promise<boolean> {
     try {
-      const updates = attributeOrders.map(({ id, display_order }) =>
-        this.supabase
-          .from('resource_attribute_definitions')
+      const updates = attributeOrders.map(({ id, display_order }) => {
+        const query: any = this.supabase
+          .from('resource_attribute_definitions');
+        return query
           .update({
             display_order,
             updated_at: new Date().toISOString()
           })
-          .eq('id', id)
-      );
+          .eq('id', id);
+      });
 
       await Promise.all(updates);
       return true;

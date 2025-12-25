@@ -7,11 +7,6 @@ const nextConfig: NextConfig = {
     cpus: 1
   },
 
-  // Ignore TypeScript errors during build (for Vercel deployment)
-  typescript: {
-    ignoreBuildErrors: true
-  },
-
   images: {
     remotePatterns: [
       {

@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
       );
 
       // Fetch users and find matching email
-      const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+      const { data: { users }, error: listError } = (await supabaseAdmin.auth.admin.listUsers()) as { data: { users: any[] }; error: any };
 
       if (listError) {
         return NextResponse.json(
@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const existingUser = users.find((u) => u.email === learner.college_email);
+      const existingUser = users.find((u: any) => u.email === learner.college_email);
 
       if (!existingUser) {
         return NextResponse.json(

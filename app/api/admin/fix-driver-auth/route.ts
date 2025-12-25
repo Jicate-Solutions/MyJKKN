@@ -32,9 +32,9 @@ export async function POST(request: NextRequest) {
     );
 
     // Check if user exists with email provider
-    const { data: authUser } = await supabaseAdmin.auth.admin.listUsers();
+    const { data: authUser } = (await supabaseAdmin.auth.admin.listUsers()) as { data: { users: any[] } | null };
     const userWithEmail = authUser?.users.find(
-      u => u.email?.toLowerCase() === email.toLowerCase()
+      (u: any) => u.email?.toLowerCase() === email.toLowerCase()
     );
 
     if (!userWithEmail) {
@@ -114,9 +114,9 @@ export async function GET(request: NextRequest) {
     );
 
     // Get user details
-    const { data: authUser } = await supabaseAdmin.auth.admin.listUsers();
+    const { data: authUser } = (await supabaseAdmin.auth.admin.listUsers()) as { data: { users: any[] } | null };
     const userWithEmail = authUser?.users.find(
-      u => u.email?.toLowerCase() === email.toLowerCase()
+      (u: any) => u.email?.toLowerCase() === email.toLowerCase()
     );
 
     if (!userWithEmail) {

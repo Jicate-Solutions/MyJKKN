@@ -85,7 +85,7 @@ export async function POST(request: Request) {
 
     const category =
       await BillingParentCategoryService.createBillingParentCategory(
-        validatedData
+        validatedData as any
       );
 
     return NextResponse.json(category, { status: 201 });

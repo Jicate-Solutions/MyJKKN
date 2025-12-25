@@ -186,10 +186,10 @@ export function AcademicYearForm({
       if (isEditing && academicYear) {
         await AcademicYearService.updateAcademicYear(
           academicYear.id,
-          submitValues
+          submitValues as any
         );
       } else {
-        await AcademicYearService.createAcademicYear(submitValues);
+        await AcademicYearService.createAcademicYear(submitValues as any);
       }
 
       router.push('/academic/years');

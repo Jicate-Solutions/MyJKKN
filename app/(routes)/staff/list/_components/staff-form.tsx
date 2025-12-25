@@ -290,10 +290,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       };
 
       if (isEditing && staff) {
-        await StaffService.updateStaff(staff.id, formattedValues);
+        await StaffService.updateStaff(staff.id, formattedValues as any);
         toast.success('Staff updated successfully');
       } else {
-        await StaffService.createStaff(formattedValues);
+        await StaffService.createStaff(formattedValues as any);
         toast.success('Staff created successfully');
       }
 

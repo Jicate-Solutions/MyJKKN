@@ -446,7 +446,7 @@ export default function NewTimetablePage() {
       } else {
         // Remove template-related fields for regular timetable creation
         const { selected_template_id, ...cleanedValues } = formattedValues;
-        createdTimetable = await createTimetable(cleanedValues);
+        createdTimetable = await createTimetable(cleanedValues as any);
       }
 
       if (createdTimetable) {

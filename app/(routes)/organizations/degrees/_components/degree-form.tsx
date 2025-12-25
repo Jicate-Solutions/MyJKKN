@@ -84,9 +84,9 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
       setIsSubmitting(true);
 
       if (isEditing && degree) {
-        await DegreeService.updateDegree(degree.id, values);
+        await DegreeService.updateDegree(degree.id, values as any);
       } else {
-        await DegreeService.createDegree(values);
+        await DegreeService.createDegree(values as any);
       }
 
       // Invalidate and refetch degree queries

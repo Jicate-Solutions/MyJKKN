@@ -77,25 +77,31 @@ export class UserService {
       }
 
       // Get total users
-      const { count: total, error: totalError } = await totalQuery;
+      const { count: total, error: totalError } = (await totalQuery) as {
+        count: number | null;
+        error: any;
+      };
       if (totalError) throw totalError;
 
       // Get active users
-      const { count: active, error: activeError } = await activeQuery.eq(
+      const { count: active, error: activeError } = (await activeQuery.eq(
         'is_active',
         true
-      );
+      )) as { count: number | null; error: any };
       if (activeError) throw activeError;
 
       // Get inactive users
-      const { count: inactive, error: inactiveError } = await inactiveQuery.eq(
+      const { count: inactive, error: inactiveError } = (await inactiveQuery.eq(
         'is_active',
         false
-      );
+      )) as { count: number | null; error: any };
       if (inactiveError) throw inactiveError;
 
       // Get all profiles with role data
-      const { data: profiles, error: profilesError } = await rolesQuery;
+      const { data: profiles, error: profilesError } = (await rolesQuery) as {
+        data: { role: string | null }[] | null;
+        error: any;
+      };
       if (profilesError) throw profilesError;
 
       // Count roles manually on the client side
@@ -138,7 +144,7 @@ export class UserService {
         return { data: null, error: new Error('No active user') };
       }
 
-      const { data, error } = await supabase
+      const { data, error } = (await supabase
         .from('profiles')
         .select(
           `
@@ -158,9 +164,10 @@ export class UserService {
         `
         )
         .eq('id', userData.user.id)
-        .single();
+        .single()) as { data: Profile | null; error: any };
 
       if (error) throw error;
+      if (!data) throw new Error('Profile not found');
 
       // If user is a student, fetch their student record and status
       if (data && data.role === 'student') {
@@ -183,7 +190,10 @@ export class UserService {
 
           // For students without institution_id in profile, we need to fetch their data differently
 
-          const { data: sData, error: sError } = await query.maybeSingle();
+          const { data: sData, error: sError } = (await query.maybeSingle()) as {
+            data: any | null;
+            error: any;
+          };
 
           if (!sError && sData) {
             studentData = sData;
@@ -205,7 +215,7 @@ export class UserService {
           const lastName = nameParts.slice(1).join(' ') || '';
 
           // Try exact name match first
-          let nameQuery = supabase
+          let nameQuery: any = supabase
             .from('learners_profiles')
             .select(
               'id, status, is_profile_complete, college_email, first_name, last_name'
@@ -224,9 +234,9 @@ export class UserService {
             );
           }
 
-          const { data: sDataByName, error: sErrorByName } = await nameQuery
+          const { data: sDataByName, error: sErrorByName } = (await nameQuery
             .limit(1)
-            .maybeSingle();
+            .maybeSingle()) as { data: any | null; error: any };
 
           if (!sErrorByName && sDataByName) {
             studentData = sDataByName;
@@ -236,13 +246,13 @@ export class UserService {
         // If still not found, try by personal email
         if (!studentData) {
           const { data: sDataByPersonal, error: sErrorByPersonal } =
-            await supabase
+            (await supabase
               .from('learners_profiles')
               .select(
                 'id, status, is_profile_complete, college_email, student_email'
               )
               .eq('student_email', data.email)
-              .maybeSingle();
+              .maybeSingle()) as { data: any | null; error: any };
 
           if (!sErrorByPersonal && sDataByPersonal) {
             studentData = sDataByPersonal;
@@ -396,11 +406,11 @@ export class UserService {
 
       if (error || !userData.user) return false;
 
-      const { data: profile } = await supabase
+      const { data: profile } = (await supabase
         .from('profiles')
         .select('role')
         .eq('id', userData.user.id)
-        .single();
+        .single()) as { data: { role: string | null } | null; error: any };
 
       return (
         profile?.role === 'super_admin' || profile?.role === 'administrator'
@@ -413,7 +423,7 @@ export class UserService {
   static async getUsersWithRoles(): Promise<Profile[]> {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      const { data, error } = (await supabase
         .from('profiles')
         .select(
           `
@@ -432,7 +442,7 @@ export class UserService {
           )
         `
         )
-        .order('full_name');
+        .order('full_name')) as { data: Profile[] | null; error: any };
 
       if (error) throw error;
       return data || [];
@@ -450,8 +460,8 @@ export class UserService {
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
-      const { data: user, error } = await supabase
-        .from('users')
+      const updateQuery: any = supabase.from('users');
+      const { data: user, error } = await updateQuery
         .update({
           ...data,
           updated_by: userData.user.id,
@@ -462,8 +472,9 @@ export class UserService {
         .single();
 
       if (error) throw error;
+      if (!user) throw new Error('User not found');
 
-      return user;
+      return user as Profile;
     } catch (error) {
       throw error;
     }
@@ -478,8 +489,8 @@ export class UserService {
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
-      const { data: user, error } = await supabase
-        .from('users')
+      const insertQuery: any = supabase.from('users');
+      const { data: user, error } = await insertQuery
         .insert([
           {
             ...data,
@@ -491,8 +502,9 @@ export class UserService {
         .single();
 
       if (error) throw error;
+      if (!user) throw new Error('Failed to create user');
 
-      return user;
+      return user as Profile;
     } catch (error) {
       throw error;
     }

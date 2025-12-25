@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
 
     // Create notification
     const validatedData = createNotificationSchema.parse(body);
-    const notification = await createNotification(validatedData);
+    const notification = await createNotification(validatedData as any);
 
     return NextResponse.json({
       data: notification,

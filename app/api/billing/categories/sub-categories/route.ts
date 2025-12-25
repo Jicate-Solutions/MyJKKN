@@ -86,7 +86,7 @@ export async function POST(request: Request) {
     const validatedData = createSubCategorySchema.parse(json);
 
     const subCategory =
-      await BillingSubCategoryService.createBillingSubCategory(validatedData);
+      await BillingSubCategoryService.createBillingSubCategory(validatedData as any);
 
     return NextResponse.json(subCategory, { status: 201 });
   } catch (error) {

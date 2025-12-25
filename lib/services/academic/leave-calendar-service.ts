@@ -13,7 +13,8 @@ import type {
   LeaveCalendarFilters,
   AttendanceLeaveCheck,
   AttendanceLeaveResult,
-  LeaveBlockInfo
+  LeaveBlockInfo,
+  LeaveScopeLevel
 } from '@/types/leaves';
 
 export class LeaveCalendarService {
@@ -141,12 +142,22 @@ export class LeaveCalendarService {
       const leaveDates = new Set<string>();
 
       // Get all approved leaves in the date range
-      const { data: leaves, error } = await this.supabase
+      const { data: leaves, error } = (await this.supabase
         .from('institution_leaves')
         .select('start_date, end_date, scope_level, department_ids, semester_ids, section_ids')
         .eq('institution_id', institutionId)
         .eq('status', 'approved')
-        .or(`and(start_date.lte.${endDate},end_date.gte.${startDate})`);
+        .or(`and(start_date.lte.${endDate},end_date.gte.${startDate})`)) as {
+        data: Array<{
+          start_date: string;
+          end_date: string;
+          scope_level: LeaveScopeLevel;
+          department_ids: string[] | null;
+          semester_ids: string[] | null;
+          section_ids: string[] | null;
+        }> | null;
+        error: any;
+      };
 
       if (error) throw error;
 
@@ -428,7 +439,7 @@ export class LeaveCalendarService {
       const { institution_id, date, department_id, semester_id, section_id } = params;
 
       // Query approved leaves for the specific date
-      const { data: leaves, error } = await this.supabase
+      const { data: leaves, error } = (await this.supabase
         .from('institution_leaves')
         .select(
           `
@@ -444,7 +455,18 @@ export class LeaveCalendarService {
         .eq('institution_id', institution_id)
         .eq('status', 'approved')
         .lte('start_date', date)
-        .gte('end_date', date);
+        .gte('end_date', date)) as {
+        data: Array<{
+          id: string;
+          leave_name: string;
+          scope_level: LeaveScopeLevel;
+          department_ids: string[] | null;
+          semester_ids: string[] | null;
+          section_ids: string[] | null;
+          leave_type: { leave_type_name: string; color_code: string } | null;
+        }> | null;
+        error: any;
+      };
 
       if (error) {
         logger.error('academic/leaves', 'Error checking leave block for attendance', {

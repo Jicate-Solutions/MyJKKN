@@ -33,7 +33,7 @@ export class LeaveApprovalService {
     try {
       const { data: chain, error } = await this.supabase
         .from('leave_approval_chains')
-        .insert([data])
+        .insert([data] as any)
         .select()
         .single();
 
@@ -42,7 +42,7 @@ export class LeaveApprovalService {
         throw error;
       }
 
-      return chain;
+      return chain as LeaveApprovalChain;
     } catch (error) {
       logger.error('academic/leaves', 'Error creating approval chain', error);
       throw error;
@@ -57,19 +57,21 @@ export class LeaveApprovalService {
     data: UpdateApprovalChainDto
   ): Promise<LeaveApprovalChain> {
     try {
-      const { data: chain, error } = await this.supabase
+      const updatePayload: UpdateApprovalChainDto & { updated_at: string } = {
+        ...data,
+        updated_at: new Date().toISOString()
+      };
+
+      const { data: chain, error } = await (this.supabase as any)
         .from('leave_approval_chains')
-        .update({
-          ...data,
-          updated_at: new Date().toISOString()
-        })
+        .update(updatePayload)
         .eq('id', id)
         .select()
         .single();
 
       if (error) throw error;
 
-      return chain;
+      return chain as LeaveApprovalChain;
     } catch (error) {
       logger.error('academic/leaves', 'Error updating approval chain', error);
       throw error;
@@ -126,7 +128,7 @@ export class LeaveApprovalService {
 
       if (error) throw error;
 
-      return data || [];
+      return (data || []) as LeaveApprovalChain[];
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching approval chains', error);
       throw error;
@@ -158,7 +160,7 @@ export class LeaveApprovalService {
 
       if (error) throw error;
 
-      return data || [];
+      return (data || []) as LeaveApprovalChain[];
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching approval chain for leave', error);
       throw error;
@@ -187,7 +189,7 @@ export class LeaveApprovalService {
             comments: data.comments,
             acted_at: new Date().toISOString()
           }
-        ])
+        ] as any)
         .select()
         .single();
 
@@ -195,7 +197,13 @@ export class LeaveApprovalService {
 
       // Update the leave status
       const newStatus = data.action === 'approved' ? 'approved' : 'rejected';
-      const updateData: any = {
+      const updateData: {
+        status: string;
+        updated_at: string;
+        approved_by?: string;
+        approved_at?: string;
+        rejection_reason?: string;
+      } = {
         status: newStatus,
         updated_at: new Date().toISOString()
       };
@@ -207,14 +215,14 @@ export class LeaveApprovalService {
         updateData.rejection_reason = data.comments;
       }
 
-      const { error: leaveError } = await this.supabase
+      const { error: leaveError } = await (this.supabase as any)
         .from('institution_leaves')
         .update(updateData)
         .eq('id', data.leave_id);
 
       if (leaveError) throw leaveError;
 
-      return approval;
+      return approval as LeaveApproval;
     } catch (error) {
       logger.error('academic/leaves', 'Error processing approval', error);
       throw error;
@@ -239,7 +247,7 @@ export class LeaveApprovalService {
 
       if (error) throw error;
 
-      return data || [];
+      return (data || []) as LeaveApproval[];
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching approvals for leave', error);
       throw error;
@@ -258,6 +266,16 @@ export class LeaveApprovalService {
     institutionId: string
   ): Promise<PendingApproval[]> {
     try {
+      // Define type for user roles
+      interface UserRoleWithCustom {
+        role_id: string;
+        custom_role?: {
+          id: string;
+          role_name: string;
+          permissions: Record<string, boolean>;
+        } | null;
+      }
+
       // Get user's roles
       const { data: userRoles, error: rolesError } = await this.supabase
         .from('user_roles')
@@ -301,11 +319,16 @@ export class LeaveApprovalService {
 
       if (chainsError) throw chainsError;
 
+      // Type assertions for the data
+      const typedUserRoles = (userRoles || []) as UserRoleWithCustom[];
+      const typedLeaves = (pendingLeaves || []) as InstitutionLeave[];
+      const typedChains = (chains || []) as LeaveApprovalChain[];
+
       // Match pending leaves to user's approval authority
       const pendingApprovals: PendingApproval[] = [];
 
-      for (const leave of pendingLeaves || []) {
-        const leaveChains = (chains || []).filter(
+      for (const leave of typedLeaves) {
+        const leaveChains = typedChains.filter(
           (chain) =>
             (!chain.leave_type_id || chain.leave_type_id === leave.leave_type_id) &&
             (chain.scope_level === leave.scope_level ||
@@ -316,7 +339,7 @@ export class LeaveApprovalService {
 
         // Check if user has the required role for any step
         for (const chain of leaveChains) {
-          const hasRole = (userRoles || []).some((ur: any) => {
+          const hasRole = typedUserRoles.some((ur) => {
             // Check if role name matches
             if (ur.custom_role?.role_name?.toLowerCase() === chain.approver_role?.toLowerCase()) {
               return true;
@@ -339,7 +362,7 @@ export class LeaveApprovalService {
 
           if (hasRole) {
             pendingApprovals.push({
-              leave: leave as InstitutionLeave,
+              leave: leave,
               approval_chain: chain,
               current_step: chain.chain_order,
               total_steps: leaveChains.length
@@ -380,12 +403,31 @@ export class LeaveApprovalService {
     leaveId: string
   ): Promise<boolean> {
     try {
+      // Define types for queries
+      interface LeaveInfo {
+        institution_id: string;
+        leave_type_id: string;
+        scope_level: string;
+        status: string;
+      }
+
+      interface ProfileInfo {
+        institution_id: string | null;
+        is_super_admin: boolean;
+      }
+
+      interface UserRolePermissions {
+        custom_role?: {
+          permissions: Record<string, boolean>;
+        } | null;
+      }
+
       // Get the leave
       const { data: leave, error: leaveError } = await this.supabase
         .from('institution_leaves')
         .select('institution_id, leave_type_id, scope_level, status')
         .eq('id', leaveId)
-        .single();
+        .single<LeaveInfo>();
 
       if (leaveError || !leave) return false;
       if (leave.status !== 'pending') return false;
@@ -395,7 +437,7 @@ export class LeaveApprovalService {
         .from('profiles')
         .select('institution_id, is_super_admin')
         .eq('id', userId)
-        .single();
+        .single<ProfileInfo>();
 
       if (profileError || !profile) return false;
 
@@ -417,8 +459,10 @@ export class LeaveApprovalService {
 
       if (rolesError) return false;
 
+      const typedUserRoles = (userRoles || []) as UserRolePermissions[];
+
       // Check if any role has leave approval permission
-      return (userRoles || []).some((ur: any) => {
+      return typedUserRoles.some((ur) => {
         const permissions = ur.custom_role?.permissions;
         if (!permissions) return false;
         return (
@@ -467,12 +511,12 @@ export class LeaveApprovalService {
 
       const { data, error } = await this.supabase
         .from('leave_approval_chains')
-        .insert(defaultChains)
+        .insert(defaultChains as any)
         .select();
 
       if (error) throw error;
 
-      return data || [];
+      return (data || []) as LeaveApprovalChain[];
     } catch (error) {
       logger.error('academic/leaves', 'Error setting up default approval chain', error);
       throw error;
@@ -487,7 +531,7 @@ export class LeaveApprovalService {
     newOrder: number
   ): Promise<LeaveApprovalChain> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('leave_approval_chains')
         .update({
           chain_order: newOrder,
@@ -499,7 +543,7 @@ export class LeaveApprovalService {
 
       if (error) throw error;
 
-      return data;
+      return data as LeaveApprovalChain;
     } catch (error) {
       logger.error('academic/leaves', 'Error reordering approval chain', error);
       throw error;

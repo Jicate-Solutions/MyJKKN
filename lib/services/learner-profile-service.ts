@@ -12,6 +12,12 @@ import type {
   LearnerLifecycleFunnel,
 } from '@/types/learner-profile';
 import { STATUS_TRANSITIONS, REQUIRED_FIELDS_BY_STATUS } from '@/types/learner-profile';
+import type {
+  LearnerProfileWithRelations,
+  LearnerProfileWithAcademic,
+  UserProfile,
+  LearnerStatsRow,
+} from '@/types/learner-profile-queries';
 
 // ============================================
 // LEARNER PROFILE SERVICE
@@ -90,17 +96,17 @@ export class LearnerProfileService {
       const { data: userData } = await supabase.auth.getUser();
       const currentUserId = userData.user?.id;
 
-      const { data: activatedProfile, error } = await supabase
-        .from('learners_profiles')
+      const updateQuery: any = supabase.from('learners_profiles');
+      const { data: activatedProfile, error } = await updateQuery
         .update({
-          lifecycle_status: 'active',
+          lifecycle_status: 'active' as LifecycleStatus,
           is_profile_complete: true,
           updated_at: new Date().toISOString(),
           updated_by: currentUserId,
         })
         .eq('id', id)
         .select()
-        .single();
+        .single() as { data: LearnerProfile | null; error: any };
 
       if (error) {
         console.error('[learner-profile-service] Error auto-activating learner:', error);
@@ -146,11 +152,11 @@ export class LearnerProfileService {
 
     try {
       // First, check if a user profile already exists for this email
-      const { data: existingProfile, error: profileCheckError } = await supabase
+      const { data: existingProfile, error: profileCheckError } = (await supabase
         .from('profiles')
         .select('id, is_active, email')
         .eq('email', profile.college_email)
-        .maybeSingle();
+        .maybeSingle()) as { data: UserProfile | null; error: any };
 
       if (profileCheckError) {
         console.error('[learner-profile-service] Error checking for existing profile:', profileCheckError);
@@ -171,8 +177,8 @@ export class LearnerProfileService {
         }
 
         // Reactivate the existing profile
-        const { error: updateError } = await supabase
-          .from('profiles')
+        const updateQuery: any = supabase.from('profiles');
+        const { error: updateError } = await updateQuery
           .update({ is_active: true })
           .eq('id', existingProfile.id);
 
@@ -234,11 +240,11 @@ export class LearnerProfileService {
 
     try {
       // Find profile by email
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile, error: profileError } = (await supabase
         .from('profiles')
         .select('id, is_active')
         .eq('email', learnerProfile.college_email)
-        .maybeSingle();
+        .maybeSingle()) as { data: UserProfile | null; error: any };
 
       if (profileError) {
         console.error('[learner-profile-service] Error finding profile:', profileError);
@@ -255,8 +261,8 @@ export class LearnerProfileService {
 
       // Only update if different from current state
       if (profile.is_active !== shouldBeActive) {
-        const { error: updateError } = await supabase
-          .from('profiles')
+        const updateQuery: any = supabase.from('profiles');
+        const { error: updateError } = await updateQuery
           .update({ is_active: shouldBeActive })
           .eq('id', profile.id);
 
@@ -447,17 +453,17 @@ export class LearnerProfileService {
     const { data: userData } = await supabase.auth.getUser();
     const currentUserId = userData.user?.id;
 
-    const { data, error } = await supabase
-      .from('learners_profiles')
+    const insertQuery: any = supabase.from('learners_profiles');
+    const { data, error } = await insertQuery
       .insert({
         ...dto,
-        lifecycle_status: dto.lifecycle_status || 'enquiry',
+        lifecycle_status: (dto.lifecycle_status || 'enquiry') as LifecycleStatus,
         is_profile_complete: dto.is_profile_complete || false,
-        migration_source: 'direct', // Mark as directly created (not migrated)
+        migration_source: 'direct' as const, // Mark as directly created (not migrated)
         created_by: currentUserId,
       })
       .select()
-      .single();
+      .single() as { data: LearnerProfile | null; error: any };
 
     if (error) {
       console.error('[learner-profile-service] Error creating learner profile:', error);
@@ -482,8 +488,8 @@ export class LearnerProfileService {
     const currentUserId = userData.user?.id;
 
     // First update with provided DTO
-    const { data: updatedData, error: updateError } = await supabase
-      .from('learners_profiles')
+    const updateQuery: any = supabase.from('learners_profiles');
+    const { data: updatedData, error: updateError } = await updateQuery
       .update({
         ...dto,
         updated_at: new Date().toISOString(),
@@ -491,11 +497,11 @@ export class LearnerProfileService {
       })
       .eq('id', id)
       .select()
-      .single();
+      .single() as { data: LearnerProfile | null; error: any };
 
-    if (updateError) {
+    if (updateError || !updatedData) {
       console.error('[learner-profile-service] Error updating learner profile:', updateError);
-      throw updateError;
+      throw updateError || new Error('No data returned from update');
     }
 
     // Calculate profile completeness
@@ -503,15 +509,15 @@ export class LearnerProfileService {
 
     // Update is_profile_complete flag if it changed
     if (updatedData.is_profile_complete !== isComplete) {
-      const { data: profileWithFlag, error: flagError } = await supabase
-        .from('learners_profiles')
+      const flagUpdateQuery: any = supabase.from('learners_profiles');
+      const { data: profileWithFlag, error: flagError } = await flagUpdateQuery
         .update({
           is_profile_complete: isComplete,
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
         .select()
-        .single();
+        .single() as { data: LearnerProfile | null; error: any };
 
       if (flagError) {
         console.error('[learner-profile-service] Error updating is_profile_complete flag:', flagError);
@@ -558,11 +564,11 @@ export class LearnerProfileService {
       if (learner.college_email) {
         try {
           // Find the profile associated with the college_email
-          const { data: profile, error: profileError } = await supabase
+          const { data: profile, error: profileError } = (await supabase
             .from('profiles')
             .select('id')
             .eq('email', learner.college_email)
-            .maybeSingle();
+            .maybeSingle()) as { data: { id: string } | null; error: any };
 
           if (!profileError && profile) {
             // Delete the profile using the API endpoint (which handles auth table deletion too)
@@ -718,7 +724,9 @@ export class LearnerProfileService {
    * Get lifecycle funnel analytics
    */
   static async getLifecycleFunnel(institutionId?: string): Promise<LearnerLifecycleFunnel> {
-    let query = createClientSupabaseClient().from('learners_profiles').select('lifecycle_status', { count: 'exact' });
+    let query = createClientSupabaseClient()
+      .from('learners_profiles')
+      .select('lifecycle_status', { count: 'exact' });
 
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
@@ -740,8 +748,8 @@ export class LearnerProfileService {
 
     const { data } = await query;
     if (data) {
-      data.forEach((row) => {
-        const status = row.lifecycle_status as LifecycleStatus;
+      (data as { lifecycle_status: LifecycleStatus }[]).forEach((row) => {
+        const status = row.lifecycle_status;
         statusCounts[status] = (statusCounts[status] || 0) + 1;
       });
     }
@@ -1150,7 +1158,7 @@ export class LearnerProfileService {
 
       if (allData.error) throw allData.error;
 
-      const profiles = allData.data || [];
+      const profiles = (allData.data as LearnerProfile[]) || [];
       const totalCount = allData.count || 0;
 
       // DEBUG: Log counts by status
@@ -1312,7 +1320,30 @@ export class LearnerProfileService {
           missingCollegeEmail: missingCollegeEmail || 0,
           missingAcademicYear: missingAcademicYear || 0,
           missingSemester: missingSemester || 0,
-          missingSection: missingSection || 0
+          missingSection: missingSection || 0,
+          // Completion tiers
+          excellent: profiles.filter(p => {
+            const complete = this.calculateProfileCompleteness(p);
+            return complete ? 1 : 0;
+          }).length,
+          good: profiles.filter(p => {
+            // 80-99% complete (has 3 of 4 required fields)
+            const fields = [p.college_email, p.academic_year_id, p.semester_id, p.section_id];
+            const filled = fields.filter(f => f).length;
+            return filled === 3;
+          }).length,
+          needsWork: profiles.filter(p => {
+            // 50-79% complete (has 2 of 4 required fields)
+            const fields = [p.college_email, p.academic_year_id, p.semester_id, p.section_id];
+            const filled = fields.filter(f => f).length;
+            return filled === 2;
+          }).length,
+          critical: profiles.filter(p => {
+            // <50% complete (has 0-1 of 4 required fields)
+            const fields = [p.college_email, p.academic_year_id, p.semester_id, p.section_id];
+            const filled = fields.filter(f => f).length;
+            return filled <= 1;
+          }).length,
         },
 
         // Trends
@@ -1631,7 +1662,7 @@ export class LearnerProfileService {
     const { data, error } = await query;
     if (error) throw error;
 
-    const profiles = data || [];
+    const profiles = (data as LearnerStatsRow[]) || [];
     const total = profiles.length;
 
     const groups = profiles.reduce((acc, p) => {
@@ -1676,7 +1707,7 @@ export class LearnerProfileService {
     const { data, error } = await query;
     if (error) throw error;
 
-    const profiles = data || [];
+    const profiles = (data as LearnerStatsRow[]) || [];
     const total = profiles.length;
 
     const groups = profiles.reduce((acc, p) => {
@@ -1720,7 +1751,7 @@ export class LearnerProfileService {
     const { data, error } = await query;
     if (error) throw error;
 
-    const profiles = data || [];
+    const profiles = (data as LearnerStatsRow[]) || [];
     const total = profiles.length;
 
     const groups = profiles.reduce((acc, p) => {
@@ -1764,7 +1795,7 @@ export class LearnerProfileService {
     const { data, error } = await query;
     if (error) throw error;
 
-    const profiles = data || [];
+    const profiles = (data as LearnerStatsRow[]) || [];
     const total = profiles.length;
 
     const groups = profiles.reduce((acc, p) => {
@@ -1805,7 +1836,7 @@ export class LearnerProfileService {
     // Apply range to fetch up to 10,000 records
     query = query.range(0, 9999);
 
-    const { data, error } = await query;
+    const { data, error } = (await query) as { data: any[] | null; error: any };
     if (error) throw error;
 
     const profiles = data || [];
@@ -1875,7 +1906,7 @@ export class LearnerProfileService {
       query = query.eq('academic_year_id', filters.academicYearId);
     }
 
-    const { data, error } = await query;
+    const { data, error } = (await query) as { data: any[] | null; error: any };
     if (error) throw error;
 
     const profiles = data || [];
@@ -1908,7 +1939,7 @@ export class LearnerProfileService {
   private static async getEnquiriesTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
     // Note: Apply lifecycle_status='enquiry' as an additional filter
-    const enquiryFilters = { ...filters, lifecycleStatuses: ['enquiry'] };
+    const enquiryFilters = { ...filters, lifecycleStatuses: ['enquiry'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
     const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'created_at', enquiryFilters);
 
     // Group by date
@@ -1922,7 +1953,7 @@ export class LearnerProfileService {
     return Object.entries(groupedByDate)
       .map(([date, count]): import('@/types/learner-dashboard').TimeSeriesDataPoint => ({
         date,
-        count,
+        count: count as number,
         label: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       }))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -1931,7 +1962,7 @@ export class LearnerProfileService {
   private static async getActivationsTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
     // Note: Apply lifecycle_status='active' as an additional filter
-    const activeFilters = { ...filters, lifecycleStatuses: ['active'] };
+    const activeFilters = { ...filters, lifecycleStatuses: ['active'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
     const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'updated_at', activeFilters);
 
     // Group by date
@@ -1945,7 +1976,7 @@ export class LearnerProfileService {
     return Object.entries(groupedByDate)
       .map(([date, count]): import('@/types/learner-dashboard').TimeSeriesDataPoint => ({
         date,
-        count,
+        count: count as number,
         label: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       }))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -1954,7 +1985,7 @@ export class LearnerProfileService {
   private static async getGraduationsTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
     // Note: Apply lifecycle_status='graduated' as an additional filter
-    const graduatedFilters = { ...filters, lifecycleStatuses: ['graduated'] };
+    const graduatedFilters = { ...filters, lifecycleStatuses: ['graduated'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
     const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'updated_at', graduatedFilters);
 
     // Group by date
@@ -1968,7 +1999,7 @@ export class LearnerProfileService {
     return Object.entries(groupedByDate)
       .map(([date, count]): import('@/types/learner-dashboard').TimeSeriesDataPoint => ({
         date,
-        count,
+        count: count as number,
         label: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       }))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());

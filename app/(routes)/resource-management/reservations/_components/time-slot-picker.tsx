@@ -29,7 +29,8 @@ export function TimeSlotPicker({
     'single'
   );
 
-  const { data: slots = [], isLoading } = useAvailableSlots(resourceId, date);
+  const { data: slotsData, isLoading } = useAvailableSlots(resourceId, date);
+  const slots = (slotsData as TimeSlot[] | undefined) || [];
 
   // Format time for display
   const formatTime = (timeStr: string): string => {
@@ -334,19 +335,22 @@ export function TimeSlotPicker({
               <Zap className='h-4 w-4 text-primary' />
               <h3 className='text-sm font-semibold'>Custom Time Slots</h3>
             </div>
-            {Object.entries(groupedSlots.custom).map(([name, slots]) => (
-              <div key={name} className='space-y-3'>
-                <h4 className='flex items-center gap-2 text-sm font-medium'>
-                  <span>{name}</span>
-                  <Badge variant='outline' className='text-xs'>
-                    {slots.filter((s) => s.is_available).length} available
-                  </Badge>
-                </h4>
-                <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
-                  {slots.map((slot) => renderSlotCard(slot))}
+            {Object.entries(groupedSlots.custom).map(([name, slotGroup]) => {
+              const typedSlots = slotGroup as TimeSlot[];
+              return (
+                <div key={name} className='space-y-3'>
+                  <h4 className='flex items-center gap-2 text-sm font-medium'>
+                    <span>{name}</span>
+                    <Badge variant='outline' className='text-xs'>
+                      {typedSlots.filter((s) => s.is_available).length} available
+                    </Badge>
+                  </h4>
+                  <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+                    {typedSlots.map((slot) => renderSlotCard(slot))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

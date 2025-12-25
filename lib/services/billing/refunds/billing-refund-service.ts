@@ -26,8 +26,8 @@ export class BillingRefundService {
         );
       }
 
-      const { data, error } = await this.supabase
-        .from('billing_refunds')
+      const query: any = this.supabase.from('billing_refunds');
+      const { data, error } = await query
         .insert({
           ...refundData,
           net_refund_amount: netRefundAmount
@@ -74,8 +74,8 @@ export class BillingRefundService {
     refundData: UpdateRefundDto
   ): Promise<BillingRefund> {
     try {
-      const { data, error } = await this.supabase
-        .from('billing_refunds')
+      const query: any = this.supabase.from('billing_refunds');
+      const { data, error } = await query
         .update(refundData)
         .eq('id', id)
         .select(
@@ -270,8 +270,8 @@ export class BillingRefundService {
         data: { user }
       } = await this.supabase.auth.getUser();
 
-      const { data, error } = await this.supabase
-        .from('billing_refunds')
+      const query: any = this.supabase.from('billing_refunds');
+      const { data, error } = await query
         .update({
           approval_status: 'approved',
           approved_by: user?.id
@@ -319,8 +319,8 @@ export class BillingRefundService {
     reason?: string
   ): Promise<BillingRefund> {
     try {
-      const { data, error } = await this.supabase
-        .from('billing_refunds')
+      const query: any = this.supabase.from('billing_refunds');
+      const { data, error } = await query
         .update({
           approval_status: 'rejected',
           rejection_reason: reason || 'No reason provided'
@@ -369,8 +369,8 @@ export class BillingRefundService {
       const refund = await this.getBillingRefund(id);
 
       // Update refund status to processed
-      const { data, error } = await this.supabase
-        .from('billing_refunds')
+      const query: any = this.supabase.from('billing_refunds');
+      const { data, error } = await query
         .update({
           approval_status: 'processed'
         })
@@ -408,13 +408,14 @@ export class BillingRefundService {
       // But we'll also manually trigger a recalculation to ensure consistency
       try {
         // Get all bills related to this receipt and recalculate their status
-        const { data: receiptItems } = await this.supabase
+        const receiptQuery: any = this.supabase
           .from('billing_receipt_items')
           .select('bill_id')
           .eq('receipt_id', refund.receipt_id);
+        const { data: receiptItems } = await receiptQuery;
 
         if (receiptItems) {
-          for (const item of receiptItems) {
+          for (const item of receiptItems as any[]) {
             // Call the database function to recalculate bill status
             await (this.supabase as any).rpc('recalculate_bill_status_with_refunds', {
               p_bill_id: item.bill_id

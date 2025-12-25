@@ -461,7 +461,7 @@ export class StudentSearchServiceOptimized {
         )
       );
 
-      const calculationPromise = this.supabase.rpc(
+      const calculationPromise = (this.supabase as any).rpc(
         'calculate_student_outstanding',
         {
           student_uuid: studentId
@@ -482,14 +482,15 @@ export class StudentSearchServiceOptimized {
       );
 
       // Fallback: calculate from bill balances
-      const { data: bills } = await this.supabase
+      const billQuery: any = this.supabase
         .from('billing_student_bills')
         .select('balance_amount')
         .eq('student_id', studentId)
         .in('status', ['unpaid', 'partially_paid', 'overdue']);
+      const { data: bills } = await billQuery;
 
       return (
-        bills?.reduce((sum, bill) => sum + (bill.balance_amount || 0), 0) || 0
+        (bills as any[])?.reduce((sum, bill) => sum + (bill.balance_amount || 0), 0) || 0
       );
     }
   }

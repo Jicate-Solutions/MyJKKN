@@ -58,10 +58,10 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
   const onSubmit = async (values: FormValues) => {
     try {
       if (isEditing && category) {
-        await updateCategory.mutateAsync(values);
+        await updateCategory.mutateAsync(values as any);
         toast.success('Category updated successfully');
       } else {
-        await createCategory.mutateAsync(values);
+        await createCategory.mutateAsync(values as any);
         toast.success('Category created successfully');
       }
 

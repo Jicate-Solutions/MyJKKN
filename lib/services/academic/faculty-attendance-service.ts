@@ -3,6 +3,13 @@ import { AttendancePeriodOption } from '@/types/attendance';
 import { format } from 'date-fns';
 import { AttendanceService } from './attendance-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+import type {
+  TimetableWithRelations,
+  TimetableDataStructure,
+  AcademicYearBasic,
+  StaffBasic,
+  CourseBasic,
+} from '@/types/academic/timetable-queries';
 
 export class FacultyAttendanceService {
   private static supabase = createClientSupabaseClient();
@@ -36,11 +43,11 @@ export class FacultyAttendanceService {
    */
   static async getStaffIdByEmail(email: string): Promise<string | null> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = (await this.supabase
         .from('staff')
         .select('id')
         .eq('institution_email', email)
-        .single();
+        .single()) as { data: { id: string } | null; error: any };
 
       if (error) {
         // Only log actual errors, not "no rows" cases
@@ -80,11 +87,11 @@ export class FacultyAttendanceService {
       const dayOfWeek = this.getDayOfWeekFromDate(targetDate).toUpperCase();
 
       // First get the staff member's details
-      const { data: staffData, error: staffError } = await this.supabase
+      const { data: staffData, error: staffError } = (await this.supabase
         .from('staff')
         .select('id, first_name, last_name, email, institution_id, department_id')
         .eq('id', staffId)
-        .single();
+        .single()) as { data: StaffBasic | null; error: any };
 
       if (staffError || !staffData) {
         logger.error('academic/faculty-attendance', 'Staff not found', staffError);
@@ -92,13 +99,13 @@ export class FacultyAttendanceService {
       }
 
       // Get current academic year for the institution
-      const { data: academicYears, error: yearError } = await this.supabase
+      const { data: academicYears, error: yearError } = (await this.supabase
         .from('academic_years')
         .select('id, academic_year_name')
         .eq('institution_id', staffData.institution_id)
         .eq('is_active', true)
         .order('start_date', { ascending: false })
-        .limit(1);
+        .limit(1)) as { data: AcademicYearBasic[] | null; error: any };
 
       if (yearError || !academicYears || academicYears.length === 0) {
         logger.error('academic/faculty-attendance', 'No active academic year found', yearError);
@@ -108,7 +115,7 @@ export class FacultyAttendanceService {
       const academicYear = academicYears[0];
 
       // OPTIMIZATION: Get timetables with all related data in a single query
-      const { data: timetables, error: timetableError } = await this.supabase
+      const { data: timetables, error: timetableError } = (await this.supabase
         .from('timetables')
         .select(`
           id,
@@ -128,7 +135,7 @@ export class FacultyAttendanceService {
         `)
         .eq('institution_id', staffData.institution_id)
         .eq('academic_year_id', academicYear.id)
-        .eq('is_active', true);
+        .eq('is_active', true)) as { data: TimetableWithRelations[] | null; error: any };
 
       if (timetableError || !timetables || timetables.length === 0) {
         return { periods: [], searchContext: {} };
@@ -145,13 +152,13 @@ export class FacultyAttendanceService {
           timetable.timetable_format,
           timetable.start_date,
           timetable.end_date,
-          timetable.selected_dates
+          (timetable.selected_dates as string[]) || []
         );
 
         if (!isDateValid) continue;
 
-        const timetableData = timetable.timetable_data;
-        const periodsDefinition = timetable.periods;
+        const timetableData = timetable.timetable_data as TimetableDataStructure | null;
+        const periodsDefinition = timetable.periods as Record<string, any> | null;
 
         if (!timetableData) continue;
 
@@ -357,10 +364,10 @@ export class FacultyAttendanceService {
 
       // OPTIMIZATION: Batch fetch all course details in a single query
       if (courseIds.size > 0) {
-        const { data: courses } = await this.supabase
+        const { data: courses } = (await this.supabase
           .from('courses')
           .select('id, course_code, course_name')
-          .in('id', Array.from(courseIds));
+          .in('id', Array.from(courseIds))) as { data: CourseBasic[] | null; error: any };
 
         if (courses) {
           const courseMap = new Map(courses.map(c => [c.id, c]));
@@ -499,7 +506,7 @@ export class FacultyAttendanceService {
   }> {
     try {
       // Get staff details
-      const { data: staffData, error: staffError } = await this.supabase
+      const { data: staffData, error: staffError } = (await this.supabase
         .from('staff')
         .select(
           `
@@ -512,20 +519,20 @@ export class FacultyAttendanceService {
         `
         )
         .eq('id', staffId)
-        .single();
+        .single()) as { data: StaffBasic | null; error: any };
 
       if (staffError || !staffData) {
         return { periodsByDay: {}, searchContext: {} };
       }
 
       // Get current academic year (take the latest if multiple active)
-      const { data: academicYears } = await this.supabase
+      const { data: academicYears } = (await this.supabase
         .from('academic_years')
         .select('id')
         .eq('institution_id', staffData.institution_id)
         .eq('is_active', true)
         .order('start_date', { ascending: false })
-        .limit(1);
+        .limit(1)) as { data: AcademicYearBasic[] | null; error: any };
 
       if (!academicYears || academicYears.length === 0) {
         return { periodsByDay: {}, searchContext: {} };
@@ -534,7 +541,7 @@ export class FacultyAttendanceService {
       const academicYear = academicYears[0];
 
       // Fetch all timetables for this staff
-      const { data: timetables } = await this.supabase
+      const { data: timetables } = (await this.supabase
         .from('timetables')
         .select(
           `
@@ -553,7 +560,7 @@ export class FacultyAttendanceService {
         )
         .eq('institution_id', staffData.institution_id)
         .eq('academic_year_id', academicYear.id)
-        .eq('is_active', true);
+        .eq('is_active', true)) as { data: TimetableWithRelations[] | null; error: any };
 
       const periodsByDay: Record<string, AttendancePeriodOption[]> = {
         monday: [],
@@ -572,8 +579,8 @@ export class FacultyAttendanceService {
 
       if (timetables) {
         for (const timetable of timetables) {
-          const timetableData = timetable.timetable_data;
-          const periodsDefinition = timetable.periods;
+          const timetableData = timetable.timetable_data as TimetableDataStructure | null;
+          const periodsDefinition = timetable.periods as Record<string, any> | null;
 
           if (!timetableData) continue;
 
@@ -612,11 +619,11 @@ export class FacultyAttendanceService {
                       // Fetch from database
                       try {
                         const { data: courseData, error: courseError } =
-                          await this.supabase
+                          (await this.supabase
                             .from('courses')
                             .select('course_code, course_name')
                             .eq('id', slot.course_id)
-                            .single();
+                            .single()) as { data: { course_code: string; course_name: string } | null; error: any };
 
                         if (!courseError && courseData) {
                           courseDetails = {
@@ -695,13 +702,13 @@ export class FacultyAttendanceService {
         const firstSemesterName = Array.from(allSemesterNames)[0];
         try {
           const { data: semesterData, error: semesterError } =
-            await this.supabase
+            (await this.supabase
               .from('semesters')
               .select('id')
               .eq('institution_id', staffData.institution_id)
               .eq('semester_name', firstSemesterName)
               .eq('is_active', true)
-              .single();
+              .single()) as { data: { id: string } | null; error: any };
 
           if (!semesterError && semesterData) {
             semesterId = semesterData.id;

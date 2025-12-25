@@ -63,10 +63,13 @@ export class TimetableStaffSyncService {
       }
 
       // Get staff names
-      const { data: staffData, error: staffError } = await this.supabase
+      const { data: staffData, error: staffError } = (await this.supabase
         .from('staff')
         .select('id, first_name, last_name')
-        .in('id', [oldStaffId, newStaffId]);
+        .in('id', [oldStaffId, newStaffId])) as {
+        data: Array<{ id: string; first_name: string; last_name: string }> | null;
+        error: any;
+      };
 
       if (staffError) throw staffError;
 
@@ -74,13 +77,17 @@ export class TimetableStaffSyncService {
       const newStaff = staffData?.find(s => s.id === newStaffId);
 
       // Get course name
-      const { data: courseData, error: courseError } = await this.supabase
+      const { data: courseData, error: courseError } = (await this.supabase
         .from('courses')
         .select('course_name')
         .eq('id', courseId)
-        .single();
+        .single()) as {
+        data: { course_name: string } | null;
+        error: any;
+      };
 
       if (courseError) throw courseError;
+      if (!courseData) throw new Error('Course not found');
 
       return {
         course_id: courseId,

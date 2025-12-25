@@ -22,8 +22,8 @@ export class LeaveTypeService {
    */
   static async createLeaveType(data: CreateLeaveTypeDto): Promise<LeaveType> {
     try {
-      const { data: leaveType, error } = await this.supabase
-        .from('leave_types')
+      const insertQuery: any = this.supabase.from('leave_types');
+      const { data: leaveType, error } = await insertQuery
         .insert([data])
         .select()
         .single();
@@ -38,7 +38,7 @@ export class LeaveTypeService {
         throw enhancedError;
       }
 
-      return leaveType;
+      return leaveType as LeaveType;
     } catch (error) {
       logger.error('academic/leaves', 'Error creating leave type', error);
       throw error;
@@ -53,8 +53,8 @@ export class LeaveTypeService {
     data: UpdateLeaveTypeDto
   ): Promise<LeaveType> {
     try {
-      const { data: leaveType, error } = await this.supabase
-        .from('leave_types')
+      const updateQuery: any = this.supabase.from('leave_types');
+      const { data: leaveType, error } = await updateQuery
         .update({
           ...data,
           updated_at: new Date().toISOString()
@@ -73,7 +73,7 @@ export class LeaveTypeService {
         throw enhancedError;
       }
 
-      return leaveType;
+      return leaveType as LeaveType;
     } catch (error) {
       logger.error('academic/leaves', 'Error updating leave type', error);
       throw error;

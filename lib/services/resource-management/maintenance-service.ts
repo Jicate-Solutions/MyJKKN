@@ -105,8 +105,8 @@ class MaintenanceService {
       throw new Error('Maintenance log not found');
     }
 
-    console.log('[MaintenanceService] Successfully fetched log:', data.id, data.title);
-    return data;
+    console.log('[MaintenanceService] Successfully fetched log:', (data as any).id, (data as any).title);
+    return data as MaintenanceLog;
   }
 
   /**
@@ -120,9 +120,9 @@ class MaintenanceService {
       .from('resource_maintenance_logs')
       .insert({
         ...dto,
-        status: 'scheduled',
+        status: 'scheduled' as MaintenanceStatus,
         created_by: userId
-      })
+      } as any)
       .select()
       .single();
 
@@ -130,7 +130,7 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error creating log:', error);
       throw error;
     }
-    return data;
+    return data as MaintenanceLog;
   }
 
   /**
@@ -140,8 +140,10 @@ class MaintenanceService {
     id: string,
     dto: UpdateMaintenanceLogDto
   ): Promise<MaintenanceLog> {
-    const { data, error } = await this.supabase
-      .from('resource_maintenance_logs')
+    const query: any = this.supabase
+      .from('resource_maintenance_logs');
+
+    const { data, error } = await query
       .update(dto)
       .eq('id', id)
       .select()
@@ -151,7 +153,7 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error updating log:', error);
       throw error;
     }
-    return data;
+    return data as MaintenanceLog;
   }
 
   /**
@@ -165,11 +167,13 @@ class MaintenanceService {
       cost?: number;
     }
   ): Promise<MaintenanceLog> {
-    const { data, error } = await this.supabase
-      .from('resource_maintenance_logs')
+    const query: any = this.supabase
+      .from('resource_maintenance_logs');
+
+    const { data, error } = await query
       .update({
         ...completionData,
-        status: 'completed'
+        status: 'completed' as MaintenanceStatus
       })
       .eq('id', id)
       .select()
@@ -179,7 +183,7 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error completing log:', error);
       throw error;
     }
-    return data;
+    return data as MaintenanceLog;
   }
 
   /**
@@ -189,10 +193,12 @@ class MaintenanceService {
     id: string,
     reason?: string
   ): Promise<MaintenanceLog> {
-    const { data, error } = await this.supabase
-      .from('resource_maintenance_logs')
+    const query: any = this.supabase
+      .from('resource_maintenance_logs');
+
+    const { data, error } = await query
       .update({
-        status: 'cancelled',
+        status: 'cancelled' as MaintenanceStatus,
         notes: reason
       })
       .eq('id', id)
@@ -203,7 +209,7 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error cancelling log:', error);
       throw error;
     }
-    return data;
+    return data as MaintenanceLog;
   }
 
   /**
@@ -300,7 +306,7 @@ class MaintenanceService {
       .insert({
         ...dto,
         is_active: true
-      })
+      } as any)
       .select()
       .single();
 
@@ -308,7 +314,7 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error creating schedule:', error);
       throw error;
     }
-    return data;
+    return data as MaintenanceSchedule;
   }
 
   /**
@@ -318,8 +324,10 @@ class MaintenanceService {
     id: string,
     dto: UpdateMaintenanceScheduleDto
   ): Promise<MaintenanceSchedule> {
-    const { data, error } = await this.supabase
-      .from('resource_maintenance_schedules')
+    const query: any = this.supabase
+      .from('resource_maintenance_schedules');
+
+    const { data, error } = await query
       .update(dto)
       .eq('id', id)
       .select()
@@ -329,7 +337,7 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error updating schedule:', error);
       throw error;
     }
-    return data;
+    return data as MaintenanceSchedule;
   }
 
   /**

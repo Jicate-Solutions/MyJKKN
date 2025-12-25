@@ -18,8 +18,8 @@ export class PeriodService {
 
   static async createPeriod(data: CreatePeriodDto): Promise<Period> {
     try {
-      const { data: period, error } = await this.supabase
-        .from('periods')
+      const insertQuery: any = this.supabase.from('periods');
+      const { data: period, error } = await insertQuery
         .insert([data])
         .select()
         .single();
@@ -47,12 +47,12 @@ export class PeriodService {
     data: UpdatePeriodDto
   ): Promise<Period> {
     try {
-      const { data: period, error } = await this.supabase
-        .from('periods')
+      const updateQuery: any = this.supabase.from('periods');
+      const { data: period, error } = await updateQuery
         .update({
           ...data,
           updated_at: new Date().toISOString()
-        })
+        } as any)
         .eq('id', id)
         .select()
         .single();
