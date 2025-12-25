@@ -5,7 +5,6 @@ import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { CookieOptions } from '@supabase/ssr';
 
-export const dynamic = 'force-dynamic';
 
 // Create admin client for database operations
 const supabaseAdmin = createClient(

@@ -1,84 +1,67 @@
-'use client';
+/**
+ * Billing Receipts List Page - Server Component
+ *
+ * Server-rendered page with cached data fetching.
+ * Uses URL search params for filtering instead of client state.
+ */
 
-import { useEffect } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
-import { Plus, Receipt } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent } from '@/components/ui/card';
-import { BeatLoader } from 'react-spinners';
-import { ReceiptList } from './_components/receipt-list';
-import { ReceiptFilters } from './_components/receipt-filters';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
-import { useBillingReceipts } from '@/hooks/billing/use-billing-receipts';
+import { TableSkeleton } from '@/components/Loading';
+import { getReceipts } from './_data/get-receipts';
+import { ReceiptsTableServer } from './_components/receipts-table-server';
+import { ReceiptsFiltersClient } from './_components/receipts-filters-client';
+import { ReceiptsPaginationClient } from './_components/receipts-pagination-client';
 
-export default function BillingReceiptsPage() {
-  const {
-    receipts,
-    loading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    fetchReceipts
-  } = useBillingReceipts();
+interface SearchParams {
+  page?: string;
+  limit?: string;
+  search?: string;
+  institution_id?: string;
+  student_id?: string;
+  payment_mode?: string;
+  receipt_date_from?: string;
+  receipt_date_to?: string;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+}
 
-  const {
-    canAccess,
-    isSuperAdmin,
-    isLoading: permissionsLoading
-  } = usePermissions();
+interface BillingReceiptsPageProps {
+  searchParams: Promise<SearchParams>;
+}
 
-  const canViewReceipts = isSuperAdmin || canAccess('billing.receipts', 'view');
-  const canCreateReceipts =
-    isSuperAdmin || canAccess('billing.receipts', 'create');
+export default async function BillingReceiptsPage({
+  searchParams
+}: BillingReceiptsPageProps) {
+  const params = await searchParams;
 
-  useEffect(() => {
-    fetchReceipts();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Build filters from URL params
+  const filters = {
+    page: params.page ? parseInt(params.page) : 1,
+    limit: params.limit ? parseInt(params.limit) : 10,
+    search: params.search,
+    institution_id: params.institution_id,
+    student_id: params.student_id,
+    payment_mode: params.payment_mode as
+      | 'cash'
+      | 'online'
+      | 'bank_transfer'
+      | 'dd'
+      | 'cheque'
+      | undefined,
+    receipt_date_from: params.receipt_date_from,
+    receipt_date_to: params.receipt_date_to,
+    sortBy: params.sortBy || 'receipt_date',
+    sortDirection: (params.sortDirection as 'asc' | 'desc') || 'desc'
+  };
 
-  // Show loading state while permissions are loading
-  if (permissionsLoading) {
-    return (
-      <ContentLayout title='Receipt Management'>
-        <div className='flex items-center justify-center min-h-[400px]'>
-          <BeatLoader color='#00e902' />
-        </div>
-      </ContentLayout>
-    );
-  }
-
-  if (!canViewReceipts) {
-    return (
-      <ContentLayout title='Receipt Management'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>
-            You don&apos;t have permission to view billing receipts.
-          </p>
-        </div>
-      </ContentLayout>
-    );
-  }
-
-  if (error) {
-    return (
-      <ContentLayout title='Receipt Management'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchReceipts()}
-            className='mt-4'
-            disabled={!canViewReceipts}
-          >
-            Try Again
-          </Button>
-        </div>
-      </ContentLayout>
-    );
-  }
+  // Fetch data server-side with caching
+  const { data: receipts, metadata } = await getReceipts(filters);
 
   return (
     <ContentLayout title='Receipt Management'>
@@ -94,37 +77,34 @@ export default function BillingReceiptsPage() {
           <div>
             <h1 className='text-2xl font-bold py-1'>Receipt Management</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              View payment receipts and manage receipt templates. Generate receipts from student billing details.
+              View payment receipts and manage receipt templates. Generate receipts
+              from student billing details.
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            <Button variant='outline' asChild>
-              <Link href='/billing/receipts/templates'>
-                <Receipt className='mr-2 h-4 w-4' />
-                Templates
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/billing/receipts/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Create Receipt
               </Link>
             </Button>
           </div>
         </div>
 
-        <Card>
-          <CardContent className='p-6'>
-            <ReceiptFilters filters={filters} onFilterChange={updateFilters} />
+        {/* Filters (Client Component) */}
+        <ReceiptsFiltersClient />
 
-            {loading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <ReceiptList
-                receipts={receipts}
-                metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchReceipts}
-              />
-            )}
-          </CardContent>
-        </Card>
+        {/* Data Table (Server Component with Suspense) */}
+        <Suspense fallback={<TableSkeleton rows={10} columns={6} />}>
+          <ReceiptsTableServer receipts={receipts} metadata={metadata} />
+        </Suspense>
+
+        {/* Pagination (Client Component) */}
+        <ReceiptsPaginationClient
+          currentPage={metadata.page}
+          totalPages={metadata.totalPages}
+          totalItems={metadata.total}
+        />
       </div>
     </ContentLayout>
   );

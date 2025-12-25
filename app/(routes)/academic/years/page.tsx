@@ -1,54 +1,22 @@
 // app/(routes)/academic/years/page.tsx
 
-'use client';
-
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { AcademicYearsDataTable } from './_components/academic-year-data-table';
 import { academicYearsSearchParamsSchema } from './_components/data-table-schema';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
-import { AcademicYearFilters } from './_components/academic-year-filters';
+import { AcademicYearFiltersClient } from './_components/academic-year-filters-client';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 
-export default function AcademicYearsPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+interface AcademicYearsPageProps {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
 
-  // Parse current search parameters
-  const search = academicYearsSearchParamsSchema.parse(
-    Object.fromEntries(searchParams.entries())
-  );
+export default async function AcademicYearsPage({ searchParams }: AcademicYearsPageProps) {
+  // Await searchParams (Next.js 16 async API)
+  const params = await searchParams;
 
-  // Handle filter changes by updating URL
-  const handleFilterChange = useCallback(
-    (key: string, value: string | undefined) => {
-      const params = new URLSearchParams(searchParams);
-
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
-      }
-
-      // Reset page to 1 when filters change
-      params.set('page', '1');
-
-      router.push(`/academic/years?${params.toString()}`);
-    },
-    [router, searchParams]
-  );
-
-  // Handle clearing all filters
-  const handleClearFilters = useCallback(() => {
-    const params = new URLSearchParams();
-    // Keep only page and pageSize
-    params.set('page', '1');
-    if (searchParams.get('pageSize')) {
-      params.set('pageSize', searchParams.get('pageSize')!);
-    }
-    router.push(`/academic/years?${params.toString()}`);
-  }, [router, searchParams]);
+  // Parse search parameters
+  const search = academicYearsSearchParamsSchema.parse(params);
 
   return (
     <PermissionGuard module='academic.years' action='view'>
@@ -69,11 +37,7 @@ export default function AcademicYearsPage() {
           </div>
 
           {/* Filters */}
-          <AcademicYearFilters
-            searchParams={search}
-            onFilterChange={handleFilterChange}
-            onClearFilters={handleClearFilters}
-          />
+          <AcademicYearFiltersClient searchParams={search} />
 
           {/* Data Table */}
           <AcademicYearsDataTable search={search} />

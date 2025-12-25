@@ -1,7 +1,3 @@
-'use client';
-
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -15,46 +11,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { RegulationsDataTable } from './_components/regulation-data-table';
 import { regulationsSearchParamsSchema } from './_components/data-table-schema';
-import { RegulationFilters } from './_components/regulation-filters';
+import { RegulationFiltersClient } from './_components/regulation-filters-client';
 
-export default function RegulationsPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+interface RegulationsPageProps {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
 
-  // Parse current search parameters
-  const search = regulationsSearchParamsSchema.parse(
-    Object.fromEntries(searchParams.entries())
-  );
-
-  // Handle filter changes by updating URL
-  const handleFilterChange = useCallback(
-    (key: string, value: string | undefined) => {
-      const params = new URLSearchParams(searchParams);
-
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
-      }
-
-      // Reset page to 1 when filters change
-      params.set('page', '1');
-
-      router.push(`/academic/regulations?${params.toString()}`);
-    },
-    [router, searchParams]
-  );
-
-  // Handle clearing all filters
-  const handleClearFilters = useCallback(() => {
-    const params = new URLSearchParams();
-    // Keep only page and pageSize
-    params.set('page', '1');
-    if (searchParams.get('pageSize')) {
-      params.set('pageSize', searchParams.get('pageSize')!);
-    }
-    router.push(`/academic/regulations?${params.toString()}`);
-  }, [router, searchParams]);
+export default async function RegulationsPage({ searchParams }: RegulationsPageProps) {
+  const params = await searchParams;
+  const search = regulationsSearchParamsSchema.parse(params);
 
   return (
     <PermissionGuard module='academic.regulations' action='view'>
@@ -82,11 +47,7 @@ export default function RegulationsPage() {
             <CardContent className='p-6'>
               <div className='space-y-6'>
                 {/* Filters */}
-                <RegulationFilters
-                  searchParams={search}
-                  onFilterChange={handleFilterChange}
-                  onClearFilters={handleClearFilters}
-                />
+                <RegulationFiltersClient searchParams={search} />
 
                 {/* Data Table */}
                 <RegulationsDataTable search={search} />

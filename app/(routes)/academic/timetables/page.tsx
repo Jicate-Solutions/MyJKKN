@@ -1,7 +1,12 @@
-'use client';
+// ============================================
+// TIMETABLES MODULE - LIST PAGE (SERVER COMPONENT)
+// ============================================
+// Created: 2024
+// Updated: 2025-12-25 - Converted to server component with Cache Components
+// Purpose: List and manage academic timetables
+// ============================================
 
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -13,96 +18,111 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { usePermissions } from '@/hooks/use-permissions';
-import { AlertTriangle, Settings } from 'lucide-react';
-import { TimetablesDataTable } from './_components/timetables-data-table';
+import { TimetablesTableServer } from './_components/timetables-table-server';
+import { TimetableFiltersClient } from './_components/timetable-filters-client';
+import { SuperAdminControlsClient } from './_components/super-admin-controls-client';
 import { timetablesSearchParamsSchema } from './_components/data-table-schema';
-import { TimetableFilters } from './_components/timetable-filters';
+import { getTimetables } from './_data/get-timetables';
+import { TableSkeleton } from '@/components/Loading';
+import { createClient } from '@/lib/supabase/server';
 
-export default function TimetablesPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const { isSuperAdmin } = usePermissions();
+interface TimetablesPageProps {
+  searchParams: Promise<{
+    [key: string]: string | string[] | undefined;
+  }>;
+}
 
-  // Parse current search parameters
-  const search = timetablesSearchParamsSchema.parse(
-    Object.fromEntries(searchParams?.entries() ?? [])
-  );
+/**
+ * Timetables Page - Server Component
+ *
+ * Performance improvements:
+ * - Data fetched on server (faster TTI)
+ * - Cached with 1 hour TTL (cold cache for timetables)
+ * - No client-side loading states
+ * - Automatic revalidation on data changes
+ */
+export default async function TimetablesPage({
+  searchParams
+}: TimetablesPageProps) {
+  // Await params as per Next.js 16 async API
+  const params = await searchParams;
 
-  // Handle filter changes by updating URL
-  const handleFilterChange = useCallback(
-    (key: string, value: string | undefined) => {
-      const params = new URLSearchParams(searchParams?.toString() ?? '');
+  // Parse search parameters
+  const search = timetablesSearchParamsSchema.parse(params);
 
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
-      }
+  // Get current user for permission-based filtering
+  const supabase = await createClient();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
 
-      // Reset page to 1 when filters change
-      params.set('page', '1');
+  // Get user profile for institution/department filtering
+  const { data: userProfile } = user
+    ? await supabase
+        .from('user_profiles')
+        .select('id, role, institution_id, department_id')
+        .eq('user_id', user.id)
+        .single()
+    : { data: null };
 
-      router.push(`/academic/timetables?${params.toString()}`);
-    },
-    [router, searchParams]
-  );
+  // Check if super admin
+  const isSuperAdmin = userProfile?.role === 'super_admin';
 
-  // Handle clearing all filters
-  const handleClearFilters = useCallback(() => {
-    const params = new URLSearchParams();
-    // Keep only page and pageSize
-    params.set('page', '1');
-    const pageSize = searchParams?.get('pageSize');
-    if (pageSize) {
-      params.set('pageSize', pageSize);
-    }
-    router.push(`/academic/timetables?${params.toString()}`);
-  }, [router, searchParams]);
+  // Build filters for server-side data fetching
+  const filters = {
+    page: Number(search.page) || 1,
+    pageSize: Number(search.pageSize) || 10,
+    institutionId:
+      search.institution_id ||
+      (!isSuperAdmin && userProfile?.institution_id
+        ? userProfile.institution_id
+        : undefined),
+    academicYearId: search.academic_year_id || undefined,
+    degreeId: search.degree_id || undefined,
+    programId: search.program_id || undefined,
+    departmentId:
+      search.department_id ||
+      ((userProfile?.role === 'hod' || userProfile?.role === 'faculty') &&
+      userProfile?.department_id &&
+      !isSuperAdmin
+        ? userProfile.department_id
+        : undefined),
+    semesterId: search.semester || undefined,
+    sectionId: search.section || undefined,
+    isActive:
+      search.is_active === 'true'
+        ? true
+        : search.is_active === 'false'
+        ? false
+        : undefined,
+    timetableFormat: search.timetable_type as 'section' | 'semester' | undefined
+  };
+
+  // Fetch data server-side with caching
+  const { data: timetables, total, page, pageSize } = await getTimetables(filters);
 
   return (
-    <PermissionGuard module='academic.timetables' action='view'>
-      <ContentLayout title='Academic Timetables'>
-        <div className='space-y-6'>
+    <PermissionGuard module="academic.timetables" action="view">
+      <ContentLayout title="Academic Timetables">
+        <div className="space-y-6">
           {/* Super Admin Controls */}
           {isSuperAdmin && (
-            <div className='flex items-center justify-between p-4 bg-red-50 border border-red-200 rounded-lg'>
-              <div className='flex items-center gap-2'>
-                <Badge variant='destructive' className='gap-1'>
-                  <Settings className='h-3 w-3' />
-                  Super Admin
-                </Badge>
-                <span className='text-sm text-red-700'>
-                  Advanced timetable management tools available
-                </span>
-              </div>
-              <Button
-                variant='outline'
-                size='sm'
-                className='gap-1 border-red-300 text-red-700 hover:bg-red-100'
-                onClick={() => router.push('/academic/timetables/conflicts')}
-              >
-                <AlertTriangle className='h-3 w-3' />
-                View Conflicts
-              </Button>
-            </div>
+            <SuperAdminControlsClient />
           )}
-          
+
           {/* Breadcrumb */}
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
-                  <Link href='/'>Dashboard</Link>
+                  <Link href="/">Dashboard</Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbSeparator />
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
-                  <Link href='/academic'>Academic</Link>
+                  <Link href="/academic">Academic</Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbSeparator />
@@ -114,17 +134,18 @@ export default function TimetablesPage() {
 
           {/* Main Content */}
           <Card>
-            <CardContent className='p-6'>
-              <div className='space-y-6'>
-                {/* Filters */}
-                <TimetableFilters
-                  searchParams={search}
-                  onFilterChange={handleFilterChange}
-                  onClearFilters={handleClearFilters}
-                />
+            <CardContent className="p-6">
+              <div className="space-y-6">
+                {/* Filters (Client Component) */}
+                <TimetableFiltersClient searchParams={search} />
 
-                {/* Data Table */}
-                <TimetablesDataTable search={search} />
+                {/* Data Table (Server Component with Suspense) */}
+                <Suspense fallback={<TableSkeleton rows={10} columns={7} />}>
+                  <TimetablesTableServer
+                    timetables={timetables}
+                    metadata={{ total, page, pageSize }}
+                  />
+                </Suspense>
               </div>
             </CardContent>
           </Card>

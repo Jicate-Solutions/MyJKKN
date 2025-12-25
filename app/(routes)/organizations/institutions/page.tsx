@@ -1,45 +1,18 @@
 // app/(routes)/organizations/institutions/page.tsx
-'use client';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { InstitutionsDataTable } from './_components/institutions-data-table';
-import { InstitutionFilter } from './_components/institution-filters';
+import { InstitutionFiltersClient } from './_components/institution-filters-client';
 import { institutionsSearchParamsSchema } from './_components/data-table-schema';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
 
-export default function InstitutionsPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+interface InstitutionsPageProps {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
 
-  const search = institutionsSearchParamsSchema.parse(
-    Object.fromEntries(searchParams.entries())
-  );
-
-  const handleFilterChange = useCallback(
-    (key: string, value: string | undefined) => {
-      const params = new URLSearchParams(searchParams);
-
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
-      }
-      params.set('page', '1');
-      router.push(`/organizations/institutions?${params.toString()}`);
-    },
-    [router, searchParams]
-  );
-
-  const handleClearFilters = useCallback(() => {
-    const params = new URLSearchParams();
-    params.set('page', '1');
-    if (searchParams.get('pageSize')) {
-      params.set('pageSize', searchParams.get('pageSize')!);
-    }
-    router.push(`/organizations/institutions?${params.toString()}`);
-  }, [router, searchParams]);
+export default async function InstitutionsPage({ searchParams }: InstitutionsPageProps) {
+  const params = await searchParams;
+  const search = institutionsSearchParamsSchema.parse(params);
 
   return (
     <ContentLayout title='Institutions'>
@@ -58,11 +31,7 @@ export default function InstitutionsPage() {
           </p>
         </div>
 
-        <InstitutionFilter
-          searchParams={search}
-          onFilterChange={handleFilterChange}
-          onClearFilters={handleClearFilters}
-        />
+        <InstitutionFiltersClient searchParams={search} />
 
         <InstitutionsDataTable search={search} />
       </div>

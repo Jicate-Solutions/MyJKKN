@@ -7,7 +7,6 @@ import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { Profile } from '@/types/auth';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
-export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {

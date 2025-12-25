@@ -14,7 +14,6 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService } from '@/lib/services/bulk-learner-edit-service';
 import * as XLSX from 'xlsx';
 
-export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/learners/export-exited-for-edit

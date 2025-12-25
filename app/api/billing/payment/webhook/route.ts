@@ -10,7 +10,6 @@ import { PaymentAuditService } from '@/lib/services/billing/security/payment-aud
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { HDFCWebhookPayload } from '@/types/payment-gateway';
 
-export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();

@@ -12,7 +12,6 @@ import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-le
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
 import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
 
-export const dynamic = 'force-dynamic';
 
 /**
  * Column mapping for bulk edit template - ALL FIELDS

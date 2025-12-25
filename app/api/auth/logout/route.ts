@@ -3,7 +3,6 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { ACTIVITY_TYPES, RESOURCE_TYPES } from '@/types/activity';
 
-export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {

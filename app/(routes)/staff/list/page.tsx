@@ -177,11 +177,11 @@ export default function StaffPage() {
 
   if (isError) {
     return (
-      <ContentLayout title='Staff'>
+      <ContentLayout title='Facilitators'>
         <div className='p-4'>
           <Alert variant='destructive'>
             <AlertCircle className='h-4 w-4' />
-            <AlertTitle>Error Loading Staff</AlertTitle>
+            <AlertTitle>Error Loading Facilitators</AlertTitle>
             <AlertDescription>
               {error?.message || 'An unexpected error occurred.'}
               <Button
@@ -200,7 +200,7 @@ export default function StaffPage() {
   }
 
   return (
-    <ContentLayout title='Staff'>
+    <ContentLayout title='Facilitators'>
       <div className='space-y-6'>
         {/* Breadcrumb */}
         <Breadcrumb>
@@ -212,7 +212,7 @@ export default function StaffPage() {
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>Staff</BreadcrumbPage>
+              <BreadcrumbPage>Facilitators</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
@@ -227,9 +227,11 @@ export default function StaffPage() {
                   <Users className='h-6 w-6 text-primary' />
                 </div>
                 <div>
-                  <h1 className='text-2xl font-semibold'>Staff Management</h1>
+                  <h1 className='text-2xl font-semibold'>
+                    Learning Facilitators Management
+                  </h1>
                   <p className='text-muted-foreground'>
-                    Manage staff members and their information
+                    Manage learning facilitators and their information
                   </p>
                 </div>
               </div>
@@ -249,7 +251,7 @@ export default function StaffPage() {
                 <AdvancedSearch
                   onSearch={handleSearch}
                   onClear={handleSearchClear}
-                  placeholder='Search staff by name, email, institution email...'
+                  placeholder='Search facilitators by name, email, institution email...'
                 />
               </div>
             )}
@@ -263,10 +265,10 @@ export default function StaffPage() {
                     {searchQuery ? (
                       <>
                         Found: {filteredStaff.length} of{' '}
-                        {staffData.metadata?.total || 0} staff members
+                        {staffData.metadata?.total || 0} facilitators
                       </>
                     ) : (
-                      <>Total: {staffData.metadata?.total || 0} staff members</>
+                      <>Total: {staffData.metadata?.total || 0} facilitators</>
                     )}
                   </span>
                 </div>
@@ -295,7 +297,7 @@ export default function StaffPage() {
                 <div className='text-center'>
                   <BeatLoader color='#2563eb' size={8} />
                   <p className='text-sm text-muted-foreground mt-2'>
-                    Loading staff data...
+                    Loading facilitators data...
                   </p>
                 </div>
               </div>
@@ -340,7 +342,7 @@ export default function StaffPage() {
               <div className='text-center py-12'>
                 <Users className='h-12 w-12 text-muted-foreground mx-auto mb-4' />
                 <h3 className='text-lg font-medium mb-2'>
-                  No staff members found
+                  No learning facilitators found
                 </h3>
                 <p className='text-muted-foreground mb-4'>
                   Try adjusting your search terms or search options
