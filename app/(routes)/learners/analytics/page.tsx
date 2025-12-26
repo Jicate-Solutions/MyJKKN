@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { subDays, formatDistanceToNow } from 'date-fns';
 import {
   BarChart3,
@@ -84,7 +84,12 @@ export default function LearnersAnalyticsDashboard() {
   const [showFilters, setShowFilters] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  // Initialize lastUpdated on client side only
+  useEffect(() => {
+    setLastUpdated(new Date());
+  }, []);
 
   // Permission check
   const hasAccess = can('learners.dashboard');
@@ -249,7 +254,7 @@ export default function LearnersAnalyticsDashboard() {
                 )}
               </p>
               <p className="text-xs text-blue-200 mt-1">
-                Last updated: {formatDistanceToNow(lastUpdated, { addSuffix: true })}
+                Last updated: {lastUpdated ? formatDistanceToNow(lastUpdated, { addSuffix: true }) : 'Just now'}
               </p>
             </div>
             <div className="flex items-center gap-2">
