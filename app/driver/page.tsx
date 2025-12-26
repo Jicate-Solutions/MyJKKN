@@ -21,10 +21,13 @@ import toast from 'react-hot-toast';
 export default function DriverDashboard() {
   const { profile, isLoading } = useAuth();
   const router = useRouter();
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const supabase = createClientSupabaseClient();
 
   useEffect(() => {
+    // Set initial time on client side only
+    setCurrentTime(new Date());
+
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
@@ -100,10 +103,10 @@ export default function DriverDashboard() {
                 <span>Welcome, {profile.full_name || profile.email}</span>
               </div>
               <div className="text-sm font-normal text-gray-500">
-                {currentTime.toLocaleString('en-IN', {
+                {currentTime?.toLocaleString('en-IN', {
                   dateStyle: 'medium',
                   timeStyle: 'short'
-                })}
+                }) || 'Loading...'}
               </div>
             </CardTitle>
           </CardHeader>

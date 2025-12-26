@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Calendar, momentLocalizer, View, Views } from 'react-big-calendar';
 import moment from 'moment';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -130,29 +130,37 @@ export function FacultyCalendar({
 }: FacultyCalendarProps) {
   // State
   const [currentView, setCurrentView] = useState<View>(Views.WEEK);
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState<Date | null>(null);
   const [selectedEvent, setSelectedEvent] =
     useState<FacultyCalendarEvent | null>(null);
   const [showEventDialog, setShowEventDialog] = useState(false);
 
+  // Initialize current date on client side only
+  useEffect(() => {
+    setCurrentDate(new Date());
+  }, []);
+
   // Enhanced filters with current date range
   const enhancedFilters = useMemo(() => {
+    // Use current date or fallback to today
+    const dateToUse = currentDate || new Date();
+
     // Calculate date range based on current view and date
     let from: Date, to: Date;
 
     if (currentView === Views.MONTH) {
-      from = moment(currentDate).startOf('month').toDate();
-      to = moment(currentDate).endOf('month').toDate();
+      from = moment(dateToUse).startOf('month').toDate();
+      to = moment(dateToUse).endOf('month').toDate();
     } else if (currentView === Views.WEEK) {
-      from = moment(currentDate).startOf('week').toDate();
-      to = moment(currentDate).endOf('week').toDate();
+      from = moment(dateToUse).startOf('week').toDate();
+      to = moment(dateToUse).endOf('week').toDate();
     } else if (currentView === Views.DAY) {
-      from = moment(currentDate).startOf('day').toDate();
-      to = moment(currentDate).endOf('day').toDate();
+      from = moment(dateToUse).startOf('day').toDate();
+      to = moment(dateToUse).endOf('day').toDate();
     } else {
       // Default to current month
-      from = moment(currentDate).startOf('month').toDate();
-      to = moment(currentDate).endOf('month').toDate();
+      from = moment(dateToUse).startOf('month').toDate();
+      to = moment(dateToUse).endOf('month').toDate();
     }
 
     return {

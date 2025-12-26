@@ -1,7 +1,7 @@
 // app/(routes)/resource-management/reservations/_components/availability-calendar.tsx
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -27,8 +27,15 @@ export function AvailabilityCalendar({
   onSelectDate,
   selectedDate
 }: AvailabilityCalendarProps) {
-  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(0);
+  const [currentYear, setCurrentYear] = useState(0);
+
+  // Initialize current date on client side only
+  useEffect(() => {
+    const now = new Date();
+    setCurrentMonth(now.getMonth() + 1);
+    setCurrentYear(now.getFullYear());
+  }, []);
 
   const { data: calendar = [], isLoading } = useMonthAvailability(
     resourceId,

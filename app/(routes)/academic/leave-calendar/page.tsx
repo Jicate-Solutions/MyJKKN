@@ -19,14 +19,21 @@ import { usePermissions } from '@/hooks/use-permissions';
 
 export default function LeaveCalendarPage() {
   const { userProfile, isSuperAdmin } = usePermissions();
-  const [year, setYear] = useState(new Date().getFullYear());
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [year, setYear] = useState(0);
+  const [month, setMonth] = useState(0);
   const [selectedInstitution, setSelectedInstitution] = useState<string | undefined>(
     userProfile?.institution_id || undefined
   );
   const [selectedDepartment, setSelectedDepartment] = useState<string | undefined>();
   const [selectedSemester, setSelectedSemester] = useState<string | undefined>();
   const [selectedSection, setSelectedSection] = useState<string | undefined>();
+
+  // Initialize current date on client side only
+  useEffect(() => {
+    const now = new Date();
+    setYear(now.getFullYear());
+    setMonth(now.getMonth() + 1);
+  }, []);
 
   // Update selected institution when user profile loads
   useEffect(() => {
