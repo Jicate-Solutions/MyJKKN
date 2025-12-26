@@ -1,4 +1,5 @@
 // components/api-documentation/learners-api-docs.tsx
+'use client';
 
 import React from 'react';
 import {
