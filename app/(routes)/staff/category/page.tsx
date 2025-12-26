@@ -36,7 +36,7 @@ export default async function CategoriesPage({ searchParams }: CategoriesPagePro
   };
 
   return (
-    <ContentLayout title='Staff Categories'>
+    <ContentLayout title='Facilitators Categories'>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -47,7 +47,7 @@ export default async function CategoriesPage({ searchParams }: CategoriesPagePro
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/staff'>Staff</Link>
+              <Link href='/staff'>Facilitators</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

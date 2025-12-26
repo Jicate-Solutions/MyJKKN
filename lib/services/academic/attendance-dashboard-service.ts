@@ -134,19 +134,19 @@ export class AttendanceDashboardService {
               .from('learners_profiles')
               .select(
                 `
-                id, 
-                section_id, 
-                institution_id, 
+                id,
+                section_id,
+                institution_id,
                 academic_year_id,
                 department_id,
                 semester_id,
-                sections:sections(id, section_name),
-                departments:departments(id, department_name),
-                semesters:semesters(id, semester_name),
-                institutions:institutions(id, name)
+                section:sections!section_id(id, section_name),
+                department:departments!department_id(id, department_name),
+                semester:semesters!semester_id(id, semester_name),
+                institution:institutions!institution_id(id, name)
               `
               )
-              .eq('status', 'active')
+              .eq('lifecycle_status', 'active')
               .range(from, from + BATCH_SIZE - 1);
 
             // Apply institution filter based on access level
@@ -242,7 +242,7 @@ export class AttendanceDashboardService {
             institutionStats.set(institutionId, {
               institution_id: institutionId,
               institution_name:
-                student.institutions?.name || 'Unknown Institution',
+                student.institution?.name || 'Unknown Institution',
               total_students: 0,
               total_present: 0,
               total_absent: 0,
@@ -258,7 +258,7 @@ export class AttendanceDashboardService {
             institution.departments.set(departmentId, {
               department_id: departmentId,
               department_name:
-                student.departments?.department_name || 'Unknown Department',
+                student.department?.department_name || 'Unknown Department',
               total_students: 0,
               total_present: 0,
               total_absent: 0,
@@ -274,7 +274,7 @@ export class AttendanceDashboardService {
             department.semesters.set(semesterId, {
               semester_id: semesterId,
               semester_name:
-                student.semesters?.semester_name || 'Unknown Semester',
+                student.semester?.semester_name || 'Unknown Semester',
               total_students: 0,
               total_present: 0,
               total_absent: 0,
@@ -289,7 +289,7 @@ export class AttendanceDashboardService {
           if (!semester.sections.has(sectionId)) {
             semester.sections.set(sectionId, {
               section_id: sectionId,
-              section_name: student.sections?.section_name || 'Unknown Section',
+              section_name: student.section?.section_name || 'Unknown Section',
               total_students: 0,
               present: 0,
               absent: 0,

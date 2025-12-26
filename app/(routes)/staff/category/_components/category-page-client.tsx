@@ -78,7 +78,7 @@ export function CategoryPageClient({ categories, metadata, searchParams }: Categ
           <AlertCircle className='h-4 w-4' />
           <AlertTitle>Access Denied</AlertTitle>
           <AlertDescription>
-            You don&apos;t have permission to view staff categories.
+            You don&apos;t have permission to view facilitators categories.
           </AlertDescription>
         </Alert>
       </div>
@@ -89,9 +89,9 @@ export function CategoryPageClient({ categories, metadata, searchParams }: Categ
     <div className='space-y-6 mt-4'>
       <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
         <div>
-          <h1 className='text-2xl font-bold py-1'>Staff Categories</h1>
+          <h1 className='text-2xl font-bold py-1'>Facilitators Categories</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Manage employment categories for staff members
+            Manage employment categories for facilitators
           </p>
         </div>
         <div className='flex flex-col sm:flex-row gap-2'>
