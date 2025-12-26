@@ -12,7 +12,6 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
     // Use service role key for API key authentication to bypass RLS
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,8 +26,10 @@ export async function GET(
         }
       }
     );
-    // Get and verify API key
+
+    // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
         { error: 'API key is required in Authorization header' },
@@ -54,6 +55,7 @@ export async function GET(
       );
     }
 
+    // Check if key has expired
     if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
       return NextResponse.json(
         { error: 'API key has expired' },
@@ -61,6 +63,7 @@ export async function GET(
       );
     }
 
+    // Check read permission
     if (!keyData.permissions?.read) {
       return NextResponse.json(
         { error: 'API key does not have read permission' },
@@ -68,21 +71,20 @@ export async function GET(
       );
     }
 
-    // Get semester by ID - select all fields
-    const { data: semester, error: semesterError } = await supabase
-      .from('semesters')
+    const { id } = await params;
+
+    // Fetch batch by ID - select all fields
+    const { data: batch, error } = await supabase
+      .from('batches')
       .select('*')
       .eq('id', id)
       .single();
 
-    if (semesterError) {
-      if (semesterError.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Semester not found' },
-          { status: 404, headers: corsHeaders }
-        );
-      }
-      throw semesterError;
+    if (error || !batch) {
+      return NextResponse.json(
+        { error: 'Batch not found' },
+        { status: 404, headers: corsHeaders }
+      );
     }
 
     // Update last used timestamp
@@ -91,10 +93,9 @@ export async function GET(
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
-    // Return response with CORS headers
-    return NextResponse.json({ data: semester }, { headers: corsHeaders });
+    return NextResponse.json({ data: batch }, { headers: corsHeaders });
   } catch (error) {
-    console.error('Error fetching semester:', error);
+    console.error('Error fetching batch:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500, headers: corsHeaders }

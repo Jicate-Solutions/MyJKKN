@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { toast } from 'react-hot-toast';
+import toast  from 'react-hot-toast';
 import { Code2, Copy, Check, Search, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';

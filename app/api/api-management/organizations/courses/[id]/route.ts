@@ -72,31 +72,10 @@ export async function GET(
       );
     }
 
-    // Get department with institution details
+    // Get course by ID - select all fields
     const { data: course, error: courseError } = await supabase
       .from('courses')
-      .select(
-        `
-      *,
-      institution:institutions (
-        id,
-        name,
-        counselling_code
-      ),
-      degree:degrees (
-        id,
-        degree_name
-      ),
-      department:departments (
-        id,
-        department_name
-      ),
-      program:programs (
-        id,
-        program_name
-      )
-    `
-      )
+      .select('*')
       .eq('id', id)
       .single();
 
@@ -116,8 +95,8 @@ export async function GET(
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
-    // Return response with CORS headers directly
-    return NextResponse.json(course, { headers: corsHeaders });
+    // Return response with CORS headers
+    return NextResponse.json({ data: course }, { headers: corsHeaders });
   } catch (error) {
     console.error('Error fetching course:', error);
     return NextResponse.json(

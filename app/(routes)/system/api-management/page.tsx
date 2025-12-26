@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Code2, Plus, Trash2 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import toast  from 'react-hot-toast';
 import Link from 'next/link';
 import { BeatLoader } from 'react-spinners';
 

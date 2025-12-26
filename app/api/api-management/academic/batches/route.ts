@@ -7,12 +7,8 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders });
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest) {
   try {
-    const { id } = await params;
     // Use service role key for API key authentication to bypass RLS
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,8 +23,10 @@ export async function GET(
         }
       }
     );
-    // Get and verify API key
+
+    // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
         { error: 'API key is required in Authorization header' },
@@ -54,6 +52,7 @@ export async function GET(
       );
     }
 
+    // Check if key has expired
     if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
       return NextResponse.json(
         { error: 'API key has expired' },
@@ -61,6 +60,7 @@ export async function GET(
       );
     }
 
+    // Check read permission
     if (!keyData.permissions?.read) {
       return NextResponse.json(
         { error: 'API key does not have read permission' },
@@ -68,22 +68,36 @@ export async function GET(
       );
     }
 
-    // Get semester by ID - select all fields
-    const { data: semester, error: semesterError } = await supabase
-      .from('semesters')
-      .select('*')
-      .eq('id', id)
-      .single();
+    // Get query parameters
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
+    const batchYear = url.searchParams.get('batch_year');
+    const isActive = url.searchParams.get('is_active');
 
-    if (semesterError) {
-      if (semesterError.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Semester not found' },
-          { status: 404, headers: corsHeaders }
-        );
-      }
-      throw semesterError;
+    // Build query - select all fields
+    let query = (supabase as any)
+      .from('batches')
+      .select('*', { count: 'exact' });
+
+    // Apply filters
+    if (batchYear) {
+      query = query.eq('batch_year', batchYear);
     }
+
+    if (isActive !== null && isActive !== undefined) {
+      query = query.eq('is_active', isActive === 'true');
+    }
+
+    // Apply pagination
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to).order('created_at', { ascending: false });
+
+    // Execute query
+    const { data: batches, error, count } = await query;
+
+    if (error) throw error;
 
     // Update last used timestamp
     await supabase
@@ -92,9 +106,21 @@ export async function GET(
       .eq('id', keyData.id);
 
     // Return response with CORS headers
-    return NextResponse.json({ data: semester }, { headers: corsHeaders });
+    return NextResponse.json(
+      {
+        count: count || 0,
+        data: batches || [],
+        pagination: {
+          page,
+          limit,
+          total: count || 0,
+          totalPages: count ? Math.ceil(count / limit) : 0
+        }
+      },
+      { headers: corsHeaders }
+    );
   } catch (error) {
-    console.error('Error fetching semester:', error);
+    console.error('Error fetching batches:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500, headers: corsHeaders }

@@ -72,90 +72,21 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const url = new URL(request.url);
     const page = parseInt(url.searchParams.get('page') || '1');
-    const limit = parseInt(url.searchParams.get('limit') || '10');
-    const search = url.searchParams.get('search');
-    const institutionId = url.searchParams.get('institution_id');
-    const degreeId = url.searchParams.get('degree_id');
-    const departmentId = url.searchParams.get('department_id');
-    const programId = url.searchParams.get('program_id');
-    const courseId = url.searchParams.get('course_id');
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
     const semesterId = url.searchParams.get('semester_id');
     const isActive = url.searchParams.get('is_active');
 
-    // Build query
-    let query = (supabase as any).from('sections').select(
-      `
-      *,
-      institution:institutions (
-        id,
-        name,
-        counselling_code,
-        institution_type,
-        category
-      ),
-      degree:degrees (
-        id,
-        degree_id,
-        degree_name,
-        degree_type
-      ),
-      department:departments (
-        id,
-        department_code,
-        department_name
-      ),
-      program:programs (
-        id,
-        program_id,
-        program_name
-      ),
-      course:courses (
-        id,
-        course_code,
-        course_name
-      ),
-      semester:semesters (
-        id,
-        semester_code,
-        semester_name,
-        semester_type
-      )
-    `,
-      { count: 'exact' }
-    );
+    // Build query - select all fields
+    let query = (supabase as any)
+      .from('sections')
+      .select('*', { count: 'exact' });
 
     // Apply filters
-    if (search) {
-      query = query.or(
-        `section_name.ilike.%${search}%`
-      );
-    }
-
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    }
-
-    if (degreeId) {
-      query = query.eq('degree_id', degreeId);
-    }
-
-    if (departmentId) {
-      query = query.eq('department_id', departmentId);
-    }
-
-    if (programId) {
-      query = query.eq('program_id', programId);
-    }
-
-    if (courseId) {
-      query = query.eq('course_id', courseId);
-    }
-
     if (semesterId) {
       query = query.eq('semester_id', semesterId);
     }
 
-    if (isActive !== null) {
+    if (isActive !== null && isActive !== undefined) {
       query = query.eq('is_active', isActive === 'true');
     }
 
@@ -175,14 +106,15 @@ export async function GET(request: NextRequest) {
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
-    // Return response with CORS headers directly
+    // Return response with CORS headers
     return NextResponse.json(
       {
+        count: count || 0,
         data: sections || [],
-        metadata: {
-          total: count || 0,
+        pagination: {
           page,
           limit,
+          total: count || 0,
           totalPages: count ? Math.ceil(count / limit) : 0
         }
       },
