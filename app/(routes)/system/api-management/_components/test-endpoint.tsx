@@ -55,6 +55,12 @@ const API_ENDPOINTS = {
     { value: '/api/api-management/organizations/sections', label: 'Organizations - Sections' },
     { value: '/api/api-management/organizations/sections/[id]', label: 'Organizations - Section by ID' }
   ],
+  academic: [
+    { value: '/api/api-management/academic/regulations', label: 'Academic - Regulations' },
+    { value: '/api/api-management/academic/regulations/[id]', label: 'Academic - Regulation by ID' },
+    { value: '/api/api-management/academic/batches', label: 'Academic - Batches' },
+    { value: '/api/api-management/academic/batches/[id]', label: 'Academic - Batch by ID' }
+  ],
   staff: [
     { value: '/api/api-management/staff', label: 'Staff - List' },
     { value: '/api/api-management/staff/[id]', label: 'Staff - By ID' }
@@ -133,8 +139,7 @@ const QUERY_PARAMETERS: Record<string, Array<{ value: string; label: string; des
     { value: 'id', label: 'id', description: 'Program ID (UUID) - replace [id] in URL' }
   ],
   '/api/api-management/organizations/courses': [
-    { value: 'program_id', label: 'program_id', description: 'Filter by program ID (UUID)' },
-    { value: 'semester_id', label: 'semester_id', description: 'Filter by semester ID (UUID)' },
+    { value: 'is_active', label: 'is_active', description: 'Filter by active status (true/false)' },
     { value: 'page', label: 'page', description: 'Page number (default: 1)' },
     { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
   ],
@@ -173,6 +178,24 @@ const QUERY_PARAMETERS: Record<string, Array<{ value: string; label: string; des
   ],
   '/api/api-management/applications/[id]': [
     { value: 'id', label: 'id', description: 'Application ID (UUID) - replace [id] in URL' }
+  ],
+  '/api/api-management/academic/regulations': [
+    { value: 'regulation_year', label: 'regulation_year', description: 'Filter by regulation year (e.g., 2024)' },
+    { value: 'is_active', label: 'is_active', description: 'Filter by active status (true/false)' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/academic/regulations/[id]': [
+    { value: 'id', label: 'id', description: 'Regulation ID (UUID) - replace [id] in URL' }
+  ],
+  '/api/api-management/academic/batches': [
+    { value: 'batch_year', label: 'batch_year', description: 'Filter by batch year (e.g., 2024)' },
+    { value: 'is_active', label: 'is_active', description: 'Filter by active status (true/false)' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/academic/batches/[id]': [
+    { value: 'id', label: 'id', description: 'Batch ID (UUID) - replace [id] in URL' }
   ]
 };
 
@@ -374,7 +397,7 @@ export function TestEndpoint() {
                       <SelectValue placeholder='Select an API endpoint' />
                     </SelectTrigger>
                   </FormControl>
-                  <SelectContent>
+                  <SelectContent className='h-[300px]'>
                     <SelectGroup>
                       <SelectLabel>Learners API</SelectLabel>
                       {API_ENDPOINTS.learners.map((endpoint) => (
@@ -386,6 +409,14 @@ export function TestEndpoint() {
                     <SelectGroup>
                       <SelectLabel>Organizations API</SelectLabel>
                       {API_ENDPOINTS.organizations.map((endpoint) => (
+                        <SelectItem key={endpoint.value} value={endpoint.value}>
+                          {endpoint.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    <SelectGroup>
+                      <SelectLabel>Academic API</SelectLabel>
+                      {API_ENDPOINTS.academic.map((endpoint) => (
                         <SelectItem key={endpoint.value} value={endpoint.value}>
                           {endpoint.label}
                         </SelectItem>

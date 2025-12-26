@@ -68,39 +68,10 @@ export async function GET(
       );
     }
 
-    // Get section with all related details
+    // Get section by ID - select all fields
     const { data: section, error: sectionError } = await supabase
       .from('sections')
-      .select(
-        `
-        *,
-        institution:institutions (
-          id,
-          name,
-          counselling_code
-        ),
-        degree:degrees (
-          id,
-          degree_name
-        ),
-        department:departments (
-          id,
-          department_name
-        ),
-        program:programs (
-          id,
-          program_name
-        ),
-        course:courses (
-          id,
-          course_name
-        ),
-        semester:semesters (
-          id,
-          semester_name
-        )
-      `
-      )
+      .select('*')
       .eq('id', id)
       .single();
 
@@ -120,8 +91,8 @@ export async function GET(
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
-    // Return response with CORS headers directly
-    return NextResponse.json(section, { headers: corsHeaders });
+    // Return response with CORS headers
+    return NextResponse.json({ data: section }, { headers: corsHeaders });
   } catch (error) {
     console.error('Error fetching section:', error);
     return NextResponse.json(

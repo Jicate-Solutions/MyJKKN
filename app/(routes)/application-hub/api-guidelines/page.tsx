@@ -2,6 +2,7 @@ import { Metadata } from 'next';
 import ApiGuidelinesContent from './_components/api-guidelines-content';
 import OrganizationApiDocs from './_components/organization-api-docs';
 import LearnersApiDocs from '@/components/api-documentation/learners-api-docs';
+import AcademicApiDocs from '@/components/api-documentation/academic-api-docs';
 import StaffApiDocs from './_components/staff-api-docs';
 import CurlDocumentationContent from './_components/curl-documentation-content';
 import ChildAppIntegrationDocs from './_components/child-app-integration-docs';
@@ -52,11 +53,12 @@ export default function ApiGuidelinesPage() {
         <ApiNav />
 
         <Tabs defaultValue='basic'>
-          <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 lg:grid lg:grid-cols-6 lg:gap-0'>
+          <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 lg:grid lg:grid-cols-7 lg:gap-0'>
             <TabsTrigger value='basic'>Basic Guide</TabsTrigger>
             <TabsTrigger value='child-app'>Child App Integration</TabsTrigger>
             <TabsTrigger value='organization'>Organizations API</TabsTrigger>
             <TabsTrigger value='learners'>Learners API</TabsTrigger>
+            <TabsTrigger value='academic'>Academic API</TabsTrigger>
             <TabsTrigger value='staff'>Staff API</TabsTrigger>
             <TabsTrigger value='curl'>CURL Documentation</TabsTrigger>
           </TabsList>
@@ -78,6 +80,11 @@ export default function ApiGuidelinesPage() {
           <TabsContent value='learners'>
             <Card className='p-6'>
               <LearnersApiDocs />
+            </Card>
+          </TabsContent>
+          <TabsContent value='academic'>
+            <Card className='p-6'>
+              <AcademicApiDocs />
             </Card>
           </TabsContent>
           <TabsContent value='staff'>
