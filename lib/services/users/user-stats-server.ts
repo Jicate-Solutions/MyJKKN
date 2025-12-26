@@ -8,7 +8,7 @@
 //   - Invalidate on user create/delete/bulk operations
 // ============================================
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerClient } from '@supabase/ssr';
 import type { UserStats } from '@/types/users';
 import { cacheLife, cacheTag } from 'next/cache';
 
@@ -20,7 +20,20 @@ import { cacheLife, cacheTag } from 'next/cache';
  */
 async function getUserStatsServer(institutionId?: string): Promise<UserStats> {
   try {
-    const supabase = await createServerSupabaseClient();
+    // Use service role key for stats (no cookies needed, just counting)
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: {
+          get() {
+            return undefined;
+          },
+          set() {},
+          remove() {}
+        }
+      }
+    );
     const fromProfiles = supabase.from('profiles');
 
     // Base queries
