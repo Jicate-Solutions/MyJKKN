@@ -1,11 +1,12 @@
 // app/(routes)/system/api-management/_components/test-endpoint.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
 import { ChevronDown, ChevronUp, Play, Copy, Check } from 'lucide-react';
+import toast  from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -14,18 +15,55 @@ import {
   FormField,
   FormItem,
   FormLabel,
-  FormMessage
+  FormMessage,
+  FormDescription
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+
+const API_ENDPOINTS = {
+  learners: [
+    { value: '/api/api-management/learners/profiles', label: 'Learners - Profiles (Active)' },
+    { value: '/api/api-management/learners/profiles/[id]', label: 'Learners - Profile by ID' },
+    { value: '/api/api-management/learners/enquiries', label: 'Learners - Enquiries' },
+    { value: '/api/api-management/learners/enquiries/[id]', label: 'Learners - Enquiry by ID' },
+    { value: '/api/api-management/learners/alumni', label: 'Learners - Alumni' }
+  ],
+  organizations: [
+    { value: '/api/api-management/organizations/institutions', label: 'Organizations - Institutions' },
+    { value: '/api/api-management/organizations/institutions/[id]', label: 'Organizations - Institution by ID' },
+    { value: '/api/api-management/organizations/degrees', label: 'Organizations - Degrees' },
+    { value: '/api/api-management/organizations/degrees/[id]', label: 'Organizations - Degree by ID' },
+    { value: '/api/api-management/organizations/departments', label: 'Organizations - Departments' },
+    { value: '/api/api-management/organizations/departments/[id]', label: 'Organizations - Department by ID' },
+    { value: '/api/api-management/organizations/programs', label: 'Organizations - Programs' },
+    { value: '/api/api-management/organizations/programs/[id]', label: 'Organizations - Program by ID' },
+    { value: '/api/api-management/organizations/courses', label: 'Organizations - Courses' },
+    { value: '/api/api-management/organizations/courses/[id]', label: 'Organizations - Course by ID' },
+    { value: '/api/api-management/organizations/semesters', label: 'Organizations - Semesters' },
+    { value: '/api/api-management/organizations/semesters/[id]', label: 'Organizations - Semester by ID' },
+    { value: '/api/api-management/organizations/sections', label: 'Organizations - Sections' },
+    { value: '/api/api-management/organizations/sections/[id]', label: 'Organizations - Section by ID' }
+  ],
+  staff: [
+    { value: '/api/api-management/staff', label: 'Staff - List' },
+    { value: '/api/api-management/staff/[id]', label: 'Staff - By ID' }
+  ],
+  applications: [
+    { value: '/api/api-management/applications', label: 'Applications - List' },
+    { value: '/api/api-management/applications/[id]', label: 'Applications - By ID' }
+  ]
+};
 
 const formSchema = z.object({
   endpoint: z.string().min(1, 'Endpoint is required'),
@@ -39,22 +77,88 @@ interface ParamField {
   value: string;
 }
 
+const API_KEY_STORAGE_KEY = 'test_api_key';
+
 export function TestEndpoint() {
   const [isLoading, setIsLoading] = useState(false);
   const [response, setResponse] = useState<any>(null);
   const [params, setParams] = useState<ParamField[]>([{ key: '', value: '' }]);
   const [hasCopied, setHasCopied] = useState(false);
   const [showResponse, setShowResponse] = useState(true);
+  const [isGeneratingKey, setIsGeneratingKey] = useState(false);
+  const [hasKeyCopied, setHasKeyCopied] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      endpoint: '/api/profiles',
+      endpoint: '/api/api-management/learners/profiles',
       method: 'GET',
       apiKey: '',
       params: {}
     }
   });
+
+  // Generate a test API key
+  const generateTestApiKey = async () => {
+    try {
+      setIsGeneratingKey(true);
+      const response = await fetch('/api/system/api-keys', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: 'Auto-Generated Test Key',
+          expires_at: null, // Never expires
+          permissions: { read: true, write: false }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate test API key');
+      }
+
+      const data = await response.json();
+      const apiKey = data.plainTextKey;
+
+      // Save to form and localStorage
+      form.setValue('apiKey', apiKey);
+      localStorage.setItem(API_KEY_STORAGE_KEY, apiKey);
+
+      return apiKey;
+    } catch (error) {
+      console.error('[test-endpoint] Error generating API key:', error);
+      throw error;
+    } finally {
+      setIsGeneratingKey(false);
+    }
+  };
+
+  // Load or generate API key on mount
+  useEffect(() => {
+    const initializeApiKey = async () => {
+      const savedKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+      if (savedKey) {
+        form.setValue('apiKey', savedKey);
+      } else {
+        // Auto-generate a test key if none exists
+        await generateTestApiKey();
+      }
+    };
+
+    initializeApiKey();
+  }, []);
+
+  const handleRegenerateKey = async () => {
+    await generateTestApiKey();
+  };
+
+  const copyApiKey = () => {
+    const apiKey = form.getValues('apiKey');
+    navigator.clipboard.writeText(apiKey);
+    setHasKeyCopied(true);
+    setTimeout(() => setHasKeyCopied(false), 2000);
+  };
 
   const addParam = () => {
     setParams([...params, { key: '', value: '' }]);
@@ -135,62 +239,136 @@ export function TestEndpoint() {
     <div className='w-full max-w-5xl mx-auto space-y-6 p-4'>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
-          <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
-            <FormField
-              control={form.control}
-              name='endpoint'
-              render={({ field }) => (
-                <FormItem className='w-full'>
-                  <FormLabel>Endpoint</FormLabel>
+          <FormField
+            control={form.control}
+            name='endpoint'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Endpoint</FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  defaultValue={field.value}
+                >
                   <FormControl>
-                    <Input placeholder='/api/profiles' {...field} />
+                    <SelectTrigger>
+                      <SelectValue placeholder='Select an API endpoint' />
+                    </SelectTrigger>
                   </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Learners API</SelectLabel>
+                      {API_ENDPOINTS.learners.map((endpoint) => (
+                        <SelectItem key={endpoint.value} value={endpoint.value}>
+                          {endpoint.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    <SelectGroup>
+                      <SelectLabel>Organizations API</SelectLabel>
+                      {API_ENDPOINTS.organizations.map((endpoint) => (
+                        <SelectItem key={endpoint.value} value={endpoint.value}>
+                          {endpoint.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    <SelectGroup>
+                      <SelectLabel>Staff API</SelectLabel>
+                      {API_ENDPOINTS.staff.map((endpoint) => (
+                        <SelectItem key={endpoint.value} value={endpoint.value}>
+                          {endpoint.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    <SelectGroup>
+                      <SelectLabel>Applications API</SelectLabel>
+                      {API_ENDPOINTS.applications.map((endpoint) => (
+                        <SelectItem key={endpoint.value} value={endpoint.value}>
+                          {endpoint.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <FormDescription className='text-xs'>
+                  Note: Endpoints with [id] require replacing [id] with an actual UUID in query parameters
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-            <FormField
-              control={form.control}
-              name='method'
-              render={({ field }) => (
-                <FormItem className='w-full'>
-                  <FormLabel>Method</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger className='w-full'>
-                        <SelectValue placeholder='Select method' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value='GET'>GET</SelectItem>
-                      <SelectItem value='POST'>POST</SelectItem>
-                      <SelectItem value='PUT'>PUT</SelectItem>
-                      <SelectItem value='DELETE'>DELETE</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
+          <FormField
+            control={form.control}
+            name='method'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Method</FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  defaultValue={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder='Select method' />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value='GET'>GET</SelectItem>
+                    <SelectItem value='POST'>POST</SelectItem>
+                    <SelectItem value='PUT'>PUT</SelectItem>
+                    <SelectItem value='DELETE'>DELETE</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
           <FormField
             control={form.control}
             name='apiKey'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>API Key</FormLabel>
-                <FormControl>
-                  <Input
-                    type='password'
-                    placeholder='Enter your API key'
-                    {...field}
-                  />
-                </FormControl>
+                <FormLabel>API Key (Auto-Generated)</FormLabel>
+                <div className='flex gap-2'>
+                  <FormControl>
+                    <Input
+                      type='text'
+                      placeholder={isGeneratingKey ? 'Generating...' : 'Auto-generated test key'}
+                      {...field}
+                      readOnly
+                      className='font-mono text-sm'
+                    />
+                  </FormControl>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='icon'
+                    onClick={copyApiKey}
+                    disabled={!field.value || isGeneratingKey}
+                    title='Copy API key'
+                  >
+                    {hasKeyCopied ? (
+                      <Check className='h-4 w-4 text-green-500' />
+                    ) : (
+                      <Copy className='h-4 w-4' />
+                    )}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    onClick={handleRegenerateKey}
+                    disabled={isGeneratingKey}
+                    title='Generate new API key'
+                  >
+                    {isGeneratingKey ? 'Generating...' : 'Regenerate'}
+                  </Button>
+                </div>
+                <FormDescription className='text-xs'>
+                  {isGeneratingKey
+                    ? 'Generating a new test API key...'
+                    : 'Auto-generated test key that never expires. Saved locally for convenience.'}
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}

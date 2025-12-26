@@ -1,144 +1,49 @@
-'use client';
+// ============================================
+// USER MANAGEMENT PAGE - SERVER COMPONENT (CACHE COMPONENTS ENABLED)
+// ============================================
+// Created: 2025-01-26
+// Updated: Converted to Server Component for performance
+// Architecture:
+//   - Server: Fetches cached profile and stats
+//   - Client: Dynamic user list with filters (UsersClientWrapper)
+//   - Caching: Profile + stats cached, list remains dynamic
+// ============================================
 
-import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense } from 'react';
 import Link from 'next/link';
-import { UserService } from '@/lib/services/users/user-service';
-import { UserStats, UserFilters } from '@/types/users';
-import { Profile } from '@/types/auth';
+import { getEnhancedUserProfile } from '@/lib/supabase/server';
+import { getCachedUserStats } from '@/lib/services/users/user-stats-server';
 import { Button } from '@/components/ui/button';
-import { UserList } from './_components/user-list';
-import { UserFiltersComponent } from './_components/user-filters';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageBreadcrumb } from '@/components/navigation';
-import { BeatLoader } from 'react-spinners';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Plus, Download } from 'lucide-react';
+import { UsersClientWrapper } from './_components/users-client-wrapper';
 
-export default function UsersPage() {
-  const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
-  const [paginationLoading, setPaginationLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [users, setUsers] = useState<Profile[]>([]);
-  const [stats, setStats] = useState<UserStats | null>(null);
-  const [filters, setFilters] = useState<UserFilters>({
-    page: 1,
-    limit: 10
-  });
-  const [metadata, setMetadata] = useState({
-    total: 0,
-    page: 1,
-    limit: 10,
-    totalPages: 0,
-    hasNextPage: false,
-    hasPreviousPage: false
-  });
-  const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(
-    null
-  );
-  const [profileLoading, setProfileLoading] = useState(true);
+/**
+ * Users Management Page - Server Component
+ *
+ * Performance Optimizations:
+ * - Profile fetched on server (cached per user)
+ * - Stats fetched on server (cached per institution, 1 hour)
+ * - User list client-side for interactivity (filters, pagination)
+ * - Suspense boundary for streaming user list
+ */
+export default async function UsersPage() {
+  // Fetch profile and stats in parallel on the server
+  const [profileResult, stats] = await Promise.all([
+    getEnhancedUserProfile(),
+    getCachedUserStats() // Cached with cacheLife('hours')
+  ]);
 
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const { data } = await UserService.getCurrentUserProfile();
-        setCurrentUserProfile(data);
-      } catch (err) {
-        setError('Could not load your profile. Please refresh.');
-      } finally {
-        setProfileLoading(false);
-      }
-    };
-    fetchProfile();
-  }, []);
+  const profile = profileResult.profile;
 
-  // Define fetchData as a useCallback function
-  const fetchData = useCallback(
-    async (showPaginationLoader = false) => {
-      try {
-        if (showPaginationLoader) {
-          setPaginationLoading(true);
-        } else {
-          setIsLoading(true);
-        }
-        setError(null);
-
-        const fetchFilters: UserFilters = { ...filters };
-        if (currentUserProfile && currentUserProfile.institution_id) {
-          fetchFilters.institution = currentUserProfile.institution_id;
-        }
-
-        // Fetch users with filters
-        const response = await UserService.getUsers(fetchFilters);
-        setUsers(response.data);
-        setMetadata(response.metadata);
-
-        // Fetch stats only on initial load
-        if (!showPaginationLoader) {
-          const statsData = await UserService.getUserStats(
-            fetchFilters.institution
-          );
-          setStats(statsData);
-        }
-      } catch (err) {
-        console.error('Error fetching data:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setIsLoading(false);
-        setPaginationLoading(false);
-      }
-    },
-    [filters, currentUserProfile]
-  );
-
-  // Fetch users and stats
-  useEffect(() => {
-    if (!profileLoading) {
-      fetchData();
-    }
-  }, [fetchData, profileLoading]);
-
-  const handleFilterChange = (newFilters: Partial<UserFilters>) => {
-    setFilters((prev) => ({
-      ...prev,
-      ...newFilters,
-      page: 1 // Reset to first page when filters change
-    }));
-  };
-
-  const handlePageChange = (page: number) => {
-    setFilters((prev) => ({
-      ...prev,
-      page
-    }));
-    fetchData(true); // Show pagination loader
-  };
-
-  const handlePageSizeChange = (pageSize: number) => {
-    setFilters((prev) => ({
-      ...prev,
-      limit: pageSize,
-      page: 1 // Reset to first page when page size changes
-    }));
-  };
-
-  if (error) {
-    return (
-      <ContentLayout title='Users'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => window.location.reload()}
-            className='mt-4'
-          >
-            Try Again
-          </Button>
-        </div>
-      </ContentLayout>
-    );
-  }
+  // If user has institution, get stats for that institution
+  // Otherwise, get all stats (for super admins)
+  const institutionId = profile?.institution_id;
+  const institutionStats = institutionId
+    ? await getCachedUserStats(institutionId)
+    : stats;
 
   return (
     <ContentLayout title='Users'>
@@ -166,47 +71,34 @@ export default function UsersPage() {
         </div>
       </div>
 
-      <div className='space-y-6 mt-4'>
-        {stats && (
-          <div className='grid gap-4 md:grid-cols-4'>
-            <Card>
-              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                <CardTitle className='text-sm font-medium'>
-                  Total Users
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='text-2xl font-bold'>{stats.total}</div>
-              </CardContent>
-            </Card>
-            {/* Add more stat cards as needed */}
-          </div>
-        )}
-
-        <Card>
-          <CardContent className='p-6'>
-            <UserFiltersComponent
-              filters={filters}
-              onFilterChange={handleFilterChange}
-            />
-
-            {isLoading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <UserList
-                users={users}
-                metadata={metadata}
-                onPageChange={handlePageChange}
-                onPageSizeChange={handlePageSizeChange}
-                onRefresh={() => fetchData()}
-                paginationLoading={paginationLoading}
-              />
-            )}
-          </CardContent>
-        </Card>
+      {/* Suspense boundary for streaming dynamic content */}
+      <div className='mt-4'>
+        <Suspense fallback={<UsersPageSkeleton />}>
+          <UsersClientWrapper
+            initialProfile={profile}
+            initialStats={institutionStats}
+          />
+        </Suspense>
       </div>
     </ContentLayout>
+  );
+}
+
+/**
+ * Loading skeleton for Suspense fallback
+ */
+function UsersPageSkeleton() {
+  return (
+    <div className='space-y-6'>
+      {/* Stats cards skeleton */}
+      <div className='grid gap-4 md:grid-cols-4'>
+        {[1, 2, 3, 4].map((i) => (
+          <Skeleton key={i} className='h-24 w-full' />
+        ))}
+      </div>
+
+      {/* User list skeleton */}
+      <Skeleton className='h-[600px] w-full' />
+    </div>
   );
 }

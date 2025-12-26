@@ -1,7 +1,8 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Enable Cache Components for server-side caching (Next.js 16+)
+  // Enable Cache Components for server-side caching (Next.js 16.1.1)
+  // In 16.1.1, this is at root level (no longer experimental)
   cacheComponents: true,
 
   // Fix for Windows EPERM error during build

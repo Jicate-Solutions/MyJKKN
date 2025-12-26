@@ -44,7 +44,7 @@ async function ProfilesContent({
 }) {
   // Parse search parameters
   const page = Number(searchParams.page) || 1;
-  const limit = Number(searchParams.limit) || 10;
+  const limit = Number(searchParams.pageSize) || Number(searchParams.limit) || 10; // Support both pageSize (DataTable) and limit (legacy)
   const search = (searchParams.search as string) || undefined;
   const institution_id = (searchParams.institution_id as string) || undefined;
   const degree_id = (searchParams.degree_id as string) || undefined;

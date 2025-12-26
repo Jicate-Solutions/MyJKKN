@@ -31,28 +31,28 @@ export default function CurlDocumentationContent() {
   };
 
   const curlExamples = {
-    students: {
-      basic: `curl -X GET "https://jkkn.ai/api/api-management/students" \\
+    learners: {
+      profiles: `curl -X GET "https://jkkn.ai/api/api-management/learners/profiles" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      pagination: `curl -X GET "https://jkkn.ai/api/api-management/students?page=1&limit=5" \\
+      profilesWithExpand: `curl -X GET "https://jkkn.ai/api/api-management/learners/profiles?expand=program,semester,section&limit=10" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      search: `curl -X GET "https://jkkn.ai/api/api-management/students?search=John&page=1&limit=10" \\
+      profileById: `curl -X GET "https://jkkn.ai/api/api-management/learners/profiles/LEARNER_ID_HERE?expand=program" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      filters: `curl -X GET "https://jkkn.ai/api/api-management/students?institution_id=YOUR_INSTITUTION_ID&is_profile_complete=true&page=1&limit=10" \\
+      enquiries: `curl -X GET "https://jkkn.ai/api/api-management/learners/enquiries?enquiry_date_from=2024-01-01" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      byId: `curl -X GET "https://jkkn.ai/api/api-management/students/STUDENT_ID_HERE" \\
+      alumni: `curl -X GET "https://jkkn.ai/api/api-management/learners/alumni?admission_year=2020&limit=50" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`
@@ -217,40 +217,40 @@ echo "API Tests Completed!"`;
         </AlertDescription>
       </Alert>
 
-      <Tabs defaultValue='students' className='w-full'>
+      <Tabs defaultValue='learners' className='w-full'>
         <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 md:grid md:grid-cols-4 md:gap-0'>
-          <TabsTrigger value='students'>Students API</TabsTrigger>
+          <TabsTrigger value='learners'>Learners API</TabsTrigger>
           <TabsTrigger value='staff'>Staff API</TabsTrigger>
           <TabsTrigger value='organizations'>Organizations</TabsTrigger>
           <TabsTrigger value='testing'>Testing Tools</TabsTrigger>
         </TabsList>
 
-        <TabsContent value='students' className='space-y-6'>
+        <TabsContent value='learners' className='space-y-6'>
           <div className='space-y-4'>
             <h2 className='text-xl font-semibold'>
-              Students API CURL Commands
+              Learners API CURL Commands
             </h2>
 
             <Accordion type='single' collapsible className='space-y-4'>
               <AccordionItem
-                value='basic-students'
+                value='basic-profiles'
                 className='border rounded-lg'
               >
                 <AccordionTrigger className='px-4 hover:no-underline'>
                   <div className='flex items-center gap-2'>
-                    <span className='font-semibold'>Basic List Students</span>
+                    <span className='font-semibold'>List Learner Profiles</span>
                     <Badge variant='secondary'>GET</Badge>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className='px-4 pb-4 space-y-4'>
                   <p className='text-muted-foreground'>
-                    Retrieve all students with default pagination.
+                    Retrieve active learner profiles with default pagination.
                   </p>
                   <div className='flex justify-between items-start'>
                     <div className='flex-1'>
                       <CodeBlock
                         language='bash'
-                        code={curlExamples.students.basic}
+                        code={curlExamples.learners.profiles}
                       />
                     </div>
                     <Button
@@ -258,40 +258,40 @@ echo "API Tests Completed!"`;
                       size='sm'
                       onClick={() =>
                         copyToClipboard(
-                          curlExamples.students.basic,
-                          'students-basic'
+                          curlExamples.learners.profiles,
+                          'learners-profiles'
                         )
                       }
                       className='ml-2'
                     >
                       <CopyIcon className='h-4 w-4' />
-                      {copied['students-basic'] ? 'Copied!' : 'Copy'}
+                      {copied['learners-profiles'] ? 'Copied!' : 'Copy'}
                     </Button>
                   </div>
                 </AccordionContent>
               </AccordionItem>
 
               <AccordionItem
-                value='pagination-students'
+                value='profiles-expand'
                 className='border rounded-lg'
               >
                 <AccordionTrigger className='px-4 hover:no-underline'>
                   <div className='flex items-center gap-2'>
                     <span className='font-semibold'>
-                      Students with Pagination
+                      Profiles with Related Data
                     </span>
                     <Badge variant='secondary'>GET</Badge>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className='px-4 pb-4 space-y-4'>
                   <p className='text-muted-foreground'>
-                    Control pagination with page and limit parameters.
+                    Retrieve profiles with expanded program, semester, and section data.
                   </p>
                   <div className='flex justify-between items-start'>
                     <div className='flex-1'>
                       <CodeBlock
                         language='bash'
-                        code={curlExamples.students.pagination}
+                        code={curlExamples.learners.profilesWithExpand}
                       />
                     </div>
                     <Button
@@ -299,38 +299,38 @@ echo "API Tests Completed!"`;
                       size='sm'
                       onClick={() =>
                         copyToClipboard(
-                          curlExamples.students.pagination,
-                          'students-pagination'
+                          curlExamples.learners.profilesWithExpand,
+                          'learners-profiles-expand'
                         )
                       }
                       className='ml-2'
                     >
                       <CopyIcon className='h-4 w-4' />
-                      {copied['students-pagination'] ? 'Copied!' : 'Copy'}
+                      {copied['learners-profiles-expand'] ? 'Copied!' : 'Copy'}
                     </Button>
                   </div>
                 </AccordionContent>
               </AccordionItem>
 
               <AccordionItem
-                value='search-students'
+                value='profile-byid'
                 className='border rounded-lg'
               >
                 <AccordionTrigger className='px-4 hover:no-underline'>
                   <div className='flex items-center gap-2'>
-                    <span className='font-semibold'>Search Students</span>
+                    <span className='font-semibold'>Get Profile by ID</span>
                     <Badge variant='secondary'>GET</Badge>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className='px-4 pb-4 space-y-4'>
                   <p className='text-muted-foreground'>
-                    Search students by name, email, mobile, or roll number.
+                    Retrieve a specific learner profile by their ID.
                   </p>
                   <div className='flex justify-between items-start'>
                     <div className='flex-1'>
                       <CodeBlock
                         language='bash'
-                        code={curlExamples.students.search}
+                        code={curlExamples.learners.profileById}
                       />
                     </div>
                     <Button
@@ -338,39 +338,38 @@ echo "API Tests Completed!"`;
                       size='sm'
                       onClick={() =>
                         copyToClipboard(
-                          curlExamples.students.search,
-                          'students-search'
+                          curlExamples.learners.profileById,
+                          'learners-profile-byid'
                         )
                       }
                       className='ml-2'
                     >
                       <CopyIcon className='h-4 w-4' />
-                      {copied['students-search'] ? 'Copied!' : 'Copy'}
+                      {copied['learners-profile-byid'] ? 'Copied!' : 'Copy'}
                     </Button>
                   </div>
                 </AccordionContent>
               </AccordionItem>
 
               <AccordionItem
-                value='filters-students'
+                value='enquiries'
                 className='border rounded-lg'
               >
                 <AccordionTrigger className='px-4 hover:no-underline'>
                   <div className='flex items-center gap-2'>
-                    <span className='font-semibold'>Filter Students</span>
+                    <span className='font-semibold'>List Enquiries</span>
                     <Badge variant='secondary'>GET</Badge>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className='px-4 pb-4 space-y-4'>
                   <p className='text-muted-foreground'>
-                    Filter students by institution, profile completion status,
-                    etc.
+                    Retrieve learner enquiries with optional date filters.
                   </p>
                   <div className='flex justify-between items-start'>
                     <div className='flex-1'>
                       <CodeBlock
                         language='bash'
-                        code={curlExamples.students.filters}
+                        code={curlExamples.learners.enquiries}
                       />
                     </div>
                     <Button
@@ -378,38 +377,38 @@ echo "API Tests Completed!"`;
                       size='sm'
                       onClick={() =>
                         copyToClipboard(
-                          curlExamples.students.filters,
-                          'students-filters'
+                          curlExamples.learners.enquiries,
+                          'learners-enquiries'
                         )
                       }
                       className='ml-2'
                     >
                       <CopyIcon className='h-4 w-4' />
-                      {copied['students-filters'] ? 'Copied!' : 'Copy'}
+                      {copied['learners-enquiries'] ? 'Copied!' : 'Copy'}
                     </Button>
                   </div>
                 </AccordionContent>
               </AccordionItem>
 
               <AccordionItem
-                value='byid-students'
+                value='alumni'
                 className='border rounded-lg'
               >
                 <AccordionTrigger className='px-4 hover:no-underline'>
                   <div className='flex items-center gap-2'>
-                    <span className='font-semibold'>Get Student by ID</span>
+                    <span className='font-semibold'>List Alumni</span>
                     <Badge variant='secondary'>GET</Badge>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className='px-4 pb-4 space-y-4'>
                   <p className='text-muted-foreground'>
-                    Retrieve a specific student by their ID.
+                    Retrieve graduated learners and alumni with batch year filters.
                   </p>
                   <div className='flex justify-between items-start'>
                     <div className='flex-1'>
                       <CodeBlock
                         language='bash'
-                        code={curlExamples.students.byId}
+                        code={curlExamples.learners.alumni}
                       />
                     </div>
                     <Button
@@ -417,14 +416,14 @@ echo "API Tests Completed!"`;
                       size='sm'
                       onClick={() =>
                         copyToClipboard(
-                          curlExamples.students.byId,
-                          'students-byid'
+                          curlExamples.learners.alumni,
+                          'learners-alumni'
                         )
                       }
                       className='ml-2'
                     >
                       <CopyIcon className='h-4 w-4' />
-                      {copied['students-byid'] ? 'Copied!' : 'Copy'}
+                      {copied['learners-alumni'] ? 'Copied!' : 'Copy'}
                     </Button>
                   </div>
                 </AccordionContent>

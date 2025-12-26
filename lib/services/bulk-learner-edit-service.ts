@@ -421,10 +421,14 @@ export class BulkLearnerEditService {
       .select(`
         *,
         institution:institutions(id, name),
+        degree:degrees(id, degree_name),
         department:departments(id, department_name),
         program:programs(id, program_name),
         semester:semesters(id, semester_name),
-        section:sections(id, section_name)
+        section:sections(id, section_name),
+        academic_year:academic_years(id, academic_year_name),
+        regulation:regulations(id, regulation_year, regulation_code),
+        batch:batches(id, batch_name)
       `)
       .eq('lifecycle_status', 'active');
 

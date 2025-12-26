@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import ApiGuidelinesContent from './_components/api-guidelines-content';
 import OrganizationApiDocs from './_components/organization-api-docs';
-import StudentsApiDocs from './_components/students-api-docs';
+import LearnersApiDocs from '@/components/api-documentation/learners-api-docs';
 import StaffApiDocs from './_components/staff-api-docs';
 import CurlDocumentationContent from './_components/curl-documentation-content';
 import ChildAppIntegrationDocs from './_components/child-app-integration-docs';
@@ -56,7 +56,7 @@ export default function ApiGuidelinesPage() {
             <TabsTrigger value='basic'>Basic Guide</TabsTrigger>
             <TabsTrigger value='child-app'>Child App Integration</TabsTrigger>
             <TabsTrigger value='organization'>Organizations API</TabsTrigger>
-            <TabsTrigger value='students'>Students API</TabsTrigger>
+            <TabsTrigger value='learners'>Learners API</TabsTrigger>
             <TabsTrigger value='staff'>Staff API</TabsTrigger>
             <TabsTrigger value='curl'>CURL Documentation</TabsTrigger>
           </TabsList>
@@ -75,9 +75,9 @@ export default function ApiGuidelinesPage() {
               <OrganizationApiDocs />
             </Card>
           </TabsContent>
-          <TabsContent value='students'>
+          <TabsContent value='learners'>
             <Card className='p-6'>
-              <StudentsApiDocs />
+              <LearnersApiDocs />
             </Card>
           </TabsContent>
           <TabsContent value='staff'>

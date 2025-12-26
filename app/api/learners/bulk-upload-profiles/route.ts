@@ -11,6 +11,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerUploadService, type BulkUploadRow } from '@/lib/services/bulk-learner-upload-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
 import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
+import { NameToIdResolver } from '@/lib/services/name-to-id-resolver';
 import * as XLSX from 'xlsx';
 
 
@@ -40,7 +41,17 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'mother_mobile': ['Mother Mobile', '* Mother Mobile', 'mother_mobile'],
   'annual_income': ['Annual Income', 'annual_income'],
 
-  // SECTION 3: Academic Assignment
+  // SECTION 3: Academic Assignment (accepts both names and IDs)
+  'institution_name': ['Institution', '* Institution', 'institution', 'institution_name'],
+  'degree_name': ['Degree', '* Degree', 'degree', 'degree_name'],
+  'department_name': ['Department', '* Department', 'department', 'department_name'],
+  'program_name': ['Program', '* Program', 'program', 'program_name'],
+  'semester_name': ['Semester', '* Semester', 'semester', 'semester_name'],
+  'section_name': ['Section', '* Section', 'section', 'section_name'],
+  'academic_year_name': ['Academic Year', 'academic_year', 'academic_year_name'],
+  'regulation_name': ['Regulation', 'regulation', 'regulation_name'],
+  'batch_name': ['Batch', 'batch', 'batch_name'],
+  // Legacy support for ID-based columns
   'institution_id': ['Institution ID', '* Institution ID', 'institution_id'],
   'degree_id': ['Degree ID', 'degree_id'],
   'department_id': ['Department ID', '* Department ID', 'department_id'],
@@ -259,16 +270,26 @@ export async function POST(request: NextRequest) {
         mother_mobile: sanitizeValue(mappedData.mother_mobile, 'mobile'),
         annual_income: sanitizeValue(mappedData.annual_income, 'number'),
 
-        // Academic Assignment
-        institution_id: mappedData.institution_id,
-        degree_id: mappedData.degree_id,
-        department_id: mappedData.department_id,
-        program_id: mappedData.program_id,
-        semester_id: mappedData.semester_id,
-        section_id: mappedData.section_id,
-        academic_year_id: mappedData.academic_year_id,
-        regulation_id: mappedData.regulation_id,
-        batch_id: mappedData.batch_id,
+        // Academic Assignment (will be converted from names to IDs below)
+        institution_id: mappedData.institution_id || undefined,
+        degree_id: mappedData.degree_id || undefined,
+        department_id: mappedData.department_id || undefined,
+        program_id: mappedData.program_id || undefined,
+        semester_id: mappedData.semester_id || undefined,
+        section_id: mappedData.section_id || undefined,
+        academic_year_id: mappedData.academic_year_id || undefined,
+        regulation_id: mappedData.regulation_id || undefined,
+        batch_id: mappedData.batch_id || undefined,
+        // Name fields for conversion
+        _institution_name: mappedData.institution_name,
+        _degree_name: mappedData.degree_name,
+        _department_name: mappedData.department_name,
+        _program_name: mappedData.program_name,
+        _semester_name: mappedData.semester_name,
+        _section_name: mappedData.section_name,
+        _academic_year_name: mappedData.academic_year_name,
+        _regulation_name: mappedData.regulation_name,
+        _batch_name: mappedData.batch_name,
 
         // Contact Details
         student_mobile: sanitizeValue(mappedData.student_mobile, 'mobile'),
@@ -330,6 +351,122 @@ export async function POST(request: NextRequest) {
         category: sanitizeValue(mappedData.category, 'text'),
         student_photo_url: mappedData.student_photo_url || '',
       };
+
+      // Convert names to IDs if name fields are provided
+      // Institution
+      if (sanitizedData._institution_name && !sanitizedData.institution_id) {
+        const instResult = await NameToIdResolver.resolveInstitutionId(sanitizedData._institution_name);
+        if (instResult.found && instResult.id) {
+          sanitizedData.institution_id = instResult.id;
+        }
+      }
+
+      // For non-super-admins, use their institution_id if not provided
+      if (!sanitizedData.institution_id && profile.institution_id) {
+        sanitizedData.institution_id = profile.institution_id;
+      }
+
+      // Degree
+      if (sanitizedData._degree_name && !sanitizedData.degree_id) {
+        const degreeResult = await NameToIdResolver.resolveDegreeId(
+          sanitizedData._degree_name,
+          sanitizedData.institution_id
+        );
+        if (degreeResult.found && degreeResult.id) {
+          sanitizedData.degree_id = degreeResult.id;
+        }
+      }
+
+      // Department
+      if (sanitizedData._department_name && !sanitizedData.department_id) {
+        const deptResult = await NameToIdResolver.resolveDepartmentId(
+          sanitizedData._department_name,
+          sanitizedData.institution_id
+        );
+        if (deptResult.found && deptResult.id) {
+          sanitizedData.department_id = deptResult.id;
+        }
+      }
+
+      // Program
+      if (sanitizedData._program_name && !sanitizedData.program_id) {
+        const progResult = await NameToIdResolver.resolveProgramId(
+          sanitizedData._program_name,
+          sanitizedData.institution_id,
+          sanitizedData.department_id
+        );
+        if (progResult.found && progResult.id) {
+          sanitizedData.program_id = progResult.id;
+        }
+      }
+
+      // Semester
+      if (sanitizedData._semester_name && !sanitizedData.semester_id) {
+        const semResult = await NameToIdResolver.resolveSemesterId(
+          sanitizedData._semester_name,
+          sanitizedData.institution_id,
+          sanitizedData.program_id
+        );
+        if (semResult.found && semResult.id) {
+          sanitizedData.semester_id = semResult.id;
+        }
+      }
+
+      // Section
+      if (sanitizedData._section_name && !sanitizedData.section_id) {
+        const secResult = await NameToIdResolver.resolveSectionId(
+          sanitizedData._section_name,
+          sanitizedData.institution_id,
+          sanitizedData.semester_id
+        );
+        if (secResult.found && secResult.id) {
+          sanitizedData.section_id = secResult.id;
+        }
+      }
+
+      // Academic Year
+      if (sanitizedData._academic_year_name && !sanitizedData.academic_year_id) {
+        const yearResult = await NameToIdResolver.resolveAcademicYearId(
+          sanitizedData._academic_year_name,
+          sanitizedData.institution_id
+        );
+        if (yearResult.found && yearResult.id) {
+          sanitizedData.academic_year_id = yearResult.id;
+        }
+      }
+
+      // Regulation
+      if (sanitizedData._regulation_name && !sanitizedData.regulation_id) {
+        const regResult = await NameToIdResolver.resolveRegulationId(
+          sanitizedData._regulation_name,
+          sanitizedData.institution_id
+        );
+        if (regResult.found && regResult.id) {
+          sanitizedData.regulation_id = regResult.id;
+        }
+      }
+
+      // Batch
+      if (sanitizedData._batch_name && !sanitizedData.batch_id) {
+        const batchResult = await NameToIdResolver.resolveBatchId(
+          sanitizedData._batch_name,
+          sanitizedData.institution_id
+        );
+        if (batchResult.found && batchResult.id) {
+          sanitizedData.batch_id = batchResult.id;
+        }
+      }
+
+      // Remove temporary name fields before validation
+      delete (sanitizedData as any)._institution_name;
+      delete (sanitizedData as any)._degree_name;
+      delete (sanitizedData as any)._department_name;
+      delete (sanitizedData as any)._program_name;
+      delete (sanitizedData as any)._semester_name;
+      delete (sanitizedData as any)._section_name;
+      delete (sanitizedData as any)._academic_year_name;
+      delete (sanitizedData as any)._regulation_name;
+      delete (sanitizedData as any)._batch_name;
 
       // Validate row
       const validation = LearnerValidationService.validateBulkUploadProfile(sanitizedData);

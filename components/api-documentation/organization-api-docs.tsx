@@ -143,6 +143,29 @@ export function OrganizationApiDocs() {
         </p>
       </div>
 
+      <Card className='mx-0'>
+        <CardHeader className='p-3 sm:p-6'>
+          <CardTitle className='text-sm sm:text-base'>
+            New Fields (2025)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className='p-3 sm:p-6'>
+          <div className='rounded-lg border bg-muted/50 p-4'>
+            <ul className='text-xs sm:text-sm space-y-2'>
+              <li>
+                <strong className='text-primary'>display_name</strong>: Optional alternative display name for degrees and departments
+              </li>
+              <li>
+                <strong className='text-primary'>degree_order</strong>: Numeric value for custom ordering of degrees in lists and selectors
+              </li>
+              <li>
+                <strong className='text-primary'>department_order</strong>: Numeric value for custom ordering of departments in lists and selectors
+              </li>
+            </ul>
+          </div>
+        </CardContent>
+      </Card>
+
       {endpoints.map((endpoint, index) => (
         <Card key={index} className='mx-0'>
           <CardHeader className='p-3 sm:p-6'>
@@ -224,6 +247,75 @@ export function OrganizationApiDocs() {
   "page": 1,
   "limit": 10,
   "totalPages": 10
+}
+}`}</code>
+          </pre>
+        </CardContent>
+      </Card>
+
+      <Card className='mx-0'>
+        <CardHeader className='p-3 sm:p-6'>
+          <CardTitle className='text-sm sm:text-base'>
+            Degree Response Example (with new fields)
+          </CardTitle>
+          <CardDescription className='text-xs sm:text-sm'>
+            Example degree object showing display_name and degree_order fields
+          </CardDescription>
+        </CardHeader>
+        <CardContent className='p-3 sm:p-6'>
+          <pre className='bg-muted p-3 rounded-lg text-[10px] sm:text-sm overflow-x-auto'>
+            <code>{`{
+"id": "uuid",
+"institution_id": "uuid",
+"degree_id": "BTECH",
+"degree_name": "Bachelor of Technology",
+"degree_type": "ug",
+"display_name": "Bachelor of Technology (Engineering)",
+"degree_order": 1,
+"is_active": true,
+"created_at": "2024-01-01T00:00:00Z",
+"updated_at": "2024-01-01T00:00:00Z",
+"institution": {
+  "id": "uuid",
+  "name": "JKKN College of Engineering",
+  "counselling_code": "JKKN001"
+}
+}`}</code>
+          </pre>
+        </CardContent>
+      </Card>
+
+      <Card className='mx-0'>
+        <CardHeader className='p-3 sm:p-6'>
+          <CardTitle className='text-sm sm:text-base'>
+            Department Response Example (with new fields)
+          </CardTitle>
+          <CardDescription className='text-xs sm:text-sm'>
+            Example department object showing display_name and department_order fields
+          </CardDescription>
+        </CardHeader>
+        <CardContent className='p-3 sm:p-6'>
+          <pre className='bg-muted p-3 rounded-lg text-[10px] sm:text-sm overflow-x-auto'>
+            <code>{`{
+"id": "uuid",
+"institution_id": "uuid",
+"degree_id": "uuid",
+"department_code": "CS",
+"department_name": "Computer Science",
+"display_name": "Department of Computer Science & Engineering",
+"department_order": 1,
+"is_active": true,
+"created_at": "2024-01-01T00:00:00Z",
+"updated_at": "2024-01-01T00:00:00Z",
+"institution": {
+  "id": "uuid",
+  "name": "JKKN College of Engineering",
+  "counselling_code": "JKKN001"
+},
+"degree": {
+  "id": "uuid",
+  "degree_id": "BTECH",
+  "degree_name": "Bachelor of Technology"
 }
 }`}</code>
           </pre>

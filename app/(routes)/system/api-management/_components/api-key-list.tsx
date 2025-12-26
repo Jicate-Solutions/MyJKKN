@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { ApiKey } from '@/types/api-keys';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,17 +34,38 @@ interface ApiKeyListProps {
   apiKeys: ApiKey[];
   onDelete: (id: string) => void;
   onToggle: (id: string, isActive: boolean) => void;
+  selectedKeys: string[];
+  onSelectKey: (id: string) => void;
+  onSelectAll: (selected: boolean) => void;
 }
 
-export function ApiKeyList({ apiKeys, onDelete, onToggle }: ApiKeyListProps) {
+export function ApiKeyList({
+  apiKeys,
+  onDelete,
+  onToggle,
+  selectedKeys,
+  onSelectKey,
+  onSelectAll
+}: ApiKeyListProps) {
   const formatDate = (date: string) => {
     return format(new Date(date), 'MMM d, yyyy HH:mm');
   };
+
+  const allSelected = apiKeys.length > 0 && selectedKeys.length === apiKeys.length;
+  const someSelected = selectedKeys.length > 0 && selectedKeys.length < apiKeys.length;
 
   return (
     <Table>
       <TableHeader>
         <TableRow>
+          <TableHead className="w-12">
+            <Checkbox
+              checked={allSelected}
+              onCheckedChange={(checked) => onSelectAll(!!checked)}
+              aria-label="Select all"
+              className={someSelected ? 'data-[state=checked]:bg-muted' : ''}
+            />
+          </TableHead>
           <TableHead>Name</TableHead>
           <TableHead>Status</TableHead>
           <TableHead className="hidden md:table-cell">Last Used</TableHead>
@@ -55,13 +77,20 @@ export function ApiKeyList({ apiKeys, onDelete, onToggle }: ApiKeyListProps) {
       <TableBody>
         {apiKeys.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={6} className="text-center">
+            <TableCell colSpan={7} className="text-center">
               No API keys found
             </TableCell>
           </TableRow>
         ) : (
           apiKeys.map((key) => (
             <TableRow key={key.id}>
+              <TableCell>
+                <Checkbox
+                  checked={selectedKeys.includes(key.id)}
+                  onCheckedChange={() => onSelectKey(key.id)}
+                  aria-label={`Select ${key.name}`}
+                />
+              </TableCell>
               <TableCell className="font-medium">{key.name}</TableCell>
               <TableCell>
                 <Badge

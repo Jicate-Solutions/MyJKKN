@@ -78,9 +78,10 @@ export const profileColumns: ColumnDef<LearnerProfile>[] = [
     ),
     enableSorting: false,
     enableHiding: false,
-    size: 50,
-    minSize: 50,
-    maxSize: 50,
+    enableResizing: false,
+    size: 70,
+    minSize: 70,
+    maxSize: 70,
   },
   // 2. Roll Number
   {

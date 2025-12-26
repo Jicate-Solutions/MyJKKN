@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
 import { profileColumns } from './columns';
 import type { LearnerProfile } from '@/types/learner-profile';
@@ -25,7 +25,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useRouter } from 'next/navigation';
 
 interface ProfilesTableServerProps {
   initialData: LearnerProfile[];
@@ -54,19 +56,33 @@ export function ProfilesTableServer({
   const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Local state for optimistic updates
+  const [localData, setLocalData] = useState<LearnerProfile[]>(initialData);
+  const [localMetadata, setLocalMetadata] = useState(metadata);
+
+  const router = useRouter();
+
+  // Permission check - Super admin has full access, others need 'learners.delete' permission
+  const { isSuperAdmin, canAccess } = usePermissions();
+  const canDeleteLearners = isSuperAdmin || canAccess('learners', 'delete');
+
+  // Update local data when props change
+  useEffect(() => {
+    setLocalData(initialData);
+    setLocalMetadata(metadata);
+  }, [initialData, metadata]);
+
   /**
    * Fetch data function for DataTable
-   * Uses URL state to trigger server-side re-renders
+   * Uses local state for optimistic updates
    */
   const fetchData = useCallback(async () => {
-    // This component receives pre-fetched data from server
-    // The DataTable will trigger page navigation for pagination/sorting
     return {
       success: true,
-      data: initialData,
-      pagination: metadata
+      data: localData,
+      pagination: localMetadata
     };
-  }, [initialData, metadata]);
+  }, [localData, localMetadata]);
 
   /**
    * Handle bulk delete action
@@ -96,6 +112,19 @@ export function ProfilesTableServer({
 
       const { success, failed } = result;
 
+      // Optimistically update local data by removing successfully deleted items
+      if (success.length > 0) {
+        const deletedIds = new Set(success);
+        const updatedData = localData.filter(item => !deletedIds.has(item.id));
+        setLocalData(updatedData);
+
+        // Update metadata
+        setLocalMetadata(prev => ({
+          ...prev,
+          total_items: prev.total_items - success.length
+        }));
+      }
+
       // Reset selection
       if (resetSelectionFn) {
         resetSelectionFn();
@@ -109,18 +138,31 @@ export function ProfilesTableServer({
       // Show results
       if (success.length > 0 && failed.length === 0) {
         toast.success(
-          `${success.length} student${success.length > 1 ? 's' : ''} deleted successfully`
+          `${success.length} student${success.length > 1 ? 's' : ''} deleted successfully`,
+          { duration: 4000 }
         );
-        // Refresh the page to show updated data
-        window.location.reload();
+        // Refresh server data in background without causing auth errors
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
       } else if (success.length > 0 && failed.length > 0) {
         toast.success(
-          `${success.length} student${success.length > 1 ? 's' : ''} deleted successfully`
+          `${success.length} student${success.length > 1 ? 's' : ''} deleted successfully`,
+          { duration: 4000 }
         );
-        toast.error(`Failed to delete ${failed.length} record${failed.length > 1 ? 's' : ''}`);
-        window.location.reload();
+        toast.error(
+          `Failed to delete ${failed.length} record${failed.length > 1 ? 's' : ''}`,
+          { duration: 5000 }
+        );
+        // Refresh to get accurate state
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
       } else if (failed.length > 0) {
-        toast.error(`Failed to delete ${failed.length} record${failed.length > 1 ? 's' : ''}`);
+        toast.error(
+          `Failed to delete ${failed.length} record${failed.length > 1 ? 's' : ''}`,
+          { duration: 5000 }
+        );
       }
     } catch (error) {
       console.error('[learners/profiles] Error deleting records:', error);
@@ -151,17 +193,19 @@ export function ProfilesTableServer({
                 Promote Selected ({props.selectedRows.length})
               </Link>
             </Button>
-            <Button
-              onClick={() =>
-                handleBulkDelete(props.selectedRows as LearnerProfile[], props.resetSelection)
-              }
-              variant="destructive"
-              size="sm"
-              className="h-8"
-            >
-              <TrashIcon className="mr-2 h-4 w-4" />
-              Delete Selected ({props.selectedRows.length})
-            </Button>
+            {canDeleteLearners && (
+              <Button
+                onClick={() =>
+                  handleBulkDelete(props.selectedRows as LearnerProfile[], props.resetSelection)
+                }
+                variant="destructive"
+                size="sm"
+                className="h-8"
+              >
+                <TrashIcon className="mr-2 h-4 w-4" />
+                Delete Selected ({props.selectedRows.length})
+              </Button>
+            )}
           </>
         )}
       </div>
