@@ -9,7 +9,7 @@ export async function OPTIONS() {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Use service role key for API key authentication to bypass RLS
@@ -71,7 +71,7 @@ export async function GET(
       );
     }
 
-    const { id } = params;
+    const { id } = await params;
     const url = new URL(request.url);
     const expand = url.searchParams.get('expand');
 
@@ -107,33 +107,33 @@ export async function GET(
     }
 
     // Expand related data if requested
-    let expandedData = learner;
+    let expandedData: any = learner;
     if (expand) {
       const expandFields = expand.split(',');
 
-      if (expandFields.includes('program') && learner.program_id) {
+      if (expandFields.includes('program') && (learner as any).program_id) {
         const { data: program } = await supabase
           .from('programs')
           .select('id, program_name, program_code, degree_id')
-          .eq('id', learner.program_id)
+          .eq('id', (learner as any).program_id)
           .single();
         expandedData = { ...expandedData, program };
       }
 
-      if (expandFields.includes('semester') && learner.semester_id) {
+      if (expandFields.includes('semester') && (learner as any).semester_id) {
         const { data: semester } = await supabase
           .from('semesters')
           .select('id, semester_name, semester_code, semester_number, program_id')
-          .eq('id', learner.semester_id)
+          .eq('id', (learner as any).semester_id)
           .single();
         expandedData = { ...expandedData, semester };
       }
 
-      if (expandFields.includes('section') && learner.section_id) {
+      if (expandFields.includes('section') && (learner as any).section_id) {
         const { data: section } = await supabase
           .from('sections')
           .select('id, section_name, section_code, semester_id')
-          .eq('id', learner.section_id)
+          .eq('id', (learner as any).section_id)
           .single();
         expandedData = { ...expandedData, section };
       }
