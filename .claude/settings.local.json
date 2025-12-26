@@ -174,7 +174,8 @@
       "Bash(for dir in \"D:\\\\JKKN\\\\MYJKKN Portal\\\\MyJKKN\\\\app\\\\\\(routes\\)\"/*)",
       "Bash(do if [ -d \"$dir\" ])",
       "Bash(for dir in \"D:\\\\JKKN\\\\MYJKKN Portal\\\\MyJKKN\\\\app\\\\api\"/*)",
-      "Bash(powershell.exe -ExecutionPolicy Bypass -File \".claude\\\\hooks\\\\test-voice.ps1\")"
+      "Bash(powershell.exe -ExecutionPolicy Bypass -File \".claude\\\\hooks\\\\test-voice.ps1\")",
+      "Bash(npm ls:*)"
     ],
     "deny": [],
     "ask": []
