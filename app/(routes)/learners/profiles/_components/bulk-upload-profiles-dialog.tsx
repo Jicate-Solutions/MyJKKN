@@ -65,57 +65,78 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
   // Download template
   const downloadTemplate = () => {
     try {
-      // Create sample data with ALL fields
+      // Create sample data with REQUIRED fields first, then OPTIONAL fields
       const sampleData = [{
-        // SECTION 1: REQUIRED - Basic Details
+        // ========================================
+        // REQUIRED FIELDS (marked with *)
+        // ========================================
+
+        // Basic Details
         '* First Name': 'JOHN',
         'Last Name': 'DOE',
         '* Date of Birth': '2005-01-15',
         '* Gender': 'MALE',
         '* Religion': 'Hindu',
         '* Community': 'BC',
+
+        // Parent/Guardian Information
+        '* Father Name': 'ROBERT DOE',
+        '* Father Mobile': '9876543211',
+        '* Mother Name': 'MARY DOE',
+        '* Mother Mobile': '9876543212',
+
+        // Academic Assignment
+        '* Institution': 'JKKN College of Engineering and Technology',
+        '* Degree': 'B.E',
+        '* Department': 'Computer Science and Engineering',
+        '* Program': 'CSE',
+        '* Semester': 'I Year I Semester',
+        '* Section': 'A',
+
+        // Contact Details
+        '* Student Mobile': '9876543210',
+        '* College Email': 'john.doe@jkkn.ac.in',
+
+        // Address Information
+        '* Permanent Address Street': '123 Main Street',
+        '* Permanent Address Taluk': 'Namakkal',
+        '* Permanent Address District': 'Namakkal',
+        '* Permanent Address Pin Code': '637001',
+        '* Permanent Address State': 'Tamil Nadu',
+
+        // Entry Type
+        '* Entry Type': 'FIRST YEAR',
+
+        // Accommodation
+        '* Accommodation Type': 'HOSTEL',
+
+        // ========================================
+        // OPTIONAL FIELDS
+        // ========================================
+
+        // Basic Details (Optional)
         'Caste': 'OBC',
         'Aadhar Number': '123456789012',
         'Blood Group': 'O+',
         'Admission Year': '2024',
 
-        // SECTION 2: REQUIRED - Parent/Guardian Information
-        '* Father Name': 'ROBERT DOE',
+        // Parent/Guardian (Optional)
         'Father Occupation': 'Business',
-        '* Father Mobile': '9876543211',
-        '* Mother Name': 'MARY DOE',
         'Mother Occupation': 'Teacher',
-        '* Mother Mobile': '9876543212',
         'Annual Income': '500000',
 
-        // SECTION 3: REQUIRED - Academic Assignment
-        '* Institution ID': 'your-institution-id-here',
-        'Degree ID': 'your-degree-id-here',
-        '* Department ID': 'your-department-id-here',
-        '* Program ID': 'your-program-id-here',
-        '* Semester ID': 'your-semester-id-here',
-        '* Section ID': 'your-section-id-here',
-        'Academic Year ID': 'your-academic-year-id-here',
-        'Regulation ID': 'your-regulation-id-here',
-        'Batch ID': 'your-batch-id-here',
+        // Academic (Optional)
+        'Academic Year': '2024-2025',
+        'Regulation': 'R2021',
+        'Batch': '2024-2028',
 
-        // SECTION 4: REQUIRED - Contact Details
-        '* Student Mobile': '9876543210',
-        '* College Email': 'john.doe@jkkn.ac.in',
+        // Contact (Optional)
         'Personal Email': 'john@gmail.com',
 
-        // SECTION 5: REQUIRED - Address Information
-        '* Permanent Address Street': '123 Main Street',
-        'Permanent Address Taluk': 'Namakkal',
-        '* Permanent Address District': 'Namakkal',
-        '* Permanent Address Pin Code': '637001',
-        '* Permanent Address State': 'Tamil Nadu',
-
-        // SECTION 6: REQUIRED - Entry Type
-        '* Entry Type': 'FIRST YEAR',
+        // Entry Type (Optional)
         'First Graduate': 'TRUE',
 
-        // SECTION 7: OPTIONAL - Previous Education
+        // Previous Education (Optional)
         'Last School': 'ABC Higher Secondary School',
         'Board of Study': 'State Board',
         '10th Max Marks': '500',
@@ -126,7 +147,7 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
         '12th Obtained Marks': '540',
         '12th Percentage': '90',
 
-        // SECTION 8: OPTIONAL - Entrance Exam Details
+        // Entrance Exam Details (Optional)
         'Medical Cutoff Marks': '',
         'Engineering Cutoff Marks': '175',
         'NEET Roll Number': '',
@@ -134,20 +155,19 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
         'Counseling Applied': 'TRUE',
         'Counseling Number': 'TNEA123456',
 
-        // SECTION 9: OPTIONAL - Accommodation Details
-        '* Accommodation Type': 'HOSTEL',
+        // Accommodation Details (Optional)
         'Hostel Type': 'Boys Hostel A',
         'Food Type': 'VEG',
         'Bus Required': 'FALSE',
         'Bus Route': '',
         'Bus Pickup Location': '',
 
-        // SECTION 10: OPTIONAL - Reference Information
+        // Reference Information (Optional)
         'Reference Type': 'SOCIAL MEDIA',
         'Reference Name': '',
         'Reference Contact': '',
 
-        // SECTION 11: OPTIONAL - Student Specific
+        // Student Specific (Optional)
         'Roll Number': '',
         'Register Number': '',
         'Quota': 'GOVERNMENT',
@@ -160,13 +180,24 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
         { 'A': '📋 BULK UPLOAD PROFILES - COMPREHENSIVE INSTRUCTIONS' },
         { 'A': '' },
         { 'A': '⚠️ CRITICAL NOTES' },
-        { 'A': '1. All fields marked with * are REQUIRED' },
-        { 'A': '2. College Email MUST end with @jkkn.ac.in' },
-        { 'A': '3. All mobile numbers must be 10 digits' },
-        { 'A': '4. Use actual UUIDs from your database for all ID fields' },
-        { 'A': '5. All uploaded learners will have lifecycle_status = "active"' },
-        { 'A': '6. User accounts will be auto-created for complete profiles' },
-        { 'A': '7. Temporary passwords will be displayed after upload - SAVE THEM!' },
+        { 'A': '1. Template columns are organized: REQUIRED fields first, then OPTIONAL fields' },
+        { 'A': '2. All fields marked with * are REQUIRED and must be filled' },
+        { 'A': '3. College Email MUST end with @jkkn.ac.in' },
+        { 'A': '4. All mobile numbers must be exactly 10 digits' },
+        { 'A': '5. Use EXACT names for academic fields (Institution, Degree, Department, etc.)' },
+        { 'A': '6. Use dropdown values from the reference section below (Districts, Taluks, etc.)' },
+        { 'A': '7. Academic field names are case-INSENSITIVE but must match database values' },
+        { 'A': '8. All uploaded learners will have lifecycle_status = "active"' },
+        { 'A': '9. User accounts will be auto-created for complete profiles' },
+        { 'A': '10. Temporary passwords will be displayed after upload - SAVE THEM!' },
+        { 'A': '' },
+        { 'A': '📋 TEMPLATE STRUCTURE' },
+        { 'A': 'Columns 1-27: REQUIRED fields (marked with *)' },
+        { 'A': 'Columns 28+: OPTIONAL fields (can be left blank)' },
+        { 'A': '' },
+        { 'A': '=====================================' },
+        { 'A': 'REQUIRED FIELDS SECTION' },
+        { 'A': '=====================================' },
         { 'A': '' },
         { 'A': '📝 SECTION 1: REQUIRED - Basic Details' },
         { 'A': '• * First Name' },
@@ -190,15 +221,15 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
         { 'A': '• Annual Income' },
         { 'A': '' },
         { 'A': '📝 SECTION 3: REQUIRED - Academic Assignment' },
-        { 'A': '• * Institution ID (UUID from database)' },
-        { 'A': '• Degree ID (UUID)' },
-        { 'A': '• * Department ID (UUID)' },
-        { 'A': '• * Program ID (UUID)' },
-        { 'A': '• * Semester ID (UUID)' },
-        { 'A': '• * Section ID (UUID)' },
-        { 'A': '• Academic Year ID (UUID)' },
-        { 'A': '• Regulation ID (UUID)' },
-        { 'A': '• Batch ID (UUID)' },
+        { 'A': '• * Institution (exact name from your system)' },
+        { 'A': '• * Degree (see dropdown values below)' },
+        { 'A': '• * Department (see dropdown values below)' },
+        { 'A': '• * Program (see dropdown values below)' },
+        { 'A': '• * Semester (see dropdown values below)' },
+        { 'A': '• * Section (see dropdown values below)' },
+        { 'A': '• Academic Year (format: YYYY-YYYY)' },
+        { 'A': '• Regulation (see dropdown values below)' },
+        { 'A': '• Batch (format: YYYY-YYYY)' },
         { 'A': '' },
         { 'A': '📝 SECTION 4: REQUIRED - Contact Details' },
         { 'A': '• * Student Mobile (10 digits)' },
@@ -207,21 +238,120 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
         { 'A': '' },
         { 'A': '📝 SECTION 5: REQUIRED - Address Information' },
         { 'A': '• * Permanent Address Street' },
-        { 'A': '• Permanent Address Taluk' },
-        { 'A': '• * Permanent Address District' },
+        { 'A': '• * Permanent Address Taluk (see dropdown values below)' },
+        { 'A': '• * Permanent Address District (see dropdown values below)' },
         { 'A': '• * Permanent Address Pin Code (6 digits)' },
-        { 'A': '• * Permanent Address State' },
+        { 'A': '• * Permanent Address State (Tamil Nadu)' },
         { 'A': '' },
         { 'A': '📝 SECTION 6: REQUIRED - Entry Type' },
         { 'A': '• * Entry Type (FIRST YEAR or LATERAL ENTRY)' },
         { 'A': '• First Graduate (TRUE or FALSE)' },
         { 'A': '' },
-        { 'A': '📝 SECTION 7-11: OPTIONAL FIELDS' },
+        { 'A': '=====================================' },
+        { 'A': 'OPTIONAL FIELDS SECTION' },
+        { 'A': '=====================================' },
+        { 'A': '' },
+        { 'A': '📝 OPTIONAL FIELDS (Can be left blank)' },
         { 'A': '• Previous Education (School, Board, 10th & 12th Marks)' },
         { 'A': '• Entrance Exams (NEET, Cutoff Marks, Counseling)' },
         { 'A': '• Accommodation (Hostel, Food, Bus Details)' },
         { 'A': '• Reference Information' },
         { 'A': '• Student Specific (Roll Number, Register Number, Quota, Category)' },
+        { 'A': '' },
+        { 'A': '📊 DROPDOWN VALUES REFERENCE' },
+        { 'A': 'Use these exact values for dropdown fields:' },
+        { 'A': '' },
+        { 'A': '👤 Gender:' },
+        { 'A': '  - MALE' },
+        { 'A': '  - FEMALE' },
+        { 'A': '  - OTHER' },
+        { 'A': '' },
+        { 'A': '🕉️ Religion:' },
+        { 'A': '  - Hindu' },
+        { 'A': '  - Muslim' },
+        { 'A': '  - Christian' },
+        { 'A': '  - Sikh' },
+        { 'A': '  - Buddhist' },
+        { 'A': '  - Jain' },
+        { 'A': '  - Other' },
+        { 'A': '' },
+        { 'A': '👥 Community:' },
+        { 'A': '  - OC (Open Category)' },
+        { 'A': '  - BC (Backward Class)' },
+        { 'A': '  - MBC (Most Backward Class)' },
+        { 'A': '  - SC (Scheduled Caste)' },
+        { 'A': '  - ST (Scheduled Tribe)' },
+        { 'A': '' },
+        { 'A': '🩸 Blood Group:' },
+        { 'A': '  - A+, A-, B+, B-, AB+, AB-, O+, O-' },
+        { 'A': '' },
+        { 'A': '📚 Entry Type:' },
+        { 'A': '  - FIRST YEAR' },
+        { 'A': '  - LATERAL ENTRY' },
+        { 'A': '' },
+        { 'A': '🏠 Accommodation Type:' },
+        { 'A': '  - HOSTEL' },
+        { 'A': '  - DAY SCHOLAR' },
+        { 'A': '  - HOME' },
+        { 'A': '' },
+        { 'A': '🍽️ Food Type:' },
+        { 'A': '  - VEG (Vegetarian)' },
+        { 'A': '  - NON-VEG (Non-Vegetarian)' },
+        { 'A': '  - VEGAN' },
+        { 'A': '' },
+        { 'A': '🎓 Quota:' },
+        { 'A': '  - GOVERNMENT' },
+        { 'A': '  - MANAGEMENT' },
+        { 'A': '  - NRI' },
+        { 'A': '  - SPORTS' },
+        { 'A': '' },
+        { 'A': '📱 Reference Type:' },
+        { 'A': '  - SOCIAL MEDIA' },
+        { 'A': '  - NEWSPAPER' },
+        { 'A': '  - FRIEND' },
+        { 'A': '  - FAMILY' },
+        { 'A': '  - POSTER' },
+        { 'A': '  - OTHER' },
+        { 'A': '' },
+        { 'A': '📍 Tamil Nadu Districts:' },
+        { 'A': '  - Ariyalur, Chengalpattu, Chennai, Coimbatore, Cuddalore, Dharmapuri' },
+        { 'A': '  - Dindigul, Erode, Kallakurichi, Kanchipuram, Kanyakumari, Karur' },
+        { 'A': '  - Krishnagiri, Madurai, Mayiladuthurai, Nagapattinam, Namakkal, Nilgiris' },
+        { 'A': '  - Perambalur, Pudukkottai, Ramanathapuram, Ranipet, Salem, Sivaganga' },
+        { 'A': '  - Tenkasi, Thanjavur, Theni, Thoothukudi, Tiruchirappalli, Tirunelveli' },
+        { 'A': '  - Tirupattur, Tiruppur, Tiruvallur, Tiruvannamalai, Tiruvarur, Vellore' },
+        { 'A': '  - Viluppuram, Virudhunagar' },
+        { 'A': '' },
+        { 'A': '🏘️ Common Taluks (by District):' },
+        { 'A': 'Namakkal District:' },
+        { 'A': '  - Namakkal, Rasipuram, Tiruchengode, Paramathi-Velur' },
+        { 'A': 'Salem District:' },
+        { 'A': '  - Salem, Attur, Mettur, Omalur, Sankagiri, Vazhapadi, Yercaud, Edappadi' },
+        { 'A': 'Erode District:' },
+        { 'A': '  - Erode, Gobichettipalayam, Bhavani, Anthiyur, Perundurai, Sathyamangalam' },
+        { 'A': 'Coimbatore District:' },
+        { 'A': '  - Coimbatore North, Coimbatore South, Pollachi, Valparai, Mettupalayam, Sulur' },
+        { 'A': 'Chennai District:' },
+        { 'A': '  - Chennai (North), Chennai (Central), Chennai (South)' },
+        { 'A': 'Tiruchirappalli District:' },
+        { 'A': '  - Tiruchirappalli, Lalgudi, Manapparai, Musiri, Srirangam, Thuraiyur' },
+        { 'A': 'Madurai District:' },
+        { 'A': '  - Madurai North, Madurai South, Madurai East, Madurai West, Melur, Peraiyur, Vadipatti, Usilampatti' },
+        { 'A': 'Note: Use exact taluk name from the dropdown in your application form' },
+        { 'A': '' },
+        { 'A': '🎓 Academic Fields (use exact names from your institution):' },
+        { 'A': '  • Degree: Check your institution\'s degree list (e.g., B.E, B.Tech, M.E, M.Tech)' },
+        { 'A': '  • Department: Use full department name (e.g., "Computer Science and Engineering")' },
+        { 'A': '  • Program: Use program code or name (e.g., "CSE", "ECE")' },
+        { 'A': '  • Semester: Use exact semester name (e.g., "I Year I Semester", "II Year")' },
+        { 'A': '  • Section: Use section name (e.g., "A", "B", "Section A")' },
+        { 'A': '  • Regulation: Use regulation code (e.g., "R2021", "R2019")' },
+        { 'A': '' },
+        { 'A': '💡 IMPORTANT NOTES:' },
+        { 'A': '  • Academic field names are case-INSENSITIVE (B.E = b.e = B.e)' },
+        { 'A': '  • Names must EXACTLY match database values (including spaces)' },
+        { 'A': '  • System auto-converts names to database IDs during upload' },
+        { 'A': '  • If a name is not found, upload will fail for that row with error message' },
         { 'A': '' },
         { 'A': '📤 UPLOAD STEPS' },
         { 'A': 'Step 1: Fill in ALL required (*) fields in the "Template" sheet' },

@@ -173,7 +173,8 @@
       "Bash(timeout 120 npx tsc:*)",
       "Bash(for dir in \"D:\\\\JKKN\\\\MYJKKN Portal\\\\MyJKKN\\\\app\\\\\\(routes\\)\"/*)",
       "Bash(do if [ -d \"$dir\" ])",
-      "Bash(for dir in \"D:\\\\JKKN\\\\MYJKKN Portal\\\\MyJKKN\\\\app\\\\api\"/*)"
+      "Bash(for dir in \"D:\\\\JKKN\\\\MYJKKN Portal\\\\MyJKKN\\\\app\\\\api\"/*)",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -File \".claude\\\\hooks\\\\test-voice.ps1\")"
     ],
     "deny": [],
     "ask": []

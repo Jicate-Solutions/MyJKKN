@@ -13,6 +13,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
 import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
+import { NameToIdResolver } from '@/lib/services/name-to-id-resolver';
 
 
 /**
@@ -43,7 +44,17 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'mother_mobile': ['Mother Mobile', 'mother_mobile'],
   'annual_income': ['Annual Income', 'annual_income'],
 
-  // SECTION 3: Academic Assignment
+  // SECTION 3: Academic Assignment (accepts both names and IDs)
+  'institution_name': ['Institution', 'institution', 'institution_name'],
+  'degree_name': ['Degree', 'degree', 'degree_name'],
+  'department_name': ['Department', 'department', 'department_name'],
+  'program_name': ['Program', 'program', 'program_name'],
+  'semester_name': ['Semester', 'semester', 'semester_name'],
+  'section_name': ['Section', 'section', 'section_name'],
+  'academic_year_name': ['Academic Year', 'academic_year', 'academic_year_name'],
+  'regulation_name': ['Regulation', 'regulation', 'regulation_name'],
+  'batch_name': ['Batch', 'batch', 'batch_name'],
+  // Legacy support for ID-based columns
   'degree_id': ['Degree ID', 'degree_id'],
   'department_id': ['Department ID', 'department_id'],
   'program_id': ['Program ID', 'program_id'],
@@ -300,28 +311,138 @@ export async function POST(request: NextRequest) {
       }
 
       // SECTION 3: Academic Assignment
-      if (mappedData.degree_id) {
+      // NOTE: We now support BOTH name-based and ID-based columns
+      // Priority: If ID is provided directly, use it. Otherwise, resolve name to ID.
+
+      // Institution (resolve name to ID if needed)
+      if (mappedData.institution_name && !mappedData.institution_id) {
+        const instResult = await NameToIdResolver.resolveInstitutionId(mappedData.institution_name);
+        if (instResult.found && instResult.id) {
+          // Note: Institution ID should not be changed via bulk edit for security
+          // This is just for reference/validation
+        }
+      }
+
+      // Degree (resolve name to ID if name provided)
+      if (mappedData.degree_name && !mappedData.degree_id) {
+        const degreeResult = await NameToIdResolver.resolveDegreeId(
+          mappedData.degree_name,
+          profile.institution_id || undefined
+        );
+        if (degreeResult.found && degreeResult.id) {
+          sanitizedData.degree_id = degreeResult.id;
+        } else if (degreeResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${degreeResult.error}`);
+        }
+      } else if (mappedData.degree_id) {
         sanitizedData.degree_id = mappedData.degree_id;
       }
-      if (mappedData.department_id) {
+
+      // Department (resolve name to ID if name provided)
+      if (mappedData.department_name && !mappedData.department_id) {
+        const deptResult = await NameToIdResolver.resolveDepartmentId(
+          mappedData.department_name,
+          profile.institution_id || undefined
+        );
+        if (deptResult.found && deptResult.id) {
+          sanitizedData.department_id = deptResult.id;
+        } else if (deptResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${deptResult.error}`);
+        }
+      } else if (mappedData.department_id) {
         sanitizedData.department_id = mappedData.department_id;
       }
-      if (mappedData.program_id) {
+
+      // Program (resolve name to ID if name provided)
+      if (mappedData.program_name && !mappedData.program_id) {
+        const progResult = await NameToIdResolver.resolveProgramId(
+          mappedData.program_name,
+          profile.institution_id || undefined,
+          sanitizedData.department_id
+        );
+        if (progResult.found && progResult.id) {
+          sanitizedData.program_id = progResult.id;
+        } else if (progResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${progResult.error}`);
+        }
+      } else if (mappedData.program_id) {
         sanitizedData.program_id = mappedData.program_id;
       }
-      if (mappedData.semester_id) {
+
+      // Semester (resolve name to ID if name provided)
+      if (mappedData.semester_name && !mappedData.semester_id) {
+        const semResult = await NameToIdResolver.resolveSemesterId(
+          mappedData.semester_name,
+          profile.institution_id || undefined,
+          sanitizedData.program_id
+        );
+        if (semResult.found && semResult.id) {
+          sanitizedData.semester_id = semResult.id;
+        } else if (semResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${semResult.error}`);
+        }
+      } else if (mappedData.semester_id) {
         sanitizedData.semester_id = mappedData.semester_id;
       }
-      if (mappedData.section_id) {
+
+      // Section (resolve name to ID if name provided)
+      if (mappedData.section_name && !mappedData.section_id) {
+        const secResult = await NameToIdResolver.resolveSectionId(
+          mappedData.section_name,
+          profile.institution_id || undefined,
+          sanitizedData.semester_id
+        );
+        if (secResult.found && secResult.id) {
+          sanitizedData.section_id = secResult.id;
+        } else if (secResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${secResult.error}`);
+        }
+      } else if (mappedData.section_id) {
         sanitizedData.section_id = mappedData.section_id;
       }
-      if (mappedData.academic_year_id) {
+
+      // Academic Year (resolve name to ID if name provided)
+      if (mappedData.academic_year_name && !mappedData.academic_year_id) {
+        const yearResult = await NameToIdResolver.resolveAcademicYearId(
+          mappedData.academic_year_name,
+          profile.institution_id || undefined
+        );
+        if (yearResult.found && yearResult.id) {
+          sanitizedData.academic_year_id = yearResult.id;
+        } else if (yearResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${yearResult.error}`);
+        }
+      } else if (mappedData.academic_year_id) {
         sanitizedData.academic_year_id = mappedData.academic_year_id;
       }
-      if (mappedData.regulation_id) {
+
+      // Regulation (resolve name to ID if name provided)
+      if (mappedData.regulation_name && !mappedData.regulation_id) {
+        const regResult = await NameToIdResolver.resolveRegulationId(
+          mappedData.regulation_name,
+          profile.institution_id || undefined
+        );
+        if (regResult.found && regResult.id) {
+          sanitizedData.regulation_id = regResult.id;
+        } else if (regResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${regResult.error}`);
+        }
+      } else if (mappedData.regulation_id) {
         sanitizedData.regulation_id = mappedData.regulation_id;
       }
-      if (mappedData.batch_id) {
+
+      // Batch (resolve name to ID if name provided)
+      if (mappedData.batch_name && !mappedData.batch_id) {
+        const batchResult = await NameToIdResolver.resolveBatchId(
+          mappedData.batch_name,
+          profile.institution_id || undefined
+        );
+        if (batchResult.found && batchResult.id) {
+          sanitizedData.batch_id = batchResult.id;
+        } else if (batchResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${batchResult.error}`);
+        }
+      } else if (mappedData.batch_id) {
         sanitizedData.batch_id = mappedData.batch_id;
       }
 

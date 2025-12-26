@@ -623,6 +623,7 @@ export function DataTable<TData extends ExportableData, TValue>({
       onColumnOrderChange: handleColumnOrderChange,
       pageCount: data?.pagination.total_pages || 0,
       enableRowSelection: tableConfig.enableRowSelection,
+      enableMultiRowSelection: true, // Explicitly enable multi-row selection
       enableColumnResizing: tableConfig.enableColumnResizing,
       manualPagination: true,
       manualSorting: true,
