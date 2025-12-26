@@ -6,6 +6,9 @@ import AcademicApiDocs from '@/components/api-documentation/academic-api-docs';
 import StaffApiDocs from './_components/staff-api-docs';
 import CurlDocumentationContent from './_components/curl-documentation-content';
 import ChildAppIntegrationDocs from './_components/child-app-integration-docs';
+import { ApiModuleLayout } from '@/components/api-docs';
+import { organizationsModuleConfig } from '@/lib/data/api-endpoints/organizations';
+import { learnersModuleConfig } from '@/lib/data/api-endpoints/learners';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -74,12 +77,12 @@ export default function ApiGuidelinesPage() {
           </TabsContent>
           <TabsContent value='organization'>
             <Card className='p-6'>
-              <OrganizationApiDocs />
+              <ApiModuleLayout config={organizationsModuleConfig} />
             </Card>
           </TabsContent>
           <TabsContent value='learners'>
             <Card className='p-6'>
-              <LearnersApiDocs />
+              <ApiModuleLayout config={learnersModuleConfig} />
             </Card>
           </TabsContent>
           <TabsContent value='academic'>
