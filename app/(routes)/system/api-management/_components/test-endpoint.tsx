@@ -65,6 +65,117 @@ const API_ENDPOINTS = {
   ]
 };
 
+// Query parameters for each endpoint
+const QUERY_PARAMETERS: Record<string, Array<{ value: string; label: string; description: string }>> = {
+  '/api/api-management/learners/profiles': [
+    { value: 'lifecycle_status', label: 'lifecycle_status', description: 'Comma-separated lifecycle statuses (default: active)' },
+    { value: 'program_id', label: 'program_id', description: 'Filter by program ID (UUID)' },
+    { value: 'semester_id', label: 'semester_id', description: 'Filter by semester ID (UUID)' },
+    { value: 'section_id', label: 'section_id', description: 'Filter by section ID (UUID)' },
+    { value: 'admission_year', label: 'admission_year', description: 'Filter by admission year (e.g., 2024)' },
+    { value: 'gender', label: 'gender', description: 'Filter by gender (Male/Female)' },
+    { value: 'quota', label: 'quota', description: 'Filter by admission quota' },
+    { value: 'expand', label: 'expand', description: 'Include related data (program,semester,section)' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/learners/profiles/[id]': [
+    { value: 'id', label: 'id', description: 'Learner profile ID (UUID) - replace [id] in URL' },
+    { value: 'expand', label: 'expand', description: 'Include related data (program,semester,section)' }
+  ],
+  '/api/api-management/learners/enquiries': [
+    { value: 'program_id', label: 'program_id', description: 'Filter by program ID (UUID)' },
+    { value: 'enquiry_date_from', label: 'enquiry_date_from', description: 'Filter enquiries from date (YYYY-MM-DD)' },
+    { value: 'enquiry_date_to', label: 'enquiry_date_to', description: 'Filter enquiries to date (YYYY-MM-DD)' },
+    { value: 'expand', label: 'expand', description: 'Include related data (program)' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/learners/enquiries/[id]': [
+    { value: 'id', label: 'id', description: 'Enquiry ID (UUID) - replace [id] in URL' },
+    { value: 'expand', label: 'expand', description: 'Include related data (program)' }
+  ],
+  '/api/api-management/learners/alumni': [
+    { value: 'program_id', label: 'program_id', description: 'Filter by program ID (UUID)' },
+    { value: 'admission_year', label: 'admission_year', description: 'Filter by admission year (e.g., 2020)' },
+    { value: 'expand', label: 'expand', description: 'Include related data (program,semester)' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/organizations/institutions': [
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/organizations/institutions/[id]': [
+    { value: 'id', label: 'id', description: 'Institution ID (UUID) - replace [id] in URL' }
+  ],
+  '/api/api-management/organizations/degrees': [
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/organizations/degrees/[id]': [
+    { value: 'id', label: 'id', description: 'Degree ID (UUID) - replace [id] in URL' }
+  ],
+  '/api/api-management/organizations/departments': [
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/organizations/departments/[id]': [
+    { value: 'id', label: 'id', description: 'Department ID (UUID) - replace [id] in URL' }
+  ],
+  '/api/api-management/organizations/programs': [
+    { value: 'degree_id', label: 'degree_id', description: 'Filter by degree ID (UUID)' },
+    { value: 'department_id', label: 'department_id', description: 'Filter by department ID (UUID)' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/organizations/programs/[id]': [
+    { value: 'id', label: 'id', description: 'Program ID (UUID) - replace [id] in URL' }
+  ],
+  '/api/api-management/organizations/courses': [
+    { value: 'program_id', label: 'program_id', description: 'Filter by program ID (UUID)' },
+    { value: 'semester_id', label: 'semester_id', description: 'Filter by semester ID (UUID)' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/organizations/courses/[id]': [
+    { value: 'id', label: 'id', description: 'Course ID (UUID) - replace [id] in URL' }
+  ],
+  '/api/api-management/organizations/semesters': [
+    { value: 'program_id', label: 'program_id', description: 'Filter by program ID (UUID)' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/organizations/semesters/[id]': [
+    { value: 'id', label: 'id', description: 'Semester ID (UUID) - replace [id] in URL' }
+  ],
+  '/api/api-management/organizations/sections': [
+    { value: 'semester_id', label: 'semester_id', description: 'Filter by semester ID (UUID)' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/organizations/sections/[id]': [
+    { value: 'id', label: 'id', description: 'Section ID (UUID) - replace [id] in URL' }
+  ],
+  '/api/api-management/staff': [
+    { value: 'department_id', label: 'department_id', description: 'Filter by department ID (UUID)' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/staff/[id]': [
+    { value: 'id', label: 'id', description: 'Staff ID (UUID) - replace [id] in URL' }
+  ],
+  '/api/api-management/applications': [
+    { value: 'program_id', label: 'program_id', description: 'Filter by program ID (UUID)' },
+    { value: 'status', label: 'status', description: 'Filter by application status' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/applications/[id]': [
+    { value: 'id', label: 'id', description: 'Application ID (UUID) - replace [id] in URL' }
+  ]
+};
+
 const formSchema = z.object({
   endpoint: z.string().min(1, 'Endpoint is required'),
   method: z.enum(['GET', 'POST', 'PUT', 'DELETE']),
@@ -97,6 +208,10 @@ export function TestEndpoint() {
       params: {}
     }
   });
+
+  // Get available parameters for the selected endpoint
+  const selectedEndpoint = form.watch('endpoint');
+  const availableParams = QUERY_PARAMETERS[selectedEndpoint] || [];
 
   // Generate a test API key
   const generateTestApiKey = async () => {
@@ -148,6 +263,11 @@ export function TestEndpoint() {
 
     initializeApiKey();
   }, []);
+
+  // Clear parameters when endpoint changes
+  useEffect(() => {
+    setParams([{ key: '', value: '' }]);
+  }, [selectedEndpoint]);
 
   const handleRegenerateKey = async () => {
     await generateTestApiKey();
@@ -383,33 +503,55 @@ export function TestEndpoint() {
                 size='sm'
                 onClick={addParam}
                 className='w-full sm:w-auto'
+                disabled={availableParams.length === 0}
               >
                 Add Parameter
               </Button>
             </div>
+            {availableParams.length === 0 && (
+              <p className='text-sm text-muted-foreground'>
+                No query parameters available for this endpoint
+              </p>
+            )}
             {params.map((param, index) => (
-              <div key={index} className='flex flex-col sm:flex-row gap-2'>
-                <Input
-                  placeholder='Parameter name'
-                  value={param.key}
-                  onChange={(e) => updateParam(index, 'key', e.target.value)}
-                  className='flex-1'
-                />
-                <Input
-                  placeholder='Value'
-                  value={param.value}
-                  onChange={(e) => updateParam(index, 'value', e.target.value)}
-                  className='flex-1'
-                />
-                <Button
-                  type='button'
-                  variant='ghost'
-                  size='icon'
-                  onClick={() => removeParam(index)}
-                  className='self-center'
-                >
-                  ×
-                </Button>
+              <div key={index} className='flex flex-col gap-2'>
+                <div className='flex flex-col sm:flex-row gap-2'>
+                  <Select
+                    value={param.key}
+                    onValueChange={(value) => updateParam(index, 'key', value)}
+                  >
+                    <SelectTrigger className='flex-1'>
+                      <SelectValue placeholder='Select parameter' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableParams.map((availParam) => (
+                        <SelectItem key={availParam.value} value={availParam.value}>
+                          {availParam.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    placeholder='Value'
+                    value={param.value}
+                    onChange={(e) => updateParam(index, 'value', e.target.value)}
+                    className='flex-1'
+                  />
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon'
+                    onClick={() => removeParam(index)}
+                    className='self-center'
+                  >
+                    ×
+                  </Button>
+                </div>
+                {param.key && (
+                  <p className='text-xs text-muted-foreground px-1'>
+                    {availableParams.find((p) => p.value === param.key)?.description}
+                  </p>
+                )}
               </div>
             ))}
           </div>

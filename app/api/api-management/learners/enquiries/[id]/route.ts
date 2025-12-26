@@ -9,7 +9,7 @@ export async function OPTIONS() {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Use service role key for API key authentication to bypass RLS
@@ -71,7 +71,7 @@ export async function GET(
       );
     }
 
-    const { id } = params;
+    const { id } = await params;
     const url = new URL(request.url);
     const expand = url.searchParams.get('expand');
 
@@ -108,12 +108,12 @@ export async function GET(
     }
 
     // Expand related data if requested
-    let expandedData = enquiry;
-    if (expand && expand.includes('program') && enquiry.program_id) {
+    let expandedData: any = enquiry;
+    if (expand && expand.includes('program') && (enquiry as any).program_id) {
       const { data: program } = await supabase
         .from('programs')
         .select('id, program_name, program_code, degree_id')
-        .eq('id', enquiry.program_id)
+        .eq('id', (enquiry as any).program_id)
         .single();
       expandedData = { ...expandedData, program };
     }
