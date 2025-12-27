@@ -107,9 +107,12 @@ export class NameToIdResolver {
     }
 
     try {
+      console.log(`[name-to-id] 🔍 Resolving Program ID for: "${programName}"`);
+      console.log(`[name-to-id] 📋 Query params:`, { programName: programName.trim(), institutionId, departmentId });
+
       let query = supabaseAdmin
         .from('programs')
-        .select('id')
+        .select('id, program_name')
         .ilike('program_name', programName.trim());
 
       if (institutionId) {
@@ -122,12 +125,29 @@ export class NameToIdResolver {
 
       const { data, error } = await query.single();
 
-      if (error || !data) {
+      if (error) {
+        console.error(`[name-to-id] ❌ Program query error:`, error);
+        console.error(`[name-to-id] 💡 Trying to find similar programs in database...`);
+
+        // Try to find all programs to help debug
+        const { data: allPrograms } = await supabaseAdmin
+          .from('programs')
+          .select('program_name, institution_id, department_id')
+          .limit(10);
+
+        console.log(`[name-to-id] 📚 Sample programs in database:`, allPrograms);
         return { id: null, found: false, error: `Program "${programName}" not found` };
       }
 
+      if (!data) {
+        console.error(`[name-to-id] ❌ No program found matching "${programName}"`);
+        return { id: null, found: false, error: `Program "${programName}" not found` };
+      }
+
+      console.log(`[name-to-id] ✅ Program found:`, data);
       return { id: data.id, found: true };
     } catch (error) {
+      console.error(`[name-to-id] ❌ Exception in resolveProgramId:`, error);
       return { id: null, found: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
@@ -144,9 +164,12 @@ export class NameToIdResolver {
     }
 
     try {
+      console.log(`[name-to-id] 🔍 Resolving Semester ID for: "${semesterName}"`);
+      console.log(`[name-to-id] 📋 Query params:`, { semesterName: semesterName.trim(), institutionId, programId });
+
       let query = supabaseAdmin
         .from('semesters')
-        .select('id')
+        .select('id, semester_name')
         .ilike('semester_name', semesterName.trim());
 
       if (institutionId) {
@@ -159,12 +182,28 @@ export class NameToIdResolver {
 
       const { data, error } = await query.single();
 
-      if (error || !data) {
+      if (error) {
+        console.error(`[name-to-id] ❌ Semester query error:`, error);
+
+        // Try to find all semesters to help debug
+        const { data: allSemesters } = await supabaseAdmin
+          .from('semesters')
+          .select('semester_name, institution_id, program_id')
+          .limit(10);
+
+        console.log(`[name-to-id] 📚 Sample semesters in database:`, allSemesters);
         return { id: null, found: false, error: `Semester "${semesterName}" not found` };
       }
 
+      if (!data) {
+        console.error(`[name-to-id] ❌ No semester found matching "${semesterName}"`);
+        return { id: null, found: false, error: `Semester "${semesterName}" not found` };
+      }
+
+      console.log(`[name-to-id] ✅ Semester found:`, data);
       return { id: data.id, found: true };
     } catch (error) {
+      console.error(`[name-to-id] ❌ Exception in resolveSemesterId:`, error);
       return { id: null, found: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
@@ -181,9 +220,12 @@ export class NameToIdResolver {
     }
 
     try {
+      console.log(`[name-to-id] 🔍 Resolving Section ID for: "${sectionName}"`);
+      console.log(`[name-to-id] 📋 Query params:`, { sectionName: sectionName.trim(), institutionId, semesterId });
+
       let query = supabaseAdmin
         .from('sections')
-        .select('id')
+        .select('id, section_name')
         .ilike('section_name', sectionName.trim());
 
       if (institutionId) {
@@ -196,12 +238,28 @@ export class NameToIdResolver {
 
       const { data, error } = await query.single();
 
-      if (error || !data) {
+      if (error) {
+        console.error(`[name-to-id] ❌ Section query error:`, error);
+
+        // Try to find all sections to help debug
+        const { data: allSections } = await supabaseAdmin
+          .from('sections')
+          .select('section_name, institution_id, semester_id')
+          .limit(10);
+
+        console.log(`[name-to-id] 📚 Sample sections in database:`, allSections);
         return { id: null, found: false, error: `Section "${sectionName}" not found` };
       }
 
+      if (!data) {
+        console.error(`[name-to-id] ❌ No section found matching "${sectionName}"`);
+        return { id: null, found: false, error: `Section "${sectionName}" not found` };
+      }
+
+      console.log(`[name-to-id] ✅ Section found:`, data);
       return { id: data.id, found: true };
     } catch (error) {
+      console.error(`[name-to-id] ❌ Exception in resolveSectionId:`, error);
       return { id: null, found: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }

@@ -24,6 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Progress } from '@/components/ui/progress';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import toast from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -55,6 +56,11 @@ export function ProfilesTableServer({
   const [learnersToDelete, setLearnersToDelete] = useState<LearnerProfile[]>([]);
   const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState<{
+    current: number;
+    total: number;
+    currentId: string;
+  }>({ current: 0, total: 0, currentId: '' });
 
   // Local state for optimistic updates
   const [localData, setLocalData] = useState<LearnerProfile[]>(initialData);
@@ -105,9 +111,15 @@ export function ProfilesTableServer({
     if (learnersToDelete.length === 0) return;
 
     setIsDeleting(true);
+    setDeleteProgress({ current: 0, total: learnersToDelete.length, currentId: '' });
+
     try {
       const result = await LearnerProfileService.bulkDeleteLearnerProfiles(
-        learnersToDelete.map((learner) => learner.id)
+        learnersToDelete.map((learner) => learner.id),
+        (current, total, currentId) => {
+          // Update progress in real-time
+          setDeleteProgress({ current, total, currentId });
+        }
       );
 
       const { success, failed } = result;
@@ -238,14 +250,34 @@ export function ProfilesTableServer({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete {learnersToDelete.length} record{learnersToDelete.length > 1 ? 's' : ''}?
+              {isDeleting
+                ? `Deleting ${deleteProgress.current} of ${deleteProgress.total} records...`
+                : `Delete ${learnersToDelete.length} record${learnersToDelete.length > 1 ? 's' : ''}?`
+              }
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the selected
-              student profile{learnersToDelete.length > 1 ? 's' : ''} and remove all
-              associated data.
+              {isDeleting
+                ? 'Please wait while we delete the selected records. Do not close this dialog.'
+                : `This action cannot be undone. This will permanently delete the selected student profile${learnersToDelete.length > 1 ? 's' : ''} and remove all associated data.`
+              }
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {/* Progress UI - Outside AlertDialogDescription to avoid hydration error */}
+          {isDeleting && (
+            <div className="space-y-2 px-6 pb-2">
+              <div className="flex justify-between text-sm">
+                <span className="font-medium text-muted-foreground">Progress:</span>
+                <span className="text-muted-foreground">
+                  {deleteProgress.current} / {deleteProgress.total}
+                </span>
+              </div>
+              <Progress
+                value={(deleteProgress.current / deleteProgress.total) * 100}
+                className="h-2"
+              />
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
@@ -253,7 +285,14 @@ export function ProfilesTableServer({
               disabled={isDeleting}
               className="bg-red-600 hover:bg-red-700"
             >
-              {isDeleting ? 'Deleting...' : 'Delete All'}
+              {isDeleting ? (
+                <span className="flex items-center gap-2">
+                  <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                  Deleting...
+                </span>
+              ) : (
+                'Delete All'
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

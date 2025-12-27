@@ -39,7 +39,8 @@ import {
   mapColumns,
   sanitizeValue,
   validateRow,
-  findDuplicateEmails
+  findDuplicateEmails,
+  type ValidationResult
 } from '@/lib/utils/bulk-upload-validation';
 import type {
   ParsedRow,
@@ -68,6 +69,74 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+
+// Define REQUIRED fields (warnings about these fields are important)
+const REQUIRED_FIELDS = [
+  'first_name', 'last_name', 'date_of_birth', 'gender', 'religion', 'community', 'caste',
+  'father_name', 'father_mobile', 'mother_name', 'mother_mobile',
+  'institution_name', 'department_name', 'program_name', 'semester_name', 'section_name', 'academic_year_name',
+  'student_mobile', 'college_email',
+  'permanent_address_street', 'permanent_address_taluk', 'permanent_address_district',
+  'permanent_address_pin_code', 'permanent_address_state',
+  'entry_type', 'first_graduate', 'accommodation_type'
+];
+
+// Helper component to display validation issues (errors and warnings)
+function IssuesDisplay({ validationResult }: { validationResult: ValidationResult }) {
+  // Filter warnings to only show for required fields
+  // Optional fields should only show errors, not warnings
+  const relevantWarnings = validationResult.warnings.filter((warning) => {
+    // Check if warning mentions a required field
+    const warningLower = warning.toLowerCase();
+    return REQUIRED_FIELDS.some((field) => {
+      const fieldWithSpaces = field.replace(/_/g, ' ');
+      return warningLower.includes(fieldWithSpaces);
+    });
+  });
+
+  return (
+    <div className="space-y-1">
+      {/* ALWAYS show ALL errors (both required and optional fields) */}
+      {validationResult.errors.length > 0 && (
+        <>
+          {validationResult.errors.slice(0, 3).map((error, idx) => (
+            <div key={`error-${idx}`} className="text-xs text-red-600 font-medium break-words">
+              <span className="font-bold">❌ {error.field}:</span> {error.message}
+            </div>
+          ))}
+          {validationResult.errors.length > 3 && (
+            <div className="text-xs text-red-500 font-medium">
+              +{validationResult.errors.length - 3} more errors
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Show warnings ONLY for required fields (if no errors) */}
+      {validationResult.errors.length === 0 && relevantWarnings.length > 0 && (
+        <>
+          {relevantWarnings.slice(0, 2).map((warning, idx) => (
+            <div key={`warning-${idx}`} className="text-xs text-amber-600 break-words">
+              ⚠️ {warning}
+            </div>
+          ))}
+          {relevantWarnings.length > 2 && (
+            <div className="text-xs text-amber-500">
+              +{relevantWarnings.length - 2} more warnings
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Show "All Good" if no issues */}
+      {validationResult.errors.length === 0 && relevantWarnings.length === 0 && (
+        <div className="text-xs text-green-600 font-medium">
+          ✓ All required fields validated
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: () => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -486,8 +555,17 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
     }
   };
 
+  // Handle dialog close - reset data when closing
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      // Dialog is closing - reset all data
+      resetUpload();
+    }
+    setOpen(newOpen);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           <UploadCloud className="mr-2 h-4 w-4" />
@@ -632,6 +710,28 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                 </Card>
               </div>
 
+              {/* Important Notice */}
+              <Alert variant="destructive" className="border-orange-500 bg-orange-50 dark:bg-orange-950">
+                <AlertCircle className="h-4 w-4 text-orange-600" />
+                <AlertTitle className="text-orange-900 dark:text-orange-100">⚠️ Critical: Use EXACT Database Values</AlertTitle>
+                <AlertDescription className="text-sm space-y-2 text-orange-800 dark:text-orange-200">
+                  <p><strong>✅ Basic validation complete:</strong> Required fields, formats, and dropdown values verified.</p>
+
+                  <div className="bg-white dark:bg-gray-900 p-3 rounded border border-orange-300 space-y-1.5">
+                    <p className="font-semibold text-orange-900 dark:text-orange-100">❌ Common Mistakes (will cause upload failure):</p>
+                    <ul className="text-xs space-y-1 ml-4 list-disc">
+                      <li><strong>Program:</strong> Using "CSE" instead of "(BE) CSE" - MUST include degree prefix in brackets</li>
+                      <li><strong>Semester:</strong> Using "II Year III Semester" instead of "Semester 4" or "2 Year" - Check database format</li>
+                      <li><strong>Section:</strong> Will fail if Program/Semester are wrong (cascading effect)</li>
+                    </ul>
+                  </div>
+
+                  <p className="text-xs font-medium">
+                    💡 <strong>Tip:</strong> If you see "not found in database" errors during upload, check the console logs - they show sample database values you should use.
+                  </p>
+                </AlertDescription>
+              </Alert>
+
               {/* Filter and Actions */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -673,60 +773,111 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
               {/* Data Table */}
               <div className="border rounded-lg overflow-hidden">
-                <div className="max-h-[400px] overflow-auto">
+                <div className="max-h-[400px] overflow-x-auto overflow-y-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-12"></TableHead>
-                        <TableHead className="w-16">Row</TableHead>
-                        <TableHead className="w-32">Status</TableHead>
-                        <TableHead>First Name</TableHead>
-                        <TableHead>Last Name</TableHead>
-                        <TableHead>College Email</TableHead>
-                        <TableHead>Mobile</TableHead>
-                        <TableHead>Department</TableHead>
-                        <TableHead className="w-48">Errors</TableHead>
+                        <TableHead className="sticky left-0 bg-background z-10 w-12"></TableHead>
+                        <TableHead className="sticky left-12 bg-background z-10 w-16">Row</TableHead>
+                        <TableHead className="sticky left-28 bg-background z-10 w-24">Status</TableHead>
+
+                        {/* Personal Info */}
+                        <TableHead className="min-w-[120px]">First Name*</TableHead>
+                        <TableHead className="min-w-[120px]">Last Name</TableHead>
+                        <TableHead className="min-w-[100px]">DOB*</TableHead>
+                        <TableHead className="min-w-[80px]">Gender*</TableHead>
+                        <TableHead className="min-w-[100px]">Religion*</TableHead>
+                        <TableHead className="min-w-[100px]">Community*</TableHead>
+
+                        {/* Contact Info */}
+                        <TableHead className="min-w-[150px]">College Email*</TableHead>
+                        <TableHead className="min-w-[120px]">Student Mobile*</TableHead>
+                        <TableHead className="min-w-[150px]">Personal Email</TableHead>
+
+                        {/* Parent Info */}
+                        <TableHead className="min-w-[150px]">Father Name*</TableHead>
+                        <TableHead className="min-w-[120px]">Father Mobile*</TableHead>
+                        <TableHead className="min-w-[150px]">Mother Name*</TableHead>
+                        <TableHead className="min-w-[120px]">Mother Mobile*</TableHead>
+
+                        {/* Academic Info */}
+                        <TableHead className="min-w-[200px]">Institution*</TableHead>
+                        <TableHead className="min-w-[120px]">Department*</TableHead>
+                        <TableHead className="min-w-[120px]">Program*</TableHead>
+                        <TableHead className="min-w-[150px]">Semester*</TableHead>
+                        <TableHead className="min-w-[100px]">Section*</TableHead>
+
+                        {/* Address */}
+                        <TableHead className="min-w-[200px]">Address Street*</TableHead>
+                        <TableHead className="min-w-[120px]">Taluk*</TableHead>
+                        <TableHead className="min-w-[120px]">District*</TableHead>
+                        <TableHead className="min-w-[100px]">Pin Code*</TableHead>
+                        <TableHead className="min-w-[120px]">State*</TableHead>
+
+                        {/* Other Required */}
+                        <TableHead className="min-w-[120px]">Entry Type*</TableHead>
+                        <TableHead className="min-w-[150px]">Accommodation*</TableHead>
+
+                        {/* Errors Column - Sticky Right */}
+                        <TableHead className="sticky right-0 bg-background z-10 min-w-[300px]">Issues</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredRows.map((row) => (
                         <TableRow key={row.rowNumber}>
-                          <TableCell>
+                          <TableCell className="sticky left-0 bg-background z-10">
                             <Checkbox
                               checked={row.selected}
                               onCheckedChange={() => toggleRowSelection(row.rowNumber)}
                               disabled={row.validationStatus === 'error'}
                             />
                           </TableCell>
-                          <TableCell className="font-mono text-sm">{row.rowNumber}</TableCell>
-                          <TableCell>
+                          <TableCell className="sticky left-12 bg-background z-10 font-mono text-sm">{row.rowNumber}</TableCell>
+                          <TableCell className="sticky left-28 bg-background z-10">
                             <ValidationBadge status={row.validationStatus} />
                           </TableCell>
-                          <TableCell>{row.sanitizedData.first_name || '-'}</TableCell>
-                          <TableCell>{row.sanitizedData.last_name || '-'}</TableCell>
-                          <TableCell className="font-mono text-xs">
-                            {row.sanitizedData.college_email || '-'}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs">
-                            {row.sanitizedData.student_mobile || '-'}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {row.sanitizedData.department_name || '-'}
-                          </TableCell>
-                          <TableCell>
-                            {row.validationResult && row.validationResult.errors.length > 0 && (
-                              <div className="space-y-1">
-                                {row.validationResult.errors.slice(0, 2).map((error, idx) => (
-                                  <div key={idx} className="text-xs text-red-600">
-                                    • {error.message}
-                                  </div>
-                                ))}
-                                {row.validationResult.errors.length > 2 && (
-                                  <div className="text-xs text-muted-foreground">
-                                    +{row.validationResult.errors.length - 2} more
-                                  </div>
-                                )}
-                              </div>
+
+                          {/* Personal Info */}
+                          <TableCell className="text-xs">{row.sanitizedData.first_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.last_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.date_of_birth || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.gender || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.religion || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.community || '-'}</TableCell>
+
+                          {/* Contact Info */}
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.college_email || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.student_mobile || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.student_email || '-'}</TableCell>
+
+                          {/* Parent Info */}
+                          <TableCell className="text-xs">{row.sanitizedData.father_name || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.father_mobile || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.mother_name || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.mother_mobile || '-'}</TableCell>
+
+                          {/* Academic Info */}
+                          <TableCell className="text-xs">{row.sanitizedData.institution_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.department_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.program_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.semester_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.section_name || '-'}</TableCell>
+
+                          {/* Address */}
+                          <TableCell className="text-xs">{row.sanitizedData.permanent_address_street || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.permanent_address_taluk || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.permanent_address_district || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.permanent_address_pin_code || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.permanent_address_state || '-'}</TableCell>
+
+                          {/* Other Required */}
+                          <TableCell className="text-xs">{row.sanitizedData.entry_type || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.accommodation_type || '-'}</TableCell>
+
+                          {/* Issues Column - Sticky Right */}
+                          <TableCell className="sticky right-0 bg-background z-10">
+                            {row.validationResult && (
+                              <IssuesDisplay validationResult={row.validationResult} />
                             )}
                           </TableCell>
                         </TableRow>
@@ -925,12 +1076,13 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
             <div>
               {state.step !== 'select-file' && state.step !== 'results' && (
                 <Button
-                  variant="outline"
+                  variant="destructive"
                   onClick={resetUpload}
                   disabled={state.step === 'uploading'}
+                  className="gap-2"
                 >
-                  <X className="mr-2 h-4 w-4" />
-                  Cancel
+                  <X className="h-4 w-4" />
+                  Clear Upload
                 </Button>
               )}
             </div>
@@ -941,16 +1093,18 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                   <Button
                     variant="outline"
                     onClick={resetUpload}
+                    className="gap-2"
                   >
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Upload Different File
+                    <ArrowLeft className="h-4 w-4" />
+                    Start Over
                   </Button>
                   <Button
                     onClick={() => setState(prev => ({ ...prev, step: 'confirm' }))}
                     disabled={state.validationSummary.selectedRows === 0}
+                    className="gap-2"
                   >
                     Continue
-                    <ArrowRight className="ml-2 h-4 w-4" />
+                    <ArrowRight className="h-4 w-4" />
                   </Button>
                 </>
               )}
@@ -960,24 +1114,36 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                   <Button
                     variant="outline"
                     onClick={() => setState(prev => ({ ...prev, step: 'validate' }))}
+                    className="gap-2"
                   >
-                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    <ArrowLeft className="h-4 w-4" />
                     Back to Review
                   </Button>
                   <Button
                     onClick={handleUpload}
+                    className="gap-2"
                   >
-                    <UploadCloud className="mr-2 h-4 w-4" />
+                    <UploadCloud className="h-4 w-4" />
                     Upload {state.validationSummary.selectedRows} Profiles
                   </Button>
                 </>
               )}
 
               {state.step === 'results' && (
-                <Button onClick={resetUpload}>
-                  <UploadCloud className="mr-2 h-4 w-4" />
-                  Upload Another File
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setOpen(false)}
+                    className="gap-2"
+                  >
+                    <X className="h-4 w-4" />
+                    Close
+                  </Button>
+                  <Button onClick={resetUpload} className="gap-2">
+                    <UploadCloud className="h-4 w-4" />
+                    Upload Another File
+                  </Button>
+                </>
               )}
             </div>
           </div>

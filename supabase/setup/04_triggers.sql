@@ -391,6 +391,141 @@ CREATE TRIGGER validate_attendance_staff_assignment_trigger
 --     FOR EACH ROW EXECUTE FUNCTION on_storage_object_deleted();
 
 -- ================================================================================
+-- SECTION 19: STUDENT ROLE AUTO-ASSIGNMENT TRIGGER
+-- Added: 2025-12-27
+-- ================================================================================
+
+-- Function: Auto-assign student role when learner_id is set on profile
+CREATE OR REPLACE FUNCTION public.auto_assign_student_role()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_student_role_id UUID;
+    v_existing_roles_count INT;
+BEGIN
+    -- Only proceed if learner_id is being set (student account)
+    IF NEW.learner_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    -- Only proceed if learner_id was just added or changed
+    IF TG_OP = 'UPDATE' AND OLD.learner_id IS NOT DISTINCT FROM NEW.learner_id THEN
+        RETURN NEW;
+    END IF;
+
+    -- Check if user already has roles assigned
+    SELECT COUNT(*) INTO v_existing_roles_count
+    FROM user_roles
+    WHERE user_id = NEW.id;
+
+    -- If user already has roles, don't auto-assign
+    IF v_existing_roles_count > 0 THEN
+        RETURN NEW;
+    END IF;
+
+    -- Ensure student role exists and get its ID
+    SELECT ensure_student_role() INTO v_student_role_id;
+
+    -- Assign student role as primary role
+    INSERT INTO user_roles (user_id, role_id, is_primary, assigned_at)
+    VALUES (NEW.id, v_student_role_id, true, NOW())
+    ON CONFLICT (user_id, role_id) DO NOTHING;
+
+    RAISE NOTICE 'Auto-assigned student role to user: %', NEW.id;
+
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION auto_assign_student_role IS
+'Automatically assigns student role when learner_id is set on profile. Called by trigger on profiles table.';
+
+-- Create trigger on profiles table
+DROP TRIGGER IF EXISTS trigger_auto_assign_student_role ON public.profiles;
+CREATE TRIGGER trigger_auto_assign_student_role
+    AFTER INSERT OR UPDATE OF learner_id ON public.profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_assign_student_role();
+
+COMMENT ON TRIGGER trigger_auto_assign_student_role ON profiles IS
+'Auto-assigns student role when learner_id is set. Ensures students automatically get proper permissions.';
+
+-- ================================================================================
+-- SECTION 20: AUTO-LINK PROFILE TO APPROVED LEARNER
+-- Added: 2025-12-27
+-- ================================================================================
+
+-- Function: Auto-link profile to approved learner on first login
+-- Purpose: When user signs in with college email, auto-link to approved learner
+-- Sets: learner_id, institution_id, department_id, role=student, full_name
+CREATE OR REPLACE FUNCTION public.auto_link_profile_to_approved_learner()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_learner_record RECORD;
+    v_full_name TEXT;
+BEGIN
+    -- Only proceed if this is a NEW profile without learner_id
+    IF TG_OP = 'INSERT' AND NEW.learner_id IS NULL AND NEW.email IS NOT NULL THEN
+
+        -- Check if there's an approved learner with matching college_email
+        SELECT
+            id,
+            first_name,
+            last_name,
+            institution_id,
+            department_id,
+            lifecycle_status
+        INTO v_learner_record
+        FROM learners_profiles
+        WHERE LOWER(college_email) = LOWER(NEW.email)
+        AND lifecycle_status IN ('approved', 'active')
+        LIMIT 1;
+
+        -- If approved learner found, link it to this profile
+        IF v_learner_record.id IS NOT NULL THEN
+
+            -- Build full name from learner if not set
+            v_full_name := NEW.full_name;
+            IF v_full_name IS NULL OR v_full_name = '' THEN
+                v_full_name := TRIM(CONCAT(v_learner_record.first_name, ' ', COALESCE(v_learner_record.last_name, '')));
+            END IF;
+
+            -- Update the NEW record before it's inserted
+            NEW.learner_id := v_learner_record.id;
+            NEW.institution_id := COALESCE(NEW.institution_id, v_learner_record.institution_id);
+            NEW.department_id := COALESCE(NEW.department_id, v_learner_record.department_id);
+            NEW.role := COALESCE(NEW.role, 'student');
+            NEW.full_name := v_full_name;
+            NEW.profile_completed := true;
+
+            RAISE NOTICE 'Auto-linked new profile to approved learner: % (email: %)', v_learner_record.id, NEW.email;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION auto_link_profile_to_approved_learner IS
+'Auto-links new user profiles to approved learners with matching email. Sets institution_id, department_id, role=student.';
+
+-- Create trigger on profiles table
+DROP TRIGGER IF EXISTS trigger_auto_link_profile_to_approved_learner ON public.profiles;
+CREATE TRIGGER trigger_auto_link_profile_to_approved_learner
+    BEFORE INSERT ON public.profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_link_profile_to_approved_learner();
+
+COMMENT ON TRIGGER trigger_auto_link_profile_to_approved_learner ON profiles IS
+'Auto-links new profiles to approved learners on first login. Includes institution/department from learner.';
+
+-- ================================================================================
 -- End of Triggers File
--- Total Triggers: 71
+-- Total Triggers: 73
 -- ================================================================================

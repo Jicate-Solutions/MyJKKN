@@ -28,6 +28,7 @@ interface GetLearnerProfilesParams {
   is_profile_complete?: boolean;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  learner_id?: string; // Added: Filter by specific learner ID (for students viewing own profile)
 }
 
 interface GetLearnerProfilesResult {
@@ -78,7 +79,8 @@ export async function getLearnerProfiles(
     gender,
     is_profile_complete,
     sortBy = 'created_at',
-    sortOrder = 'desc'
+    sortOrder = 'desc',
+    learner_id // Added: For student self-view filtering
   } = params;
 
   // Build query with relations
@@ -113,6 +115,11 @@ export async function getLearnerProfiles(
 
   if (institution_id) {
     query = query.eq('institution_id', institution_id);
+  }
+
+  // Student self-view filter (highest priority - students can only see own profile)
+  if (learner_id) {
+    query = query.eq('id', learner_id);
   }
 
   if (degree_id) {

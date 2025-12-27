@@ -146,6 +146,14 @@ export function validateRow(data: Record<string, any>): ValidationResult {
     });
   }
 
+  // REQUIRED: Last Name
+  if (!data.last_name?.trim()) {
+    errors.push({
+      field: 'last_name',
+      message: 'Last Name is required'
+    });
+  }
+
   // REQUIRED: College Email
   if (!data.college_email?.trim()) {
     errors.push({
@@ -220,6 +228,14 @@ export function validateRow(data: Record<string, any>): ValidationResult {
     });
   }
 
+  // REQUIRED: Caste
+  if (!data.caste?.trim()) {
+    errors.push({
+      field: 'caste',
+      message: 'Caste is required'
+    });
+  }
+
   // OPTIONAL: Blood Group (with dropdown validation)
   if (data.blood_group?.trim()) {
     const bloodGroupValidation = validateDropdownValue(data.blood_group, BLOOD_GROUP_VALUES, 'Blood Group', false);
@@ -280,45 +296,62 @@ export function validateRow(data: Record<string, any>): ValidationResult {
   }
 
   // REQUIRED: Academic Fields
+  // NOTE: These fields are validated for presence. Database matching validation happens server-side.
   if (!data.institution_name?.trim()) {
     errors.push({
       field: 'institution_name',
-      message: 'Institution is required'
+      message: 'Institution name is required. Use exact name from database (e.g., "JKKN College of Engineering and Technology")'
     });
   }
 
   if (!data.degree_name?.trim()) {
     errors.push({
       field: 'degree_name',
-      message: 'Degree is required'
+      message: 'Degree is required (e.g., "B.E", "M.E", "B.Tech")'
     });
   }
 
   if (!data.department_name?.trim()) {
     errors.push({
       field: 'department_name',
-      message: 'Department is required'
+      message: 'Department is required. Use full name (e.g., "Computer Science and Engineering")'
     });
   }
 
   if (!data.program_name?.trim()) {
     errors.push({
       field: 'program_name',
-      message: 'Program is required'
+      message: 'Program is required. ⚠️ MUST use EXACT database format with degree prefix: "(BE) CSE", "(ME) CSE", "MBA", etc. Do NOT use just "CSE".'
     });
   }
 
   if (!data.semester_name?.trim()) {
     errors.push({
       field: 'semester_name',
-      message: 'Semester is required'
+      message: 'Semester is required. ⚠️ MUST use EXACT database format: "Semester I", "Semester II", "Semester 4", "1 Year", "2 Year", etc.'
     });
   }
 
   if (!data.section_name?.trim()) {
     errors.push({
       field: 'section_name',
-      message: 'Section is required'
+      message: 'Section is required. Use exact section name from database (usually just "A", "B", "C", etc.)'
+    });
+  }
+
+  // REQUIRED: Academic Year
+  if (!data.academic_year_name?.trim()) {
+    errors.push({
+      field: 'academic_year_name',
+      message: 'Academic Year is required (e.g., "2024-2025", "2025-2026")'
+    });
+  }
+
+  // REQUIRED: First Graduate Status
+  if (data.first_graduate === undefined || data.first_graduate === null || data.first_graduate === '') {
+    errors.push({
+      field: 'first_graduate',
+      message: 'First Graduate status is required (YES/NO or TRUE/FALSE)'
     });
   }
 
@@ -395,14 +428,9 @@ export function validateRow(data: Record<string, any>): ValidationResult {
     }
   }
 
-  // Optional validations with warnings
-  if (!data.last_name?.trim()) {
-    warnings.push('Last Name not provided');
-  }
-
-  if (!data.student_email?.trim()) {
-    warnings.push('Personal Email not provided');
-  }
+  // Note: Optional fields (last_name, student_email) don't generate warnings
+  // as they are truly optional and warnings clutter the validation UI.
+  // The system handles missing optional fields gracefully.
 
   // Determine status
   let status: 'valid' | 'warning' | 'error' = 'valid';

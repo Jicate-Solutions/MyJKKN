@@ -175,7 +175,9 @@
       "Bash(do if [ -d \"$dir\" ])",
       "Bash(for dir in \"D:\\\\JKKN\\\\MYJKKN Portal\\\\MyJKKN\\\\app\\\\api\"/*)",
       "Bash(powershell.exe -ExecutionPolicy Bypass -File \".claude\\\\hooks\\\\test-voice.ps1\")",
-      "Bash(npm ls:*)"
+      "Bash(npm ls:*)",
+      "Bash(timeout 30 npm run build:*)",
+      "Bash(timeout 30 npm run typecheck:*)"
     ],
     "deny": [],
     "ask": []

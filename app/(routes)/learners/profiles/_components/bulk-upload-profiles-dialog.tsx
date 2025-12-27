@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -56,11 +56,13 @@ interface UploadResult {
 
 export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoExportedRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [result, setResult] = useState<UploadResult | null>(null);
+  const [autoResetCountdown, setAutoResetCountdown] = useState<number | null>(null);
 
   // Download template
   const downloadTemplate = () => {
@@ -461,10 +463,51 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
     setSelectedFile(null);
     setResult(null);
     setUploadProgress(0);
+    setAutoResetCountdown(null);
+    autoExportedRef.current = false;
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
+
+  // Auto-reset after successful upload (only if no credentials need to be saved)
+  useEffect(() => {
+    if (result && result.success) {
+      // If no created users (no passwords to save), auto-reset after 8 seconds
+      if (result.created_users.length === 0 && result.upload_summary.learners_created === 0) {
+        setAutoResetCountdown(8);
+      }
+      // If users were created with passwords, auto-export credentials for safety
+      else if (result.created_users.length > 0 && !autoExportedRef.current) {
+        autoExportedRef.current = true;
+        // Auto-export credentials to prevent data loss
+        setTimeout(() => {
+          exportCreatedUsers();
+          toast.success('User credentials automatically exported to Excel file!', {
+            duration: 5000,
+            icon: '💾'
+          });
+        }, 1500);
+      }
+    }
+  }, [result]);
+
+  // Countdown timer for auto-reset
+  useEffect(() => {
+    if (autoResetCountdown === null) return;
+
+    if (autoResetCountdown <= 0) {
+      resetUpload();
+      toast.success('Ready for next upload');
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setAutoResetCountdown(autoResetCountdown - 1);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [autoResetCountdown]);
 
   // Export created users to Excel
   const exportCreatedUsers = () => {
@@ -487,8 +530,17 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
     }
   };
 
+  // Reset when dialog closes
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+    if (!newOpen) {
+      // Reset state when dialog closes
+      resetUpload();
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           <UploadCloud className="mr-2 h-4 w-4" />
@@ -697,6 +749,13 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
                 </Button>
               </div>
 
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  Click <strong>Upload & Create Accounts</strong> to process the file, or <strong>Clear Selection</strong> to choose a different file.
+                </AlertDescription>
+              </Alert>
+
               {uploading && (
                 <div className="space-y-3">
                   <Progress value={uploadProgress} className="h-3" />
@@ -718,7 +777,8 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
                 onClick={resetUpload}
                 disabled={uploading}
               >
-                Cancel
+                <X className="mr-2 h-4 w-4" />
+                Clear Selection
               </Button>
               <Button
                 onClick={handleUpload}
@@ -738,10 +798,20 @@ export function BulkUploadProfilesDialog({ onSuccess }: { onSuccess?: () => void
               </Button>
             </div>
           ) : (
-            <Button onClick={resetUpload}>
-              <UploadCloud className="mr-2 h-4 w-4" />
-              Upload Another File
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+              {autoResetCountdown !== null && (
+                <Alert className="py-2 px-3">
+                  <AlertDescription className="text-sm flex items-center gap-2">
+                    <Info className="h-4 w-4" />
+                    Auto-resetting in {autoResetCountdown} seconds...
+                  </AlertDescription>
+                </Alert>
+              )}
+              <Button onClick={resetUpload} className="sm:ml-auto">
+                <UploadCloud className="mr-2 h-4 w-4" />
+                Upload Another File
+              </Button>
+            </div>
           )}
         </DialogFooter>
       </DialogContent>

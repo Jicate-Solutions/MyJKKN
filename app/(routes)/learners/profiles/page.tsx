@@ -21,6 +21,7 @@ import { BulkUploadProfilesDialogEnhanced } from './_components/bulk-upload-prof
 import { BulkEditActiveDialog } from './_components/bulk-edit-exited-dialog';
 import { getLearnerProfiles } from './_data/get-learner-profiles';
 import { TableSkeleton } from '@/components/Loading';
+import { createClient } from '@/lib/supabase/server';
 import type { LifecycleStatus } from '@/types/learner-profile';
 
 interface ProfilesPageProps {
@@ -42,6 +43,30 @@ async function ProfilesContent({
   };
   statusFilter: LifecycleStatus;
 }) {
+  // Get current user and check if student
+  const supabase = await createClient();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  let isStudent = false;
+  let learnerIdFilter: string | undefined = undefined;
+
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role, learner_id')
+      .eq('id', user.id)
+      .single();
+
+    isStudent = profile?.role === 'student';
+
+    // If student, only show their own profile
+    if (isStudent && profile?.learner_id) {
+      learnerIdFilter = profile.learner_id;
+    }
+  }
+
   // Parse search parameters
   const page = Number(searchParams.page) || 1;
   const limit = Number(searchParams.pageSize) || Number(searchParams.limit) || 10; // Support both pageSize (DataTable) and limit (legacy)
@@ -76,15 +101,18 @@ async function ProfilesContent({
     gender,
     is_profile_complete,
     sortBy,
-    sortOrder
+    sortOrder,
+    learner_id: learnerIdFilter // Student filter - only see own profile
   });
 
   const parsedParams = profilesSearchParamsSchema.parse(searchParams);
 
   return (
     <>
-      {/* Filters (Client Component) */}
-      <ProfilesFilters searchParams={parsedParams} statusFilter={statusFilter as any} />
+      {/* Filters (Client Component) - Hidden for students */}
+      {!isStudent && (
+        <ProfilesFilters searchParams={parsedParams} statusFilter={statusFilter as any} />
+      )}
 
       {/* Table */}
       <ProfilesTableServer
@@ -116,13 +144,38 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
   // Await searchParams as per Next.js 16 async API
   const params = await searchParams;
 
+  // Get current user and check if student
+  const supabase = await createClient();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  let isStudent = false;
+
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    isStudent = profile?.role === 'student';
+  }
+
+  // Conditional title and breadcrumb based on role
+  const pageTitle = isStudent ? 'My Profile' : 'Learners Management';
+  const breadcrumbLabel = isStudent ? 'My Profile' : 'Learners Management';
+  const headerDescription = isStudent
+    ? 'View and manage your student profile information'
+    : 'Manage currently enrolled and active student profiles';
+
   return (
-    <ContentLayout title="Learners Management">
+    <ContentLayout title={pageTitle}>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Learners' },
-          { label: 'Learners Management' }
+          { label: breadcrumbLabel }
         ]}
       />
 
@@ -130,42 +183,55 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
-            <h1 className="text-2xl font-bold py-1">Learners Management</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
-              Manage currently enrolled and active student profiles
-            </p>
+            <h1 className="text-2xl font-bold py-1">{pageTitle}</h1>
+            <p className="text-sm sm:text-base text-muted-foreground">{headerDescription}</p>
           </div>
 
-          <div className="flex gap-2">
-            <CreateMissingProfilesButton />
-            <BulkUploadProfilesDialogEnhanced />
-            <BulkEditActiveDialog />
+          {/* Bulk actions - Hidden for students */}
+          {!isStudent && (
+            <div className="flex gap-2">
+              <CreateMissingProfilesButton />
+              <BulkUploadProfilesDialogEnhanced />
+              <BulkEditActiveDialog />
 
-            <Button variant="outline" asChild>
-              <Link href="/learners/profiles/promotion">
-                <Upload className="mr-2 h-4 w-4" />
-                Student Promotion
-              </Link>
-            </Button>
-          </div>
+              <Button variant="outline" asChild>
+                <Link href="/learners/profiles/promotion">
+                  <Upload className="mr-2 h-4 w-4" />
+                  Student Promotion
+                </Link>
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* Tabs with DataTables */}
-        <Tabs defaultValue="active" className="w-full">
-          <TabsList>
-            <TabsTrigger value="active">Active</TabsTrigger>
-            <TabsTrigger value="inactive">Inactive</TabsTrigger>
-            <TabsTrigger value="exited">Exited</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="active" className="space-y-4">
+        {/* Conditional rendering: Tabs for admins, direct content for students */}
+        {isStudent ? (
+          // Students see only their active profile (no tabs)
+          <div className="space-y-4">
             <Suspense
               key={`active-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={10} />}
+              fallback={<TableSkeleton rows={1} columns={10} />}
             >
               <ProfilesContent searchParams={params} statusFilter="active" />
             </Suspense>
-          </TabsContent>
+          </div>
+        ) : (
+          // Admins see tabs for different statuses
+          <Tabs defaultValue="active" className="w-full">
+            <TabsList>
+              <TabsTrigger value="active">Active</TabsTrigger>
+              <TabsTrigger value="inactive">Inactive</TabsTrigger>
+              <TabsTrigger value="exited">Exited</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="active" className="space-y-4">
+              <Suspense
+                key={`active-${JSON.stringify(params)}`}
+                fallback={<TableSkeleton rows={10} columns={10} />}
+              >
+                <ProfilesContent searchParams={params} statusFilter="active" />
+              </Suspense>
+            </TabsContent>
 
           <TabsContent value="inactive" className="space-y-4">
             <Suspense
@@ -185,6 +251,7 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
             </Suspense>
           </TabsContent>
         </Tabs>
+        )}
       </div>
     </ContentLayout>
   );

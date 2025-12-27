@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/card';
 import { INSTITUTIONS, DEPARTMENTS } from '@/lib/constants/permissions';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 
 const completeProfileSchema = z.object({
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -132,8 +133,15 @@ export default function CompleteProfile() {
             if (profile.role === 'guest') {
               destination = '/guest';
             } else if (profile.role === 'student') {
-              // Students are not allowed - redirect to login with message
-              destination = '/auth/login?reason=student_redirect';
+              // Check student portal feature flag
+              if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
+                // Feature disabled - block students (original behavior)
+                destination = '/auth/login?reason=student_redirect';
+              } else {
+                // Feature enabled - student already authenticated, redirect to dashboard
+                // Lifecycle validation already happened in auth callback
+                destination = '/';
+              }
             } else if (profile.role === 'driver') {
               destination = '/driver';
             }
@@ -218,8 +226,15 @@ export default function CompleteProfile() {
       if (profileData?.role === 'guest') {
         router.push('/guest');
       } else if (profileData?.role === 'student') {
-        // Students are not allowed - redirect to login with message
-        router.push('/auth/login?reason=student_redirect');
+        // Check student portal feature flag
+        if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
+          // Feature disabled - block students (original behavior)
+          router.push('/auth/login?reason=student_redirect');
+        } else {
+          // Feature enabled - student allowed, redirect to dashboard
+          // Lifecycle validation already happened in auth callback
+          router.push('/');
+        }
       } else if (profileData?.role === 'driver') {
         router.push('/driver');
       } else {

@@ -8,6 +8,7 @@ import { GraduationCap, BookOpen, Users, Award, Brain } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { BeatLoader } from 'react-spinners';
 import toast from 'react-hot-toast';
+import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 
 // Simple Educational Hero Component
 const EducationalHero = () => {
@@ -96,27 +97,40 @@ export default function LoginPage() {
           // Type cast to fix TypeScript inference after React 19 upgrade
           const profileData = profile as { role: string } | null;
 
-          // Handle student role - sign them out and stay on login page
+          // Handle student role - check feature flag
           if (profileData?.role === 'student') {
-            console.log('[Login Page] Student detected - signing out and staying on login page');
+            // Check student portal feature flag
+            if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
+              // Feature disabled - block students (original behavior)
+              console.log(
+                '[Login Page] Student portal disabled - signing out and staying on login page'
+              );
 
-            // Sign out the student
-            await supabase.auth.signOut();
+              // Sign out the student
+              await supabase.auth.signOut();
 
-            // If reason is already in URL, just stop loading and show the page
-            if (window.location.search.includes('reason=student_redirect')) {
+              // If reason is already in URL, just stop loading and show the page
+              if (window.location.search.includes('reason=student_redirect')) {
+                setIsCheckingAuth(false);
+                return;
+              }
+
+              // Add reason to URL for message display without redirecting
+              const newUrl = new URL(window.location.href);
+              newUrl.searchParams.set('reason', 'student_redirect');
+              window.history.replaceState({}, '', newUrl.toString());
+
+              // Set loading to false to show the page with the error message
               setIsCheckingAuth(false);
               return;
+            } else {
+              // Feature enabled - student is already logged in, allow them to proceed
+              // Lifecycle validation already happened in auth callback
+              console.log(
+                '[Login Page] Student portal enabled - student already authenticated, redirecting to dashboard'
+              );
+              // Continue to redirect logic below (destination will be set to '/')
             }
-
-            // Add reason to URL for message display without redirecting
-            const newUrl = new URL(window.location.href);
-            newUrl.searchParams.set('reason', 'student_redirect');
-            window.history.replaceState({}, '', newUrl.toString());
-
-            // Set loading to false to show the page with the error message
-            setIsCheckingAuth(false);
-            return;
           }
 
           // Determine destination based on role (non-students only)
@@ -191,7 +205,30 @@ export default function LoginPage() {
 
     if (reason) {
       const reasonMessages: Record<string, string> = {
-        student_redirect: 'Student accounts should use the separate MyJKKN Learners application. This portal is for administrators and staff only.',
+        student_redirect:
+          'Student accounts should use the separate MyJKKN Learners application. This portal is for administrators and staff only.',
+        // Student lifecycle status reasons
+        student_enquiry_only:
+          'Your enquiry is being processed. You will receive login access once approved.',
+        student_pending_approval:
+          'Your application is pending approval. Please wait for confirmation.',
+        student_not_enrolled:
+          'Your application is approved but enrollment is not complete. Please contact admissions.',
+        student_application_rejected:
+          'Your application has been rejected. Please contact admissions for details.',
+        student_waitlisted:
+          'You are currently on the waitlist. We will notify you when a seat becomes available.',
+        student_inactive:
+          'Your account is temporarily inactive. Please contact your institution for assistance.',
+        student_exited:
+          'Your student account has been marked as exited. Please contact your institution.',
+        student_alumni_contact_support:
+          'For alumni portal access, please contact our alumni relations office.',
+        no_student_profile: 'No student profile found. Please contact support.',
+        database_error: 'System error. Please try again later or contact support.',
+        student_blocked:
+          'Portal access is not available for your account status. Please contact support.',
+        // Other existing reasons
         exited: 'Your account has been marked as exited.',
         disabled: 'Your account has been disabled.',
         inactive: 'Your account is currently inactive.'
