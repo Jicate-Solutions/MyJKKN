@@ -2116,20 +2116,70 @@ $$;
 -- SECTION 16: PERMISSION & ROLE FUNCTIONS
 -- ================================================================================
 
--- User has permission
+-- User has permission (Multi-role support)
+-- Updated: 2025-12-27 - Check permissions through user_roles + custom_roles (multi-role system)
 CREATE OR REPLACE FUNCTION public.user_has_permission(permission_name text)
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY INVOKER
 AS $$
 BEGIN
-    -- Check if current user has the specified permission
+    -- Check if current user has the specified permission through multi-role system
+    -- Returns true if ANY of the user's assigned roles grants the permission (OR logic)
     RETURN EXISTS (
+        SELECT 1
+        FROM user_roles ur
+        INNER JOIN custom_roles cr ON ur.role_id = cr.id
+        WHERE ur.user_id = auth.uid()
+        AND (cr.permissions->permission_name)::boolean = true
+    )
+    OR
+    -- Fallback: Check legacy single-role system for backward compatibility
+    EXISTS (
         SELECT 1 FROM profiles p
         JOIN custom_roles cr ON p.role = cr.role_key
         WHERE p.id = auth.uid()
-        AND cr.permissions ? permission_name
+        AND (cr.permissions->permission_name)::boolean = true
     );
+END;
+$$;
+
+-- Get user merged permissions (Multi-role support)
+-- Created: 2025-12-27 - Returns merged permissions from all assigned roles
+CREATE OR REPLACE FUNCTION public.get_user_merged_permissions(p_user_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+    merged_permissions jsonb := '{}'::jsonb;
+    role_permissions jsonb;
+BEGIN
+    -- Merge permissions from all assigned roles using OR logic
+    -- If ANY role grants a permission, the user has it
+    FOR role_permissions IN
+        SELECT cr.permissions
+        FROM user_roles ur
+        INNER JOIN custom_roles cr ON ur.role_id = cr.id
+        WHERE ur.user_id = p_user_id
+    LOOP
+        -- Merge each role's permissions using OR logic
+        merged_permissions := jsonb_object_agg(
+            COALESCE(key, ''),
+            CASE
+                WHEN (merged_permissions->key)::boolean = true OR (role_permissions->key)::boolean = true
+                THEN true
+                ELSE false
+            END
+        )
+        FROM (
+            SELECT key FROM jsonb_object_keys(merged_permissions) AS key
+            UNION
+            SELECT key FROM jsonb_object_keys(role_permissions) AS key
+        ) AS all_keys;
+    END LOOP;
+
+    RETURN merged_permissions;
 END;
 $$;
 

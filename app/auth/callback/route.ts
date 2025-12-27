@@ -62,12 +62,16 @@ export async function GET(request: NextRequest) {
     }
 
     try {
+      // Use service role client to bypass RLS for profile check
+      // Fixed: 2025-12-27 - Prevents duplicate profile creation due to RLS blocking SELECT
+      const adminClient = createServiceRoleClient();
+
       // First check if a profile exists with this Google user ID
-      const { data: existingProfile } = (await supabase
+      const { data: existingProfile, error: profileCheckError } = (await adminClient
         .from('profiles')
         .select('profile_completed, full_name, role, institution_id, is_active')
         .eq('id', user.id)
-        .single()) as {
+        .maybeSingle()) as {
         data: {
           profile_completed: boolean | null;
           full_name: string | null;
@@ -78,11 +82,16 @@ export async function GET(request: NextRequest) {
         error: any;
       };
 
+      // Log for debugging
+      if (profileCheckError) {
+        console.error('[Auth Callback] Profile check error:', profileCheckError);
+      }
+      console.log('[Auth Callback] Profile found:', !!existingProfile, 'for user:', user.email);
+
       // If no profile with this ID, check if one exists with this email (for pre-registered or migrating users)
       let migratedProfile: Profile | null = null;
       if (!existingProfile && user.email) {
-        // Use service role client to bypass RLS for profile migration
-        const adminClient = createServiceRoleClient();
+        // adminClient already created above
 
         const { data: emailProfile } = (await adminClient
           .from('profiles')
@@ -158,42 +167,76 @@ export async function GET(request: NextRequest) {
               `Found existing profile by email for ${user.email}, migrating to Google auth`
             );
 
-            // Create a new profile with the Google auth user ID using admin client (preserving all fields)
-            const legacyProfileData = {
-              id: user.id,
-              email: emailProfile.email ?? null,
-              full_name: emailProfile.full_name ?? null,
-              role: emailProfile.role,
-              phone_number: emailProfile.phone_number ?? null,
-              institution_id: emailProfile.institution_id ?? null,
-              department_id: emailProfile.department_id ?? null,
-              gender: emailProfile.gender ?? null,
-              designation: emailProfile.designation ?? null,
-              profile_completed: emailProfile.profile_completed ?? false,
-              is_active: emailProfile.is_active ?? true,
-              is_pre_registered: false,
-              bio: emailProfile.bio ?? null,
-              avatar_url: emailProfile.avatar_url ?? null
-            };
+            try {
+              // Step 1: Save user_roles for migration (if they exist)
+              const { data: userRoles } = await adminClient
+                .from('user_roles')
+                .select('*')
+                .eq('user_id', emailProfile.id);
 
-            const { error: insertError } = (await adminClient
-              .from('profiles')
-              .insert(legacyProfileData as any)) as { error: any };
+              console.log(`Found ${userRoles?.length || 0} user role(s) to migrate`);
 
-            if (!insertError) {
-              // Mark the old profile as inactive using admin client
-              const { error: updateOldProfileError } = (await (
-                adminClient as any
-              )
+              // Step 2: Delete the old profile to avoid unique constraint violation
+              // This will cascade delete user_roles due to foreign key constraint
+              console.log(`Deleting old profile with ID: ${emailProfile.id}`);
+              const { error: deleteError } = await adminClient
                 .from('profiles')
-                .update({ is_active: false })
-                .eq('id', emailProfile.id)) as { error: any };
+                .delete()
+                .eq('id', emailProfile.id);
 
-              if (updateOldProfileError) {
-                console.error(
-                  `Failed to deactivate old profile:`,
-                  updateOldProfileError
-                );
+              if (deleteError) {
+                console.error('Delete old profile failed:', deleteError);
+                throw deleteError;
+              }
+
+              // Step 3: Create new profile with Google auth user ID (preserving all fields)
+              const legacyProfileData = {
+                id: user.id,
+                email: emailProfile.email ?? null,
+                full_name: emailProfile.full_name ?? null,
+                role: emailProfile.role,
+                phone_number: emailProfile.phone_number ?? null,
+                institution_id: emailProfile.institution_id ?? null,
+                department_id: emailProfile.department_id ?? null,
+                gender: emailProfile.gender ?? null,
+                designation: emailProfile.designation ?? null,
+                profile_completed: emailProfile.profile_completed ?? false,
+                is_active: emailProfile.is_active ?? true,
+                is_pre_registered: false,
+                bio: emailProfile.bio ?? null,
+                avatar_url: emailProfile.avatar_url ?? null
+              };
+
+              console.log(`Creating new profile with Google auth ID: ${user.id}`);
+              const { error: insertError } = await adminClient
+                .from('profiles')
+                .insert(legacyProfileData as any);
+
+              if (insertError) {
+                console.error('Insert new profile failed:', insertError);
+                throw insertError;
+              }
+
+              // Step 4: Recreate user_roles for new profile (if they existed)
+              if (userRoles && userRoles.length > 0) {
+                console.log(`Recreating ${userRoles.length} user role(s) for new profile`);
+
+                const newUserRoles = userRoles.map((role: any) => ({
+                  user_id: user.id, // New Google auth user ID
+                  role_id: role.role_id,
+                  is_primary: role.is_primary,
+                  assigned_by: role.assigned_by,
+                  assigned_at: role.assigned_at
+                }));
+
+                const { error: rolesInsertError } = await adminClient
+                  .from('user_roles')
+                  .insert(newUserRoles);
+
+                if (rolesInsertError) {
+                  console.error('Failed to recreate user_roles:', rolesInsertError);
+                  // Don't fail the whole migration if roles fail
+                }
               }
 
               migratedProfile = {
@@ -203,13 +246,15 @@ export async function GET(request: NextRequest) {
               };
 
               console.log(
-                `Successfully migrated profile for ${user.email} to Google auth`
+                `✓ Successfully migrated profile for ${user.email} to Google auth`
               );
-            } else {
+            } catch (migrationError) {
               console.error(
-                `Failed to migrate profile for ${user.email}:`,
-                insertError
+                `❌ Profile migration failed for ${user.email}:`,
+                migrationError
               );
+              // Migration failed - user needs to complete profile manually
+              migratedProfile = null;
             }
           }
         }
@@ -244,7 +289,8 @@ export async function GET(request: NextRequest) {
         }
       };
 
-      // If no profile exists, create one
+      // If no profile exists, create one using admin client to bypass RLS
+      // Fixed: 2025-12-27 - Use service role client to prevent RLS policy violations
       if (!actualProfile) {
         const newProfile = {
           id: user.id,
@@ -254,9 +300,13 @@ export async function GET(request: NextRequest) {
           is_active: true
         };
 
-        const insertQuery: any = supabase.from('profiles');
-        const { error: insertError } = await insertQuery.insert([newProfile]);
-        if (insertError) throw insertError;
+        const { error: insertError } = await adminClient
+          .from('profiles')
+          .insert([newProfile]);
+        if (insertError) {
+          console.error('[Auth Callback] Profile creation failed:', insertError);
+          throw insertError;
+        }
 
         // Log login activity for new user
         await logLoginActivity(newProfile);

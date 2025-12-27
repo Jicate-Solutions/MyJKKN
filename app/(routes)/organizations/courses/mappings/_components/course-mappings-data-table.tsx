@@ -40,6 +40,8 @@ export function CourseMappingsDataTable({
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.course.mappings', 'create');
+  const canDelete =
+    isSuperAdmin || canAccess('organizations.course.mappings', 'delete');
 
   const fetchData = async (params: {
     page: number;
@@ -161,7 +163,8 @@ export function CourseMappingsDataTable({
         </Button>
       )}
 
-      {props.selectedRows.length > 0 && (
+      {/* Fixed: 2025-12-27 - Only show bulk delete if user has delete permission */}
+      {props.selectedRows.length > 0 && canDelete && (
         <Button
           onClick={() =>
             handleBulkDelete(
