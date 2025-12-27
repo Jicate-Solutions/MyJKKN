@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import { corsHeaders } from '@/lib/cors';
 import { createHash } from 'crypto';
 
+
 export async function GET(request: NextRequest) {
   try {
     // Add CORS headers to response

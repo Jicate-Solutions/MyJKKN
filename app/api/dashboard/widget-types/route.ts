@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
+
 // GET /api/dashboard/widget-types - Get available widget types
 export async function GET(request: NextRequest) {
   try {

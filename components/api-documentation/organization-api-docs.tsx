@@ -32,7 +32,7 @@ const endpoints = [
         description: 'Filter by active status'
       }
     ],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/organizations/institutions', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/organizations/institutions', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
@@ -44,7 +44,7 @@ const endpoints = [
     method: 'GET',
     path: '/api/api-management/organizations/institutions/:id',
     description: 'Get institution details with departments',
-    example: `fetch('https://myjkkn.ac.in/api/api-management/organizations/institutions/123', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/organizations/institutions/123', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
@@ -75,7 +75,7 @@ const endpoints = [
         description: 'Filter by active status'
       }
     ],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/organizations/departments', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/organizations/departments', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
@@ -87,7 +87,7 @@ const endpoints = [
     method: 'GET',
     path: '/api/api-management/organizations/departments/:id',
     description: 'Get department details with institution info',
-    example: `fetch('https://myjkkn.ac.in/api/api-management/organizations/departments/123', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/organizations/departments/123', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
@@ -102,7 +102,7 @@ const endpoints = [
     queryParams: [
       { name: 'isActive', type: 'boolean', description: 'Filter by active status (optional)' }
     ],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/organizations/institutions/names', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/organizations/institutions/names', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }

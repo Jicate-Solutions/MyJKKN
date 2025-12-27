@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/client';
 
+
 export async function GET(request: Request) {
   try {
     const supabase = createAdminClient();

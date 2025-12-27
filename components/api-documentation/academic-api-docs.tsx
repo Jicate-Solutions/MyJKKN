@@ -40,7 +40,7 @@ const endpoints = [
         description: 'Items per page (default: 50, max: 200)'
       }
     ],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/academic/regulations?regulation_year=2024&limit=10', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/academic/regulations?regulation_year=2024&limit=10', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
@@ -53,7 +53,7 @@ const endpoints = [
     path: '/api/api-management/academic/regulations/:id',
     description: 'Get detailed information for a specific regulation',
     queryParams: [],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/academic/regulations/{id}', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/academic/regulations/{id}', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
@@ -87,7 +87,7 @@ const endpoints = [
         description: 'Items per page (default: 50, max: 200)'
       }
     ],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/academic/batches?batch_year=2024&limit=10', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/academic/batches?batch_year=2024&limit=10', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
@@ -100,7 +100,7 @@ const endpoints = [
     path: '/api/api-management/academic/batches/:id',
     description: 'Get detailed information for a specific batch',
     queryParams: [],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/academic/batches/{id}', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/academic/batches/{id}', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }

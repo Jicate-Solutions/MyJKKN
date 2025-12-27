@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
+
 // Placeholder for server-side authentication check
 async function checkAuth() {
   // Implement your actual server-side authentication/authorization logic here
