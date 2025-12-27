@@ -1,6 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { UserService } from '@/lib/services/users/user-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { StudentWidgetService } from '@/lib/services/dashboard/student-widget-service';
 import {
   DashboardConfiguration,
   DashboardWidget,
@@ -335,6 +336,17 @@ export class DashboardService {
           );
         case 'system':
           return await this.getSystemWidgetData(widgetType.widget_key, config);
+        // Student-specific widget data sources
+        case 'student_profile':
+        case 'student_attendance':
+        case 'student_billing':
+        case 'student_timetable':
+        case 'student_results':
+        case 'student_announcements':
+          return await this.getStudentPortalWidgetData(
+            widgetType.widget_key,
+            config
+          );
         default:
           throw new Error(`Unknown data source: ${widgetType.data_source}`);
       }
@@ -683,6 +695,37 @@ export class DashboardService {
     } catch (error) {
       console.error('Error creating default configuration:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Fetch student portal widget data via API
+   * Student widgets require server-side data fetching with user context
+   */
+  private static async getStudentPortalWidgetData(
+    widgetKey: string,
+    config: Record<string, any>
+  ): Promise<WidgetData> {
+    try {
+      const configParam = encodeURIComponent(JSON.stringify(config));
+      const response = await fetch(
+        `/api/dashboard/student-widgets?widget_key=${widgetKey}&config=${configParam}`
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch student widget data');
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error(`Error fetching student widget ${widgetKey}:`, error);
+      return {
+        value: 'Error',
+        label: 'Failed to load',
+        additionalInfo: {}
+      };
     }
   }
 }

@@ -6,6 +6,8 @@ import { Database } from '@/types/supabase';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { Profile } from '@/types/auth';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
+import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 
 
 export async function GET(request: NextRequest) {
@@ -338,7 +340,29 @@ export async function GET(request: NextRequest) {
       if (actualProfile.role === 'guest') {
         destination = '/guest';
       } else if (actualProfile.role === 'student') {
-        destination = '/auth/login?reason=student_redirect';
+        // Check student portal feature flag
+        if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
+          // Feature disabled - block students (original behavior)
+          destination = '/auth/login?reason=student_redirect';
+        } else {
+          // Feature enabled - validate student lifecycle status
+          const validation = await StudentValidationService.validateStudentAccess(user.id);
+
+          if (!validation.allowed) {
+            // Student blocked due to lifecycle status - sign out and show error
+            await supabase.auth.signOut();
+            destination = `/auth/login?reason=${validation.reason}`;
+          } else {
+            // Student allowed - redirect to dashboard
+            destination = '/';
+            console.log(
+              '[Auth Callback] Student access granted:',
+              validation.status,
+              'user:',
+              user.id
+            );
+          }
+        }
       } else if (actualProfile.role === 'driver') {
         destination = '/driver';
       }

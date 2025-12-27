@@ -60,6 +60,25 @@ export const FEATURE_FLAGS = {
    * Unified lifecycle funnel and insights
    */
   LEARNERS_ANALYTICS: process.env.NEXT_PUBLIC_LEARNERS_ANALYTICS === 'true',
+
+  // ============================================
+  // STUDENT PORTAL ACCESS (Added: 2025-12-27)
+  // ============================================
+  /**
+   * Student Portal Access
+   * Controls whether students can login to the main MyJKKN portal
+   *
+   * When false: Students are blocked at login (original behavior)
+   * When true: Students with 'active' or 'graduated' lifecycle status can access
+   *
+   * Rollout Strategy:
+   * - Development: true (for testing)
+   * - Staging: true (for UAT)
+   * - Production: false → true (phased rollout)
+   *
+   * Security: Validated at authentication layer with lifecycle status checks
+   */
+  ENABLE_STUDENT_PORTAL: process.env.NEXT_PUBLIC_ENABLE_STUDENT_PORTAL === 'true',
 } as const;
 
 // ============================================
@@ -95,6 +114,13 @@ export function hasAnyLearnerModuleEnabled(): boolean {
 }
 
 /**
+ * Check if student portal access is enabled
+ */
+export function isStudentPortalEnabled(): boolean {
+  return FEATURE_FLAGS.ENABLE_STUDENT_PORTAL;
+}
+
+/**
  * Get feature flag status for admin panel
  */
 export function getFeatureFlagStatus() {
@@ -107,6 +133,7 @@ export function getFeatureFlagStatus() {
       alumni: FEATURE_FLAGS.LEARNERS_ALUMNI,
       analytics: FEATURE_FLAGS.LEARNERS_ANALYTICS,
     },
+    studentPortal: FEATURE_FLAGS.ENABLE_STUDENT_PORTAL,
     allEnabled: Object.values(FEATURE_FLAGS).every((flag) => flag === true),
     anyEnabled: hasAnyLearnerModuleEnabled(),
   };

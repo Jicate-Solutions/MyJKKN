@@ -618,8 +618,13 @@ export class LearnerProfileService {
   /**
    * Bulk delete learner profiles
    * Returns success and failed deletions for partial failure handling
+   * @param ids - Array of learner profile IDs to delete
+   * @param onProgress - Optional callback to report progress (current, total, currentId)
    */
-  static async bulkDeleteLearnerProfiles(ids: string[]): Promise<{
+  static async bulkDeleteLearnerProfiles(
+    ids: string[],
+    onProgress?: (current: number, total: number, currentId: string) => void
+  ): Promise<{
     success: string[];
     failed: { id: string; error: string }[];
   }> {
@@ -627,7 +632,14 @@ export class LearnerProfileService {
     const failed: { id: string; error: string }[] = [];
 
     // Process deletions sequentially
-    for (const id of ids) {
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+
+      // Report progress
+      if (onProgress) {
+        onProgress(i + 1, ids.length, id);
+      }
+
       try {
         await this.deleteLearnerProfile(id);
         success.push(id);

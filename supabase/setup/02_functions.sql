@@ -2768,3 +2768,140 @@ STABLE
 AS $$
     SELECT institution_id FROM profiles WHERE id = auth.uid()
 $$;
+
+-- ================================================================================
+-- SECTION: STUDENT ROLE MANAGEMENT
+-- Added: 2025-12-27 - Functions for managing student system role
+-- ================================================================================
+
+-- Ensure student system role exists (global, not per-institution)
+-- Returns the student role ID, creating it if it doesn't exist
+CREATE OR REPLACE FUNCTION public.ensure_student_role()
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_student_role_id UUID;
+    v_default_permissions JSONB;
+BEGIN
+    -- Check if student role exists
+    SELECT id INTO v_student_role_id
+    FROM custom_roles
+    WHERE role_key = 'student'
+    AND is_system_role = true;
+
+    -- If exists, return the ID
+    IF v_student_role_id IS NOT NULL THEN
+        RETURN v_student_role_id;
+    END IF;
+
+    -- Create default student permissions
+    v_default_permissions := jsonb_build_object(
+        -- Core Access
+        'view_dashboard', true,
+        'profile.view', true,
+        'profile.edit', true,
+
+        -- Self-View Modules (RLS enforced to own records)
+        'learners.view', true,
+        'billing.view', true,
+        'billing.receipts.view', true,
+        'billing.invoices.view', true,
+        'academic.view', true,
+        'academic.timetables.view', true,
+        'academic.attendance.view', true,
+
+        -- Resources (read-only)
+        'resources.digital.view', true,
+        'resources.physical.view', true,
+
+        -- Service Requests
+        'service_requests.view', true,
+        'service_requests.create', true,
+
+        -- All other permissions default to false
+        'learners.create', false,
+        'learners.edit', false,
+        'learners.delete', false,
+        'billing.edit', false,
+        'billing.create', false,
+        'billing.delete', false,
+        'academic.edit', false,
+        'academic.create', false,
+        'organizations.view', false,
+        'staff.view', false,
+        'users.view', false,
+        'users.manage', false
+    );
+
+    -- Create the student role (global system role)
+    INSERT INTO custom_roles (
+        role_key,
+        role_name,
+        description,
+        permissions,
+        is_system_role
+    ) VALUES (
+        'student',
+        'Student',
+        'Default role for enrolled students with view-only access to their own records. Enforced by RLS policies.',
+        v_default_permissions,
+        true
+    )
+    RETURNING id INTO v_student_role_id;
+
+    RAISE NOTICE 'Created student system role with ID: %', v_student_role_id;
+
+    RETURN v_student_role_id;
+END;
+$$;
+
+COMMENT ON FUNCTION ensure_student_role IS 'Creates or returns the global student system role. Called during student account creation and system initialization.';
+
+-- ============================================
+-- SECTION 20: PROFILE-LEARNER LINKING FUNCTIONS
+-- Added: 2025-12-27
+-- ============================================
+
+-- Function: Manually link existing profiles to approved learners
+-- Purpose: Run this to link existing user profiles to approved learners with matching emails
+-- Usage: SELECT * FROM link_existing_profiles_to_approved_learners();
+CREATE OR REPLACE FUNCTION public.link_existing_profiles_to_approved_learners()
+RETURNS TABLE (
+    profile_id UUID,
+    learner_id UUID,
+    email TEXT,
+    status TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH updated_profiles AS (
+        UPDATE profiles p
+        SET
+            learner_id = lp.id,
+            institution_id = COALESCE(p.institution_id, lp.institution_id),
+            department_id = COALESCE(p.department_id, lp.department_id),
+            role = COALESCE(p.role, 'student'),
+            full_name = COALESCE(
+                NULLIF(p.full_name, ''),
+                TRIM(CONCAT(lp.first_name, ' ', COALESCE(lp.last_name, '')))
+            ),
+            updated_at = NOW()
+        FROM learners_profiles lp
+        WHERE p.learner_id IS NULL
+        AND p.email IS NOT NULL
+        AND LOWER(p.email) = LOWER(lp.college_email)
+        AND lp.lifecycle_status IN ('approved', 'active')
+        RETURNING p.id, lp.id as l_id, p.email, 'linked' as status
+    )
+    SELECT id, l_id, email, status FROM updated_profiles;
+END;
+$$;
+
+COMMENT ON FUNCTION link_existing_profiles_to_approved_learners IS
+'Manually links existing profiles to approved learners with matching emails. Includes institution_id and department_id from learner. Run after migration or periodically to sync existing data.';
