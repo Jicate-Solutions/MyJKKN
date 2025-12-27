@@ -473,7 +473,7 @@ BEGIN
     -- Only proceed if this is a NEW profile without learner_id
     IF TG_OP = 'INSERT' AND NEW.learner_id IS NULL AND NEW.email IS NOT NULL THEN
 
-        -- Check if there's an approved learner with matching college_email
+        -- Check if there's an approved/active/graduated learner with matching college_email
         SELECT
             id,
             first_name,
@@ -484,10 +484,10 @@ BEGIN
         INTO v_learner_record
         FROM learners_profiles
         WHERE LOWER(college_email) = LOWER(NEW.email)
-        AND lifecycle_status IN ('approved', 'active')
+        AND lifecycle_status IN ('approved', 'active', 'graduated')
         LIMIT 1;
 
-        -- If approved learner found, link it to this profile
+        -- If learner found, link it to this profile
         IF v_learner_record.id IS NOT NULL THEN
 
             -- Build full name from learner if not set
@@ -504,7 +504,8 @@ BEGIN
             NEW.full_name := v_full_name;
             NEW.profile_completed := true;
 
-            RAISE NOTICE 'Auto-linked new profile to approved learner: % (email: %)', v_learner_record.id, NEW.email;
+            RAISE NOTICE 'Auto-linked new profile to learner: % (email: %, status: %)',
+                v_learner_record.id, NEW.email, v_learner_record.lifecycle_status;
         END IF;
     END IF;
 
@@ -513,7 +514,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION auto_link_profile_to_approved_learner IS
-'Auto-links new user profiles to approved learners with matching email. Sets institution_id, department_id, role=student.';
+'Auto-links new user profiles to approved/active/graduated learners with matching email. Sets institution_id, department_id, role=student.';
 
 -- Create trigger on profiles table
 DROP TRIGGER IF EXISTS trigger_auto_link_profile_to_approved_learner ON public.profiles;

@@ -27,6 +27,10 @@ export default async function DashboardPage({
 }: DashboardPageProps) {
   const params = await searchParams;
 
+  // Log dashboard page access
+  console.log('[Dashboard Page] 🏠 Dashboard page loaded');
+  console.log('[Dashboard Page] Search params:', params);
+
   return (
     <ContentLayout title='Dashboard'>
       <div className='space-y-3 sm:space-y-4 lg:space-y-6 px-1 sm:px-2 lg:px-4'>

@@ -17,7 +17,7 @@ BEGIN
     -- Only proceed if this is a NEW profile without learner_id
     IF TG_OP = 'INSERT' AND NEW.learner_id IS NULL AND NEW.email IS NOT NULL THEN
 
-        -- Check if there's an approved learner with matching college_email
+        -- Check if there's an approved/active/graduated learner with matching college_email
         SELECT
             id,
             first_name,
@@ -28,7 +28,7 @@ BEGIN
         INTO v_learner_record
         FROM learners_profiles
         WHERE LOWER(college_email) = LOWER(NEW.email)
-        AND lifecycle_status IN ('approved', 'active') -- Link to approved OR active learners
+        AND lifecycle_status IN ('approved', 'active', 'graduated') -- Link to approved, active, or graduated learners
         LIMIT 1;
 
         -- If approved learner found, link it to this profile
@@ -98,7 +98,7 @@ BEGIN
         WHERE p.learner_id IS NULL
         AND p.email IS NOT NULL
         AND LOWER(p.email) = LOWER(lp.college_email)
-        AND lp.lifecycle_status IN ('approved', 'active')
+        AND lp.lifecycle_status IN ('approved', 'active', 'graduated')
         RETURNING p.id, lp.id as l_id, p.email, 'linked' as status
     )
     SELECT id, l_id, email, status FROM updated_profiles;
