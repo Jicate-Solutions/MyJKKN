@@ -35,17 +35,27 @@ export class StudentValidationService {
    */
   static async validateStudentAccess(userId: string): Promise<StudentValidationResult> {
     try {
+      console.log('[StudentValidation] 🔍 Starting validation for user:', userId);
       const adminClient = createServiceRoleClient();
 
       // Get learner_id from profile
+      console.log('[StudentValidation] Querying profiles table...');
       const { data: profile, error: profileError } = await adminClient
         .from('profiles')
-        .select('learner_id')
+        .select('learner_id, role, email, full_name')
         .eq('id', userId)
         .maybeSingle();
 
+      console.log('[StudentValidation] Profile query result:', {
+        found: !!profile,
+        learner_id: profile?.learner_id,
+        role: profile?.role,
+        email: profile?.email,
+        error: profileError
+      });
+
       if (profileError) {
-        console.error('[StudentValidation] Profile query error:', profileError);
+        console.error('[StudentValidation] ❌ Profile query error:', profileError);
         return {
           allowed: false,
           reason: 'database_error',
@@ -54,7 +64,8 @@ export class StudentValidationService {
       }
 
       if (!profile || !profile.learner_id) {
-        console.warn('[StudentValidation] No learner profile found for user:', userId);
+        console.warn('[StudentValidation] ⚠️ No learner_id found for user:', userId);
+        console.warn('[StudentValidation] Profile data:', profile);
         return {
           allowed: false,
           reason: 'no_student_profile',
@@ -63,14 +74,23 @@ export class StudentValidationService {
       }
 
       // Query learners_profiles for lifecycle status
+      console.log('[StudentValidation] Querying learners_profiles for learner_id:', profile.learner_id);
       const { data: learnerProfile, error: learnerError } = await adminClient
         .from('learners_profiles')
-        .select('lifecycle_status, id, first_name, last_name')
+        .select('lifecycle_status, id, first_name, last_name, roll_number')
         .eq('id', profile.learner_id)
         .maybeSingle();
 
+      console.log('[StudentValidation] Learner profile query result:', {
+        found: !!learnerProfile,
+        lifecycle_status: learnerProfile?.lifecycle_status,
+        name: learnerProfile ? `${learnerProfile.first_name} ${learnerProfile.last_name}` : null,
+        roll_number: learnerProfile?.roll_number,
+        error: learnerError
+      });
+
       if (learnerError) {
-        console.error('[StudentValidation] Learner profile query error:', learnerError);
+        console.error('[StudentValidation] ❌ Learner profile query error:', learnerError);
         return {
           allowed: false,
           reason: 'database_error',
@@ -79,7 +99,7 @@ export class StudentValidationService {
       }
 
       if (!learnerProfile) {
-        console.warn('[StudentValidation] Learner profile not found for learner_id:', profile.learner_id);
+        console.warn('[StudentValidation] ⚠️ Learner profile not found for learner_id:', profile.learner_id);
         return {
           allowed: false,
           reason: 'no_student_profile',
@@ -90,8 +110,10 @@ export class StudentValidationService {
       const allowedStatuses: LifecycleStatus[] = ['active', 'graduated'];
       const status = learnerProfile.lifecycle_status as LifecycleStatus;
 
+      console.log('[StudentValidation] Checking status:', status, 'against allowed:', allowedStatuses);
+
       if (!allowedStatuses.includes(status)) {
-        console.log('[StudentValidation] Student blocked - status:', status, 'user:', userId);
+        console.log('[StudentValidation] ❌ Student BLOCKED - status:', status, 'user:', userId);
         return {
           allowed: false,
           reason: this.getBlockedReasonCode(status),
@@ -101,14 +123,12 @@ export class StudentValidationService {
       }
 
       // Student is allowed
-      console.log(
-        '[StudentValidation] Student allowed - status:',
-        status,
-        'user:',
-        userId,
-        'name:',
-        `${learnerProfile.first_name} ${learnerProfile.last_name}`
-      );
+      console.log('[StudentValidation] ✅ Student ALLOWED');
+      console.log('[StudentValidation] Status:', status);
+      console.log('[StudentValidation] User:', userId);
+      console.log('[StudentValidation] Name:', `${learnerProfile.first_name} ${learnerProfile.last_name}`);
+      console.log('[StudentValidation] Roll Number:', learnerProfile.roll_number);
+
       return {
         allowed: true,
         reason: 'access_granted',
@@ -116,7 +136,7 @@ export class StudentValidationService {
         isGraduated: status === 'graduated',
       };
     } catch (error) {
-      console.error('[StudentValidation] Unexpected error:', error);
+      console.error('[StudentValidation] ❌ Unexpected error:', error);
       return {
         allowed: false,
         reason: 'database_error',

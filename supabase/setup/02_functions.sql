@@ -2896,10 +2896,10 @@ BEGIN
         WHERE p.learner_id IS NULL
         AND p.email IS NOT NULL
         AND LOWER(p.email) = LOWER(lp.college_email)
-        AND lp.lifecycle_status IN ('approved', 'active')
-        RETURNING p.id, lp.id as l_id, p.email, 'linked' as status
+        AND lp.lifecycle_status IN ('approved', 'active', 'graduated')
+        RETURNING p.id as profile_id, lp.id as learner_id, p.email as email, 'linked'::text as status
     )
-    SELECT id, l_id, email, status FROM updated_profiles;
+    SELECT * FROM updated_profiles;
 END;
 $$;
 

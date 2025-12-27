@@ -4,11 +4,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { GoogleOneTap } from '@/components/auth/google-one-tap';
-import { GraduationCap, BookOpen, Users, Award, Brain } from 'lucide-react';
+import { GraduationCap, BookOpen, Users, Award, Brain, AlertTriangle, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { BeatLoader } from 'react-spinners';
 import toast from 'react-hot-toast';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 // Simple Educational Hero Component
 const EducationalHero = () => {
@@ -41,6 +42,8 @@ const EducationalHero = () => {
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [accessDeniedMessage, setAccessDeniedMessage] = useState<string | null>(null);
+  const [accessDeniedTitle, setAccessDeniedTitle] = useState<string>('Access Denied');
 
   const router = useRouter();
 
@@ -233,7 +236,37 @@ export default function LoginPage() {
         disabled: 'Your account has been disabled.',
         inactive: 'Your account is currently inactive.'
       };
-      toast.error(reasonMessages[reason] || `Access restricted: ${reason}`);
+
+      const reasonTitles: Record<string, string> = {
+        student_redirect: 'Access Restricted - Student Portal',
+        student_enquiry_only: 'Account Pending',
+        student_pending_approval: 'Account Pending Approval',
+        student_not_enrolled: 'Enrollment Incomplete',
+        student_application_rejected: 'Application Rejected',
+        student_waitlisted: 'On Waitlist',
+        student_inactive: 'Account Inactive',
+        student_exited: 'Account Exited',
+        student_alumni_contact_support: 'Alumni Access',
+        no_student_profile: 'Profile Not Found',
+        database_error: 'System Error',
+        student_blocked: 'Access Blocked',
+        exited: 'Account Exited',
+        disabled: 'Account Disabled',
+        inactive: 'Account Inactive'
+      };
+
+      const message = reasonMessages[reason] || `Access restricted: ${reason}`;
+      const title = reasonTitles[reason] || 'Access Denied';
+
+      // Set persistent alert message
+      setAccessDeniedMessage(message);
+      setAccessDeniedTitle(title);
+
+      // Also show toast
+      toast.error(message, {
+        duration: 6000, // 6 seconds
+        position: 'top-center',
+      });
     }
   }, []);
 
@@ -362,6 +395,17 @@ export default function LoginPage() {
                 Sign in to access your learning portal
               </p>
             </div>
+
+            {/* Access Denied Alert */}
+            {accessDeniedMessage && (
+              <Alert variant="destructive" className="border-red-600 dark:border-red-800">
+                <XCircle className="h-5 w-5" />
+                <AlertTitle className="text-base font-semibold">{accessDeniedTitle}</AlertTitle>
+                <AlertDescription className="text-sm mt-2">
+                  {accessDeniedMessage}
+                </AlertDescription>
+              </Alert>
+            )}
 
             {/* Google Sign In */}
             <div className='space-y-4'>

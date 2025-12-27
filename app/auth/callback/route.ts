@@ -16,8 +16,14 @@ export async function GET(request: NextRequest) {
     const code = requestUrl.searchParams.get('code');
     const origin = requestUrl.origin;
 
+    console.log('[Auth Callback] 🔐 Auth callback initiated');
+    console.log('[Auth Callback] Request URL:', requestUrl.toString());
+    console.log('[Auth Callback] Origin:', origin);
+    console.log('[Auth Callback] Has code:', !!code);
+
     // Early return if no code
     if (!code) {
+      console.log('[Auth Callback] ❌ No auth code provided, redirecting to login');
       return NextResponse.redirect(
         new URL(`/auth/login?error=no_code`, origin)
       );
@@ -43,25 +49,31 @@ export async function GET(request: NextRequest) {
     );
 
     // Exchange code for session
+    console.log('[Auth Callback] Exchanging code for session...');
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
       code
     );
     if (exchangeError) {
+      console.log('[Auth Callback] ❌ Code exchange failed:', exchangeError);
       return NextResponse.redirect(
         new URL(`/auth/login?error=exchange`, origin)
       );
     }
+    console.log('[Auth Callback] ✅ Code exchange successful');
 
     // Get user
+    console.log('[Auth Callback] Getting user session...');
     const {
       data: { user },
       error: userError
     } = await supabase.auth.getUser();
     if (userError || !user) {
+      console.log('[Auth Callback] ❌ Failed to get user:', userError);
       return NextResponse.redirect(
         new URL(`/auth/login?error=session`, origin)
       );
     }
+    console.log('[Auth Callback] ✅ User authenticated:', user.id, user.email);
 
     try {
       // Use service role client to bypass RLS for profile check
@@ -337,36 +349,56 @@ export async function GET(request: NextRequest) {
 
       // If profile exists and is completed, redirect based on role
       let destination = '/';
+      console.log('[Auth Callback] Profile role:', actualProfile.role, 'user:', user.id, 'email:', user.email);
+
       if (actualProfile.role === 'guest') {
         destination = '/guest';
+        console.log('[Auth Callback] Guest role detected, redirecting to:', destination);
       } else if (actualProfile.role === 'student') {
+        console.log('[Auth Callback] Student role detected');
+        console.log('[Auth Callback] Student portal feature flag:', FEATURE_FLAGS.ENABLE_STUDENT_PORTAL);
+
         // Check student portal feature flag
         if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
           // Feature disabled - block students (original behavior)
           destination = '/auth/login?reason=student_redirect';
+          console.log('[Auth Callback] Student portal disabled, blocking access');
         } else {
+          console.log('[Auth Callback] Student portal enabled, validating access...');
+
           // Feature enabled - validate student lifecycle status
           const validation = await StudentValidationService.validateStudentAccess(user.id);
 
+          console.log('[Auth Callback] Validation result:', {
+            allowed: validation.allowed,
+            reason: validation.reason,
+            status: validation.status,
+            isGraduated: validation.isGraduated
+          });
+
           if (!validation.allowed) {
             // Student blocked due to lifecycle status - sign out and show error
+            console.log('[Auth Callback] Student blocked, reason:', validation.reason);
             await supabase.auth.signOut();
             destination = `/auth/login?reason=${validation.reason}`;
+            console.log('[Auth Callback] Signed out student, redirecting to:', destination);
           } else {
             // Student allowed - redirect to dashboard
             destination = '/';
-            console.log(
-              '[Auth Callback] Student access granted:',
-              validation.status,
-              'user:',
-              user.id
-            );
+            console.log('[Auth Callback] ✅ Student access GRANTED');
+            console.log('[Auth Callback] Student status:', validation.status);
+            console.log('[Auth Callback] Redirecting to dashboard:', destination);
           }
         }
       } else if (actualProfile.role === 'driver') {
         destination = '/driver';
+        console.log('[Auth Callback] Driver role detected, redirecting to:', destination);
+      } else {
+        console.log('[Auth Callback] Other role detected:', actualProfile.role, 'redirecting to:', destination);
       }
 
+      console.log('[Auth Callback] 🎯 Final redirect destination:', destination);
+      console.log('[Auth Callback] Full redirect URL:', new URL(destination, origin).toString());
       return NextResponse.redirect(new URL(destination, origin));
     } catch (dbError) {
       return NextResponse.redirect(new URL('/auth/complete-profile', origin));

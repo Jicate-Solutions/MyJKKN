@@ -4,6 +4,8 @@ import type { NextRequest } from 'next/server';
 import { PROTECTED_ROUTES } from './lib/auth/protected-routes';
 import { profileCache } from './lib/auth/profile-cache';
 import { routeMatcher } from './lib/auth/route-matcher';
+import { FEATURE_FLAGS } from './lib/config/feature-flags';
+import { StudentValidationService } from './lib/services/auth/student-validation-service';
 
 // Define public paths - optimized with Set for O(1) lookup
 const PUBLIC_PATHS_SET = new Set([
@@ -177,36 +179,69 @@ export async function proxy(request: NextRequest) {
       return response;
     }
 
-    // Student Role Access Control - Students are not allowed to access this application
+    // Student Role Access Control
     if (profile.role === 'student') {
-      // If already on login page, don't redirect to avoid infinite loop
-      if (currentPath === '/auth/login') {
-        // Just sign out the user and let them stay on login page
-        const response = NextResponse.next();
+      console.log('[Proxy] 🎓 Student detected:', user.id, 'path:', currentPath);
+      console.log('[Proxy] Feature flag ENABLE_STUDENT_PORTAL:', FEATURE_FLAGS.ENABLE_STUDENT_PORTAL);
 
-        // Clear all auth cookies
-        response.cookies.delete('sb-access-token');
-        response.cookies.delete('sb-refresh-token');
+      // Check feature flag first
+      if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
+        // Feature disabled - block all students (original behavior)
+        console.log('[Proxy] ❌ Student portal DISABLED - blocking student');
 
-        // Sign out from Supabase
+        if (currentPath === '/auth/login') {
+          const response = NextResponse.next();
+          response.cookies.delete('sb-access-token');
+          response.cookies.delete('sb-refresh-token');
+          await supabase.auth.signOut();
+          return response;
+        }
+
+        const studentBlockedResponse = NextResponse.redirect(
+          new URL('/auth/login?reason=student_redirect', request.url)
+        );
+        studentBlockedResponse.cookies.delete('sb-access-token');
+        studentBlockedResponse.cookies.delete('sb-refresh-token');
         await supabase.auth.signOut();
+        return studentBlockedResponse;
+      } else {
+        // Feature enabled - validate student lifecycle status
+        console.log('[Proxy] ✅ Student portal ENABLED - validating access...');
 
-        return response;
+        const validation = await StudentValidationService.validateStudentAccess(user.id);
+
+        console.log('[Proxy] Validation result:', {
+          allowed: validation.allowed,
+          reason: validation.reason,
+          status: validation.status,
+          isGraduated: validation.isGraduated
+        });
+
+        if (!validation.allowed) {
+          // Student blocked due to lifecycle status
+          console.log('[Proxy] ❌ Student BLOCKED - reason:', validation.reason);
+
+          if (currentPath === '/auth/login') {
+            const response = NextResponse.next();
+            response.cookies.delete('sb-access-token');
+            response.cookies.delete('sb-refresh-token');
+            await supabase.auth.signOut();
+            return response;
+          }
+
+          const blockedResponse = NextResponse.redirect(
+            new URL(`/auth/login?reason=${validation.reason}`, request.url)
+          );
+          blockedResponse.cookies.delete('sb-access-token');
+          blockedResponse.cookies.delete('sb-refresh-token');
+          await supabase.auth.signOut();
+          return blockedResponse;
+        } else {
+          // Student allowed - continue to requested page
+          console.log('[Proxy] ✅ Student ALLOWED - continuing to:', currentPath);
+          // Don't return here - let the middleware continue processing
+        }
       }
-
-      // For other pages, redirect to login with message
-      const studentBlockedResponse = NextResponse.redirect(
-        new URL('/auth/login?reason=student_redirect', request.url)
-      );
-
-      // Clear all auth cookies
-      studentBlockedResponse.cookies.delete('sb-access-token');
-      studentBlockedResponse.cookies.delete('sb-refresh-token');
-
-      // Sign out from Supabase
-      await supabase.auth.signOut();
-
-      return studentBlockedResponse;
     }
 
     // Check for disabled user accounts (applies to all users)
