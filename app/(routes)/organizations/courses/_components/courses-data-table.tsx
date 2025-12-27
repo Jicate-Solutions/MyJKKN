@@ -34,8 +34,11 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Fixed: 2025-12-27 - Use correct permission for courses
   const canCreate =
-    isSuperAdmin || canAccess('organizations.institutions', 'create');
+    isSuperAdmin || canAccess('organizations.courses', 'create');
+  const canDelete =
+    isSuperAdmin || canAccess('organizations.courses', 'delete');
 
   const fetchData = async (params: {
     page: number;
@@ -156,7 +159,8 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
         </Button>
       )}
 
-      {props.selectedRows.length > 0 && (
+      {/* Fixed: 2025-12-27 - Only show bulk delete if user has delete permission */}
+      {props.selectedRows.length > 0 && canDelete && (
         <Button
           onClick={() =>
             handleBulkDelete(

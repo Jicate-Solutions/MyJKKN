@@ -84,48 +84,67 @@ export default function CompleteProfile() {
         setUserEmail(user.email || '');
 
         // Try to get existing profile
+        console.log('[Complete Profile] Fetching profile for user:', user.id);
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .single() as { data: { profile_completed: boolean; role: string; full_name?: string; phone_number?: string } | null; error: any };
+          .maybeSingle() as { data: { profile_completed: boolean; role: string; full_name?: string; phone_number?: string } | null; error: any };
+
+        console.log('[Complete Profile] Profile data:', profile);
+        console.log('[Complete Profile] Profile error:', profileError);
 
         // If there's a profile error other than "not found"
         if (profileError && profileError.code !== 'PGRST116') {
-          throw profileError;
+          console.error('[Complete Profile] Profile fetch failed:', profileError);
+          throw new Error(`Profile fetch failed: ${profileError.message || JSON.stringify(profileError)}`);
         }
 
         // If profile not found, create one
         if (!profile) {
+          console.log('[Complete Profile] No profile found, creating new one');
           const { error: insertError } = await supabase
             .from('profiles')
             .insert([
               {
                 id: user.id,
                 email: user.email,
-                role: 'student',
+                role: 'guest',
                 profile_completed: false
               }
             ] as any);
 
-          if (insertError) throw insertError;
+          if (insertError) {
+            console.error('[Complete Profile] Profile creation failed:', insertError);
+            throw insertError;
+          }
         } else {
+          console.log('[Complete Profile] Profile found:', {
+            role: profile.role,
+            profile_completed: profile.profile_completed,
+            full_name: profile.full_name
+          });
+
           // If profile exists and is completed, redirect based on role
           if (profile.profile_completed) {
+            console.log('[Complete Profile] Profile already completed, redirecting...');
+            let destination = '/';
             if (profile.role === 'guest') {
-              router.push('/guest');
+              destination = '/guest';
             } else if (profile.role === 'student') {
               // Students are not allowed - redirect to login with message
-              router.push('/auth/login?reason=student_redirect');
+              destination = '/auth/login?reason=student_redirect';
             } else if (profile.role === 'driver') {
-              router.push('/driver');
-            } else {
-              router.push('/');
+              destination = '/driver';
             }
+
+            console.log('[Complete Profile] Redirecting to:', destination);
+            router.push(destination);
             return;
           }
 
           // Pre-fill form with existing data
+          console.log('[Complete Profile] Pre-filling form with existing data');
           if (mounted) {
             form.reset({
               full_name: profile.full_name || '',
@@ -134,11 +153,20 @@ export default function CompleteProfile() {
           }
         }
       } catch (error) {
-        console.error('Error loading user data:', error);
-        toast.error(
-          error instanceof Error ? error.message : 'Failed to load user data'
-        );
-        router.push('/auth/login');
+        console.error('[Complete Profile] Error loading user data:', error);
+        console.error('[Complete Profile] Error type:', typeof error);
+        console.error('[Complete Profile] Error details:', JSON.stringify(error, null, 2));
+
+        const errorMessage = error instanceof Error
+          ? error.message
+          : typeof error === 'object' && error !== null
+          ? JSON.stringify(error)
+          : 'Failed to load user data';
+
+        toast.error(errorMessage);
+
+        // Don't redirect immediately - let user see the error
+        // router.push('/auth/login');
       } finally {
         if (mounted) {
           setIsLoading(false);

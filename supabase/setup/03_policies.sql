@@ -385,33 +385,72 @@ CREATE POLICY "courses_select_optimized" ON courses
         institution_id = get_current_user_institution_id()
     );
 
+-- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "courses_insert_admin" ON courses
     FOR INSERT WITH CHECK (
+        -- Check institution access
         institution_id IN (
             SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            WHERE user_id = auth.uid() AND is_active = true
+        )
+        AND
+        (
+            -- Legacy access type check (admin/write)
+            institution_id IN (
+                SELECT institution_id FROM user_institution_access
+                WHERE user_id = auth.uid()
+                AND access_type IN ('admin', 'write')
+                AND is_active = true
+            )
+            OR
+            -- Custom role permission check (supports multi-role HOD users)
+            user_has_permission('organizations.courses.create')
         )
     );
 
+-- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "courses_update_admin" ON courses
     FOR UPDATE USING (
+        -- Check institution access
         institution_id IN (
             SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            WHERE user_id = auth.uid() AND is_active = true
+        )
+        AND
+        (
+            -- Legacy access type check (admin/write)
+            institution_id IN (
+                SELECT institution_id FROM user_institution_access
+                WHERE user_id = auth.uid()
+                AND access_type IN ('admin', 'write')
+                AND is_active = true
+            )
+            OR
+            -- Custom role permission check (supports multi-role HOD users)
+            user_has_permission('organizations.courses.edit')
         )
     );
 
+-- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "courses_delete_admin" ON courses
     FOR DELETE USING (
+        -- Check institution access
         institution_id IN (
             SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
+            WHERE user_id = auth.uid() AND is_active = true
+        )
+        AND
+        (
+            -- Legacy access type check (admin only)
+            institution_id IN (
+                SELECT institution_id FROM user_institution_access
+                WHERE user_id = auth.uid()
+                AND access_type = 'admin'
+                AND is_active = true
+            )
+            OR
+            -- Custom role permission check (supports multi-role HOD users)
+            user_has_permission('organizations.courses.delete')
         )
     );
 
@@ -426,23 +465,49 @@ CREATE POLICY "course_mappings_select_institution" ON course_mappings
         )
     );
 
+-- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "course_mappings_insert_admin" ON course_mappings
     FOR INSERT WITH CHECK (
+        -- Check institution access
         institution_id IN (
             SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            WHERE user_id = auth.uid() AND is_active = true
+        )
+        AND
+        (
+            -- Legacy access type check (admin/write)
+            institution_id IN (
+                SELECT institution_id FROM user_institution_access
+                WHERE user_id = auth.uid()
+                AND access_type IN ('admin', 'write')
+                AND is_active = true
+            )
+            OR
+            -- Custom role permission check (supports multi-role HOD users)
+            user_has_permission('organizations.course.mappings.create')
         )
     );
 
+-- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "course_mappings_update_admin" ON course_mappings
     FOR UPDATE USING (
+        -- Check institution access
         institution_id IN (
             SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            WHERE user_id = auth.uid() AND is_active = true
+        )
+        AND
+        (
+            -- Legacy access type check (admin/write)
+            institution_id IN (
+                SELECT institution_id FROM user_institution_access
+                WHERE user_id = auth.uid()
+                AND access_type IN ('admin', 'write')
+                AND is_active = true
+            )
+            OR
+            -- Custom role permission check (supports multi-role HOD users)
+            user_has_permission('organizations.course.mappings.edit')
         )
     );
 
