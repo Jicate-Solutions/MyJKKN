@@ -283,10 +283,21 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             // Pre-fill form if user has institution_id (HOD, regular users)
             if (userProfile?.institution_id) {
               form.setValue('institution_id', userProfile.institution_id);
-            }
 
-            // Don't load academic years initially - wait for institution selection
-            setAcademicYears([]);
+              // Load academic years immediately for the user's institution
+              try {
+                const academicYearsData = await AcademicYearService.getAcademicYearsByInstitution(
+                  userProfile.institution_id
+                );
+                setAcademicYears(academicYearsData);
+              } catch (error) {
+                logger.error('academic/staff-planning', 'Error loading academic years for user institution', error);
+                setAcademicYears([]);
+              }
+            } else {
+              // Only clear academic years if no institution is set
+              setAcademicYears([]);
+            }
           } catch (error) {
             logger.error('academic/staff-planning', 'Error loading initial data', error);
             toast.error('Failed to load form data');
@@ -298,7 +309,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
     loadInitialEditData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staffPlan?.id, form, staffPlan, userProfile]); // Include form and staffPlan but disable eslint warning to prevent infinite loops
+  }, [staffPlan?.id, staffPlan, userProfile]); // Removed 'form' from dependencies to prevent race conditions
 
   // Load academic years when institution changes (for new forms)
   useEffect(() => {

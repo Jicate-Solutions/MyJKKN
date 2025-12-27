@@ -3,11 +3,22 @@
 // ============================================
 // Created: 2025-01-22
 // Updated: 2025-01-22 - Fixed to use admin client for server-side validation
+// Updated: 2025-12-27 - Added dropdown value validation
 // Purpose: Validation logic for bulk learner operations
 // ============================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { createClient } from '@supabase/supabase-js';
+import {
+  validateDropdownValue,
+  GENDER_VALUES,
+  RELIGION_VALUES,
+  COMMUNITY_VALUES,
+  BLOOD_GROUP_VALUES,
+  ENTRY_TYPE_VALUES,
+  ACCOMMODATION_VALUES,
+  FOOD_TYPE_VALUES
+} from '@/lib/constants/learner-dropdown-values';
 
 // Create admin client for server-side validation
 const supabaseAdmin = createClient(
@@ -79,14 +90,15 @@ export class LearnerValidationService {
       }
     }
 
-    // REQUIRED: Mobile
-    if (!data.mobile?.trim()) {
+    // REQUIRED: Mobile (field name is student_mobile in bulk upload)
+    const mobileField = data.mobile || data.student_mobile;
+    if (!mobileField?.trim()) {
       errors.push({
         field: 'mobile',
         message: 'Mobile number is required'
       });
     } else {
-      const mobileDigits = data.mobile.replace(/\D/g, '');
+      const mobileDigits = mobileField.replace(/\D/g, '');
       if (!/^\d{10}$/.test(mobileDigits)) {
         errors.push({
           field: 'mobile',
@@ -99,7 +111,7 @@ export class LearnerValidationService {
     if (!data.institution_id) {
       errors.push({
         field: 'institution_id',
-        message: 'Institution is required'
+        message: 'Institution not found in database. Please check the institution name.'
       });
     }
 
@@ -107,7 +119,7 @@ export class LearnerValidationService {
     if (!data.department_id) {
       errors.push({
         field: 'department_id',
-        message: 'Department is required'
+        message: 'Department not found in database. Please check the department name.'
       });
     }
 
@@ -115,7 +127,7 @@ export class LearnerValidationService {
     if (!data.program_id) {
       errors.push({
         field: 'program_id',
-        message: 'Program is required'
+        message: 'Program not found in database. Please check the program name.'
       });
     }
 
@@ -123,7 +135,7 @@ export class LearnerValidationService {
     if (!data.semester_id) {
       errors.push({
         field: 'semester_id',
-        message: 'Semester is required'
+        message: 'Semester not found in database. Please check the semester name.'
       });
     }
 
@@ -131,9 +143,30 @@ export class LearnerValidationService {
     if (!data.section_id) {
       errors.push({
         field: 'section_id',
-        message: 'Section is required'
+        message: 'Section not found in database. Please check the section name.'
       });
     }
+
+    // DROPDOWN VALIDATIONS - ensure values are valid
+    const dropdownChecks = [
+      { value: data.gender, values: GENDER_VALUES, name: 'Gender', required: false },
+      { value: data.religion, values: RELIGION_VALUES, name: 'Religion', required: false },
+      { value: data.community, values: COMMUNITY_VALUES, name: 'Community', required: false },
+      { value: data.blood_group, values: BLOOD_GROUP_VALUES, name: 'Blood Group', required: false },
+      { value: data.entry_type, values: ENTRY_TYPE_VALUES, name: 'Entry Type', required: false },
+      { value: data.accommodation_type, values: ACCOMMODATION_VALUES, name: 'Accommodation Type', required: false },
+      { value: data.food_type, values: FOOD_TYPE_VALUES, name: 'Food Type', required: false },
+    ];
+
+    dropdownChecks.forEach(({ value, values, name, required }) => {
+      const result = validateDropdownValue(value, values, name, required);
+      if (!result.valid && result.error) {
+        errors.push({
+          field: name.toLowerCase().replace(/ /g, '_'),
+          message: result.error
+        });
+      }
+    });
 
     // Optional validations with warnings
     if (!data.last_name?.trim()) {
