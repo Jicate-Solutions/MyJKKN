@@ -2,8 +2,20 @@
 // BULK UPLOAD CLIENT-SIDE VALIDATION
 // ============================================
 // Created: 2025-01-27
+// Updated: 2025-12-27 - Added dropdown value validation
 // Purpose: Client-side validation for bulk upload preview
 // ============================================
+
+import {
+  validateDropdownValue,
+  GENDER_VALUES,
+  RELIGION_VALUES,
+  COMMUNITY_VALUES,
+  BLOOD_GROUP_VALUES,
+  ENTRY_TYPE_VALUES,
+  ACCOMMODATION_VALUES,
+  FOOD_TYPE_VALUES
+} from '@/lib/constants/learner-dropdown-values';
 
 export interface ValidationError {
   field: string;
@@ -181,28 +193,42 @@ export function validateRow(data: Record<string, any>): ValidationResult {
     });
   }
 
-  // REQUIRED: Gender
-  if (!data.gender?.trim()) {
+  // REQUIRED: Gender (with dropdown validation)
+  const genderValidation = validateDropdownValue(data.gender, GENDER_VALUES, 'Gender', true);
+  if (!genderValidation.valid) {
     errors.push({
       field: 'gender',
-      message: 'Gender is required'
+      message: genderValidation.error!
     });
   }
 
-  // REQUIRED: Religion
-  if (!data.religion?.trim()) {
+  // REQUIRED: Religion (with dropdown validation)
+  const religionValidation = validateDropdownValue(data.religion, RELIGION_VALUES, 'Religion', true);
+  if (!religionValidation.valid) {
     errors.push({
       field: 'religion',
-      message: 'Religion is required'
+      message: religionValidation.error!
     });
   }
 
-  // REQUIRED: Community
-  if (!data.community?.trim()) {
+  // REQUIRED: Community (with dropdown validation)
+  const communityValidation = validateDropdownValue(data.community, COMMUNITY_VALUES, 'Community', true);
+  if (!communityValidation.valid) {
     errors.push({
       field: 'community',
-      message: 'Community is required'
+      message: communityValidation.error!
     });
+  }
+
+  // OPTIONAL: Blood Group (with dropdown validation)
+  if (data.blood_group?.trim()) {
+    const bloodGroupValidation = validateDropdownValue(data.blood_group, BLOOD_GROUP_VALUES, 'Blood Group', false);
+    if (!bloodGroupValidation.valid) {
+      errors.push({
+        field: 'blood_group',
+        message: bloodGroupValidation.error!
+      });
+    }
   }
 
   // REQUIRED: Father Name
@@ -340,20 +366,33 @@ export function validateRow(data: Record<string, any>): ValidationResult {
     });
   }
 
-  // REQUIRED: Entry Type
-  if (!data.entry_type?.trim()) {
+  // REQUIRED: Entry Type (with dropdown validation)
+  const entryTypeValidation = validateDropdownValue(data.entry_type, ENTRY_TYPE_VALUES, 'Entry Type', true);
+  if (!entryTypeValidation.valid) {
     errors.push({
       field: 'entry_type',
-      message: 'Entry Type is required'
+      message: entryTypeValidation.error!
     });
   }
 
-  // REQUIRED: Accommodation Type
-  if (!data.accommodation_type?.trim()) {
+  // REQUIRED: Accommodation Type (with dropdown validation)
+  const accommodationValidation = validateDropdownValue(data.accommodation_type, ACCOMMODATION_VALUES, 'Accommodation Type', true);
+  if (!accommodationValidation.valid) {
     errors.push({
       field: 'accommodation_type',
-      message: 'Accommodation Type is required'
+      message: accommodationValidation.error!
     });
+  }
+
+  // OPTIONAL: Food Type (with dropdown validation)
+  if (data.food_type?.trim()) {
+    const foodTypeValidation = validateDropdownValue(data.food_type, FOOD_TYPE_VALUES, 'Food Type', false);
+    if (!foodTypeValidation.valid) {
+      errors.push({
+        field: 'food_type',
+        message: foodTypeValidation.error!
+      });
+    }
   }
 
   // Optional validations with warnings

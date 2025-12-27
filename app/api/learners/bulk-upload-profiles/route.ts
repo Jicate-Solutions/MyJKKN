@@ -12,6 +12,18 @@ import { BulkLearnerUploadService, type BulkUploadRow } from '@/lib/services/bul
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
 import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
 import { NameToIdResolver } from '@/lib/services/name-to-id-resolver';
+import {
+  normalizeDropdownValue,
+  GENDER_VALUES,
+  RELIGION_VALUES,
+  COMMUNITY_VALUES,
+  BLOOD_GROUP_VALUES,
+  ENTRY_TYPE_VALUES,
+  ACCOMMODATION_VALUES,
+  HOSTEL_TYPE_VALUES,
+  FOOD_TYPE_VALUES,
+  QUOTA_VALUES
+} from '@/lib/constants/learner-dropdown-values';
 import * as XLSX from 'xlsx';
 
 
@@ -253,12 +265,12 @@ export async function POST(request: NextRequest) {
         first_name: sanitizeValue(mappedData.first_name, 'text'),
         last_name: sanitizeValue(mappedData.last_name, 'text'),
         date_of_birth: sanitizeValue(mappedData.date_of_birth, 'date'),
-        gender: sanitizeValue(mappedData.gender, 'text'),
-        religion: sanitizeValue(mappedData.religion, 'text'),
-        community: sanitizeValue(mappedData.community, 'text'),
+        gender: normalizeDropdownValue(mappedData.gender, GENDER_VALUES),
+        religion: normalizeDropdownValue(mappedData.religion, RELIGION_VALUES),
+        community: normalizeDropdownValue(mappedData.community, COMMUNITY_VALUES),
         caste: sanitizeValue(mappedData.caste, 'text'),
         aadhar_number: sanitizeValue(mappedData.aadhar_number, 'number'),
-        blood_group: sanitizeValue(mappedData.blood_group, 'text'),
+        blood_group: normalizeDropdownValue(mappedData.blood_group, BLOOD_GROUP_VALUES),
         admission_year: mappedData.admission_year ? parseInt(mappedData.admission_year) : undefined,
 
         // Parent/Guardian Information
@@ -304,7 +316,7 @@ export async function POST(request: NextRequest) {
         permanent_address_state: sanitizeValue(mappedData.permanent_address_state, 'text'),
 
         // Entry Type
-        entry_type: sanitizeValue(mappedData.entry_type, 'text'),
+        entry_type: normalizeDropdownValue(mappedData.entry_type, ENTRY_TYPE_VALUES),
         first_graduate: mappedData.first_graduate === 'TRUE' || mappedData.first_graduate === true,
 
         // Previous Education
@@ -332,9 +344,9 @@ export async function POST(request: NextRequest) {
         counseling_number: mappedData.counseling_number || '',
 
         // Accommodation Details
-        accommodation_type: sanitizeValue(mappedData.accommodation_type, 'text'),
-        hostel_type: sanitizeValue(mappedData.hostel_type, 'text'),
-        food_type: sanitizeValue(mappedData.food_type, 'text'),
+        accommodation_type: normalizeDropdownValue(mappedData.accommodation_type, ACCOMMODATION_VALUES),
+        hostel_type: normalizeDropdownValue(mappedData.hostel_type, HOSTEL_TYPE_VALUES),
+        food_type: normalizeDropdownValue(mappedData.food_type, FOOD_TYPE_VALUES),
         bus_required: mappedData.bus_required === 'TRUE' || mappedData.bus_required === true,
         bus_route: sanitizeValue(mappedData.bus_route, 'text'),
         bus_pickup_location: sanitizeValue(mappedData.bus_pickup_location, 'text'),
@@ -347,7 +359,7 @@ export async function POST(request: NextRequest) {
         // Student Specific
         roll_number: mappedData.roll_number || '',
         register_number: mappedData.register_number || '',
-        quota: sanitizeValue(mappedData.quota, 'text'),
+        quota: normalizeDropdownValue(mappedData.quota, QUOTA_VALUES),
         category: sanitizeValue(mappedData.category, 'text'),
         student_photo_url: mappedData.student_photo_url || '',
       };
