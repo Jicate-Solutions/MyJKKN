@@ -213,7 +213,7 @@ const profilesListEndpoint: ApiEndpoint = {
     {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
-      code: `const response = await fetch('https://myjkkn.ac.in/api/api-management/learners/profiles?page=1&limit=50&lifecycle_status=active&expand=program,semester,section', {
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/learners/profiles?page=1&limit=50&lifecycle_status=active&expand=program,semester,section', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -229,7 +229,7 @@ console.log(data.count); // Total count`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/learners/profiles?page=1&limit=50&lifecycle_status=active&expand=program,semester,section" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/learners/profiles?page=1&limit=50&lifecycle_status=active&expand=program,semester,section" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -238,7 +238,7 @@ console.log(data.count); // Total count`,
       label: 'Python (Requests)',
       code: `import requests
 
-url = "https://myjkkn.ac.in/api/api-management/learners/profiles"
+url = "https://www.jkkn.ai/api/api-management/learners/profiles"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -383,7 +383,7 @@ const profilesByIdEndpoint: ApiEndpoint = {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
       code: `const learnerId = 'cc0e8400-e29b-41d4-a716-446655440007';
-const response = await fetch(\`https://myjkkn.ac.in/api/api-management/learners/profiles/\${learnerId}?expand=program,semester,section\`, {
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/learners/profiles/\${learnerId}?expand=program,semester,section\`, {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -397,7 +397,7 @@ console.log(learner);`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/learners/profiles/cc0e8400-e29b-41d4-a716-446655440007?expand=program,semester,section" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/learners/profiles/cc0e8400-e29b-41d4-a716-446655440007?expand=program,semester,section" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -407,7 +407,7 @@ console.log(learner);`,
       code: `import requests
 
 learner_id = "cc0e8400-e29b-41d4-a716-446655440007"
-url = f"https://myjkkn.ac.in/api/api-management/learners/profiles/{learner_id}"
+url = f"https://www.jkkn.ai/api/api-management/learners/profiles/{learner_id}"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -528,7 +528,7 @@ const enquiriesListEndpoint: ApiEndpoint = {
     {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
-      code: `const response = await fetch('https://myjkkn.ac.in/api/api-management/learners/enquiries?page=1&limit=50&enquiry_date_from=2024-01-01&enquiry_date_to=2024-12-31&expand=program', {
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/learners/enquiries?page=1&limit=50&enquiry_date_from=2024-01-01&enquiry_date_to=2024-12-31&expand=program', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -543,7 +543,7 @@ console.log(data.pagination); // Pagination info`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/learners/enquiries?page=1&limit=50&enquiry_date_from=2024-01-01&enquiry_date_to=2024-12-31&expand=program" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/learners/enquiries?page=1&limit=50&enquiry_date_from=2024-01-01&enquiry_date_to=2024-12-31&expand=program" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -552,7 +552,7 @@ console.log(data.pagination); // Pagination info`,
       label: 'Python (Requests)',
       code: `import requests
 
-url = "https://myjkkn.ac.in/api/api-management/learners/enquiries"
+url = "https://www.jkkn.ai/api/api-management/learners/enquiries"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -676,7 +676,7 @@ const enquiriesByIdEndpoint: ApiEndpoint = {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
       code: `const enquiryId = 'ee0e8400-e29b-41d4-a716-446655440009';
-const response = await fetch(\`https://myjkkn.ac.in/api/api-management/learners/enquiries/\${enquiryId}?expand=program\`, {
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/learners/enquiries/\${enquiryId}?expand=program\`, {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -690,7 +690,7 @@ console.log(enquiry);`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/learners/enquiries/ee0e8400-e29b-41d4-a716-446655440009?expand=program" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/learners/enquiries/ee0e8400-e29b-41d4-a716-446655440009?expand=program" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -700,7 +700,7 @@ console.log(enquiry);`,
       code: `import requests
 
 enquiry_id = "ee0e8400-e29b-41d4-a716-446655440009"
-url = f"https://myjkkn.ac.in/api/api-management/learners/enquiries/{enquiry_id}"
+url = f"https://www.jkkn.ai/api/api-management/learners/enquiries/{enquiry_id}"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -798,7 +798,7 @@ const alumniListEndpoint: ApiEndpoint = {
     {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
-      code: `const response = await fetch('https://myjkkn.ac.in/api/api-management/learners/alumni?page=1&limit=50&admission_year=2020&expand=program,semester', {
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/learners/alumni?page=1&limit=50&admission_year=2020&expand=program,semester', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -813,7 +813,7 @@ console.log(data.pagination); // Pagination info`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/learners/alumni?page=1&limit=50&admission_year=2020&expand=program,semester" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/learners/alumni?page=1&limit=50&admission_year=2020&expand=program,semester" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -822,7 +822,7 @@ console.log(data.pagination); // Pagination info`,
       label: 'Python (Requests)',
       code: `import requests
 
-url = "https://myjkkn.ac.in/api/api-management/learners/alumni"
+url = "https://www.jkkn.ai/api/api-management/learners/alumni"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -889,7 +889,7 @@ export const learnersModuleConfig: ApiModuleConfig = {
   moduleName: 'Learners',
   moduleDescription:
     'The Learners API module provides comprehensive access to student data including active learner profiles, prospective student enquiries, and alumni records. All endpoints support pagination, filtering, and data expansion for related entities.',
-  baseUrl: 'https://myjkkn.ac.in',
+  baseUrl: 'https://www.jkkn.ai',
   endpoints: [
     // Profiles (2)
     profilesListEndpoint,

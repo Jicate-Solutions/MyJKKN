@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
 
+
 export async function GET() {
   try {
     const supabase = await createServerSupabaseClient();

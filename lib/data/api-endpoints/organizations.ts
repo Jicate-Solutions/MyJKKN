@@ -158,7 +158,7 @@ const institutionsListEndpoint: ApiEndpoint = {
     {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
-      code: `const response = await fetch('https://myjkkn.ac.in/api/api-management/organizations/institutions?page=1&limit=10&search=engineering', {
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/organizations/institutions?page=1&limit=10&search=engineering', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -173,7 +173,7 @@ console.log(data.metadata); // Pagination info`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/institutions?page=1&limit=10&search=engineering" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/institutions?page=1&limit=10&search=engineering" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -182,7 +182,7 @@ console.log(data.metadata); // Pagination info`,
       label: 'Python (Requests)',
       code: `import requests
 
-url = "https://myjkkn.ac.in/api/api-management/organizations/institutions"
+url = "https://www.jkkn.ai/api/api-management/organizations/institutions"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -274,7 +274,7 @@ const institutionsByIdEndpoint: ApiEndpoint = {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
       code: `const institutionId = '550e8400-e29b-41d4-a716-446655440000';
-const response = await fetch(\`https://myjkkn.ac.in/api/api-management/organizations/institutions/\${institutionId}\`, {
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/organizations/institutions/\${institutionId}\`, {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -288,7 +288,7 @@ console.log(institution);`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/institutions/550e8400-e29b-41d4-a716-446655440000" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/institutions/550e8400-e29b-41d4-a716-446655440000" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -298,7 +298,7 @@ console.log(institution);`,
       code: `import requests
 
 institution_id = "550e8400-e29b-41d4-a716-446655440000"
-url = f"https://myjkkn.ac.in/api/api-management/organizations/institutions/{institution_id}"
+url = f"https://www.jkkn.ai/api/api-management/organizations/institutions/{institution_id}"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -355,7 +355,7 @@ const institutionsNamesEndpoint: ApiEndpoint = {
     {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
-      code: `const response = await fetch('https://myjkkn.ac.in/api/api-management/organizations/institutions/names?isActive=true', {
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/organizations/institutions/names?isActive=true', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -373,7 +373,7 @@ const options = institutions.map(inst => ({
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/institutions/names?isActive=true" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/institutions/names?isActive=true" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -382,7 +382,7 @@ const options = institutions.map(inst => ({
       label: 'Python (Requests)',
       code: `import requests
 
-url = "https://myjkkn.ac.in/api/api-management/organizations/institutions/names"
+url = "https://www.jkkn.ai/api/api-management/organizations/institutions/names"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -477,7 +477,7 @@ const departmentsListEndpoint: ApiEndpoint = {
     {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
-      code: `const response = await fetch('https://myjkkn.ac.in/api/api-management/organizations/departments?page=1&limit=10&institution_id=660e8400-e29b-41d4-a716-446655440001', {
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/organizations/departments?page=1&limit=10&institution_id=660e8400-e29b-41d4-a716-446655440001', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -492,7 +492,7 @@ console.log(data.metadata); // Pagination info`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/departments?page=1&limit=10&institution_id=660e8400-e29b-41d4-a716-446655440001" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/departments?page=1&limit=10&institution_id=660e8400-e29b-41d4-a716-446655440001" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -501,7 +501,7 @@ console.log(data.metadata); // Pagination info`,
       label: 'Python (Requests)',
       code: `import requests
 
-url = "https://myjkkn.ac.in/api/api-management/organizations/departments"
+url = "https://www.jkkn.ai/api/api-management/organizations/departments"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -608,7 +608,7 @@ const departmentsByIdEndpoint: ApiEndpoint = {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
       code: `const departmentId = '550e8400-e29b-41d4-a716-446655440000';
-const response = await fetch(\`https://myjkkn.ac.in/api/api-management/organizations/departments/\${departmentId}\`, {
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/organizations/departments/\${departmentId}\`, {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -622,7 +622,7 @@ console.log(department);`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/departments/550e8400-e29b-41d4-a716-446655440000" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/departments/550e8400-e29b-41d4-a716-446655440000" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -632,7 +632,7 @@ console.log(department);`,
       code: `import requests
 
 department_id = "550e8400-e29b-41d4-a716-446655440000"
-url = f"https://myjkkn.ac.in/api/api-management/organizations/departments/{department_id}"
+url = f"https://www.jkkn.ai/api/api-management/organizations/departments/{department_id}"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -723,7 +723,7 @@ const degreesListEndpoint: ApiEndpoint = {
     {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
-      code: `const response = await fetch('https://myjkkn.ac.in/api/api-management/organizations/degrees?page=1&limit=10&degree_type=ug', {
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/organizations/degrees?page=1&limit=10&degree_type=ug', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -737,7 +737,7 @@ console.log(data.data); // Array of degrees`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/degrees?page=1&limit=10&degree_type=ug" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/degrees?page=1&limit=10&degree_type=ug" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -746,7 +746,7 @@ console.log(data.data); // Array of degrees`,
       label: 'Python (Requests)',
       code: `import requests
 
-url = "https://myjkkn.ac.in/api/api-management/organizations/degrees"
+url = "https://www.jkkn.ai/api/api-management/organizations/degrees"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -843,7 +843,7 @@ const degreesByIdEndpoint: ApiEndpoint = {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
       code: `const degreeId = '770e8400-e29b-41d4-a716-446655440002';
-const response = await fetch(\`https://myjkkn.ac.in/api/api-management/organizations/degrees/\${degreeId}\`, {
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/organizations/degrees/\${degreeId}\`, {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -857,7 +857,7 @@ console.log(degree);`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/degrees/770e8400-e29b-41d4-a716-446655440002" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/degrees/770e8400-e29b-41d4-a716-446655440002" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -867,7 +867,7 @@ console.log(degree);`,
       code: `import requests
 
 degree_id = "770e8400-e29b-41d4-a716-446655440002"
-url = f"https://myjkkn.ac.in/api/api-management/organizations/degrees/{degree_id}"
+url = f"https://www.jkkn.ai/api/api-management/organizations/degrees/{degree_id}"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -973,7 +973,7 @@ const programsListEndpoint: ApiEndpoint = {
     {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
-      code: `const response = await fetch('https://myjkkn.ac.in/api/api-management/organizations/programs?page=1&limit=10&department_id=550e8400-e29b-41d4-a716-446655440000', {
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/organizations/programs?page=1&limit=10&department_id=550e8400-e29b-41d4-a716-446655440000', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -987,7 +987,7 @@ console.log(data.data); // Array of programs`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/programs?page=1&limit=10&department_id=550e8400-e29b-41d4-a716-446655440000" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/programs?page=1&limit=10&department_id=550e8400-e29b-41d4-a716-446655440000" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -996,7 +996,7 @@ console.log(data.data); // Array of programs`,
       label: 'Python (Requests)',
       code: `import requests
 
-url = "https://myjkkn.ac.in/api/api-management/organizations/programs"
+url = "https://www.jkkn.ai/api/api-management/organizations/programs"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -1105,7 +1105,7 @@ const programsByIdEndpoint: ApiEndpoint = {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
       code: `const programId = '880e8400-e29b-41d4-a716-446655440003';
-const response = await fetch(\`https://myjkkn.ac.in/api/api-management/organizations/programs/\${programId}\`, {
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/organizations/programs/\${programId}\`, {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -1119,7 +1119,7 @@ console.log(program);`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/programs/880e8400-e29b-41d4-a716-446655440003" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/programs/880e8400-e29b-41d4-a716-446655440003" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -1129,7 +1129,7 @@ console.log(program);`,
       code: `import requests
 
 program_id = "880e8400-e29b-41d4-a716-446655440003"
-url = f"https://myjkkn.ac.in/api/api-management/organizations/programs/{program_id}"
+url = f"https://www.jkkn.ai/api/api-management/organizations/programs/{program_id}"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -1225,7 +1225,7 @@ const coursesListEndpoint: ApiEndpoint = {
     {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
-      code: `const response = await fetch('https://myjkkn.ac.in/api/api-management/organizations/courses?page=1&limit=50&is_active=true', {
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/organizations/courses?page=1&limit=50&is_active=true', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -1241,7 +1241,7 @@ console.log(result.count); // Total count`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/courses?page=1&limit=50&is_active=true" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/courses?page=1&limit=50&is_active=true" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -1250,7 +1250,7 @@ console.log(result.count); // Total count`,
       label: 'Python (Requests)',
       code: `import requests
 
-url = "https://myjkkn.ac.in/api/api-management/organizations/courses"
+url = "https://www.jkkn.ai/api/api-management/organizations/courses"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -1340,7 +1340,7 @@ const coursesByIdEndpoint: ApiEndpoint = {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
       code: `const courseId = '990e8400-e29b-41d4-a716-446655440004';
-const response = await fetch(\`https://myjkkn.ac.in/api/api-management/organizations/courses/\${courseId}\`, {
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/organizations/courses/\${courseId}\`, {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -1354,7 +1354,7 @@ console.log(course);`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/courses/990e8400-e29b-41d4-a716-446655440004" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/courses/990e8400-e29b-41d4-a716-446655440004" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -1364,7 +1364,7 @@ console.log(course);`,
       code: `import requests
 
 course_id = "990e8400-e29b-41d4-a716-446655440004"
-url = f"https://myjkkn.ac.in/api/api-management/organizations/courses/{course_id}"
+url = f"https://www.jkkn.ai/api/api-management/organizations/courses/{course_id}"
 headers = {
     "Authorization": "Bearer your_api_key_here",
     "Content-Type": "application/json"
@@ -1424,7 +1424,7 @@ const semestersListEndpoint: ApiEndpoint = {
     {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
-      code: `const response = await fetch('https://myjkkn.ac.in/api/api-management/organizations/semesters?page=1&limit=10', {
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/organizations/semesters?page=1&limit=10', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -1438,7 +1438,7 @@ console.log(data.data);`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/semesters?page=1&limit=10" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/semesters?page=1&limit=10" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -1480,7 +1480,7 @@ const semestersByIdEndpoint: ApiEndpoint = {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
       code: `const semesterId = 'aa0e8400-e29b-41d4-a716-446655440005';
-const response = await fetch(\`https://myjkkn.ac.in/api/api-management/organizations/semesters/\${semesterId}\`, {
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/organizations/semesters/\${semesterId}\`, {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -1494,7 +1494,7 @@ console.log(semester);`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/semesters/aa0e8400-e29b-41d4-a716-446655440005" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/semesters/aa0e8400-e29b-41d4-a716-446655440005" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -1539,7 +1539,7 @@ const sectionsListEndpoint: ApiEndpoint = {
     {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
-      code: `const response = await fetch('https://myjkkn.ac.in/api/api-management/organizations/sections?page=1&limit=10', {
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/organizations/sections?page=1&limit=10', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -1553,7 +1553,7 @@ console.log(data.data);`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/sections?page=1&limit=10" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/sections?page=1&limit=10" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -1595,7 +1595,7 @@ const sectionsByIdEndpoint: ApiEndpoint = {
       language: 'javascript',
       label: 'JavaScript (Fetch)',
       code: `const sectionId = 'bb0e8400-e29b-41d4-a716-446655440006';
-const response = await fetch(\`https://myjkkn.ac.in/api/api-management/organizations/sections/\${sectionId}\`, {
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/organizations/sections/\${sectionId}\`, {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer your_api_key_here',
@@ -1609,7 +1609,7 @@ console.log(section);`,
     {
       language: 'curl',
       label: 'cURL',
-      code: `curl -X GET "https://myjkkn.ac.in/api/api-management/organizations/sections/bb0e8400-e29b-41d4-a716-446655440006" \\
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/organizations/sections/bb0e8400-e29b-41d4-a716-446655440006" \\
   -H "Authorization: Bearer your_api_key_here" \\
   -H "Content-Type: application/json"`,
     },
@@ -1627,7 +1627,7 @@ export const organizationsModuleConfig: ApiModuleConfig = {
   moduleName: 'Organizations',
   moduleDescription:
     'The Organizations API module provides comprehensive access to institutional data including institutions, departments, degrees, programs, courses, semesters, and sections. All endpoints require API key authentication and support pagination, filtering, and search capabilities.',
-  baseUrl: 'https://myjkkn.ac.in',
+  baseUrl: 'https://www.jkkn.ai',
   endpoints: [
     // Institutions (3)
     institutionsListEndpoint,

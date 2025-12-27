@@ -5,6 +5,14 @@
 
 import Prism from 'prismjs';
 
+// Disable Prism's automatic highlighting to prevent double-highlighting
+if (typeof window !== 'undefined') {
+  // @ts-ignore
+  window.Prism = window.Prism || {};
+  // @ts-ignore
+  window.Prism.manual = true;
+}
+
 // Import language support
 import 'prismjs/components/prism-javascript';
 import 'prismjs/components/prism-typescript';
@@ -31,27 +39,41 @@ export type SupportedLanguage =
  * @param language - The programming language
  * @returns HTML string with syntax highlighting
  */
+/**
+ * Escape HTML special characters
+ */
+function escapeHtml(text: string): string {
+  const map: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
+  };
+  return text.replace(/[&<>"']/g, (m) => map[m]);
+}
+
 export function highlightCode(code: string, language: SupportedLanguage): string {
   // Map curl to bash
   const prismLanguage = language === 'curl' ? 'bash' : language;
 
   // Check if Prism is available and grammar exists
   if (typeof window === 'undefined' || !Prism || !Prism.languages) {
-    return code; // Server-side or Prism not loaded
+    return escapeHtml(code); // Server-side or Prism not loaded
   }
 
   const grammar = Prism.languages[prismLanguage];
 
   if (!grammar || typeof grammar !== 'object') {
-    console.warn(`Language "${prismLanguage}" not supported by Prism`);
-    return code;
+    return escapeHtml(code);
   }
 
   try {
     return Prism.highlight(code, grammar, prismLanguage);
   } catch (error) {
-    console.error(`Error highlighting code for language "${prismLanguage}":`, error);
-    return code; // Fallback to plain code
+    // Silently fallback to escaped plain code
+    // This prevents Prism errors from breaking the UI
+    return escapeHtml(code);
   }
 }
 

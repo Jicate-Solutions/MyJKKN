@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { ApiErrorResponse } from '@/lib/types/api-documentation';
 import { StatusBadge } from './status-badge';
 import { CodeBlock } from './code-block';
@@ -13,11 +13,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 interface ErrorResponsesTableProps {
@@ -71,19 +66,19 @@ export function ErrorResponsesTable({
               const isCommon = showCommonErrors && index >= errors.length;
 
               return (
-                <Collapsible key={index} open={isExpanded}>
-                  <TableRow className="cursor-pointer hover:bg-muted/50">
+                <Fragment key={index}>
+                  <TableRow
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => toggleRow(index)}
+                  >
                     <TableCell>
-                      <CollapsibleTrigger
-                        onClick={() => toggleRow(index)}
-                        className="flex items-center justify-center w-full"
-                      >
+                      <div className="flex items-center justify-center w-full">
                         {isExpanded ? (
                           <ChevronDown className="h-4 w-4" />
                         ) : (
                           <ChevronRight className="h-4 w-4" />
                         )}
-                      </CollapsibleTrigger>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <StatusBadge statusCode={error.statusCode} size="sm" />
@@ -104,7 +99,7 @@ export function ErrorResponsesTable({
                       {error.message}
                     </TableCell>
                   </TableRow>
-                  <CollapsibleContent asChild>
+                  {isExpanded && (
                     <TableRow>
                       <TableCell colSpan={4} className="bg-muted/20 p-4">
                         <div className="space-y-2">
@@ -119,8 +114,8 @@ export function ErrorResponsesTable({
                         </div>
                       </TableCell>
                     </TableRow>
-                  </CollapsibleContent>
-                </Collapsible>
+                  )}
+                </Fragment>
               );
             })}
           </TableBody>

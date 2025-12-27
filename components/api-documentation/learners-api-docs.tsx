@@ -62,7 +62,7 @@ const endpoints = [
         description: 'Items per page (default: 50, max: 200)'
       }
     ],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/learners/profiles?limit=10&expand=program', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/learners/profiles?limit=10&expand=program', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
@@ -81,7 +81,7 @@ const endpoints = [
         description: 'Include related data (program,semester,section)'
       }
     ],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/learners/profiles/{id}?expand=program,section', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/learners/profiles/{id}?expand=program,section', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
@@ -125,7 +125,7 @@ const endpoints = [
         description: 'Items per page (default: 50, max: 200)'
       }
     ],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/learners/enquiries?enquiry_date_from=2024-01-01', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/learners/enquiries?enquiry_date_from=2024-01-01', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
@@ -144,7 +144,7 @@ const endpoints = [
         description: 'Include related data (program)'
       }
     ],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/learners/enquiries/{id}', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/learners/enquiries/{id}', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
@@ -183,7 +183,7 @@ const endpoints = [
         description: 'Items per page (default: 50, max: 200)'
       }
     ],
-    example: `fetch('https://myjkkn.ac.in/api/api-management/learners/alumni?admission_year=2020&limit=50', {
+    example: `fetch('https://www.jkkn.ai/api/api-management/learners/alumni?admission_year=2020&limit=50', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }
