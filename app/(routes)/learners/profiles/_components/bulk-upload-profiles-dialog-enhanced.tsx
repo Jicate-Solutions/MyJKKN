@@ -166,56 +166,234 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
     try {
       // Create sample data with REQUIRED fields first, then OPTIONAL fields
       const sampleData = [{
-        // REQUIRED FIELDS
+        // ============================================
+        // REQUIRED FIELDS (marked with *)
+        // ============================================
+
+        // Basic Details
         '* First Name': 'JOHN',
-        'Last Name': 'DOE',
+        '* Last Name': 'DOE',
         '* Date of Birth': '2005-01-15',
         '* Gender': 'MALE',
-        '* Religion': 'Hindu',
+        '* Religion': 'HINDU',
         '* Community': 'BC',
+        '* Caste': 'OBC',
+
+        // Parent/Guardian Information
         '* Father Name': 'ROBERT DOE',
         '* Father Mobile': '9876543211',
         '* Mother Name': 'MARY DOE',
         '* Mother Mobile': '9876543212',
+
+        // Academic Assignment
         '* Institution': 'JKKN College of Engineering and Technology',
         '* Degree': 'B.E',
         '* Department': 'Computer Science and Engineering',
         '* Program': 'CSE',
         '* Semester': 'I Year I Semester',
         '* Section': 'A',
+        '* Academic Year': '2024-2025',
+
+        // Contact Details
         '* Student Mobile': '9876543210',
         '* College Email': 'john.doe@jkkn.ac.in',
+
+        // Address Information
         '* Permanent Address Street': '123 Main Street',
         '* Permanent Address Taluk': 'Namakkal',
         '* Permanent Address District': 'Namakkal',
         '* Permanent Address Pin Code': '637001',
         '* Permanent Address State': 'Tamil Nadu',
-        '* Entry Type': 'FIRST YEAR',
+
+        // Entry Type & First Graduate
+        '* Entry Type': 'REGULAR',
+        '* First Graduate': 'TRUE',
+
+        // Accommodation
         '* Accommodation Type': 'HOSTEL',
 
+        // ============================================
         // OPTIONAL FIELDS
-        'Caste': 'OBC',
+        // ============================================
+
+        // Basic Details (Optional)
         'Aadhar Number': '123456789012',
         'Blood Group': 'O+',
         'Admission Year': '2024',
+
+        // Parent/Guardian (Optional)
         'Father Occupation': 'Business',
         'Mother Occupation': 'Teacher',
         'Annual Income': '500000',
-        'Academic Year': '2024-2025',
+
+        // Academic (Optional)
         'Regulation': 'R2021',
         'Batch': '2024-2028',
+
+        // Contact (Optional)
         'Personal Email': 'john@gmail.com',
-        'First Graduate': 'TRUE',
-        'Hostel Type': 'Boys Hostel A',
+
+        // Accommodation (Optional)
+        'Hostel Type': 'AC HOSTEL',
         'Food Type': 'VEG',
+
+        // Previous Education (Optional)
+        'Last School': 'St. Mary\'s High School',
+        'Board of Study': 'CBSE',
+        '10th Marks': '{"overall": "95", "maths": "98", "science": "96", "english": "92"}',
+        '12th Marks': '{"overall": "92", "physics": "95", "chemistry": "94", "maths": "98"}',
+        'Medical Cutoff Marks': '180',
+        'Engineering Cutoff Marks': '185',
+
+        // Entrance Exams (Optional)
+        'NEET Roll Number': 'NEET2024123456',
+        'NEET Score': '625',
+
+        // Counseling (Optional)
+        'Counseling Applied': 'TRUE',
+        'Counseling Number': 'COUN2024001',
+        'Quota': 'MANAGEMENT',
+        'Category': 'General',
+
+        // Transport (Optional)
+        'Bus Required': 'TRUE',
+        'Bus Route': 'Route 5',
+        'Bus Pickup Location': 'Central Bus Stand',
+
+        // Reference (Optional)
+        'Reference Type': 'Alumni',
+        'Reference Name': 'Dr. Kumar',
+        'Reference Contact': '9876543299',
+
+        // Student IDs (Optional - auto-generated if not provided)
+        'Roll Number': '24CSE001',
+        'Register Number': '241CS001',
+        'Student Photo URL': 'https://example.com/photos/john.jpg',
       }];
+
+      // Create Instructions sheet with comprehensive information
+      const instructionsData = [
+        { '': '' }, // Empty row for spacing
+        { 'BULK UPLOAD LEARNERS - INSTRUCTIONS & REFERENCE GUIDE': '' },
+        { '': '' },
+        { 'Section': 'Getting Started' },
+        { 'Step 1': 'Go to the "Template" sheet (tab at the bottom)' },
+        { 'Step 2': 'Fill in the required fields (marked with *) for each student' },
+        { 'Step 3': 'Fill optional fields if data is available' },
+        { 'Step 4': 'Save the file and upload it back to the system' },
+        { '': '' },
+        { 'Section': 'REQUIRED FIELDS (28) - Must be filled' },
+        { 'Field': 'Description', 'Example': 'Notes' },
+        { '* First Name': 'Student first name', 'JOHN': 'Uppercase recommended' },
+        { '* Last Name': 'Student last name', 'DOE': 'Uppercase recommended' },
+        { '* Date of Birth': 'Format: YYYY-MM-DD', '2005-01-15': 'Must be valid date' },
+        { '* Gender': 'Options: MALE, FEMALE, OTHER', 'MALE': 'Case insensitive' },
+        { '* Religion': 'Options: HINDU, CHRISTIAN, MUSLIM, SIKH, BUDDHIST, JAIN, OTHERS', 'HINDU': 'Case insensitive' },
+        { '* Community': 'Options: OC, BC, BCM, MBC, DNC, BC-CC, SC, ST, SBC, SC (A)', 'BC': 'Exact match' },
+        { '* Caste': 'Caste name', 'OBC': 'Any text' },
+        { '* Father Name': 'Father\'s full name', 'ROBERT DOE': 'Uppercase recommended' },
+        { '* Father Mobile': '10-digit mobile number', '9876543211': 'No spaces/dashes' },
+        { '* Mother Name': 'Mother\'s full name', 'MARY DOE': 'Uppercase recommended' },
+        { '* Mother Mobile': '10-digit mobile number', '9876543212': 'No spaces/dashes' },
+        { '* Institution': 'Exact institution name from database', 'JKKN College of Engineering and Technology': 'Must match exactly' },
+        { '* Degree': 'Degree code', 'B.E': 'Must match exactly' },
+        { '* Department': 'Full department name', 'Computer Science and Engineering': 'Must match exactly' },
+        { '* Program': 'Program code with degree prefix', 'CSE': 'Format: (BE) CSE, (ME) CSE, etc.' },
+        { '* Semester': 'Exact semester name', 'I Year I Semester': 'Format: Semester I, 1 Year, etc.' },
+        { '* Section': 'Section name', 'A': 'Usually A, B, C, etc.' },
+        { '* Academic Year': 'Format: YYYY-YYYY', '2024-2025': 'Current academic year' },
+        { '* Student Mobile': '10-digit mobile number', '9876543210': 'Student\'s own number' },
+        { '* College Email': 'Must end with @jkkn.ac.in', 'john.doe@jkkn.ac.in': 'Institutional email' },
+        { '* Permanent Address Street': 'Street/house details', '123 Main Street': 'Full address' },
+        { '* Permanent Address Taluk': 'Taluk name', 'Namakkal': 'Administrative division' },
+        { '* Permanent Address District': 'District name', 'Namakkal': 'District' },
+        { '* Permanent Address Pin Code': '6-digit pin code', '637001': 'Must be 6 digits' },
+        { '* Permanent Address State': 'State name', 'Tamil Nadu': 'Full state name' },
+        { '* Entry Type': 'Options: REGULAR, LATERAL, TRANSFER', 'REGULAR': 'Admission type' },
+        { '* First Graduate': 'Options: TRUE/FALSE or YES/NO', 'TRUE': 'First in family to graduate' },
+        { '* Accommodation Type': 'Options: HOSTEL, DAY SCHOLAR, HOME', 'HOSTEL': 'Living arrangement' },
+        { '': '' },
+        { 'Section': 'OPTIONAL FIELDS (35) - Can be left blank' },
+        { 'Aadhar Number': '12-digit Aadhar number', '123456789012': '' },
+        { 'Blood Group': 'Options: A+, A-, B+, B-, AB+, AB-, O+, O-, A1+, A1B', 'O+': '' },
+        { 'Admission Year': 'Year of admission', '2024': '' },
+        { 'Father Occupation': 'Father\'s profession', 'Business': '' },
+        { 'Mother Occupation': 'Mother\'s profession', 'Teacher': '' },
+        { 'Annual Income': 'Family annual income', '500000': '' },
+        { 'Regulation': 'Regulation code', 'R2021': '' },
+        { 'Batch': 'Batch year range', '2024-2028': '' },
+        { 'Personal Email': 'Personal email address', 'john@gmail.com': '' },
+        { 'Hostel Type': 'Options: AC HOSTEL, NON-AC HOSTEL', 'AC HOSTEL': '' },
+        { 'Food Type': 'Options: VEG, NON-VEG, VEGAN', 'VEG': '' },
+        { 'Last School': 'Previous school name', 'St. Mary\'s High School': '' },
+        { 'Board of Study': 'Education board', 'CBSE': 'CBSE, State Board, ICSE, etc.' },
+        { '10th Marks': 'JSON format', '{"overall": "95", "maths": "98"}': 'Must be valid JSON' },
+        { '12th Marks': 'JSON format', '{"overall": "92", "physics": "95"}': 'Must be valid JSON' },
+        { 'Medical Cutoff Marks': 'Medical entrance cutoff', '180': '' },
+        { 'Engineering Cutoff Marks': 'Engineering entrance cutoff', '185': '' },
+        { 'NEET Roll Number': 'NEET exam roll number', 'NEET2024123456': '' },
+        { 'NEET Score': 'NEET exam score', '625': '' },
+        { 'Counseling Applied': 'TRUE/FALSE or YES/NO', 'TRUE': '' },
+        { 'Counseling Number': 'Counseling application number', 'COUN2024001': '' },
+        { 'Quota': 'Options: GOVERNMENT, MANAGEMENT', 'MANAGEMENT': '' },
+        { 'Category': 'Admission category', 'General': '' },
+        { 'Bus Required': 'TRUE/FALSE or YES/NO', 'TRUE': '' },
+        { 'Bus Route': 'Bus route number/name', 'Route 5': '' },
+        { 'Bus Pickup Location': 'Pickup point', 'Central Bus Stand': '' },
+        { 'Reference Type': 'How they heard about college', 'Alumni': '' },
+        { 'Reference Name': 'Reference person name', 'Dr. Kumar': '' },
+        { 'Reference Contact': 'Reference contact number', '9876543299': '' },
+        { 'Roll Number': 'Student roll number', '24CSE001': 'Auto-generated if blank' },
+        { 'Register Number': 'University register number', '241CS001': 'Auto-generated if blank' },
+        { 'Student Photo URL': 'Photo URL', 'https://example.com/photos/john.jpg': '' },
+        { '': '' },
+        { 'Section': 'COMMON MISTAKES TO AVOID' },
+        { 'Mistake': 'Correct Format' },
+        { 'Entry Type: "FIRST YEAR"': 'Use "REGULAR" instead' },
+        { 'Hostel Type: "Boys Hostel"': 'Use "AC HOSTEL" or "NON-AC HOSTEL"' },
+        { 'Gender: "M" or "F"': 'Use "MALE" or "FEMALE"' },
+        { 'College Email: gmail.com': 'Must end with @jkkn.ac.in' },
+        { 'Mobile: with spaces/dashes': 'Remove all spaces and dashes (9876543210)' },
+        { 'Pin Code: 5 digits': 'Must be exactly 6 digits' },
+        { 'Date format: DD/MM/YYYY': 'Use YYYY-MM-DD format (2005-01-15)' },
+        { '': '' },
+        { 'Section': 'TIPS FOR SUCCESS' },
+        { '✓': 'All dropdown values are case-insensitive (MALE = male = Male)' },
+        { '✓': 'Required fields are marked with * in the template' },
+        { '✓': 'You can delete the example row after filling your data' },
+        { '✓': 'Copy-paste the example row to add more students' },
+        { '✓': 'Download fresh template if you make too many errors' },
+        { '✓': 'Validation happens on upload - errors will be shown clearly' },
+        { '✓': 'You can fix errors and re-upload the same file' },
+        { '': '' },
+        { 'Section': 'SUPPORT' },
+        { 'Need Help?': 'Contact your system administrator' },
+        { 'Last Updated': '2025-12-29' },
+        { 'Version': '1.2.0' }
+      ];
 
       // Create workbook
       const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(sampleData);
-      XLSX.utils.book_append_sheet(wb, ws, 'Template');
+
+      // Add Instructions sheet first
+      const wsInstructions = XLSX.utils.json_to_sheet(instructionsData);
+
+      // Set column widths for instructions sheet
+      wsInstructions['!cols'] = [
+        { wch: 35 }, // Column A (Field names)
+        { wch: 50 }, // Column B (Descriptions)
+        { wch: 45 }  // Column C (Examples)
+      ];
+
+      XLSX.utils.book_append_sheet(wb, wsInstructions, 'Instructions');
+
+      // Add Template sheet
+      const wsTemplate = XLSX.utils.json_to_sheet(sampleData);
+      XLSX.utils.book_append_sheet(wb, wsTemplate, 'Template');
+
+      // Write file
       XLSX.writeFile(wb, 'bulk-upload-profiles-template.xlsx');
-      toast.success('Template downloaded successfully!');
+      toast.success('Template with instructions downloaded successfully!');
     } catch (error) {
       console.error('[bulk-upload-enhanced] Error generating template:', error);
       toast.error('Failed to generate template');
@@ -271,6 +449,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
             // Sanitize data
             const sanitizedData = {
+              // SECTION 1: Basic Details
               first_name: sanitizeValue(mappedData.first_name, 'text'),
               last_name: sanitizeValue(mappedData.last_name, 'text'),
               date_of_birth: sanitizeValue(mappedData.date_of_birth, 'date'),
@@ -278,26 +457,83 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
               religion: sanitizeValue(mappedData.religion, 'text'),
               community: sanitizeValue(mappedData.community, 'text'),
               caste: sanitizeValue(mappedData.caste, 'text'),
+              aadhar_number: sanitizeValue(mappedData.aadhar_number, 'number'),
+              blood_group: sanitizeValue(mappedData.blood_group, 'text'),
+              admission_year: sanitizeValue(mappedData.admission_year, 'text'),
+
+              // SECTION 2: Parent/Guardian Information
               father_name: sanitizeValue(mappedData.father_name, 'text'),
+              father_occupation: sanitizeValue(mappedData.father_occupation, 'text'),
               father_mobile: sanitizeValue(mappedData.father_mobile, 'mobile'),
               mother_name: sanitizeValue(mappedData.mother_name, 'text'),
+              mother_occupation: sanitizeValue(mappedData.mother_occupation, 'text'),
               mother_mobile: sanitizeValue(mappedData.mother_mobile, 'mobile'),
+              annual_income: sanitizeValue(mappedData.annual_income, 'number'),
+
+              // SECTION 3: Academic Assignment
               institution_name: sanitizeValue(mappedData.institution_name, 'text'),
               degree_name: sanitizeValue(mappedData.degree_name, 'text'),
               department_name: sanitizeValue(mappedData.department_name, 'text'),
               program_name: sanitizeValue(mappedData.program_name, 'text'),
               semester_name: sanitizeValue(mappedData.semester_name, 'text'),
               section_name: sanitizeValue(mappedData.section_name, 'text'),
+              academic_year_name: sanitizeValue(mappedData.academic_year_name, 'text'),
+              regulation_name: sanitizeValue(mappedData.regulation_name, 'text'),
+              batch_name: sanitizeValue(mappedData.batch_name, 'text'),
+
+              // SECTION 4: Contact Details
               student_mobile: sanitizeValue(mappedData.student_mobile, 'mobile'),
               college_email: sanitizeValue(mappedData.college_email, 'email'),
               student_email: sanitizeValue(mappedData.student_email, 'email'),
+
+              // SECTION 5: Address Information
               permanent_address_street: sanitizeValue(mappedData.permanent_address_street, 'text'),
               permanent_address_taluk: sanitizeValue(mappedData.permanent_address_taluk, 'text'),
               permanent_address_district: sanitizeValue(mappedData.permanent_address_district, 'text'),
               permanent_address_pin_code: sanitizeValue(mappedData.permanent_address_pin_code, 'number'),
               permanent_address_state: sanitizeValue(mappedData.permanent_address_state, 'text'),
+
+              // SECTION 6: Entry Type
               entry_type: sanitizeValue(mappedData.entry_type, 'text'),
+              first_graduate: sanitizeValue(mappedData.first_graduate, 'text'),
+
+              // SECTION 7: Accommodation
               accommodation_type: sanitizeValue(mappedData.accommodation_type, 'text'),
+              hostel_type: sanitizeValue(mappedData.hostel_type, 'text'),
+              food_type: sanitizeValue(mappedData.food_type, 'text'),
+
+              // SECTION 8: Previous Education
+              last_school: sanitizeValue(mappedData.last_school, 'text'),
+              board_of_study: sanitizeValue(mappedData.board_of_study, 'text'),
+              tenth_marks: sanitizeValue(mappedData.tenth_marks, 'text'),
+              twelfth_marks: sanitizeValue(mappedData.twelfth_marks, 'text'),
+              medical_cutoff_marks: sanitizeValue(mappedData.medical_cutoff_marks, 'text'),
+              engineering_cutoff_marks: sanitizeValue(mappedData.engineering_cutoff_marks, 'text'),
+
+              // SECTION 9: Entrance Exams
+              neet_roll_number: sanitizeValue(mappedData.neet_roll_number, 'text'),
+              neet_score: sanitizeValue(mappedData.neet_score, 'text'),
+
+              // SECTION 10: Counseling Information
+              counseling_applied: sanitizeValue(mappedData.counseling_applied, 'text'),
+              counseling_number: sanitizeValue(mappedData.counseling_number, 'text'),
+              quota: sanitizeValue(mappedData.quota, 'text'),
+              category: sanitizeValue(mappedData.category, 'text'),
+
+              // SECTION 11: Transport
+              bus_required: sanitizeValue(mappedData.bus_required, 'text'),
+              bus_route: sanitizeValue(mappedData.bus_route, 'text'),
+              bus_pickup_location: sanitizeValue(mappedData.bus_pickup_location, 'text'),
+
+              // SECTION 12: Reference Information
+              reference_type: sanitizeValue(mappedData.reference_type, 'text'),
+              reference_name: sanitizeValue(mappedData.reference_name, 'text'),
+              reference_contact: sanitizeValue(mappedData.reference_contact, 'text'),
+
+              // SECTION 13: Student IDs
+              roll_number: sanitizeValue(mappedData.roll_number, 'text'),
+              register_number: sanitizeValue(mappedData.register_number, 'text'),
+              student_photo_url: sanitizeValue(mappedData.student_photo_url, 'text'),
             };
 
             // Validate row
