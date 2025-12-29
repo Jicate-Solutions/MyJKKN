@@ -36,12 +36,12 @@ export interface ValidationResult {
 export const COLUMN_MAPPING: Record<string, string[]> = {
   // SECTION 1: Basic Details
   'first_name': ['First Name', '* First Name', 'firstname', 'first_name'],
-  'last_name': ['Last Name', 'lastname', 'last_name'],
+  'last_name': ['Last Name', '* Last Name', 'lastname', 'last_name'],
   'date_of_birth': ['Date of Birth', '* Date of Birth', 'DOB', 'date_of_birth', 'dob'],
   'gender': ['Gender', '* Gender', 'gender'],
   'religion': ['Religion', '* Religion', 'religion'],
   'community': ['Community', '* Community', 'community'],
-  'caste': ['Caste', 'caste'],
+  'caste': ['Caste', '* Caste', 'caste'],
   'aadhar_number': ['Aadhar Number', 'aadhar_number', 'aadhaar'],
   'blood_group': ['Blood Group', 'blood_group'],
   'admission_year': ['Admission Year', 'admission_year'],
@@ -62,7 +62,7 @@ export const COLUMN_MAPPING: Record<string, string[]> = {
   'program_name': ['Program', '* Program', 'program', 'program_name'],
   'semester_name': ['Semester', '* Semester', 'semester', 'semester_name'],
   'section_name': ['Section', '* Section', 'section', 'section_name'],
-  'academic_year_name': ['Academic Year', 'academic_year', 'academic_year_name'],
+  'academic_year_name': ['Academic Year', '* Academic Year', 'academic_year', 'academic_year_name'],
   'regulation_name': ['Regulation', 'regulation', 'regulation_name'],
   'batch_name': ['Batch', 'batch', 'batch_name'],
 
@@ -73,19 +73,52 @@ export const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 5: Address Information
   'permanent_address_street': ['Permanent Address Street', '* Permanent Address Street', 'permanent_address_street', 'address_street'],
-  'permanent_address_taluk': ['Permanent Address Taluk', 'permanent_address_taluk', 'taluk', '* Permanent Address Taluk'],
+  'permanent_address_taluk': ['Permanent Address Taluk', '* Permanent Address Taluk', 'permanent_address_taluk', 'taluk'],
   'permanent_address_district': ['Permanent Address District', '* Permanent Address District', 'permanent_address_district', 'district'],
   'permanent_address_pin_code': ['Permanent Address Pin Code', '* Permanent Address Pin Code', 'permanent_address_pin_code', 'pincode', 'pin'],
   'permanent_address_state': ['Permanent Address State', '* Permanent Address State', 'permanent_address_state', 'state'],
 
   // SECTION 6: Entry Type
   'entry_type': ['Entry Type', '* Entry Type', 'entry_type'],
-  'first_graduate': ['First Graduate', 'first_graduate'],
+  'first_graduate': ['First Graduate', '* First Graduate', 'first_graduate'],
 
   // SECTION 7: Accommodation
   'accommodation_type': ['Accommodation Type', '* Accommodation Type', 'accommodation_type'],
   'hostel_type': ['Hostel Type', 'hostel_type'],
   'food_type': ['Food Type', 'food_type'],
+
+  // SECTION 8: Previous Education (All Optional)
+  'last_school': ['Last School', 'last_school', 'school'],
+  'board_of_study': ['Board of Study', 'board_of_study', 'board'],
+  'tenth_marks': ['10th Marks', 'Tenth Marks', 'tenth_marks'],
+  'twelfth_marks': ['12th Marks', 'Twelfth Marks', 'twelfth_marks'],
+  'medical_cutoff_marks': ['Medical Cutoff Marks', 'medical_cutoff_marks', 'medical_cutoff'],
+  'engineering_cutoff_marks': ['Engineering Cutoff Marks', 'engineering_cutoff_marks', 'engineering_cutoff'],
+
+  // SECTION 9: Entrance Exams
+  'neet_roll_number': ['NEET Roll Number', 'neet_roll_number', 'neet_roll'],
+  'neet_score': ['NEET Score', 'neet_score'],
+
+  // SECTION 10: Counseling Information
+  'counseling_applied': ['Counseling Applied', 'counseling_applied'],
+  'counseling_number': ['Counseling Number', 'counseling_number'],
+  'quota': ['Quota', 'quota'],
+  'category': ['Category', 'category'],
+
+  // SECTION 11: Transport
+  'bus_required': ['Bus Required', 'bus_required'],
+  'bus_route': ['Bus Route', 'bus_route'],
+  'bus_pickup_location': ['Bus Pickup Location', 'bus_pickup_location', 'pickup_location'],
+
+  // SECTION 12: Reference Information
+  'reference_type': ['Reference Type', 'reference_type'],
+  'reference_name': ['Reference Name', 'reference_name'],
+  'reference_contact': ['Reference Contact', 'reference_contact'],
+
+  // SECTION 13: Student IDs
+  'roll_number': ['Roll Number', 'roll_number'],
+  'register_number': ['Register Number', 'register_number', 'university_register'],
+  'student_photo_url': ['Student Photo URL', 'student_photo_url', 'photo_url'],
 };
 
 /**
@@ -428,7 +461,11 @@ export function validateRow(data: Record<string, any>): ValidationResult {
     }
   }
 
-  // Note: Optional fields (last_name, student_email) don't generate warnings
+  // OPTIONAL: Previous Education (no validation required)
+  // Note: last_school, board_of_study, tenth_marks, twelfth_marks are all optional
+  // These fields will be processed if provided, but won't cause errors if missing
+
+  // Note: Optional fields (last_name, student_email, etc.) don't generate warnings
   // as they are truly optional and warnings clutter the validation UI.
   // The system handles missing optional fields gracefully.
 
