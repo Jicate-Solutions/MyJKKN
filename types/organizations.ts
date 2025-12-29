@@ -193,6 +193,9 @@ export interface DepartmentListResponse {
 
 // Add these interfaces alongside existing ones
 
+export type ProgramType = 'UG' | 'PG' | 'Ph.D';
+export type PatternType = 'Year' | 'Semester';
+
 export interface Program {
   id: string;
   institution_id: string;
@@ -200,6 +203,13 @@ export interface Program {
   department_id: string;
   program_id: string;
   program_name: string;
+  // New fields (all optional/nullable)
+  program_type?: ProgramType | null;
+  display_name?: string | null;
+  program_order?: number | null;
+  program_duration_yrs?: number | null;
+  pattern_type?: PatternType | null;
+  is_part_time?: boolean | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -227,6 +237,13 @@ export interface CreateProgramDto {
   department_id: string;
   program_id: string;
   program_name: string;
+  // New optional fields
+  program_type?: ProgramType;
+  display_name?: string;
+  program_order?: number;
+  program_duration_yrs?: number;
+  pattern_type?: PatternType;
+  is_part_time?: boolean;
   is_active?: boolean;
 }
 
@@ -308,6 +325,11 @@ export interface Semester {
   semester_code: string;
   semester_name: string;
   semester_type: 'even' | 'odd';
+  // New fields (all optional/nullable)
+  semester_order?: number | null;
+  initial_semester?: boolean | null;
+  terminal_semester?: boolean | null;
+  semester_group?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -339,6 +361,11 @@ export interface CreateSemesterDto {
   semester_code: string;
   semester_name: string;
   semester_type: 'even' | 'odd';
+  // New optional fields
+  semester_order?: number;
+  initial_semester?: boolean;
+  terminal_semester?: boolean;
+  semester_group?: string;
   is_active?: boolean;
 }
 
