@@ -40,7 +40,11 @@ import {
   sanitizeValue,
   validateRow,
   findDuplicateEmails,
-  type ValidationResult
+  validateDatabaseFields,
+  getDatabaseValidationErrors,
+  type ValidationResult,
+  type DatabaseValidationResult,
+  type DatabaseValidationErrors
 } from '@/lib/utils/bulk-upload-validation';
 import type {
   ParsedRow,
@@ -82,11 +86,15 @@ const REQUIRED_FIELDS = [
 ];
 
 // Helper component to display validation issues (errors and warnings)
-function IssuesDisplay({ validationResult }: { validationResult: ValidationResult }) {
+function IssuesDisplay({
+  validationResult,
+  databaseValidationErrors
+}: {
+  validationResult: ValidationResult;
+  databaseValidationErrors?: DatabaseValidationErrors;
+}) {
   // Filter warnings to only show for required fields
-  // Optional fields should only show errors, not warnings
   const relevantWarnings = validationResult.warnings.filter((warning) => {
-    // Check if warning mentions a required field
     const warningLower = warning.toLowerCase();
     return REQUIRED_FIELDS.some((field) => {
       const fieldWithSpaces = field.replace(/_/g, ' ');
@@ -94,26 +102,55 @@ function IssuesDisplay({ validationResult }: { validationResult: ValidationResul
     });
   });
 
+  const hasFormatErrors = validationResult.errors.length > 0;
+  const hasDbErrors = databaseValidationErrors && Object.keys(databaseValidationErrors).length > 0;
+  const hasAnyErrors = hasFormatErrors || hasDbErrors;
+
   return (
-    <div className="space-y-1">
-      {/* ALWAYS show ALL errors (both required and optional fields) */}
-      {validationResult.errors.length > 0 && (
+    <div className="space-y-1.5">
+      {/* FORMAT VALIDATION ERRORS */}
+      {hasFormatErrors && (
         <>
-          {validationResult.errors.slice(0, 3).map((error, idx) => (
+          {validationResult.errors.slice(0, 2).map((error, idx) => (
             <div key={`error-${idx}`} className="text-xs text-red-600 font-medium break-words">
               <span className="font-bold">❌ {error.field}:</span> {error.message}
             </div>
           ))}
-          {validationResult.errors.length > 3 && (
+          {validationResult.errors.length > 2 && (
             <div className="text-xs text-red-500 font-medium">
-              +{validationResult.errors.length - 3} more errors
+              +{validationResult.errors.length - 2} more format errors
+            </div>
+          )}
+        </>
+      )}
+
+      {/* DATABASE VALIDATION ERRORS WITH SUGGESTIONS */}
+      {hasDbErrors && (
+        <>
+          {Object.entries(databaseValidationErrors!).slice(0, 2).map(([field, errorData], idx) => (
+            <div key={`db-error-${idx}`} className="space-y-0.5">
+              <div className="text-xs text-red-600 font-medium break-words">
+                <span className="font-bold">❌ {field}:</span> {errorData.error}
+              </div>
+              {errorData.suggestions && errorData.suggestions.length > 0 && (
+                <div className="text-xs text-blue-600 pl-4 break-words">
+                  <span className="font-semibold">💡 Try:</span>{' '}
+                  {errorData.suggestions.slice(0, 3).join(', ')}
+                  {errorData.suggestions.length > 3 && ` +${errorData.suggestions.length - 3} more`}
+                </div>
+              )}
+            </div>
+          ))}
+          {Object.keys(databaseValidationErrors!).length > 2 && (
+            <div className="text-xs text-red-500 font-medium">
+              +{Object.keys(databaseValidationErrors!).length - 2} more database errors
             </div>
           )}
         </>
       )}
 
       {/* Show warnings ONLY for required fields (if no errors) */}
-      {validationResult.errors.length === 0 && relevantWarnings.length > 0 && (
+      {!hasAnyErrors && relevantWarnings.length > 0 && (
         <>
           {relevantWarnings.slice(0, 2).map((warning, idx) => (
             <div key={`warning-${idx}`} className="text-xs text-amber-600 break-words">
@@ -129,9 +166,9 @@ function IssuesDisplay({ validationResult }: { validationResult: ValidationResul
       )}
 
       {/* Show "All Good" if no issues */}
-      {validationResult.errors.length === 0 && relevantWarnings.length === 0 && (
+      {!hasAnyErrors && relevantWarnings.length === 0 && (
         <div className="text-xs text-green-600 font-medium">
-          ✓ All required fields validated
+          ✓ All fields validated
         </div>
       )}
     </div>
@@ -156,6 +193,8 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
       duplicateEmails: 0,
       selectedRows: 0
     },
+    databaseValidationResult: null,
+    isValidatingDatabase: false,
     uploadProgress: 0,
     result: null,
     error: null
@@ -553,10 +592,13 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
             ...prev,
             parsedRows,
             validationSummary: summary,
-            step: 'validate'
+            step: 'validating-format'
           }));
 
-          toast.success(`Parsed ${parsedRows.length} rows. ${summary.validRows} valid, ${summary.errorRows} errors.`);
+          toast.success(`Format validation complete: ${summary.validRows} valid, ${summary.errorRows} errors.`);
+
+          // Now perform database validation
+          performDatabaseValidation(parsedRows);
           resolve();
         } catch (error) {
           reject(error);
@@ -566,6 +608,78 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
       reader.onerror = () => reject(new Error('Failed to read file'));
       reader.readAsArrayBuffer(file);
     });
+  };
+
+  // Perform database validation
+  const performDatabaseValidation = async (parsedRows: ParsedRow[]) => {
+    try {
+      setState(prev => ({ ...prev, step: 'validating-database', isValidatingDatabase: true }));
+      toast.loading('Validating against database...', { id: 'db-validation' });
+
+      // Call database validation API
+      const dbValidationResult = await validateDatabaseFields(parsedRows);
+
+      // Merge database validation results with existing validation
+      const updatedRows = parsedRows.map(row => {
+        const dbErrors = getDatabaseValidationErrors(row.sanitizedData, dbValidationResult);
+        const hasDbErrors = Object.keys(dbErrors).length > 0;
+
+        // Add database validation errors to the row
+        const updatedRow: ParsedRow = {
+          ...row,
+          databaseValidationErrors: dbErrors
+        };
+
+        // Update validation status based on database + format validation
+        if (row.validationStatus === 'error') {
+          // Keep error status if format validation failed
+          updatedRow.validationStatus = 'error';
+        } else if (hasDbErrors) {
+          // Set to error if database validation failed
+          updatedRow.validationStatus = 'error';
+          updatedRow.selected = false; // Unselect rows with database errors
+        }
+
+        return updatedRow;
+      });
+
+      // Recalculate summary with database validation results
+      const summary: ValidationSummary = {
+        totalRows: updatedRows.length,
+        validRows: updatedRows.filter(r => r.validationStatus === 'valid').length,
+        warningRows: updatedRows.filter(r => r.validationStatus === 'warning').length,
+        errorRows: updatedRows.filter(r => r.validationStatus === 'error').length,
+        duplicateEmails: state.validationSummary.duplicateEmails,
+        selectedRows: updatedRows.filter(r => r.selected).length
+      };
+
+      setState(prev => ({
+        ...prev,
+        parsedRows: updatedRows,
+        validationSummary: summary,
+        databaseValidationResult: dbValidationResult,
+        isValidatingDatabase: false,
+        step: 'validate'
+      }));
+
+      toast.dismiss('db-validation');
+
+      if (summary.errorRows > 0) {
+        toast.error(`Database validation found ${summary.errorRows} errors. Check suggestions.`);
+      } else {
+        toast.success('Database validation complete! All fields verified.');
+      }
+    } catch (error) {
+      console.error('[bulk-upload] Database validation failed:', error);
+      setState(prev => ({
+        ...prev,
+        isValidatingDatabase: false,
+        step: 'validate',
+        error: error instanceof Error ? error.message : 'Database validation failed'
+      }));
+      toast.dismiss('db-validation');
+      toast.error('Database validation failed. You can still upload, but some rows may fail.');
+    }
   };
 
   // Toggle row selection
@@ -695,6 +809,8 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         duplicateEmails: 0,
         selectedRows: 0
       },
+      databaseValidationResult: null,
+      isValidatingDatabase: false,
       uploadProgress: 0,
       result: null,
       error: null
@@ -814,25 +930,34 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
               { key: 'confirm', label: '3. Confirm' },
               { key: 'uploading', label: '4. Upload' },
               { key: 'results', label: '5. Results' }
-            ].map((step, index) => (
-              <div key={step.key} className="flex items-center">
-                <div
-                  className={`px-3 py-1 rounded-md text-sm font-medium ${
-                    state.step === step.key
-                      ? 'bg-primary text-primary-foreground'
-                      : state.parsedRows.length > 0 &&
-                        ['validate', 'confirm', 'uploading', 'results'].includes(step.key) &&
-                        ['validate', 'confirm', 'uploading', 'results'].indexOf(state.step) >=
-                          ['validate', 'confirm', 'uploading', 'results'].indexOf(step.key)
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-muted text-muted-foreground'
-                  }`}
-                >
-                  {step.label}
+            ].map((step, index) => {
+              const isValidating = state.step === 'validating-format' || state.step === 'validating-database';
+              const isCurrentStep = state.step === step.key || (isValidating && step.key === 'validate');
+
+              return (
+                <div key={step.key} className="flex items-center">
+                  <div
+                    className={`px-3 py-1 rounded-md text-sm font-medium ${
+                      isCurrentStep
+                        ? 'bg-primary text-primary-foreground'
+                        : state.parsedRows.length > 0 &&
+                          ['validate', 'confirm', 'uploading', 'results'].includes(step.key) &&
+                          ['validate', 'confirm', 'uploading', 'results'].indexOf(state.step) >=
+                            ['validate', 'confirm', 'uploading', 'results'].indexOf(step.key)
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {step.key === 'validate' && isValidating
+                      ? state.step === 'validating-format'
+                        ? '2. Validating Format...'
+                        : '2. Validating Database...'
+                      : step.label}
+                  </div>
+                  {index < 4 && <ArrowRight className="h-4 w-4 mx-2 text-muted-foreground" />}
                 </div>
-                {index < 4 && <ArrowRight className="h-4 w-4 mx-2 text-muted-foreground" />}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </DialogHeader>
 
@@ -1088,7 +1213,10 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                           {/* Issues Column - Sticky Right */}
                           <TableCell className="sticky right-0 bg-background z-10">
                             {row.validationResult && (
-                              <IssuesDisplay validationResult={row.validationResult} />
+                              <IssuesDisplay
+                                validationResult={row.validationResult}
+                                databaseValidationErrors={row.databaseValidationErrors}
+                              />
                             )}
                           </TableCell>
                         </TableRow>

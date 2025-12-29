@@ -111,23 +111,24 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/applications/categories': 'applications.categories.view',
 
 
-  // Learners Module (Unified)
-  '/learners': 'learners.view',
-  '/learners/enquiries': 'learners.view',
-  '/learners/enquiries/new': 'learners.create',
-  '/learners/enquiries/[id]': 'learners.view',
-  '/learners/enquiries/[id]/edit': 'learners.edit',
-  '/learners/applications': 'learners.view',
-  '/learners/applications/[id]': 'learners.view',
-  '/learners/applications/[id]/edit': 'learners.edit',
-  '/learners/profiles': 'learners.view',
-  '/learners/profiles/[id]': 'learners.view',
+  // Learners Module (Unified) - Using Granular Permissions
+  '/learners': 'learners.dashboard.view',
+  '/learners/enquiries': 'learners.admissions.view',
+  '/learners/enquiries/new': 'learners.admissions.create',
+  '/learners/enquiries/[id]': 'learners.admissions.view',
+  '/learners/enquiries/[id]/edit': 'learners.admissions.edit',
+  '/learners/applications': 'learners.admissions.view',
+  '/learners/applications/[id]': 'learners.admissions.view',
+  '/learners/applications/[id]/edit': 'learners.admissions.edit',
+  '/learners/profiles': 'learners.profiles.view',
+  '/learners/profiles/[id]': 'learners.profiles.view',
   '/learners/profiles/[id]/edit': 'learners.edit',
-  '/learners/profiles/bulk-edit': 'learners.edit',
+  '/learners/profiles/bulk-edit': 'learners.bulk_edit',
   '/learners/profiles/promotion': 'learners.promotion.view',
-  '/learners/alumni': 'learners.view',
-  '/learners/alumni/[id]': 'learners.view',
-  '/learners/analytics': 'learners.dashboard',
+  '/learners/attendance': 'learners.attendance.view',
+  '/learners/alumni': 'learners.alumni.view',
+  '/learners/alumni/[id]': 'learners.alumni.view',
+  '/learners/analytics': 'learners.dashboard.view',
 
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
@@ -634,6 +635,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          href: '/learners/attendance',
+          label: 'My Attendance',
+          active: pathname.startsWith('/learners/attendance'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
           href: '/learners/alumni',
           label: 'Alumni & Graduates',
           active: pathname.startsWith('/learners/alumni'),
@@ -882,9 +890,18 @@ export function GetRoleBasedPages(
 ): MenuGroup[] {
   const allMenus = GetPages(pathname);
 
-  // Super admin gets all menus
+  // Super admin gets all menus EXCEPT student-only pages
   if (userRole?.role_key === 'super_admin') {
-    return allMenus;
+    return allMenus.map((group) => ({
+      ...group,
+      menus: group.menus.filter((menu) => {
+        // Hide "My Attendance" from super admin (student-only page)
+        if (menu.href === '/learners/attendance') {
+          return false;
+        }
+        return true;
+      })
+    })).filter((group) => group.menus.length > 0);
   }
 
   // If no role provided or no permissions, only show Dashboard
@@ -953,6 +970,11 @@ export function GetRoleBasedPages(
                 userRole.permissions[requiredPermission] === true
               );
             });
+          }
+
+          // Special case: "My Attendance" is ONLY for students
+          if (menu.href === '/learners/attendance') {
+            return userRole.role === 'student' || userRole.role_key === 'student';
           }
 
           // Check if user has permission for this menu

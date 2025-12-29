@@ -511,3 +511,213 @@ export function findDuplicateEmails(rows: Array<{ sanitizedData: Record<string, 
 
   return duplicates;
 }
+
+// ============================================
+// DATABASE VALIDATION
+// ============================================
+
+export interface FieldValidationResult {
+  value: string;
+  id: string | null;
+  found: boolean;
+  error?: string;
+  suggestions?: string[];
+}
+
+export interface DatabaseValidationResult {
+  institutions: Record<string, FieldValidationResult>;
+  programs: Record<string, FieldValidationResult>;
+  semesters: Record<string, FieldValidationResult>;
+  sections: Record<string, FieldValidationResult>;
+  degrees: Record<string, FieldValidationResult>;
+  departments: Record<string, FieldValidationResult>;
+  academicYears: Record<string, FieldValidationResult>;
+}
+
+export interface DatabaseValidationErrors {
+  institution?: { error: string; suggestions?: string[] };
+  program?: { error: string; suggestions?: string[] };
+  semester?: { error: string; suggestions?: string[] };
+  section?: { error: string; suggestions?: string[] };
+  degree?: { error: string; suggestions?: string[] };
+  department?: { error: string; suggestions?: string[] };
+  academicYear?: { error: string; suggestions?: string[] };
+}
+
+/**
+ * Extract unique values from parsed rows for batch validation
+ * For hierarchical fields (semester, section), we include context (program name, semester name)
+ */
+export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, any> }>) {
+  const uniqueValues = {
+    institutions: new Set<string>(),
+    programs: new Set<string>(),
+    degrees: new Set<string>(),
+    departments: new Set<string>(),
+    academicYears: new Set<string>()
+  };
+
+  // For semesters, we need to track (program_name, semester_name) pairs
+  const semesterPairs = new Set<string>();
+
+  // For sections, we need to track (program_name, semester_name, section_name) triplets
+  const sectionTriplets = new Set<string>();
+
+  rows.forEach(row => {
+    const data = row.sanitizedData;
+
+    if (data.institution_name) uniqueValues.institutions.add(data.institution_name);
+    if (data.program_name) uniqueValues.programs.add(data.program_name);
+    if (data.degree_name) uniqueValues.degrees.add(data.degree_name);
+    if (data.department_name) uniqueValues.departments.add(data.department_name);
+    if (data.academic_year_name) uniqueValues.academicYears.add(data.academic_year_name);
+
+    // Track semester with its program context
+    if (data.program_name && data.semester_name) {
+      semesterPairs.add(JSON.stringify({
+        program: data.program_name,
+        semester: data.semester_name
+      }));
+    }
+
+    // Track section with its program and semester context
+    if (data.program_name && data.semester_name && data.section_name) {
+      sectionTriplets.add(JSON.stringify({
+        program: data.program_name,
+        semester: data.semester_name,
+        section: data.section_name
+      }));
+    }
+  });
+
+  return {
+    institutions: Array.from(uniqueValues.institutions),
+    programs: Array.from(uniqueValues.programs),
+    degrees: Array.from(uniqueValues.degrees),
+    departments: Array.from(uniqueValues.departments),
+    academicYears: Array.from(uniqueValues.academicYears),
+    // Parse back to objects for API
+    semestersWithContext: Array.from(semesterPairs).map(str => JSON.parse(str)) as Array<{ program: string; semester: string }>,
+    sectionsWithContext: Array.from(sectionTriplets).map(str => JSON.parse(str)) as Array<{ program: string; semester: string; section: string }>
+  };
+}
+
+/**
+ * Call database validation API
+ */
+export async function validateDatabaseFields(
+  rows: Array<{ sanitizedData: Record<string, any> }>
+): Promise<DatabaseValidationResult> {
+  const uniqueValues = extractUniqueValues(rows);
+
+  const response = await fetch('/api/learners/validate-bulk-upload-preview', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ uniqueValues })
+  });
+
+  if (!response.ok) {
+    throw new Error('Database validation failed');
+  }
+
+  const result = await response.json();
+
+  if (!result.success) {
+    throw new Error(result.error || 'Database validation failed');
+  }
+
+  return result.validationResult;
+}
+
+/**
+ * Get database validation errors for a specific row
+ */
+export function getDatabaseValidationErrors(
+  data: Record<string, any>,
+  validationResult: DatabaseValidationResult
+): DatabaseValidationErrors {
+  const errors: DatabaseValidationErrors = {};
+
+  // Check institution
+  if (data.institution_name) {
+    const instResult = validationResult.institutions[data.institution_name];
+    if (instResult && !instResult.found) {
+      errors.institution = {
+        error: instResult.error || 'Institution not found in database',
+        suggestions: instResult.suggestions
+      };
+    }
+  }
+
+  // Check program
+  if (data.program_name) {
+    const progResult = validationResult.programs[data.program_name];
+    if (progResult && !progResult.found) {
+      errors.program = {
+        error: progResult.error || 'Program not found in database',
+        suggestions: progResult.suggestions
+      };
+    }
+  }
+
+  // Check semester (use composite key: PROGRAM|SEMESTER)
+  if (data.semester_name && data.program_name) {
+    const semesterKey = `${data.program_name}|${data.semester_name}`;
+    const semResult = validationResult.semesters[semesterKey];
+    if (semResult && !semResult.found) {
+      errors.semester = {
+        error: semResult.error || 'Semester not found in database',
+        suggestions: semResult.suggestions
+      };
+    }
+  }
+
+  // Check section (use composite key: PROGRAM|SEMESTER|SECTION)
+  if (data.section_name && data.program_name && data.semester_name) {
+    const sectionKey = `${data.program_name}|${data.semester_name}|${data.section_name}`;
+    const secResult = validationResult.sections[sectionKey];
+    if (secResult && !secResult.found) {
+      errors.section = {
+        error: secResult.error || 'Section not found in database',
+        suggestions: secResult.suggestions
+      };
+    }
+  }
+
+  // Check degree
+  if (data.degree_name) {
+    const degResult = validationResult.degrees[data.degree_name];
+    if (degResult && !degResult.found) {
+      errors.degree = {
+        error: degResult.error || 'Degree not found in database',
+        suggestions: degResult.suggestions
+      };
+    }
+  }
+
+  // Check department
+  if (data.department_name) {
+    const deptResult = validationResult.departments[data.department_name];
+    if (deptResult && !deptResult.found) {
+      errors.department = {
+        error: deptResult.error || 'Department not found in database',
+        suggestions: deptResult.suggestions
+      };
+    }
+  }
+
+  // Check academic year
+  if (data.academic_year_name) {
+    const yearResult = validationResult.academicYears[data.academic_year_name];
+    if (yearResult && !yearResult.found) {
+      errors.academicYear = {
+        error: yearResult.error || 'Academic Year not found in database',
+        suggestions: yearResult.suggestions
+      };
+    }
+  }
+
+  return errors;
+}

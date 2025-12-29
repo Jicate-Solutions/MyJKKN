@@ -5,11 +5,18 @@
 // Purpose: TypeScript types for bulk upload system
 // ============================================
 
-import { ValidationError, ValidationResult } from '@/lib/utils/bulk-upload-validation';
+import {
+  ValidationError,
+  ValidationResult,
+  DatabaseValidationErrors,
+  DatabaseValidationResult
+} from '@/lib/utils/bulk-upload-validation';
 
 export type UploadStep =
   | 'select-file'
   | 'preview-data'
+  | 'validating-format'
+  | 'validating-database'
   | 'validate'
   | 'confirm'
   | 'uploading'
@@ -24,6 +31,7 @@ export interface ParsedRow {
   sanitizedData: Record<string, any>; // After sanitization
   validationStatus: ValidationStatus;
   validationResult: ValidationResult | null;
+  databaseValidationErrors?: DatabaseValidationErrors; // Database validation errors
   selected: boolean; // Whether to include in upload
   isDuplicate: boolean; // Duplicate email in this batch
 }
@@ -69,6 +77,8 @@ export interface UploadState {
   file: File | null;
   parsedRows: ParsedRow[];
   validationSummary: ValidationSummary;
+  databaseValidationResult: DatabaseValidationResult | null; // Database validation results
+  isValidatingDatabase: boolean; // Loading state for database validation
   uploadProgress: number;
   result: UploadResult | null;
   error: string | null;
