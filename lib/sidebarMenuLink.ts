@@ -974,7 +974,7 @@ export function GetRoleBasedPages(
 
           // Special case: "My Attendance" is ONLY for students
           if (menu.href === '/learners/attendance') {
-            return userRole.role === 'student' || userRole.role_key === 'student';
+            return userRole.role_key === 'student';
           }
 
           // Check if user has permission for this menu
