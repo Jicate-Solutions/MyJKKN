@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import AIChip from '@/components/ui/ai-chip';
+import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 
 export default function RootPage() {
   const router = useRouter();
@@ -64,9 +65,16 @@ export default function RootPage() {
         // @ts-ignore - TypeScript type inference issue after React 19 upgrade
         switch (profile.role) {
           case 'student':
-            // Students are not allowed in this application - redirect to login
-            router.replace('/auth/login?reason=student_redirect');
-            return;
+            // Check student portal feature flag
+            if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
+              // Feature disabled - block students (original behavior)
+              router.replace('/auth/login?reason=student_redirect');
+              return;
+            }
+            // Feature enabled - allow students to access dashboard
+            // Lifecycle validation already happened in auth callback
+            destination = `/dashboard?v=${timestamp}`;
+            break;
           case 'guest':
             destination = '/guest';
             break;

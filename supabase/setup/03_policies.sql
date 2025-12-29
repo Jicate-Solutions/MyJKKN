@@ -1069,6 +1069,21 @@ CREATE POLICY "student_attendance_update_marked_by" ON student_attendance
     FOR UPDATE USING (marked_by = auth.uid())
     WITH CHECK (marked_by = auth.uid());
 
+-- Student self-service: view own attendance records
+-- Added: 2025-12-29 - Student portal attendance view
+CREATE POLICY "student_attendance_select_own_student" ON student_attendance
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1
+            FROM profiles p
+            JOIN learners_profiles lp ON p.learner_id = lp.id
+            WHERE p.id = auth.uid()
+            AND p.role = 'student'
+            AND lp.section_id = student_attendance.section_id
+            AND lp.lifecycle_status IN ('active', 'graduated')
+        )
+    );
+
 -- ================================================================================
 -- SECTION 8: TIMETABLE MODULE TABLES
 -- ================================================================================

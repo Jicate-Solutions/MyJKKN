@@ -2805,7 +2805,7 @@ BEGIN
         'profile.edit', true,
 
         -- Self-View Modules (RLS enforced to own records)
-        'learners.view', true,
+        'learners.attendance.view', true,
         'billing.view', true,
         'billing.receipts.view', true,
         'billing.invoices.view', true,

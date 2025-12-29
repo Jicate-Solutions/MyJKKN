@@ -233,11 +233,16 @@ export const PERMISSION_CATEGORIES = [
     key: 'learners',
     permissions: [
       // Basic Learner Operations
-      { key: 'learners.view', label: 'View Learners' },
+      { key: 'learners.view', label: 'View Learners (Legacy - use specific permissions below)' },
       { key: 'learners.create', label: 'Create Learners' },
       { key: 'learners.edit', label: 'Edit Learners' },
       { key: 'learners.delete', label: 'Delete Learners' },
+
+      // Specific Page Access (Granular Permissions)
       { key: 'learners.dashboard.view', label: 'View Learner Analytics Dashboard' },
+      { key: 'learners.profiles.view', label: 'View Learner Profiles' },
+      { key: 'learners.alumni.view', label: 'View Alumni & Graduates' },
+      { key: 'learners.attendance.view', label: 'View Own Attendance (Students)' },
 
       // Learner Onboarding
       { key: 'learners.onboarding.view', label: 'View Learner Onboarding' },

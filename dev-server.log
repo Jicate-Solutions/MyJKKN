@@ -2,15 +2,596 @@
 > my-jkkn@0.1.0 dev
 > next dev
 
-⚠ Port 3000 is in use by process 17692, using available port 3001 instead.
 ▲ Next.js 16.1.1 (Turbopack, Cache Components)
-- Local:         http://localhost:3001
-- Network:       http://172.20.15.117:3001
+- Local:         http://localhost:3000
+- Network:       http://172.20.15.117:3000
 - Environments: .env
 - Experiments (use with caution):
   · cpus: 1
 
 ✓ Starting...
-⨯ Unable to acquire lock at D:\Projects\MyJKKN\.next\dev\lock, is another instance of next dev running?
-  Suggestion: If you intended to restart next dev, terminate the other process, and then try again.
+✓ Ready in 3.2s
+○ Compiling /auth/login ...
+ GET /auth/login?reason=student_redirect 200 in 9.1s (compile: 7.6s, render: 1519ms)
+ GET /learners/profiles 200 in 13.7s (compile: 6.5s, proxy.ts: 1514ms, render: 5.7s)
+Persisting failed: Unable to write SST file 00000409.sst
+
+Caused by:
+    The system cannot find the path specified. (os error 3)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+⨯ Error: ENOENT: no such file or directory, open 'D:\Projects\MyJKKN\.next\dev\server\app\auth\login\page\build-manifest.json'
+    at ignore-listed frames {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\Projects\\MyJKKN\\.next\\dev\\server\\app\\auth\\login\\page\\build-manifest.json'
+}
+
+thread 'tokio-runtime-worker' (19352) panicked at C:\actions-runner\_work\next.js\next.js\turbopack\crates\turbo-tasks-backend\src\backend\mod.rs:1354:30:
+Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Caused by:
+    0: Unable to open static sorted file referenced from 00000372.meta
+    1: Unable to open static sorted file 00000368.sst
+    2: The system cannot find the file specified. (os error 2)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+-----
+[1m[31mFATAL[39m[0m: An unexpected Turbopack error occurred. A panic log has been written to C:\Users\Admin\AppData\Local\Temp\next-panic-b2d39c27af7041f52b458cc305f0b08b.log.
+
+To help make Turbopack better, report this error by ]8;;https://github.com/vercel/next.js/discussions/new?category=turbopack-error-report&title=Turbopack%20Error%3A%20Failed%20to%20write%20page%20endpoint%20%2F_app&body=Turbopack%20version%3A%20%60d1bd5b58%60%0ANext.js%20version%3A%20%600.0.0%60%0A%0AError%20message%3A%0A%60%60%60%0AFailed%20to%20write%20page%20endpoint%20%2F_app%0A%0ACaused%20by%3A%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20Failed%20to%20lookup%20task%20id%3A%20Looking%20up%20task%20id%20for%20CachedTaskType%20%7B%20native_fn%3A%20NativeFunction%20%7B%20name%3A%20%22try_get_next_package%22%2C%20global_name%3A%20%22next-core%40next_core%3A%3Anext_import_map%3A%3Atry_get_next_package%22%2C%20..%20%7D%2C%20this%3A%20None%2C%20arg%3A%20%28FileSystemPath%20%7B%20fs%3A%20ResolvedVc%28RawVc%3A%3ATaskCell%288%2C%20%22turbo_tasks_fs%3A%3ADiskFileSystem%230%22%29%29%2C%20path%3A%20%22%22%20%7D%2C%29%20%7D%20from%20database%20failed%0A%0ADebug%20info%3A%0A-%20Execution%20of%20get_written_endpoint_with_issues_operation%20failed%0A-%20Execution%20of%20endpoint_write_to_disk%20failed%0A-%20Execution%20of%20%3CPageEndpoint%20as%20Endpoint%3E%3A%3Aoutput%20failed%0A-%20Failed%20to%20write%20page%20endpoint%20%2F_app%0A-%20Execution%20of%20PageEndpoint%3A%3Aoutput%20failed%0A-%20Execution%20of%20%2AChunkGroupResult%3A%3Aall_assets%20failed%0A-%20Execution%20of%20PageEndpoint%3A%3Aclient_chunk_group%20failed%0A-%20Execution%20of%20PageEndpoint%3A%3Aclient_evaluatable_assets%20failed%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20Execution%20of%20PageEndpoint%3A%3Aclient_module%20failed%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20Execution%20of%20%2Acreate_page_loader_entry_module%20failed%0A-%20Execution%20of%20PagesProject%3A%3Aclient_module_context%20failed%0A-%20Execution%20of%20%2AModuleAssetContext%3A%3Anew%20failed%0A-%20Execution%20of%20get_client_module_options_context%20failed%0A-%20Execution%20of%20%2Aget_jsx_transform_options%20failed%0A-%20Execution%20of%20get_client_resolve_options_context%20failed%0A-%20Execution%20of%20get_next_client_import_map%20failed%0A-%20Failed%20to%20lookup%20task%20id%3A%20Looking%20up%20task%20id%20for%20CachedTaskType%20%7B%20native_fn%3A%20NativeFunction%20%7B%20name%3A%20%22try_get_next_package%22%2C%20global_name%3A%20%22next-core%40next_core%3A%3Anext_import_map%3A%3Atry_get_next_package%22%2C%20..%20%7D%2C%20this%3A%20None%2C%20arg%3A%20%28FileSystemPath%20%7B%20fs%3A%20ResolvedVc%28RawVc%3A%3ATaskCell%288%2C%20%22turbo_tasks_fs%3A%3ADiskFileSystem%230%22%29%29%2C%20path%3A%20%22%22%20%7D%2C%29%20%7D%20from%20database%20failed%0A%20%20%0A%20%20Caused%20by%3A%0A%20%20%20%20%20%200%3A%20Unable%20to%20open%20static%20sorted%20file%20referenced%20from%2000000372.meta%0A%20%20%20%20%20%201%3A%20Unable%20to%20open%20static%20sorted%20file%2000000368.sst%0A%20%20%20%20%20%202%3A%20The%20system%20cannot%20find%20the%20file%20specified.%20%28os%20error%202%29%0A%60%60%60&labels=Turbopack,Turbopack%20Panic%20Backtrace\clicking here.]8;;\
+-----
+
+⨯ Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+Error: ENOENT: no such file or directory, open 'D:\Projects\MyJKKN\.next\dev\server\app\auth\login\page\build-manifest.json'
+    at ignore-listed frames {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\Projects\\MyJKKN\\.next\\dev\\server\\app\\auth\\login\\page\\build-manifest.json'
+}
+⨯ Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+⨯ Error: Cannot find module '../chunks/ssr/[turbopack]_runtime.js'
+Require stack:
+- D:\Projects\MyJKKN\.next\dev\server\app\page.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\require.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\load-components.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\utils.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\options.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\index.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\next-config-ts\transpile-config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\next.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\lib\start-server.js
+    at Object.<anonymous> (D:\Projects\MyJKKN\.next\dev\server\app\page.js:1:7) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/'
+}
+
+-----
+[1m[31mFATAL[39m[0m: An unexpected Turbopack error occurred. A panic log has been written to C:\Users\Admin\AppData\Local\Temp\next-panic-b2d39c27af7041f52b458cc305f0b08b.log.
+
+To help make Turbopack better, report this error by ]8;;https://github.com/vercel/next.js/discussions/new?category=turbopack-error-report&title=Turbopack%20Error%3A%20Failed%20to%20write%20page%20endpoint%20%2F_app&body=Turbopack%20version%3A%20%60d1bd5b58%60%0ANext.js%20version%3A%20%600.0.0%60%0A%0AError%20message%3A%0A%60%60%60%0AFailed%20to%20write%20page%20endpoint%20%2F_app%0A%0ACaused%20by%3A%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20Failed%20to%20lookup%20task%20id%3A%20Looking%20up%20task%20id%20for%20CachedTaskType%20%7B%20native_fn%3A%20NativeFunction%20%7B%20name%3A%20%22try_get_next_package%22%2C%20global_name%3A%20%22next-core%40next_core%3A%3Anext_import_map%3A%3Atry_get_next_package%22%2C%20..%20%7D%2C%20this%3A%20None%2C%20arg%3A%20%28FileSystemPath%20%7B%20fs%3A%20ResolvedVc%28RawVc%3A%3ATaskCell%288%2C%20%22turbo_tasks_fs%3A%3ADiskFileSystem%230%22%29%29%2C%20path%3A%20%22%22%20%7D%2C%29%20%7D%20from%20database%20failed%0A%0ADebug%20info%3A%0A-%20Execution%20of%20get_written_endpoint_with_issues_operation%20failed%0A-%20Execution%20of%20endpoint_write_to_disk%20failed%0A-%20Execution%20of%20%3CPageEndpoint%20as%20Endpoint%3E%3A%3Aoutput%20failed%0A-%20Failed%20to%20write%20page%20endpoint%20%2F_app%0A-%20Execution%20of%20PageEndpoint%3A%3Aoutput%20failed%0A-%20Execution%20of%20%2AChunkGroupResult%3A%3Aall_assets%20failed%0A-%20Execution%20of%20PageEndpoint%3A%3Aclient_chunk_group%20failed%0A-%20Execution%20of%20PageEndpoint%3A%3Aclient_evaluatable_assets%20failed%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20Execution%20of%20PageEndpoint%3A%3Aclient_module%20failed%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20Execution%20of%20%2Acreate_page_loader_entry_module%20failed%0A-%20Execution%20of%20PagesProject%3A%3Aclient_module_context%20failed%0A-%20Execution%20of%20%2AModuleAssetContext%3A%3Anew%20failed%0A-%20Execution%20of%20get_client_module_options_context%20failed%0A-%20Execution%20of%20%2Aget_jsx_transform_options%20failed%0A-%20Execution%20of%20get_client_resolve_options_context%20failed%0A-%20Execution%20of%20get_next_client_import_map%20failed%0A-%20Failed%20to%20lookup%20task%20id%3A%20Looking%20up%20task%20id%20for%20CachedTaskType%20%7B%20native_fn%3A%20NativeFunction%20%7B%20name%3A%20%22try_get_next_package%22%2C%20global_name%3A%20%22next-core%40next_core%3A%3Anext_import_map%3A%3Atry_get_next_package%22%2C%20..%20%7D%2C%20this%3A%20None%2C%20arg%3A%20%28FileSystemPath%20%7B%20fs%3A%20ResolvedVc%28RawVc%3A%3ATaskCell%288%2C%20%22turbo_tasks_fs%3A%3ADiskFileSystem%230%22%29%29%2C%20path%3A%20%22%22%20%7D%2C%29%20%7D%20from%20database%20failed%0A%20%20%0A%20%20Caused%20by%3A%0A%20%20%20%20%20%200%3A%20Unable%20to%20open%20static%20sorted%20file%20referenced%20from%2000000372.meta%0A%20%20%20%20%20%201%3A%20Unable%20to%20open%20static%20sorted%20file%2000000368.sst%0A%20%20%20%20%20%202%3A%20The%20system%20cannot%20find%20the%20file%20specified.%20%28os%20error%202%29%0A%60%60%60&labels=Turbopack,Turbopack%20Panic%20Backtrace\clicking here.]8;;\
+-----
+
+⨯ Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+Error: Cannot find module '../chunks/ssr/[turbopack]_runtime.js'
+Require stack:
+- D:\Projects\MyJKKN\.next\dev\server\app\page.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\require.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\load-components.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\utils.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\options.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\index.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\next-config-ts\transpile-config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\next.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\lib\start-server.js
+    at Object.<anonymous> (D:\Projects\MyJKKN\.next\dev\server\app\page.js:1:7) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/'
+}
+⨯ Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+ GET / 500 in 255ms (proxy.ts: 12ms)
+ GET / 500 in 255ms (proxy.ts: 12ms)
+⨯ Error: Cannot find module '../chunks/ssr/[turbopack]_runtime.js'
+Require stack:
+- D:\Projects\MyJKKN\.next\dev\server\app\page.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\require.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\load-components.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\utils.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\options.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\index.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\next-config-ts\transpile-config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\next.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\lib\start-server.js
+    at Object.<anonymous> (D:\Projects\MyJKKN\.next\dev\server\app\page.js:1:7) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/'
+}
+⨯ Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+Error: Cannot find module '../chunks/ssr/[turbopack]_runtime.js'
+Require stack:
+- D:\Projects\MyJKKN\.next\dev\server\app\page.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\require.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\load-components.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\utils.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\options.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\index.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\next-config-ts\transpile-config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\next.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\lib\start-server.js
+    at Object.<anonymous> (D:\Projects\MyJKKN\.next\dev\server\app\page.js:1:7) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/'
+}
+⨯ Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+ GET / 500 in 215ms (proxy.ts: 11ms)
+ GET / 500 in 215ms (proxy.ts: 11ms)
+⨯ Error: Cannot find module '../chunks/ssr/[turbopack]_runtime.js'
+Require stack:
+- D:\Projects\MyJKKN\.next\dev\server\app\page.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\require.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\load-components.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\utils.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\options.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\index.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\next-config-ts\transpile-config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\next.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\lib\start-server.js
+    at Object.<anonymous> (D:\Projects\MyJKKN\.next\dev\server\app\page.js:1:7) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/'
+}
+
+-----
+[1m[31mFATAL[39m[0m: An unexpected Turbopack error occurred. A panic log has been written to C:\Users\Admin\AppData\Local\Temp\next-panic-b2d39c27af7041f52b458cc305f0b08b.log.
+
+To help make Turbopack better, report this error by ]8;;https://github.com/vercel/next.js/discussions/new?category=turbopack-error-report&title=Turbopack%20Error%3A%20Failed%20to%20write%20page%20endpoint%20%2F_app&body=Turbopack%20version%3A%20%60d1bd5b58%60%0ANext.js%20version%3A%20%600.0.0%60%0A%0AError%20message%3A%0A%60%60%60%0AFailed%20to%20write%20page%20endpoint%20%2F_app%0A%0ACaused%20by%3A%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20Failed%20to%20lookup%20task%20id%3A%20Looking%20up%20task%20id%20for%20CachedTaskType%20%7B%20native_fn%3A%20NativeFunction%20%7B%20name%3A%20%22try_get_next_package%22%2C%20global_name%3A%20%22next-core%40next_core%3A%3Anext_import_map%3A%3Atry_get_next_package%22%2C%20..%20%7D%2C%20this%3A%20None%2C%20arg%3A%20%28FileSystemPath%20%7B%20fs%3A%20ResolvedVc%28RawVc%3A%3ATaskCell%288%2C%20%22turbo_tasks_fs%3A%3ADiskFileSystem%230%22%29%29%2C%20path%3A%20%22%22%20%7D%2C%29%20%7D%20from%20database%20failed%0A%0ADebug%20info%3A%0A-%20Execution%20of%20get_written_endpoint_with_issues_operation%20failed%0A-%20Execution%20of%20endpoint_write_to_disk%20failed%0A-%20Execution%20of%20%3CPageEndpoint%20as%20Endpoint%3E%3A%3Aoutput%20failed%0A-%20Failed%20to%20write%20page%20endpoint%20%2F_app%0A-%20Execution%20of%20PageEndpoint%3A%3Aoutput%20failed%0A-%20Execution%20of%20%2AChunkGroupResult%3A%3Aall_assets%20failed%0A-%20Execution%20of%20PageEndpoint%3A%3Aclient_chunk_group%20failed%0A-%20Execution%20of%20PageEndpoint%3A%3Aclient_evaluatable_assets%20failed%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20Execution%20of%20PageEndpoint%3A%3Aclient_module%20failed%0A-%20content%20is%20not%20available%20as%20task%20execution%20failed%0A-%20Execution%20of%20%2Acreate_page_loader_entry_module%20failed%0A-%20Execution%20of%20PagesProject%3A%3Aclient_module_context%20failed%0A-%20Execution%20of%20%2AModuleAssetContext%3A%3Anew%20failed%0A-%20Execution%20of%20get_client_module_options_context%20failed%0A-%20Execution%20of%20%2Aget_jsx_transform_options%20failed%0A-%20Execution%20of%20get_client_resolve_options_context%20failed%0A-%20Execution%20of%20get_next_client_import_map%20failed%0A-%20Failed%20to%20lookup%20task%20id%3A%20Looking%20up%20task%20id%20for%20CachedTaskType%20%7B%20native_fn%3A%20NativeFunction%20%7B%20name%3A%20%22try_get_next_package%22%2C%20global_name%3A%20%22next-core%40next_core%3A%3Anext_import_map%3A%3Atry_get_next_package%22%2C%20..%20%7D%2C%20this%3A%20None%2C%20arg%3A%20%28FileSystemPath%20%7B%20fs%3A%20ResolvedVc%28RawVc%3A%3ATaskCell%288%2C%20%22turbo_tasks_fs%3A%3ADiskFileSystem%230%22%29%29%2C%20path%3A%20%22%22%20%7D%2C%29%20%7D%20from%20database%20failed%0A%20%20%0A%20%20Caused%20by%3A%0A%20%20%20%20%20%200%3A%20Unable%20to%20open%20static%20sorted%20file%20referenced%20from%2000000372.meta%0A%20%20%20%20%20%201%3A%20Unable%20to%20open%20static%20sorted%20file%2000000368.sst%0A%20%20%20%20%20%202%3A%20The%20system%20cannot%20find%20the%20file%20specified.%20%28os%20error%202%29%0A%60%60%60&labels=Turbopack,Turbopack%20Panic%20Backtrace\clicking here.]8;;\
+-----
+
+⨯ Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+Error: Cannot find module '../chunks/ssr/[turbopack]_runtime.js'
+Require stack:
+- D:\Projects\MyJKKN\.next\dev\server\app\page.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\require.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\load-components.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\utils.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\options.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\swc\index.js
+- D:\Projects\MyJKKN\node_modules\next\dist\build\next-config-ts\transpile-config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\config.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\next.js
+- D:\Projects\MyJKKN\node_modules\next\dist\server\lib\start-server.js
+    at Object.<anonymous> (D:\Projects\MyJKKN\.next\dev\server\app\page.js:1:7) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/'
+}
+⨯ Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+Error [TurbopackInternalError]: Failed to write page endpoint /_app
+
+Caused by:
+- content is not available as task execution failed
+- content is not available as task execution failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+
+Debug info:
+- Execution of get_written_endpoint_with_issues_operation failed
+- Execution of endpoint_write_to_disk failed
+- Execution of <PageEndpoint as Endpoint>::output failed
+- Failed to write page endpoint /_app
+- Execution of PageEndpoint::output failed
+- Execution of *ChunkGroupResult::all_assets failed
+- Execution of PageEndpoint::client_chunk_group failed
+- Execution of PageEndpoint::client_evaluatable_assets failed
+- content is not available as task execution failed
+- Execution of PageEndpoint::client_module failed
+- content is not available as task execution failed
+- Execution of *create_page_loader_entry_module failed
+- Execution of PagesProject::client_module_context failed
+- Execution of *ModuleAssetContext::new failed
+- Execution of get_client_module_options_context failed
+- Execution of *get_jsx_transform_options failed
+- Execution of get_client_resolve_options_context failed
+- Execution of get_next_client_import_map failed
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "try_get_next_package", global_name: "next-core@next_core::next_import_map::try_get_next_package", .. }, this: None, arg: (FileSystemPath { fs: ResolvedVc(RawVc::TaskCell(8, "turbo_tasks_fs::DiskFileSystem#0")), path: "" },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000372.meta
+      1: Unable to open static sorted file 00000368.sst
+      2: The system cannot find the file specified. (os error 2)
+    at <unknown> (TurbopackInternalError: Failed to write page endpoint /_app) {
+  location: 'C:\\actions-runner\\_work\\next.js\\next.js\\turbopack\\crates\\turbo-tasks-backend\\src\\backend\\mod.rs:1354:30'
+}
+ GET / 500 in 173ms (proxy.ts: 10ms)
+ GET / 500 in 173ms (proxy.ts: 10ms)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
 [?25h
