@@ -170,6 +170,7 @@ CREATE TABLE IF NOT EXISTS public.departments (
 );
 
 -- Programs table
+-- Updated: 2025-12-29 - Added enhanced program fields (program_type, display_name, program_order, program_duration_yrs, pattern_type, is_part_time)
 CREATE TABLE IF NOT EXISTS public.programs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID,
@@ -177,6 +178,14 @@ CREATE TABLE IF NOT EXISTS public.programs (
     department_id UUID,
     program_id TEXT NOT NULL,
     program_name TEXT NOT NULL,
+    -- Enhanced program fields (added 2025-12-29)
+    program_type VARCHAR(10) CHECK (program_type IN ('UG', 'PG', 'Ph.D')),
+    display_name TEXT,
+    program_order INTEGER DEFAULT 0,
+    program_duration_yrs NUMERIC(3,1) CHECK (program_duration_yrs IS NULL OR program_duration_yrs > 0),
+    pattern_type VARCHAR(10) CHECK (pattern_type IN ('Year', 'Semester')),
+    is_part_time BOOLEAN DEFAULT false,
+    -- Standard fields
     is_active BOOLEAN DEFAULT true,
     created_by UUID,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
@@ -200,6 +209,7 @@ CREATE TABLE IF NOT EXISTS public.academic_years (
 );
 
 -- Semesters
+-- Updated: 2025-12-29 - Added enhanced semester fields (semester_order, initial_semester, terminal_semester, semester_group)
 CREATE TABLE IF NOT EXISTS public.semesters (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL,
@@ -209,6 +219,12 @@ CREATE TABLE IF NOT EXISTS public.semesters (
     semester_code VARCHAR(20) NOT NULL,
     semester_name VARCHAR(255) NOT NULL,
     semester_type VARCHAR(50) NOT NULL,
+    -- Enhanced semester fields (added 2025-12-29)
+    semester_order INTEGER DEFAULT 1,
+    initial_semester BOOLEAN DEFAULT false,
+    terminal_semester BOOLEAN DEFAULT false,
+    semester_group VARCHAR(50),
+    -- Standard fields
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())

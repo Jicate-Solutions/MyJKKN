@@ -345,6 +345,47 @@ When updating any SQL file:
 
 ## 📝 Recent Migrations
 
+### 2025-12-29: Enhanced Program and Semester Fields
+
+- **File**: `migrations/add_program_semester_enhanced_fields.sql` ✅ **APPLIED**
+
+  **Purpose**: Add enhanced metadata fields to programs and semesters tables for better UI control and academic structure management
+
+  **Programs Table Changes** (6 new fields):
+  - `program_type` VARCHAR(10) - Program level: UG, PG, Ph.D (nullable)
+  - `display_name` TEXT - Alternative display name (nullable)
+  - `program_order` INTEGER - Sort order for UI display (default: 0)
+  - `program_duration_yrs` NUMERIC(3,1) - Duration in years (nullable, must be > 0)
+  - `pattern_type` VARCHAR(10) - Academic pattern: Year/Semester (nullable)
+  - `is_part_time` BOOLEAN - Part-time program flag (default: false)
+
+  **Semesters Table Changes** (4 new fields):
+  - `semester_order` INTEGER - Chronological order (default: 1)
+  - `initial_semester` BOOLEAN - First/entry semester flag (default: false)
+  - `terminal_semester` BOOLEAN - Final/exit semester flag (default: false)
+  - `semester_group` VARCHAR(50) - Grouping label (nullable)
+
+  **Indexes Created**:
+  - `idx_programs_type_order` - Programs filtered by type and order (partial)
+  - `idx_programs_pattern_type` - Programs filtered by pattern type (partial)
+  - `idx_semesters_order` - Semesters ordered by program
+  - `idx_semesters_initial` - Initial semesters by program (partial)
+  - `idx_semesters_terminal` - Terminal semesters by program (partial)
+  - `idx_semesters_group` - Semesters filtered by group (partial)
+
+  **Impact**:
+  - ✅ All new fields are optional/nullable (backward compatible)
+  - ✅ TypeScript types updated in `types/organizations.ts`
+  - ✅ API endpoints automatically support new fields via spread operator
+  - ✅ Enhanced filtering and sorting capabilities
+  - ✅ Better UI/UX control for program and semester displays
+  - ✅ Supports year-based and semester-based academic patterns
+
+  **Files Updated**:
+  - `setup/01_tables.sql` - Updated table definitions with new columns
+  - `types/organizations.ts` - Added new fields to interfaces and DTOs
+  - `migrations/add_program_semester_enhanced_fields.sql` - Migration file
+
 ### 2025-11-28: Add Academic Year to Admissions Table
 
 - **File**: `migrations/add_academic_year_to_admissions.sql` ✅ **APPLIED**
