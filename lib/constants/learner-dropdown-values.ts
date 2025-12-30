@@ -49,9 +49,10 @@ export const BLOOD_GROUP_VALUES = [
 ] as const;
 
 export const ENTRY_TYPE_VALUES = [
-  'REGULAR',
-  'LATERAL',
-  'TRANSFER'
+  'FIRST YEAR',
+  'LATERAL ENTRY',
+  'RE-ADMISSION',
+  'COLLEGE TRANSFER'
 ] as const;
 
 export const ACCOMMODATION_VALUES = [
@@ -73,7 +74,15 @@ export const FOOD_TYPE_VALUES = [
 
 export const QUOTA_VALUES = [
   'GOVERNMENT',
+  'GOVERNMENT 7.5%',
   'MANAGEMENT'
+] as const;
+
+export const SCHOLARSHIP_TYPE_VALUES = [
+  'FIRST GRADUATE',
+  'PMS SCHOLARSHIP',
+  '7.5% SCHOLARSHIP',
+  'NOT APPLICABLE'
 ] as const;
 
 // ============================================
@@ -89,6 +98,7 @@ export type AccommodationType = typeof ACCOMMODATION_VALUES[number];
 export type HostelType = typeof HOSTEL_TYPE_VALUES[number];
 export type FoodType = typeof FOOD_TYPE_VALUES[number];
 export type Quota = typeof QUOTA_VALUES[number];
+export type ScholarshipType = typeof SCHOLARSHIP_TYPE_VALUES[number];
 
 // ============================================
 // VALIDATION UTILITIES
@@ -235,9 +245,10 @@ export const BLOOD_GROUP_OPTIONS = [
 ] as const;
 
 export const ENTRY_TYPE_OPTIONS = [
-  { value: 'REGULAR', label: 'Regular' },
-  { value: 'LATERAL', label: 'Lateral Entry' },
-  { value: 'TRANSFER', label: 'Transfer' }
+  { value: 'FIRST YEAR', label: 'First Year' },
+  { value: 'LATERAL ENTRY', label: 'Lateral Entry' },
+  { value: 'RE-ADMISSION', label: 'Re-Admission' },
+  { value: 'COLLEGE TRANSFER', label: 'College Transfer' }
 ] as const;
 
 export const ACCOMMODATION_OPTIONS = [
@@ -259,5 +270,13 @@ export const FOOD_TYPE_OPTIONS = [
 
 export const QUOTA_OPTIONS = [
   { value: 'GOVERNMENT', label: 'Government Quota' },
+  { value: 'GOVERNMENT 7.5%', label: 'Government 7.5% Quota' },
   { value: 'MANAGEMENT', label: 'Management Quota' }
+] as const;
+
+export const SCHOLARSHIP_TYPE_OPTIONS = [
+  { value: 'FIRST GRADUATE', label: 'First Graduate' },
+  { value: 'PMS SCHOLARSHIP', label: 'PMS Scholarship' },
+  { value: '7.5% SCHOLARSHIP', label: '7.5% Scholarship' },
+  { value: 'NOT APPLICABLE', label: 'Not Applicable' }
 ] as const;

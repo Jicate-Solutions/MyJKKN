@@ -442,10 +442,10 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">
-                        First Graduate
+                        Scholarship Type
                       </h4>
                       <p className="text-sm">
-                        {learner.first_graduate ? 'Yes' : 'No'}
+                        {learner.scholarship_type || 'Not specified'}
                       </p>
                     </div>
                     <div className="space-y-1">

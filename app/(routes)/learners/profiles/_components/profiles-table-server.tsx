@@ -241,6 +241,7 @@ export function ProfilesTableServer({
           enableDateFilter: false,
           enableExport: false,
           enableRowSelection: true,
+          searchPlaceholder: 'Search by name, email, or roll number...',
         }}
         renderToolbarContent={renderCustomToolbar}
       />

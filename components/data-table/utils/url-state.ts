@@ -360,13 +360,8 @@ export function useUrlState<T>(
             } else if (entryAreEqual(updateValue, entryDefaultValue)) {
               params.delete(updateKey);
             } else {
-              // Special handling for search parameter to preserve spaces
-              if (updateKey === 'search' && typeof updateValue === 'string') {
-                // Use encodeURIComponent to properly encode spaces as %20 instead of +
-                params.set(updateKey, encodeURIComponent(updateValue));
-              } else {
-                params.set(updateKey, entrySerialize(updateValue));
-              }
+              // URLSearchParams.set() automatically handles encoding
+              params.set(updateKey, entrySerialize(updateValue));
             }
             if (updateKey === 'pageSize') {
               pageSizeChangedInBatch = true;

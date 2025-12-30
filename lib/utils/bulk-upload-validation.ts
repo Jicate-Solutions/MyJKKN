@@ -14,7 +14,8 @@ import {
   BLOOD_GROUP_VALUES,
   ENTRY_TYPE_VALUES,
   ACCOMMODATION_VALUES,
-  FOOD_TYPE_VALUES
+  FOOD_TYPE_VALUES,
+  SCHOLARSHIP_TYPE_VALUES
 } from '@/lib/constants/learner-dropdown-values';
 
 export interface ValidationError {
@@ -78,9 +79,17 @@ export const COLUMN_MAPPING: Record<string, string[]> = {
   'permanent_address_pin_code': ['Permanent Address Pin Code', '* Permanent Address Pin Code', 'permanent_address_pin_code', 'pincode', 'pin'],
   'permanent_address_state': ['Permanent Address State', '* Permanent Address State', 'permanent_address_state', 'state'],
 
-  // SECTION 6: Entry Type
+  // SECTION 6: Entry Type & Scholarship
   'entry_type': ['Entry Type', '* Entry Type', 'entry_type'],
-  'first_graduate': ['First Graduate', '* First Graduate', 'first_graduate'],
+  'scholarship_type': [
+    'Scholarship Type',
+    '* Scholarship Type',
+    'scholarship_type',
+    // Legacy support for old templates
+    'First Graduate',
+    '* First Graduate',
+    'first_graduate'
+  ],
 
   // SECTION 7: Accommodation
   'accommodation_type': ['Accommodation Type', '* Accommodation Type', 'accommodation_type'],
@@ -136,6 +145,15 @@ export function mapColumns(row: Record<string, any>): Record<string, any> {
     }
   }
 
+  // Apply legacy conversions automatically after mapping
+  if (mapped.scholarship_type) {
+    mapped.scholarship_type = convertLegacyScholarshipType(mapped.scholarship_type);
+  }
+
+  if (mapped.entry_type) {
+    mapped.entry_type = convertLegacyEntryType(mapped.entry_type);
+  }
+
   return mapped;
 }
 
@@ -162,6 +180,56 @@ export function sanitizeValue(value: any, type: 'text' | 'email' | 'mobile' | 'n
     default:
       return strValue;
   }
+}
+
+/**
+ * Convert legacy boolean values to scholarship type
+ * Handles backward compatibility for old templates with First Graduate field
+ */
+export function convertLegacyScholarshipType(value: any): string | undefined {
+  if (!value) return undefined;
+
+  const normalized = String(value).trim().toUpperCase();
+
+  // Already a valid scholarship type - return as is
+  const validTypes = ['FIRST GRADUATE', 'PMS SCHOLARSHIP', '7.5% SCHOLARSHIP', 'NOT APPLICABLE'];
+  if (validTypes.includes(normalized)) {
+    return normalized;
+  }
+
+  // Legacy boolean conversion
+  if (normalized === 'TRUE' || normalized === 'YES' || normalized === '1') {
+    return 'FIRST GRADUATE';
+  }
+
+  if (normalized === 'FALSE' || normalized === 'NO' || normalized === '0') {
+    return 'NOT APPLICABLE';
+  }
+
+  // Return original value for validation to catch
+  return normalized;
+}
+
+/**
+ * Convert legacy entry type values
+ * Handles backward compatibility for old templates with REGULAR/LATERAL
+ */
+export function convertLegacyEntryType(value: any): string | undefined {
+  if (!value) return undefined;
+
+  const normalized = String(value).trim().toUpperCase();
+
+  // Legacy mappings
+  if (normalized === 'REGULAR') {
+    return 'FIRST YEAR';
+  }
+
+  if (normalized === 'LATERAL') {
+    return 'LATERAL ENTRY';
+  }
+
+  // Return as is (either already correct or will be caught by validation)
+  return normalized;
 }
 
 /**
@@ -380,11 +448,13 @@ export function validateRow(data: Record<string, any>): ValidationResult {
     });
   }
 
-  // REQUIRED: First Graduate Status
-  if (data.first_graduate === undefined || data.first_graduate === null || data.first_graduate === '') {
+  // REQUIRED: Scholarship Type
+  // Note: Legacy conversions already applied in mapColumns()
+  const scholarshipValidation = validateDropdownValue(data.scholarship_type, SCHOLARSHIP_TYPE_VALUES, 'Scholarship Type', true);
+  if (!scholarshipValidation.valid) {
     errors.push({
-      field: 'first_graduate',
-      message: 'First Graduate status is required (YES/NO or TRUE/FALSE)'
+      field: 'scholarship_type',
+      message: scholarshipValidation.error!
     });
   }
 
@@ -432,7 +502,8 @@ export function validateRow(data: Record<string, any>): ValidationResult {
     });
   }
 
-  // REQUIRED: Entry Type (with dropdown validation)
+  // REQUIRED: Entry Type
+  // Note: Legacy conversions already applied in mapColumns()
   const entryTypeValidation = validateDropdownValue(data.entry_type, ENTRY_TYPE_VALUES, 'Entry Type', true);
   if (!entryTypeValidation.valid) {
     errors.push({

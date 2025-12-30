@@ -103,13 +103,11 @@ CREATE POLICY "institutions_insert_super_admin" ON institutions
 
 CREATE POLICY "institutions_update_admin" ON institutions
     FOR UPDATE USING (
-        is_super_admin() OR 
-        EXISTS (
-            SELECT 1 FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND institution_id = institutions.id
-            AND access_type = 'admin'
+        institution_id IN (
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('organizations.institutions.edit')
     );
 
 CREATE POLICY "institutions_delete_super_admin" ON institutions
@@ -346,31 +344,28 @@ CREATE POLICY "sections_select_optimized" ON sections
 CREATE POLICY "sections_insert_admin" ON sections
     FOR INSERT WITH CHECK (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('organizations.sections.create')
     );
 
 CREATE POLICY "sections_update_admin" ON sections
     FOR UPDATE USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('organizations.sections.edit')
     );
 
 CREATE POLICY "sections_delete_admin" ON sections
     FOR DELETE USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('organizations.sections.delete')
     );
 
 -- COURSES TABLE (4 policies)
@@ -388,70 +383,40 @@ CREATE POLICY "courses_select_optimized" ON courses
 -- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "courses_insert_admin" ON courses
     FOR INSERT WITH CHECK (
-        -- Check institution access
+        -- Check institution access from profiles table
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
         AND
-        (
-            -- Legacy access type check (admin/write)
-            institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid()
-                AND access_type IN ('admin', 'write')
-                AND is_active = true
-            )
-            OR
-            -- Custom role permission check (supports multi-role HOD users)
-            user_has_permission('organizations.courses.create')
-        )
+        -- Custom role permission check
+        user_has_permission('organizations.courses.create')
     );
 
 -- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "courses_update_admin" ON courses
     FOR UPDATE USING (
-        -- Check institution access
+        -- Check institution access from profiles table
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
         AND
-        (
-            -- Legacy access type check (admin/write)
-            institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid()
-                AND access_type IN ('admin', 'write')
-                AND is_active = true
-            )
-            OR
-            -- Custom role permission check (supports multi-role HOD users)
-            user_has_permission('organizations.courses.edit')
-        )
+        -- Custom role permission check
+        user_has_permission('organizations.courses.edit')
     );
 
 -- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "courses_delete_admin" ON courses
     FOR DELETE USING (
-        -- Check institution access
+        -- Check institution access from profiles table
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
         AND
-        (
-            -- Legacy access type check (admin only)
-            institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid()
-                AND access_type = 'admin'
-                AND is_active = true
-            )
-            OR
-            -- Custom role permission check (supports multi-role HOD users)
-            user_has_permission('organizations.courses.delete')
-        )
+        -- Custom role permission check
+        user_has_permission('organizations.courses.delete')
     );
 
 -- COURSE_MAPPINGS TABLE (4 policies)
@@ -460,149 +425,127 @@ ALTER TABLE course_mappings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "course_mappings_select_institution" ON course_mappings
     FOR SELECT USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
     );
 
 -- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "course_mappings_insert_admin" ON course_mappings
     FOR INSERT WITH CHECK (
-        -- Check institution access
+        -- Check institution access from profiles table
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
         AND
-        (
-            -- Legacy access type check (admin/write)
-            institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid()
-                AND access_type IN ('admin', 'write')
-                AND is_active = true
-            )
-            OR
-            -- Custom role permission check (supports multi-role HOD users)
-            user_has_permission('organizations.course.mappings.create')
-        )
+        -- Custom role permission check
+        user_has_permission('organizations.course.mappings.create')
     );
 
 -- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "course_mappings_update_admin" ON course_mappings
     FOR UPDATE USING (
-        -- Check institution access
+        -- Check institution access from profiles table
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
         AND
-        (
-            -- Legacy access type check (admin/write)
-            institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid()
-                AND access_type IN ('admin', 'write')
-                AND is_active = true
-            )
-            OR
-            -- Custom role permission check (supports multi-role HOD users)
-            user_has_permission('organizations.course.mappings.edit')
-        )
+        -- Custom role permission check
+        user_has_permission('organizations.course.mappings.edit')
     );
 
 CREATE POLICY "course_mappings_delete_admin" ON course_mappings
     FOR DELETE USING (
+        -- Check institution access from profiles table
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND
+        -- Custom role permission check
+        user_has_permission('organizations.course.mappings.delete')
     );
 
 -- REGULATIONS TABLE (4 policies)
 -- Created: 2025-12-12 - Academic regulations management
+-- Updated: 2025-01-30 - Fixed to use profiles.institution_id instead of user_institution_access
 ALTER TABLE regulations ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "regulations_select_institution" ON regulations
     FOR SELECT USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
     );
 
 CREATE POLICY "regulations_insert_admin" ON regulations
     FOR INSERT WITH CHECK (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('organizations.regulations.create')
     );
 
 CREATE POLICY "regulations_update_admin" ON regulations
     FOR UPDATE USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('organizations.regulations.edit')
     );
 
 CREATE POLICY "regulations_delete_admin" ON regulations
     FOR DELETE USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('organizations.regulations.delete')
     );
 
 -- BATCHES TABLE (4 policies)
 -- Created: 2025-12-12 - Academic batch/cohort management
+-- Updated: 2025-01-30 - Fixed to use profiles.institution_id instead of user_institution_access
 ALTER TABLE batches ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "batches_select_institution" ON batches
     FOR SELECT USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
     );
 
 CREATE POLICY "batches_insert_admin" ON batches
     FOR INSERT WITH CHECK (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('academics.batches.create')
     );
 
 CREATE POLICY "batches_update_admin" ON batches
     FOR UPDATE USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('academics.batches.edit')
     );
 
 CREATE POLICY "batches_delete_admin" ON batches
     FOR DELETE USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('academics.batches.delete')
     );
 
 -- ================================================================================
@@ -951,39 +894,36 @@ ALTER TABLE periods ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "periods_select_institution" ON periods
     FOR SELECT USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
     );
 
 CREATE POLICY "periods_insert_admin" ON periods
     FOR INSERT WITH CHECK (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('academics.periods.create')
     );
 
 CREATE POLICY "periods_update_admin" ON periods
     FOR UPDATE USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('academics.periods.edit')
     );
 
 CREATE POLICY "periods_delete_admin" ON periods
     FOR DELETE USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('academics.periods.delete')
     );
 
 CREATE POLICY "periods_select_active" ON periods
@@ -1002,8 +942,8 @@ ALTER TABLE student_attendance ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "student_attendance_select_institution" ON student_attendance
     FOR SELECT USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
     );
 
@@ -1103,31 +1043,28 @@ CREATE POLICY "timetables_select_optimized" ON timetables
 CREATE POLICY "timetables_insert_admin" ON timetables
     FOR INSERT WITH CHECK (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('academics.timetables.create')
     );
 
 CREATE POLICY "timetables_update_admin" ON timetables
     FOR UPDATE USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('academics.timetables.edit')
     );
 
 CREATE POLICY "timetables_delete_admin" ON timetables
     FOR DELETE USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('academics.timetables.delete')
     );
 
 CREATE POLICY "timetables_select_active" ON timetables
@@ -1543,27 +1480,28 @@ CREATE POLICY "participants_insert_admin" ON bug_report_participants
 -- ================================================================================
 
 -- RESOURCES TABLE (2 policies)
+-- Updated: 2025-01-30 - Fixed to use profiles.institution_id instead of user_institution_access
 ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "resources_select_institution" ON resources
     FOR SELECT USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
     );
 
 CREATE POLICY "resources_all_admin" ON resources
     FOR ALL USING (
         institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('resources.manage')
     );
 
 -- RESOURCE_RESERVATIONS TABLE (4 policies)
+-- Updated: 2025-01-30 - Fixed to use profiles.institution_id instead of user_institution_access
 ALTER TABLE resource_reservations ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "reservations_select_institution" ON resource_reservations
@@ -1572,8 +1510,8 @@ CREATE POLICY "reservations_select_institution" ON resource_reservations
             SELECT 1 FROM resources r
             WHERE r.id = resource_reservations.resource_id
             AND r.institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid() AND is_active = true
+                SELECT institution_id FROM profiles
+                WHERE id = auth.uid() AND institution_id IS NOT NULL
             )
         )
     );
@@ -1583,10 +1521,10 @@ CREATE POLICY "reservations_insert_authenticated" ON resource_reservations
         auth.uid() = user_id AND
         EXISTS (
             SELECT 1 FROM resources r
-            WHERE r.id = NEW.resource_id
+            WHERE r.id = resource_reservations.resource_id
             AND r.institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid() AND is_active = true
+                SELECT institution_id FROM profiles
+                WHERE id = auth.uid() AND institution_id IS NOT NULL
             )
         )
     );
@@ -1601,11 +1539,10 @@ CREATE POLICY "reservations_delete_own" ON resource_reservations
             SELECT 1 FROM resources r
             WHERE r.id = resource_reservations.resource_id
             AND r.institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid()
-                AND access_type = 'admin'
-                AND is_active = true
+                SELECT institution_id FROM profiles
+                WHERE id = auth.uid() AND institution_id IS NOT NULL
             )
+            AND user_has_permission('resources.manage')
         )
     );
 
@@ -1627,6 +1564,7 @@ CREATE POLICY "approvals_update_approver" ON resource_approvals
     WITH CHECK (approver_user_id = auth.uid());
 
 -- RESOURCE_USAGE_LOGS TABLE (2 policies)
+-- Updated: 2025-01-30 - Fixed to use profiles.institution_id instead of user_institution_access
 ALTER TABLE resource_usage_logs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "usage_logs_select_institution" ON resource_usage_logs
@@ -1635,8 +1573,8 @@ CREATE POLICY "usage_logs_select_institution" ON resource_usage_logs
             SELECT 1 FROM resources r
             WHERE r.id = resource_usage_logs.resource_id
             AND r.institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid() AND is_active = true
+                SELECT institution_id FROM profiles
+                WHERE id = auth.uid() AND institution_id IS NOT NULL
             )
         )
     );
@@ -1938,14 +1876,11 @@ CREATE POLICY "activity_logs_select_own" ON user_activity_logs
 
 CREATE POLICY "activity_logs_select_admin" ON user_activity_logs
     FOR SELECT USING (
-        is_super_admin() OR
-        EXISTS (
-            SELECT 1 FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND institution_id = user_activity_logs.institution_id
-            AND access_type = 'admin'
-            AND is_active = true
+        institution_id IN (
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
         )
+        AND user_has_permission('system.logs.view')
     );
 
 -- ================================================================================

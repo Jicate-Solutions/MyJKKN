@@ -82,7 +82,7 @@ const REQUIRED_FIELDS = [
   'student_mobile', 'college_email',
   'permanent_address_street', 'permanent_address_taluk', 'permanent_address_district',
   'permanent_address_pin_code', 'permanent_address_state',
-  'entry_type', 'first_graduate', 'accommodation_type'
+  'entry_type', 'scholarship_type', 'accommodation_type'
 ];
 
 // Helper component to display validation issues (errors and warnings)
@@ -127,7 +127,7 @@ function IssuesDisplay({
       {/* DATABASE VALIDATION ERRORS WITH SUGGESTIONS */}
       {hasDbErrors && (
         <>
-          {Object.entries(databaseValidationErrors!).slice(0, 2).map(([field, errorData], idx) => (
+          {Object.entries(databaseValidationErrors!).map(([field, errorData], idx) => (
             <div key={`db-error-${idx}`} className="space-y-0.5">
               <div className="text-xs text-red-600 font-medium break-words">
                 <span className="font-bold">❌ {field}:</span> {errorData.error}
@@ -141,11 +141,6 @@ function IssuesDisplay({
               )}
             </div>
           ))}
-          {Object.keys(databaseValidationErrors!).length > 2 && (
-            <div className="text-xs text-red-500 font-medium">
-              +{Object.keys(databaseValidationErrors!).length - 2} more database errors
-            </div>
-          )}
         </>
       )}
 
@@ -244,9 +239,9 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         '* Permanent Address Pin Code': '637001',
         '* Permanent Address State': 'Tamil Nadu',
 
-        // Entry Type & First Graduate
-        '* Entry Type': 'REGULAR',
-        '* First Graduate': 'TRUE',
+        // Entry Type & Scholarship Type
+        '* Entry Type': 'FIRST YEAR',
+        '* Scholarship Type': 'FIRST GRADUATE',
 
         // Accommodation
         '* Accommodation Type': 'HOSTEL',
@@ -335,9 +330,9 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { '* Gender (Required)': 'MALE  |  FEMALE  |  OTHER' },
         { '* Religion (Required)': 'HINDU  |  CHRISTIAN  |  MUSLIM  |  SIKH  |  BUDDHIST  |  JAIN  |  OTHERS' },
         { '* Community (Required)': 'OC  |  BC  |  BCM  |  MBC  |  DNC  |  BC-CC  |  SC  |  ST  |  SBC  |  SC (A)' },
-        { '* Entry Type (Required)': 'REGULAR  |  LATERAL  |  TRANSFER' },
+        { '* Entry Type (Required)': 'FIRST YEAR  |  LATERAL ENTRY  |  RE-ADMISSION  |  COLLEGE TRANSFER' },
         { '* Accommodation Type (Required)': 'HOSTEL  |  DAY SCHOLAR  |  HOME' },
-        { '* First Graduate (Required)': 'TRUE  |  FALSE  |  YES  |  NO  |  1  |  0' },
+        { '* Scholarship Type (Required)': 'FIRST GRADUATE  |  PMS SCHOLARSHIP  |  7.5% SCHOLARSHIP  |  NOT APPLICABLE' },
         { '': '' },
         { 'Blood Group (Optional)': 'A+  |  A-  |  B+  |  B-  |  AB+  |  AB-  |  O+  |  O-  |  A1+  |  A1B' },
         { 'Hostel Type (Optional)': 'AC HOSTEL  |  NON-AC HOSTEL' },
@@ -461,6 +456,17 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
           const parsedRows: ParsedRow[] = jsonData.map((row: any, index) => {
             const mappedData = mapColumns(row);
 
+            // Debug: Log first row to see what's in the Excel file
+            if (index === 0) {
+              console.log('[bulk-upload-dialog] 📋 First row RAW from Excel:', row);
+              console.log('[bulk-upload-dialog] 🗺️ After column mapping:', {
+                last_name: mappedData.last_name,
+                caste: mappedData.caste,
+                academic_year_name: mappedData.academic_year_name,
+                scholarship_type: mappedData.scholarship_type
+              });
+            }
+
             // Sanitize data
             const sanitizedData = {
               // SECTION 1: Basic Details
@@ -507,9 +513,9 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
               permanent_address_pin_code: sanitizeValue(mappedData.permanent_address_pin_code, 'number'),
               permanent_address_state: sanitizeValue(mappedData.permanent_address_state, 'text'),
 
-              // SECTION 6: Entry Type
+              // SECTION 6: Entry Type & Scholarship Type
               entry_type: sanitizeValue(mappedData.entry_type, 'text'),
-              first_graduate: sanitizeValue(mappedData.first_graduate, 'text'),
+              scholarship_type: sanitizeValue(mappedData.scholarship_type, 'text'),
 
               // SECTION 7: Accommodation
               accommodation_type: sanitizeValue(mappedData.accommodation_type, 'text'),
@@ -549,6 +555,16 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
               register_number: sanitizeValue(mappedData.register_number, 'text'),
               student_photo_url: sanitizeValue(mappedData.student_photo_url, 'text'),
             };
+
+            // Debug: Log first row after sanitization
+            if (index === 0) {
+              console.log('[bulk-upload-dialog] 🧹 After sanitization:', {
+                last_name: sanitizedData.last_name,
+                caste: sanitizedData.caste,
+                academic_year_name: sanitizedData.academic_year_name,
+                scholarship_type: sanitizedData.scholarship_type
+              });
+            }
 
             // Validate row
             const validationResult = validateRow(sanitizedData);
@@ -618,6 +634,62 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
       // Call database validation API
       const dbValidationResult = await validateDatabaseFields(parsedRows);
+
+      // Log database validation results for debugging
+      console.log('[bulk-upload] Database validation complete');
+
+      const notFoundInstitutions = Object.entries(dbValidationResult.institutions)
+        .filter(([_, v]) => !v.found)
+        .map(([name, v]) => ({ name, error: v.error, suggestions: v.suggestions }));
+
+      const notFoundPrograms = Object.entries(dbValidationResult.programs)
+        .filter(([_, v]) => !v.found)
+        .map(([name, v]) => ({ name, error: v.error, suggestions: v.suggestions }));
+
+      const notFoundSemesters = Object.entries(dbValidationResult.semesters)
+        .filter(([_, v]) => !v.found)
+        .map(([key, v]) => ({ key, error: v.error, suggestions: v.suggestions }));
+
+      const notFoundSections = Object.entries(dbValidationResult.sections)
+        .filter(([_, v]) => !v.found)
+        .map(([key, v]) => ({ key, error: v.error, suggestions: v.suggestions }));
+
+      const notFoundDegrees = Object.entries(dbValidationResult.degrees)
+        .filter(([_, v]) => !v.found)
+        .map(([name, v]) => ({ name, error: v.error, suggestions: v.suggestions }));
+
+      const notFoundDepartments = Object.entries(dbValidationResult.departments)
+        .filter(([_, v]) => !v.found)
+        .map(([name, v]) => ({ name, error: v.error, suggestions: v.suggestions }));
+
+      if (notFoundInstitutions.length > 0) {
+        console.warn('[bulk-upload] ❌ Institutions not found:', notFoundInstitutions);
+      }
+      if (notFoundPrograms.length > 0) {
+        console.warn('[bulk-upload] ❌ Programs not found:', notFoundPrograms);
+      }
+      if (notFoundSemesters.length > 0) {
+        console.warn('[bulk-upload] ❌ Semesters not found (may not belong to program):', notFoundSemesters);
+      }
+      if (notFoundSections.length > 0) {
+        console.warn('[bulk-upload] ❌ Sections not found (may not belong to program/semester):', notFoundSections);
+      }
+      if (notFoundDegrees.length > 0) {
+        console.warn('[bulk-upload] ❌ Degrees not found:', notFoundDegrees);
+      }
+      if (notFoundDepartments.length > 0) {
+        console.warn('[bulk-upload] ❌ Departments not found:', notFoundDepartments);
+      }
+
+      const totalErrors = notFoundInstitutions.length + notFoundPrograms.length +
+                         notFoundSemesters.length + notFoundSections.length +
+                         notFoundDegrees.length + notFoundDepartments.length;
+
+      if (totalErrors === 0) {
+        console.log('[bulk-upload] ✅ All database validations passed!');
+      } else {
+        console.warn(`[bulk-upload] ⚠️ Found ${totalErrors} database validation errors across ${parsedRows.length} rows`);
+      }
 
       // Merge database validation results with existing validation
       const updatedRows = parsedRows.map(row => {
@@ -728,8 +800,21 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
       // Prepare FormData with only selected rows
       const selectedRows = state.parsedRows.filter(r => r.selected);
 
-      // Create a new Excel file with only selected rows
-      const dataToUpload = selectedRows.map(row => row.originalData);
+      // FIX: Use sanitizedData instead of originalData to preserve processed values
+      // originalData has raw Excel columns like "* Last Name" which lose data during re-parsing
+      // sanitizedData has clean columns like "last_name" with properly processed values
+      const dataToUpload = selectedRows.map(row => row.sanitizedData);
+
+      console.log('[bulk-upload-dialog] 📤 Uploading', selectedRows.length, 'rows with sanitized data');
+      if (selectedRows.length > 0) {
+        console.log('[bulk-upload-dialog] ✅ Sample row being uploaded:', {
+          last_name: selectedRows[0].sanitizedData.last_name,
+          caste: selectedRows[0].sanitizedData.caste,
+          academic_year_name: selectedRows[0].sanitizedData.academic_year_name,
+          scholarship_type: selectedRows[0].sanitizedData.scholarship_type
+        });
+      }
+
       const ws = XLSX.utils.json_to_sheet(dataToUpload);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Upload');
@@ -743,13 +828,22 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
       const formData = new FormData();
       formData.append('file', uploadFile);
 
-      // Simulate progress
+      // Calculate count-based progress
+      const totalRows = selectedRows.length;
+      const BATCH_SIZE = 75;
+      const estimatedBatches = Math.ceil(totalRows / BATCH_SIZE);
+      const timePerBatch = 2000; // 2 seconds per batch estimate
+
+      console.log(`[bulk-upload] Starting upload: ${totalRows} rows, ${estimatedBatches} batches estimated`);
+
+      let currentProgress = 0;
       const progressInterval = setInterval(() => {
+        currentProgress += (100 / estimatedBatches);
         setState(prev => ({
           ...prev,
-          uploadProgress: Math.min(prev.uploadProgress + 10, 90)
+          uploadProgress: Math.min(Math.round(currentProgress), 95)
         }));
-      }, 500);
+      }, timePerBatch);
 
       // Upload to API
       const response = await fetch('/api/learners/bulk-upload-profiles', {
@@ -759,6 +853,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
       clearInterval(progressInterval);
       setState(prev => ({ ...prev, uploadProgress: 100 }));
+      console.log('[bulk-upload] Upload complete, progress set to 100%');
 
       const data: UploadResult = await response.json();
 
@@ -1109,13 +1204,13 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
               {/* Data Table */}
               <div className="border rounded-lg overflow-hidden">
-                <div className="max-h-[400px] overflow-x-auto overflow-y-auto">
-                  <Table>
+                <div className="max-h-[400px] overflow-auto relative">
+                  <Table className="relative">
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="sticky left-0 bg-background z-10 w-12"></TableHead>
-                        <TableHead className="sticky left-12 bg-background z-10 w-16">Row</TableHead>
-                        <TableHead className="sticky left-28 bg-background z-10 w-24">Status</TableHead>
+                        <TableHead className="sticky left-0 bg-background z-20 w-12 border-r"></TableHead>
+                        <TableHead className="w-16 border-r">Row</TableHead>
+                        <TableHead className="w-24 border-r">Status</TableHead>
 
                         {/* Personal Info */}
                         <TableHead className="min-w-[120px]">First Name*</TableHead>
@@ -1124,6 +1219,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                         <TableHead className="min-w-[80px]">Gender*</TableHead>
                         <TableHead className="min-w-[100px]">Religion*</TableHead>
                         <TableHead className="min-w-[100px]">Community*</TableHead>
+                        <TableHead className="min-w-[100px]">Caste*</TableHead>
 
                         {/* Contact Info */}
                         <TableHead className="min-w-[150px]">College Email*</TableHead>
@@ -1142,6 +1238,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                         <TableHead className="min-w-[120px]">Program*</TableHead>
                         <TableHead className="min-w-[150px]">Semester*</TableHead>
                         <TableHead className="min-w-[100px]">Section*</TableHead>
+                        <TableHead className="min-w-[120px]">Academic Year*</TableHead>
 
                         {/* Address */}
                         <TableHead className="min-w-[200px]">Address Street*</TableHead>
@@ -1152,24 +1249,25 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
                         {/* Other Required */}
                         <TableHead className="min-w-[120px]">Entry Type*</TableHead>
+                        <TableHead className="min-w-[150px]">Scholarship Type*</TableHead>
                         <TableHead className="min-w-[150px]">Accommodation*</TableHead>
 
                         {/* Errors Column - Sticky Right */}
-                        <TableHead className="sticky right-0 bg-background z-10 min-w-[300px]">Issues</TableHead>
+                        <TableHead className="sticky right-0 bg-background z-20 min-w-[300px] border-l">Issues</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredRows.map((row) => (
-                        <TableRow key={row.rowNumber}>
-                          <TableCell className="sticky left-0 bg-background z-10">
+                        <TableRow key={row.rowNumber} className="hover:bg-muted/50">
+                          <TableCell className="border-r">
                             <Checkbox
                               checked={row.selected}
                               onCheckedChange={() => toggleRowSelection(row.rowNumber)}
                               disabled={row.validationStatus === 'error'}
                             />
                           </TableCell>
-                          <TableCell className="sticky left-12 bg-background z-10 font-mono text-sm">{row.rowNumber}</TableCell>
-                          <TableCell className="sticky left-28 bg-background z-10">
+                          <TableCell className="font-mono text-sm border-r">{row.rowNumber}</TableCell>
+                          <TableCell className="border-r">
                             <ValidationBadge status={row.validationStatus} />
                           </TableCell>
 
@@ -1180,6 +1278,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                           <TableCell className="text-xs">{row.sanitizedData.gender || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.religion || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.community || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.caste || '-'}</TableCell>
 
                           {/* Contact Info */}
                           <TableCell className="text-xs font-mono">{row.sanitizedData.college_email || '-'}</TableCell>
@@ -1198,6 +1297,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                           <TableCell className="text-xs">{row.sanitizedData.program_name || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.semester_name || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.section_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.academic_year_name || '-'}</TableCell>
 
                           {/* Address */}
                           <TableCell className="text-xs">{row.sanitizedData.permanent_address_street || '-'}</TableCell>
@@ -1208,10 +1308,11 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
                           {/* Other Required */}
                           <TableCell className="text-xs">{row.sanitizedData.entry_type || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.scholarship_type || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.accommodation_type || '-'}</TableCell>
 
                           {/* Issues Column - Sticky Right */}
-                          <TableCell className="sticky right-0 bg-background z-10">
+                          <TableCell className="border-l">
                             {row.validationResult && (
                               <IssuesDisplay
                                 validationResult={row.validationResult}

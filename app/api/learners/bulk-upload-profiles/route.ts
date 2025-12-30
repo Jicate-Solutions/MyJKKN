@@ -11,6 +11,10 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerUploadService, type BulkUploadRow } from '@/lib/services/bulk-learner-upload-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
 import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
+import {
+  convertLegacyScholarshipType,
+  convertLegacyEntryType
+} from '@/lib/utils/bulk-upload-validation';
 import { NameToIdResolver } from '@/lib/services/name-to-id-resolver';
 import {
   normalizeDropdownValue,
@@ -86,9 +90,17 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'permanent_address_pin_code': ['Permanent Address Pin Code', '* Permanent Address Pin Code', 'permanent_address_pin_code', 'pincode', 'pin'],
   'permanent_address_state': ['Permanent Address State', '* Permanent Address State', 'permanent_address_state', 'state'],
 
-  // SECTION 6: Entry Type
+  // SECTION 6: Entry Type & Scholarship
   'entry_type': ['Entry Type', '* Entry Type', 'entry_type'],
-  'first_graduate': ['First Graduate', 'first_graduate'],
+  'scholarship_type': [
+    'Scholarship Type',
+    '* Scholarship Type',
+    'scholarship_type',
+    // Legacy support for old templates
+    'First Graduate',
+    '* First Graduate',
+    'first_graduate'
+  ],
 
   // SECTION 7: Previous Education
   'last_school': ['Last School', 'last_school'],
@@ -315,9 +327,9 @@ export async function POST(request: NextRequest) {
         permanent_address_pin_code: sanitizeValue(mappedData.permanent_address_pin_code, 'number'),
         permanent_address_state: sanitizeValue(mappedData.permanent_address_state, 'text'),
 
-        // Entry Type
-        entry_type: normalizeDropdownValue(mappedData.entry_type, ENTRY_TYPE_VALUES),
-        first_graduate: mappedData.first_graduate === 'TRUE' || mappedData.first_graduate === true,
+        // Entry Type & Scholarship (with legacy conversion)
+        entry_type: convertLegacyEntryType(mappedData.entry_type),
+        scholarship_type: convertLegacyScholarshipType(mappedData.scholarship_type),
 
         // Previous Education
         last_school: sanitizeValue(mappedData.last_school, 'text'),

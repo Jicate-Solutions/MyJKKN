@@ -92,7 +92,7 @@ export interface LearnerProfile {
   // Admission/Counseling Information
   counseling_applied?: boolean;
   counseling_number?: string;
-  first_graduate?: boolean;
+  scholarship_type?: string;
   quota?: string;
   category?: string;
   entry_type: string;
@@ -252,7 +252,7 @@ export const learnerProfileSchema = z.object({
   // Counseling
   counseling_applied: z.boolean().default(false),
   counseling_number: z.string().optional(),
-  first_graduate: z.boolean().default(false),
+  scholarship_type: z.string().optional(),
   quota: z.string().optional(),
   category: z.string().optional(),
 
@@ -375,7 +375,7 @@ export interface UpdateLearnerProfileDto {
   // Admission/Counseling Information
   counseling_applied?: boolean | null;
   counseling_number?: string | null;
-  first_graduate?: boolean | null;
+  scholarship_type?: string | null;
   quota?: string | null;
   category?: string | null;
   entry_type?: string;

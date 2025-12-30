@@ -177,7 +177,10 @@
       "Bash(powershell.exe -ExecutionPolicy Bypass -File \".claude\\\\hooks\\\\test-voice.ps1\")",
       "Bash(npm ls:*)",
       "Bash(timeout 30 npm run build:*)",
-      "Bash(timeout 30 npm run typecheck:*)"
+      "Bash(timeout 30 npm run typecheck:*)",
+      "Bash(timeout 2 echo:*)",
+      "Bash(timeout 3 echo:*)",
+      "mcp__memory__create_relations"
     ],
     "deny": [],
     "ask": []

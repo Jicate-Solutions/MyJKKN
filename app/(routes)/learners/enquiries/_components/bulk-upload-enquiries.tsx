@@ -343,7 +343,17 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
     'semester': ['* Semester (Use NAME)', '* Semester', 'Semester', 'sem'],
     'section': ['* Section (Use NAME)', '* Section', 'Section', 'sec'],
     'entry_type': ['* Entry Type', 'Entry Type', 'entrytype', 'entry_type'],
-    'first_graduate': ['* First Graduate', 'First Graduate', 'firstgraduate', 'first_graduate'],
+    'scholarship_type': [
+      '* Scholarship Type',
+      'Scholarship Type',
+      'scholarshiptype',
+      'scholarship_type',
+      // Legacy support for backward compatibility
+      '* First Graduate',
+      'First Graduate',
+      'firstgraduate',
+      'first_graduate'
+    ],
 
     // SECTION 3: REQUIRED - Contact Details
     'student_mobile': ['* Student Mobile', 'Student Mobile', 'studentmobile', 'student_mobile', 'mobile', 'phone'],
@@ -494,14 +504,26 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
       errors.push(`Section "${sectionName}" not found. Check spelling and ensure it exists in Organization > Sections.`);
     }
 
+    // Entry Type validation
+    const VALID_ENTRY_TYPES = ['FIRST YEAR', 'LATERAL ENTRY', 'RE-ADMISSION', 'COLLEGE TRANSFER'];
     if (!row.entry_type?.trim()) {
       errors.push('Entry Type is required');
-    } else if (!['FIRST YEAR', 'LATERAL ENTRY'].includes(row.entry_type.toUpperCase())) {
-      errors.push('Entry Type must be FIRST YEAR or LATERAL ENTRY');
+    } else {
+      const normalized = row.entry_type.toString().trim().toUpperCase();
+      if (!VALID_ENTRY_TYPES.includes(normalized)) {
+        errors.push(`Entry Type must be one of: ${VALID_ENTRY_TYPES.join(', ')}`);
+      }
     }
 
-    if (typeof row.first_graduate !== 'boolean') {
-      errors.push('First Graduate is required (use TRUE or FALSE)');
+    // Scholarship Type validation
+    const VALID_SCHOLARSHIP = ['FIRST GRADUATE', 'PMS SCHOLARSHIP', '7.5% SCHOLARSHIP', 'NOT APPLICABLE'];
+    if (!row.scholarship_type?.trim()) {
+      errors.push('Scholarship Type is required');
+    } else {
+      const normalized = row.scholarship_type.toString().trim().toUpperCase();
+      if (!VALID_SCHOLARSHIP.includes(normalized)) {
+        errors.push(`Scholarship Type must be one of: ${VALID_SCHOLARSHIP.join(', ')}`);
+      }
     }
 
     // REQUIRED FIELDS - Contact Details
@@ -580,6 +602,37 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
     };
   };
 
+  /**
+   * Maps scholarship type with backward compatibility for legacy boolean values
+   * Fixes critical bug where Boolean('FALSE') returns true
+   *
+   * @param value - The scholarship type value from Excel (can be boolean or string)
+   * @returns Normalized scholarship type value
+   */
+  const mapScholarshipType = (value: any): string => {
+    if (!value) return '';
+
+    const normalized = value.toString().trim().toUpperCase();
+
+    // Valid modern values
+    const validTypes = ['FIRST GRADUATE', 'PMS SCHOLARSHIP', '7.5% SCHOLARSHIP', 'NOT APPLICABLE'];
+    if (validTypes.includes(normalized)) {
+      return normalized;
+    }
+
+    // Legacy boolean conversion for backward compatibility
+    // CRITICAL FIX: Boolean('FALSE') returns true, so we need proper string comparison
+    if (normalized === 'TRUE' || normalized === 'YES' || normalized === '1') {
+      return 'FIRST GRADUATE';
+    }
+
+    if (normalized === 'FALSE' || normalized === 'NO' || normalized === '0') {
+      return 'NOT APPLICABLE';
+    }
+
+    return value.toString().trim().toUpperCase();
+  };
+
   // ============================================
   // MAP ROW DATA - Convert Excel row to API format
   // ============================================
@@ -650,7 +703,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
       neet_score: mappedData.neet_score?.toString() || '',
       counseling_applied: Boolean(mappedData.counseling_applied),
       counseling_number: mappedData.counseling_number?.toString() || '',
-      first_graduate: Boolean(mappedData.first_graduate),
+      scholarship_type: mapScholarshipType(mappedData.scholarship_type),
       quota: mappedData.quota?.toString().trim().toUpperCase() || '',
       category: mappedData.category?.toString().trim().toUpperCase() || '',
       entry_type: mappedData.entry_type?.toString().trim().toUpperCase() || '',
@@ -956,8 +1009,8 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
       { 'A': '* Academic Year', 'B': 'Year in format YYYY-YYYY', 'C': '2024-2025' },
       { 'A': '* Semester', 'B': 'Semester name from database', 'C': 'Semester 1' },
       { 'A': '* Section', 'B': 'Section name from database', 'C': 'A' },
-      { 'A': '* Entry Type', 'B': 'FIRST YEAR or LATERAL ENTRY', 'C': 'FIRST YEAR' },
-      { 'A': '* First Graduate', 'B': 'TRUE or FALSE', 'C': 'TRUE' },
+      { 'A': '* Entry Type', 'B': 'FIRST YEAR, LATERAL ENTRY, RE-ADMISSION, or COLLEGE TRANSFER', 'C': 'FIRST YEAR' },
+      { 'A': '* Scholarship Type', 'B': 'FIRST GRADUATE, PMS SCHOLARSHIP, 7.5% SCHOLARSHIP, or NOT APPLICABLE', 'C': 'FIRST GRADUATE' },
       { 'A': '', 'B': '', 'C': '' },
 
       // SECTION 3
@@ -1083,7 +1136,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
       '* Semester (Use NAME)': '	Semester 1',
       '* Section (Use NAME)': 'A',
       '* Entry Type': 'FIRST YEAR',
-      '* First Graduate': 'TRUE',
+      '* Scholarship Type': 'FIRST GRADUATE',
 
       // SECTION 3: REQUIRED - Contact Details
       '* Student Mobile': '9876543210',
