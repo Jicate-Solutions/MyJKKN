@@ -227,6 +227,7 @@ export function AlumniFilters({ searchParams, statusFilter }: AlumniFiltersProps
         setLoadingDepartments(true);
         const response = await DepartmentService.getDepartments({
           institution_id: localFilters.institution_id,
+          degree_id: localFilters.degree_id,
           page: 1,
           limit: 1000,
           isActive: true

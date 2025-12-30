@@ -415,10 +415,10 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                     </div>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
-                        First Graduate
+                        Scholarship Type
                       </h4>
                       <p className='text-sm'>
-                        {enquiry.first_graduate ? 'Yes' : 'No'}
+                        {enquiry.scholarship_type || 'Not specified'}
                       </p>
                     </div>
                     <div className='space-y-1'>

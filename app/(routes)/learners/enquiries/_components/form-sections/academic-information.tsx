@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SCHOLARSHIP_TYPE_OPTIONS } from '@/lib/constants/learner-dropdown-values';
 
 interface AcademicInformationProps {
   form: UseFormReturn<any>;
@@ -787,22 +788,22 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
 
           <FormField
             control={form.control}
-            name="first_graduate"
+            name="scholarship_type"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>First Graduate? <span className="text-red-500">*</span></FormLabel>
-                <Select
-                  onValueChange={(value) => field.onChange(value === 'true')}
-                  value={field.value === true ? 'true' : field.value === false ? 'false' : ''}
-                >
+                <FormLabel>Scholarship Type <span className="text-red-500">*</span></FormLabel>
+                <Select onValueChange={field.onChange} value={field.value || ''}>
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select" />
+                      <SelectValue placeholder="Select scholarship type" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="true">Yes</SelectItem>
-                    <SelectItem value="false">No</SelectItem>
+                    {SCHOLARSHIP_TYPE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <FormMessage />

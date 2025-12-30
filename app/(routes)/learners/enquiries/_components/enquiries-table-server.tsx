@@ -214,6 +214,7 @@ export function EnquiriesTableServer({
           enableDateFilter: false,
           enableExport: false,
           enableRowSelection: true,
+          searchPlaceholder: 'Search by name, email, mobile, or application ID...',
         }}
         renderToolbarContent={renderCustomToolbar}
       />

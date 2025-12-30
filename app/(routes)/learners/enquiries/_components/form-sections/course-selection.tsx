@@ -40,6 +40,7 @@ import { useRegulations } from '@/hooks/academic/use-regulations';
 import { useBatches } from '@/hooks/academic/use-batches';
 import type { Degree, Department, Program, Semester } from '@/types/organizations';
 import type { AcademicYear, Regulation, Batch } from '@/types/academics';
+import { ENTRY_TYPE_OPTIONS, QUOTA_OPTIONS } from '@/lib/constants/learner-dropdown-values';
 
 interface CourseSelectionProps {
   form: UseFormReturn<any>;
@@ -116,9 +117,11 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                  <SelectItem value='GOVERNMENT'>Government Quota</SelectItem>
-                  <SelectItem value='MANAGEMENT'>Management Quota</SelectItem>
-                  <SelectItem value='NRI'>NRI Quota</SelectItem>
+                    {QUOTA_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -309,8 +312,11 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value="FIRST YEAR">FIRST YEAR</SelectItem>
-                  <SelectItem value="LATERAL ENTRY">LATERAL ENTRY</SelectItem>
+                  {ENTRY_TYPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <FormDescription>Type of entry into the course</FormDescription>
