@@ -3,7 +3,7 @@
 import { SheetMenu } from './sheet-menu';
 import { Button } from '../ui/button';
 import { LogOut, UserCircle } from 'lucide-react';
-import { useAuth } from '@/providers/auth-provider';
+import { useAuth } from '@/hooks/use-auth';
 import { AuthService } from '@/lib/auth/auth-service';
 import { UserNav } from './user-nav';
 import { ModeToggle } from '../theme/mode-toggle';
@@ -14,7 +14,7 @@ interface NavbarProps {
 }
 
 export function Navbar({ title }: NavbarProps) {
-  const { user } = useAuth();
+  const { profile } = useAuth();
 
   const handleLogout = async () => {
     try {

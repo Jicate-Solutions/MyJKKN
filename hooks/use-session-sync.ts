@@ -1,8 +1,9 @@
 // hooks/use-session-sync.ts
+// DEPRECATED: This hook is not used anywhere in the codebase
+// Kept for reference but should be removed in future cleanup
 import { useEffect, useRef } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/providers/auth-provider';
 import { Database } from '@/types/supabase';
 
 export function useSessionSync() {

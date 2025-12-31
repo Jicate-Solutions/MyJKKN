@@ -29,7 +29,7 @@ import Link from 'next/link';
 import { BeatLoader } from 'react-spinners';
 import { useRoles } from '@/hooks/organization/use-roles';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useAuth } from '@/providers/auth-provider';
+import { useAuth } from '@/hooks/use-auth';
 
 interface NotificationDetails {
   id: string;

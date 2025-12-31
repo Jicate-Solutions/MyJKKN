@@ -73,6 +73,7 @@ import { useTimetables } from '@/hooks/academic/use-timetables';
 import { useCourses } from '@/hooks/organization/use-courses';
 import { useStaffForSelection } from '@/hooks/staff/use-staff';
 import { useSections } from '@/hooks/organization/use-sections';
+import { useCourseMappings } from '@/hooks/organization/use-course-mappings';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { Timetable, DayOfWeek, Period } from '@/types/academics';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -322,12 +323,44 @@ export default function TimetableDetailPage({
   });
   const sections = sectionsQuery.data?.data || [];
 
+  // Fixed: 2025-12-31 - Fetch course mappings to filter courses by timetable's program/department/semester
+  // This prevents showing courses from other departments when staff planning data is unavailable
+  const courseMappingsQuery = useCourseMappings({
+    institution_id: timetable?.institution_id,
+    program_id: timetable?.program_id,
+    department_id: timetable?.department_id,
+    semester_id: timetable?.semester_id,
+    isActive: true,
+    limit: 1000
+  });
+  const courseMappings = courseMappingsQuery.data?.data || [];
+
   // Computed values for courses and staff to use in slot creation
-  // Use staff planning data if available, otherwise fall back to all data
-  const courses = useMemo(
-    () => (staffPlanningCourses.length > 0 ? staffPlanningCourses : allCourses),
-    [staffPlanningCourses, allCourses]
-  );
+  // Use staff planning data if available, otherwise fall back to filtered courses based on mappings
+  const courses = useMemo(() => {
+    // If staff planning courses are available, use them
+    if (staffPlanningCourses.length > 0) {
+      return staffPlanningCourses;
+    }
+
+    // Fixed: 2025-12-31 - Filter allCourses by course mappings to show only relevant courses
+    // Extract course IDs from course mappings for this timetable's program/department/semester
+    const mappedCourseIds = new Set(courseMappings.map(mapping => mapping.course_id));
+
+    // Filter allCourses to only include courses with valid mappings
+    const filteredCourses = allCourses.filter(course => mappedCourseIds.has(course.id));
+
+    logger.info('academic/timetables', 'Filtering courses by mappings', {
+      totalCourses: allCourses.length,
+      mappedCourses: mappedCourseIds.size,
+      filteredCourses: filteredCourses.length,
+      timetableProgram: timetable?.program_id,
+      timetableDepartment: timetable?.department_id,
+      timetableSemester: timetable?.semester_id
+    });
+
+    return filteredCourses;
+  }, [staffPlanningCourses, allCourses, courseMappings, timetable]);
 
   // Fixed: 2025-11-07 - Merge staff from existing slot when editing
   const staff = useMemo(() => {

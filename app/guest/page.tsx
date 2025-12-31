@@ -3,15 +3,16 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertTriangle, LogOut, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/providers/auth-provider';
+import { useAuth } from '@/hooks/use-auth';
+import { AuthService } from '@/lib/auth/auth-service';
 import { useRouter } from 'next/navigation';
 
 export default function GuestPage() {
-  const { user, signOut } = useAuth();
+  const { profile } = useAuth();
   const router = useRouter();
 
   const handleSignOut = async () => {
-    await signOut();
+    await AuthService.signOut();
     router.push('/auth/login');
   };
 

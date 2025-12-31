@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ProfileForm } from './_components/profile-form';
-import { useAuth } from '@/providers/auth-provider';
+import { useAuth } from '@/hooks/use-auth';
 import { INSTITUTIONS, ROLE_LABELS } from '@/lib/constants/permissions';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
