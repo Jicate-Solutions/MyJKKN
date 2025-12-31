@@ -96,6 +96,12 @@ export default async function TimetablesPage({
         : search.is_active === 'false'
         ? false
         : undefined,
+    isTemplate:
+      search.is_template === 'true'
+        ? true
+        : search.is_template === 'false'
+        ? false
+        : undefined,
     timetableFormat: search.timetable_type as 'section' | 'semester' | undefined
   };
 
