@@ -475,6 +475,14 @@ ALTER TABLE regulations ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "regulations_select_institution" ON regulations
     FOR SELECT USING (
+        -- Super admin and admin can see all regulations
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND role IN ('super_admin', 'admin')
+        )
+        OR
+        -- Other users can see regulations in their institution
         institution_id IN (
             SELECT institution_id FROM profiles
             WHERE id = auth.uid() AND institution_id IS NOT NULL
@@ -483,29 +491,61 @@ CREATE POLICY "regulations_select_institution" ON regulations
 
 CREATE POLICY "regulations_insert_admin" ON regulations
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
+        -- Super admin and admin can create in any institution
+        (
+            EXISTS (
+                SELECT 1 FROM profiles
+                WHERE id = auth.uid()
+                AND role IN ('super_admin', 'admin')
+            )
+            OR
+            -- Other users can create in their institution with permission
+            (
+                institution_id IN (
+                    SELECT institution_id FROM profiles
+                    WHERE id = auth.uid() AND institution_id IS NOT NULL
+                )
+                AND user_has_permission('academic.regulations.create')
+            )
         )
-        AND user_has_permission('organizations.regulations.create')
     );
 
 CREATE POLICY "regulations_update_admin" ON regulations
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
+        -- Super admin and admin can update any regulation
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND role IN ('super_admin', 'admin')
         )
-        AND user_has_permission('organizations.regulations.edit')
+        OR
+        -- Other users can update in their institution with permission
+        (
+            institution_id IN (
+                SELECT institution_id FROM profiles
+                WHERE id = auth.uid() AND institution_id IS NOT NULL
+            )
+            AND user_has_permission('academic.regulations.edit')
+        )
     );
 
 CREATE POLICY "regulations_delete_admin" ON regulations
     FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
+        -- Super admin and admin can delete any regulation
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND role IN ('super_admin', 'admin')
         )
-        AND user_has_permission('organizations.regulations.delete')
+        OR
+        -- Other users can delete in their institution with permission
+        (
+            institution_id IN (
+                SELECT institution_id FROM profiles
+                WHERE id = auth.uid() AND institution_id IS NOT NULL
+            )
+            AND user_has_permission('academic.regulations.delete')
+        )
     );
 
 -- BATCHES TABLE (4 policies)
@@ -515,6 +555,14 @@ ALTER TABLE batches ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "batches_select_institution" ON batches
     FOR SELECT USING (
+        -- Super admin and admin can see all batches
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND role IN ('super_admin', 'admin')
+        )
+        OR
+        -- Other users can see batches in their institution
         institution_id IN (
             SELECT institution_id FROM profiles
             WHERE id = auth.uid() AND institution_id IS NOT NULL
@@ -523,29 +571,61 @@ CREATE POLICY "batches_select_institution" ON batches
 
 CREATE POLICY "batches_insert_admin" ON batches
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
+        -- Super admin and admin can create in any institution
+        (
+            EXISTS (
+                SELECT 1 FROM profiles
+                WHERE id = auth.uid()
+                AND role IN ('super_admin', 'admin')
+            )
+            OR
+            -- Other users can create in their institution with permission
+            (
+                institution_id IN (
+                    SELECT institution_id FROM profiles
+                    WHERE id = auth.uid() AND institution_id IS NOT NULL
+                )
+                AND user_has_permission('academic.batches.create')
+            )
         )
-        AND user_has_permission('academics.batches.create')
     );
 
 CREATE POLICY "batches_update_admin" ON batches
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
+        -- Super admin and admin can update any batch
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND role IN ('super_admin', 'admin')
         )
-        AND user_has_permission('academics.batches.edit')
+        OR
+        -- Other users can update in their institution with permission
+        (
+            institution_id IN (
+                SELECT institution_id FROM profiles
+                WHERE id = auth.uid() AND institution_id IS NOT NULL
+            )
+            AND user_has_permission('academic.batches.edit')
+        )
     );
 
 CREATE POLICY "batches_delete_admin" ON batches
     FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
+        -- Super admin and admin can delete any batch
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND role IN ('super_admin', 'admin')
         )
-        AND user_has_permission('academics.batches.delete')
+        OR
+        -- Other users can delete in their institution with permission
+        (
+            institution_id IN (
+                SELECT institution_id FROM profiles
+                WHERE id = auth.uid() AND institution_id IS NOT NULL
+            )
+            AND user_has_permission('academic.batches.delete')
+        )
     );
 
 -- ================================================================================
