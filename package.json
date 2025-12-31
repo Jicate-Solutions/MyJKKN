@@ -11,7 +11,8 @@
     "typecheck:report": "tsc --noEmit --pretty > type-errors.txt 2>&1 || echo 'Type errors saved to type-errors.txt'",
     "typecheck:watch": "tsc --noEmit --watch",
     "clean": "rimraf .next/cache node_modules/.cache .tsbuildinfo",
-    "clean:all": "rimraf .next node_modules/.cache .tsbuildinfo"
+    "clean:all": "rimraf .next node_modules/.cache .tsbuildinfo",
+    "clear-cache": "node scripts/clear-cache.bat"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",

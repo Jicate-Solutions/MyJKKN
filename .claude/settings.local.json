@@ -180,7 +180,9 @@
       "Bash(timeout 30 npm run typecheck:*)",
       "Bash(timeout 2 echo:*)",
       "Bash(timeout 3 echo:*)",
-      "mcp__memory__create_relations"
+      "mcp__memory__create_relations",
+      "Bash(timeout 10 echo:*)",
+      "Bash(timeout 15 echo:*)"
     ],
     "deny": [],
     "ask": []

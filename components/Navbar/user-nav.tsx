@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { User, Settings, LayoutDashboard, LogOut } from 'lucide-react';
-import { useAuth } from '@/providers/auth-provider';
+import { useAuth } from '@/hooks/use-auth';
+import { AuthService } from '@/lib/auth/auth-service';
 import { Button } from '@/components/ui/button';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -21,50 +22,46 @@ import { CustomRole } from '@/types/auth';
 import { TrophyIcon, ClipboardListIcon } from '@/components/icons';
 
 export function UserNav() {
-  const { user, signOut } = useAuth();
+  const { profile } = useAuth();
   const [roleName, setRoleName] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchRoleName = async () => {
-      if (user?.role) {
+      if (profile?.role) {
         try {
           const roles = await RoleService.getAssignableRoles();
-          const role = roles.find((r) => r.role_key === user.role);
+          const role = roles.find((r) => r.role_key === profile.role);
           if (role) {
             setRoleName(role.role_name);
           } else {
             // Fallback to role key if role not found
-            setRoleName(user.role);
+            setRoleName(profile.role);
           }
         } catch (error) {
           console.error('Error fetching role name:', error);
           // Fallback to role key in case of error
-          setRoleName(user.role);
+          setRoleName(profile.role);
         }
       }
     };
 
     fetchRoleName();
-  }, [user?.role]);
+  }, [profile?.role]);
 
-  if (!user) return null;
+  const handleSignOut = async () => {
+    await AuthService.signOut();
+  };
+
+  if (!profile) return null;
 
   // Generate initials for avatar
-  const initials = user.full_name
-    ? user.full_name
+  const initials = profile.full_name
+    ? profile.full_name
         .split(' ')
         .map((n) => n[0])
         .join('')
         .toUpperCase()
-    : user.email[0].toUpperCase();
-
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
-  };
+    : profile.email[0].toUpperCase();
 
   return (
     <DropdownMenu>
@@ -72,8 +69,8 @@ export function UserNav() {
         <Button variant='ghost' className='relative h-10 w-10 rounded-full'>
           <Avatar className='h-10 w-10'>
             <AvatarImage
-              src={user.avatar_url || undefined}
-              alt={user.full_name || 'User'}
+              src={profile.avatar_url || undefined}
+              alt={profile.full_name || 'User'}
             />
             <AvatarFallback className='bg-primary/10'>
               {initials}
@@ -86,13 +83,13 @@ export function UserNav() {
         <DropdownMenuLabel className='font-normal'>
           <div className='flex flex-col space-y-2'>
             <p className='text-sm font-medium leading-none'>
-              {user.full_name || 'User'}
+              {profile.full_name || 'User'}
             </p>
             <p className='text-xs leading-none text-muted-foreground'>
-              {user.email}
+              {profile.email}
             </p>
             <Badge variant='secondary' className='w-fit text-xs'>
-              {roleName || user.role}
+              {roleName || profile.role}
             </Badge>
           </div>
         </DropdownMenuLabel>

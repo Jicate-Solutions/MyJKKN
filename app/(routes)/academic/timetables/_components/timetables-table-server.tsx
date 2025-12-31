@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { Timetable } from '@/types/academics';
@@ -51,24 +51,34 @@ export function TimetablesTableServer({
   const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Use refs to track latest props without causing re-renders
+  const timetablesRef = useRef(timetables);
+  const metadataRef = useRef(metadata);
+
+  // Update refs when props change
+  useEffect(() => {
+    timetablesRef.current = timetables;
+    metadataRef.current = metadata;
+  }, [timetables, metadata]);
+
   /**
    * Fetch data function for DataTable
-   * Uses URL state to trigger server-side re-renders
+   * Uses refs to always return current data without changing function reference
    */
   const fetchData = useCallback(async () => {
     // This component receives pre-fetched data from server
     // The DataTable will trigger page navigation for pagination/sorting
     return {
       success: true,
-      data: timetables,
+      data: timetablesRef.current,
       pagination: {
-        page: metadata.page,
-        limit: metadata.pageSize,
-        total_pages: Math.ceil(metadata.total / metadata.pageSize),
-        total_items: metadata.total
+        page: metadataRef.current.page,
+        limit: metadataRef.current.pageSize,
+        total_pages: Math.ceil(metadataRef.current.total / metadataRef.current.pageSize),
+        total_items: metadataRef.current.total
       }
     };
-  }, [timetables, metadata]);
+  }, []);
 
   /**
    * Handle bulk delete action

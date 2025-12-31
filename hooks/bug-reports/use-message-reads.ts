@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 import { BugReportService } from '@/lib/services/bug-reports/bug-report-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -20,7 +20,8 @@ export interface MessageReadStatus {
 
 export function useMessageReads(reportId: string) {
   const queryClient = useQueryClient();
-  const supabase = createClientSupabaseClient();
+  // Memoize the supabase client to prevent re-creation on every render
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
 
   // Get unread message count
   const { data: unreadCount = 0, refetch: refetchUnreadCount } = useQuery({

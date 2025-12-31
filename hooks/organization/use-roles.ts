@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface Role {
@@ -21,7 +22,8 @@ export function useRoles({
   includeSystemRoles = true,
   isActive = true
 }: UseRolesParams = {}) {
-  const supabase = createClientSupabaseClient();
+  // Memoize the supabase client to prevent re-creation on every render
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
 
   return useQuery({
     queryKey: ['roles', { includeSystemRoles, isActive }],
