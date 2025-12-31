@@ -337,7 +337,17 @@ export const PERMISSION_CATEGORIES = [
       {
         key: 'academic.attendance.dashboard.view_all_institutions',
         label: 'View Dashboard for All Institutions'
-      }
+      },
+      // Regulations Management
+      { key: 'academic.regulations.view', label: 'View Regulations' },
+      { key: 'academic.regulations.create', label: 'Create Regulations' },
+      { key: 'academic.regulations.edit', label: 'Edit Regulations' },
+      { key: 'academic.regulations.delete', label: 'Delete Regulations' },
+      // Batches Management
+      { key: 'academic.batches.view', label: 'View Batches' },
+      { key: 'academic.batches.create', label: 'Create Batches' },
+      { key: 'academic.batches.edit', label: 'Edit Batches' },
+      { key: 'academic.batches.delete', label: 'Delete Batches' }
     ]
   },
   {
