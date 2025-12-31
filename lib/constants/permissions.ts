@@ -355,45 +355,29 @@ export const PERMISSION_CATEGORIES = [
     key: 'leaves',
     permissions: [
       // Main Leave Operations
-      { key: 'leave.view', label: 'View Leaves' },
-      { key: 'leave.create', label: 'Create Leaves' },
-      { key: 'leave.edit', label: 'Edit Leaves' },
-      { key: 'leave.delete', label: 'Delete Leaves' },
-      { key: 'leave.cancel', label: 'Cancel Leaves' },
+      { key: 'academic.leaves.view', label: 'View Leaves' },
+      { key: 'academic.leaves.create', label: 'Create Leaves' },
+      { key: 'academic.leaves.edit', label: 'Edit Leaves' },
+      { key: 'academic.leaves.delete', label: 'Delete Leaves' },
+      { key: 'academic.leaves.cancel', label: 'Cancel Leaves' },
 
       // Leave Types Management
-      { key: 'leave.types.view', label: 'View Leave Types' },
-      { key: 'leave.types.create', label: 'Create Leave Types' },
-      { key: 'leave.types.edit', label: 'Edit Leave Types' },
-      { key: 'leave.types.delete', label: 'Delete Leave Types' },
-
-      // Approval Workflows Management
-      { key: 'leave.workflows.view', label: 'View Approval Workflows' },
-      { key: 'leave.workflows.create', label: 'Create Approval Workflows' },
-      { key: 'leave.workflows.edit', label: 'Edit Approval Workflows' },
-      { key: 'leave.workflows.delete', label: 'Delete Approval Workflows' },
+      { key: 'academic.leaves.manage', label: 'Manage Leave Settings (Types & Workflows)' },
 
       // Leave Approvals (Scope-based) - CRITICAL: Must match approval service expectations
-      { key: 'leave.approve.view', label: 'View Pending Approvals' },
-      { key: 'leave.approve.institution', label: 'Approve Institution-wide Leaves' },
-      { key: 'leave.approve.department', label: 'Approve Department Leaves' },
-      { key: 'leave.approve.semester', label: 'Approve Semester Leaves' },
-      { key: 'leave.approve.section', label: 'Approve Section Leaves' },
-      { key: 'leave.reject', label: 'Reject Leaves' },
-
-      // Leave Calendar
-      { key: 'leave.calendar.view', label: 'View Leave Calendar' },
-
-      // Leave Settings
-      { key: 'leave.settings.view', label: 'View Leave Settings' },
-      { key: 'leave.settings.manage', label: 'Manage Leave Settings' },
+      { key: 'academic.leaves.approve.view', label: 'View Pending Approvals' },
+      { key: 'academic.leaves.approve.institution', label: 'Approve Institution-wide Leaves' },
+      { key: 'academic.leaves.approve.department', label: 'Approve Department Leaves' },
+      { key: 'academic.leaves.approve.semester', label: 'Approve Semester Leaves' },
+      { key: 'academic.leaves.approve.section', label: 'Approve Section Leaves' },
+      { key: 'academic.leaves.reject', label: 'Reject Leaves' },
 
       // Leave Reports
-      { key: 'leave.reports.view', label: 'View Leave Reports' },
-      { key: 'leave.reports.export', label: 'Export Leave Reports' },
+      { key: 'academic.leaves.reports.view', label: 'View Leave Reports' },
+      { key: 'academic.leaves.reports.export', label: 'Export Leave Reports' },
 
       // Leave Analytics
-      { key: 'leave.analytics.view', label: 'View Leave Analytics' }
+      { key: 'academic.leaves.analytics.view', label: 'View Leave Analytics' }
     ]
   },
   {
