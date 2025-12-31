@@ -7,12 +7,12 @@
 
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { Timetable } from '@/types/academics';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Calendar } from 'lucide-react';
+import { Plus, TrashIcon } from 'lucide-react';
 import Link from 'next/link';
 import {
   AlertDialog,
@@ -41,6 +41,11 @@ interface TimetablesTableServerProps {
  *
  * Receives pre-fetched data from server component but maintains
  * client-side selection and bulk operations for UX.
+ *
+ * CRITICAL FIX (2025-12-31):
+ * - fetchData now depends on timetables/metadata props
+ * - When server re-renders with new filter data, fetchData changes
+ * - This triggers DataTable's useEffect to re-fetch and display new data
  */
 export function TimetablesTableServer({
   timetables,
@@ -51,34 +56,33 @@ export function TimetablesTableServer({
   const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Use refs to track latest props without causing re-renders
-  const timetablesRef = useRef(timetables);
-  const metadataRef = useRef(metadata);
-
-  // Update refs when props change
-  useEffect(() => {
-    timetablesRef.current = timetables;
-    metadataRef.current = metadata;
-  }, [timetables, metadata]);
-
   /**
    * Fetch data function for DataTable
-   * Uses refs to always return current data without changing function reference
+   *
+   * CRITICAL: This callback MUST depend on timetables and metadata props.
+   * When server component re-renders with new filtered data:
+   * 1. Props change → fetchData reference changes
+   * 2. DataTable's useEffect detects fetchDataFn change
+   * 3. useEffect triggers → calls fetchData → updates DataTable state
+   * 4. New filtered data is displayed
+   *
+   * Previously used refs with empty deps [], which caused stale data issue
+   * because DataTable's useEffect didn't know props had changed.
    */
   const fetchData = useCallback(async () => {
-    // This component receives pre-fetched data from server
-    // The DataTable will trigger page navigation for pagination/sorting
+    // Return current props directly - no refs needed
+    // This ensures DataTable always gets fresh data
     return {
       success: true,
-      data: timetablesRef.current,
+      data: timetables,
       pagination: {
-        page: metadataRef.current.page,
-        limit: metadataRef.current.pageSize,
-        total_pages: Math.ceil(metadataRef.current.total / metadataRef.current.pageSize),
-        total_items: metadataRef.current.total
+        page: metadata.page,
+        limit: metadata.pageSize,
+        total_pages: Math.ceil(metadata.total / metadata.pageSize),
+        total_items: metadata.total
       }
     };
-  }, []);
+  }, [timetables, metadata]); // CRITICAL: Depend on props so callback changes when data changes
 
   /**
    * Handle bulk delete action

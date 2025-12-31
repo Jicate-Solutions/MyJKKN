@@ -20,6 +20,7 @@ export interface TimetablesFilters {
   semesterId?: string;
   sectionId?: string;
   isActive?: boolean;
+  isTemplate?: boolean;
   timetableFormat?: 'section' | 'semester';
   page?: number;
   pageSize?: number;
@@ -99,6 +100,9 @@ export async function getTimetables(
   }
   if (filters.isActive !== undefined) {
     query = query.eq('is_active', filters.isActive);
+  }
+  if (filters.isTemplate !== undefined) {
+    query = query.eq('is_template', filters.isTemplate);
   }
   if (filters.timetableFormat) {
     query = query.eq('timetable_type', filters.timetableFormat);

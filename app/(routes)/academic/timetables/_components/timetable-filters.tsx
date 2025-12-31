@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { RotateCcw, Search, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -59,6 +59,21 @@ export function TimetableFilters({
   const [isSearching, setIsSearching] = useState(false);
   const { isSuperAdmin, userProfile } = usePermissions();
 
+  // CRITICAL FIX: Use ref to store the latest onFilterChange callback
+  // This allows useEffects to call the latest callback without re-triggering
+  const onFilterChangeRef = useRef(onFilterChange);
+  useEffect(() => {
+    onFilterChangeRef.current = onFilterChange;
+  }, [onFilterChange]);
+
+  // Stable wrapper that doesn't change reference
+  const stableFilterChange = useCallback(
+    (key: string, value: string | undefined) => {
+      onFilterChangeRef.current(key, value);
+    },
+    [] // No dependencies - always stable
+  );
+
   // Handle search input changes
   const handleSearchChange = (value: string) => {
     setSearchValue(value);
@@ -67,15 +82,15 @@ export function TimetableFilters({
     }
   };
 
-  // Debounced search effect
+  // Debounced search effect - now uses stable callback reference
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      onFilterChange('search', searchValue || undefined);
+      stableFilterChange('search', searchValue || undefined);
       setIsSearching(false);
     }, 500); // 500ms delay
 
     return () => clearTimeout(timeoutId);
-  }, [searchValue, onFilterChange]);
+  }, [searchValue, stableFilterChange]);
 
   // Sync search value when searchParams changes externally (e.g., from URL or reset)
   useEffect(() => {
@@ -99,6 +114,7 @@ export function TimetableFilters({
   }, []);
 
   // Auto-set institution filter for non-super admin users
+  // Uses stable callback reference to prevent re-render loops
   useEffect(() => {
     if (
       !isSuperAdmin &&
@@ -106,13 +122,13 @@ export function TimetableFilters({
       !searchParams.institution_id &&
       !loading
     ) {
-      onFilterChange('institution_id', userProfile.institution_id);
+      stableFilterChange('institution_id', userProfile.institution_id);
     }
   }, [
     userProfile,
     isSuperAdmin,
     searchParams.institution_id,
-    onFilterChange,
+    stableFilterChange,
     loading
   ]);
 
@@ -455,18 +471,12 @@ export function TimetableFilters({
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Sections</SelectItem>
-            {/* Deduplicate sections by name for display */}
-            {sections
-              .filter(
-                (section, index, self) =>
-                  index ===
-                  self.findIndex((s) => s.section_name === section.section_name)
-              )
-              .map((section) => (
-                <SelectItem key={section.id} value={section.section_name}>
-                  {section.section_name}
-                </SelectItem>
-              ))}
+            {/* Show all sections with their IDs */}
+            {sections.map((section) => (
+              <SelectItem key={section.id} value={section.id}>
+                {section.section_name}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
