@@ -80,11 +80,11 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
   const { data: rolesData } = useRoles({ includeSystemRoles: true });
 
   // Get current user and permissions
-  const { user } = useAuth();
+  const { profile } = useAuth();
   const { isSuperAdmin, canAccess } = usePermissions();
 
   // Check if current user is the creator of this notification
-  const isCreator = notification?.created_by === user?.id;
+  const isCreator = notification?.created_by === profile?.id;
 
   // Determine if user should see detailed sections
   // Super admins can see all details, regular users can only see details for their own notifications

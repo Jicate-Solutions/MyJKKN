@@ -1,12 +1,18 @@
 // hooks/use-session-sync.ts
 // DEPRECATED: This hook is not used anywhere in the codebase
 // Kept for reference but should be removed in future cleanup
+
 import { useEffect, useRef } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import { Database } from '@/types/supabase';
 
 export function useSessionSync() {
+  // DEPRECATED - This entire hook is no longer used
+  // It was part of the old AuthProvider system
+  throw new Error('useSessionSync is deprecated and should not be used');
+
+  /* Original implementation commented out:
   const supabase = createBrowserClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -84,4 +90,5 @@ export function useSessionSync() {
     };
     // Only depend on stable references, not functions
   }, [supabase, router]);
+  */
 }

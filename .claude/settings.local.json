@@ -182,7 +182,9 @@
       "Bash(timeout 3 echo:*)",
       "mcp__memory__create_relations",
       "Bash(timeout 10 echo:*)",
-      "Bash(timeout 15 echo:*)"
+      "Bash(timeout 15 echo:*)",
+      "Bash(vercel --version:*)",
+      "Bash(vercel whoami:*)"
     ],
     "deny": [],
     "ask": []

@@ -47,7 +47,7 @@ export default function GuestPage() {
           <div className='text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 rounded-lg p-3'>
             <span className='font-medium'>Your email:</span>
             <br />
-            {user?.email}
+            {profile?.email}
           </div>
 
           {/* Actions */}

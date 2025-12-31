@@ -38,7 +38,7 @@ import {
 } from '@/components/ui/breadcrumb';
 
 export default function ProfilePage() {
-  const { user, loading, refreshUser } = useAuth();
+  const { profile, isLoading } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [institutionData, setInstitutionData] = useState<Institution | null>(
     null
@@ -48,7 +48,7 @@ export default function ProfilePage() {
   // Fetch institution data when user has institution_id
   useEffect(() => {
     const fetchInstitutionData = async () => {
-      if (!user?.institution_id) {
+      if (!profile?.institution_id) {
         setInstitutionData(null);
         return;
       }
@@ -56,7 +56,7 @@ export default function ProfilePage() {
       try {
         setInstitutionLoading(true);
         const result = await OrganizationService.getInstitution(
-          user.institution_id
+          profile.institution_id
         );
         setInstitutionData(result.institution);
       } catch (error) {
@@ -68,9 +68,9 @@ export default function ProfilePage() {
     };
 
     fetchInstitutionData();
-  }, [user?.institution_id]);
+  }, [profile?.institution_id]);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <ContentLayout title='Profile'>
         <div className='flex items-center justify-center min-h-[400px]'>
@@ -80,7 +80,7 @@ export default function ProfilePage() {
     );
   }
 
-  if (!user) {
+  if (!profile) {
     return (
       <ContentLayout title='Profile'>
         <div className='text-center py-8'>
@@ -109,14 +109,14 @@ export default function ProfilePage() {
   // Get institution display
   const getInstitutionDisplay = () => {
     if (institutionLoading) return 'Loading...';
-    if (!user?.institution_id) return 'JKKN institution';
+    if (!profile?.institution_id) return 'JKKN institution';
     if (!institutionData) return 'Institution not found';
     return institutionData.name;
   };
 
   // Generate initials for avatar
-  const initials = user.full_name
-    ? user.full_name
+  const initials = profile.full_name
+    ? profile.full_name
         .split(' ')
         .map((n) => n[0])
         .join('')
@@ -124,8 +124,8 @@ export default function ProfilePage() {
     : 'U';
 
   const handleProfileUpdate = async () => {
-    await refreshUser();
     setIsEditing(false);
+    // Profile will auto-refresh through AuthProvider context
   };
 
   return (
@@ -146,7 +146,7 @@ export default function ProfilePage() {
 
       <div className='space-y-6'>
         {isEditing ? (
-          <ProfileForm user={user} onComplete={handleProfileUpdate} />
+          <ProfileForm user={profile} onComplete={handleProfileUpdate} />
         ) : (
           <>
             {/* Profile Overview Card */}
@@ -156,7 +156,7 @@ export default function ProfilePage() {
                   <div className='flex flex-col md:flex-row items-start md:items-center gap-4'>
                     <Avatar className='h-24 w-24'>
                       <AvatarImage
-                        src={user.avatar_url || undefined}
+                        src={profile.avatar_url || undefined}
                         alt='Profile'
                       />
                       <AvatarFallback className='text-2xl bg-primary/10'>
@@ -165,11 +165,11 @@ export default function ProfilePage() {
                     </Avatar>
                     <div>
                       <CardTitle className='text-2xl'>
-                        {user.full_name || 'No name set'}
+                        {profile.full_name || 'No name set'}
                       </CardTitle>
                       <div className='mt-1.5 flex items-center gap-2'>
                         <Badge variant='secondary'>
-                          {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
+                          {ROLE_LABELS[profile.role as keyof typeof ROLE_LABELS]}
                         </Badge>
                       </div>
                     </div>
@@ -190,12 +190,12 @@ export default function ProfilePage() {
                     <div className='grid gap-4 md:grid-cols-2'>
                       <div className='flex items-center gap-2 text-muted-foreground'>
                         <Mail className='h-4 w-4 shrink-0' />
-                        <span className='truncate'>{user.email}</span>
+                        <span className='truncate'>{profile.email}</span>
                       </div>
                       <div className='flex items-center gap-2 text-muted-foreground'>
                         <Phone className='h-4 w-4 shrink-0' />
                         <span>
-                          {user.phone_number || 'No phone number set'}
+                          {profile.phone_number || 'No phone number set'}
                         </span>
                       </div>
                     </div>
@@ -256,20 +256,20 @@ export default function ProfilePage() {
                       <div className='flex items-center gap-2 text-muted-foreground'>
                         <User2 className='h-4 w-4 shrink-0' />
                         <span className='truncate'>
-                          Gender: {user.gender || 'No gender set'}
+                          Gender: {profile.gender || 'No gender set'}
                         </span>
                       </div>
                       <div className='flex items-center gap-2 text-muted-foreground'>
                         <Building2 className='h-4 w-4 shrink-0' />
                         <span>
                           Designation:{' '}
-                          {user.designation || 'No designation set'}
+                          {profile.designation || 'No designation set'}
                         </span>
                       </div>
                     </div>
                     <div className='flex items-center gap-2 text-muted-foreground mt-6'>
                       <BookOpen className='h-4 w-4 shrink-0' />
-                      <span>Bio: {user.bio || 'No bio set'}</span>
+                      <span>Bio: {profile.bio || 'No bio set'}</span>
                     </div>
                   </div>
 
@@ -287,17 +287,17 @@ export default function ProfilePage() {
                           <span>Member Since</span>
                         </div>
                         <p className='text-sm ml-6'>
-                          {formatDate(user.created_at)}
+                          {formatDate(profile.created_at)}
                         </p>
                       </div>
-                      {user.last_login && (
+                      {profile.last_login && (
                         <div>
                           <div className='flex items-center gap-2 text-muted-foreground mb-1'>
                             <CalendarDays className='h-4 w-4' />
                             <span>Last Login</span>
                           </div>
                           <p className='text-sm ml-6'>
-                            {formatDate(user.last_login)}
+                            {formatDate(profile.last_login)}
                           </p>
                         </div>
                       )}
