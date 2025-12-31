@@ -437,6 +437,39 @@ When updating any SQL file:
   - `setup/02_functions.sql` - Updated function to use SEQUENCE
   - `migrations/20250207_fix_bug_report_display_id_race_condition.sql` - Migration file
 
+### 2025-01-16: Leave Permissions Migration to Academic Format
+
+- **File**: `migrations/update_leave_permissions_to_academic_format.sql` ✅ **APPLIED**
+
+  **Purpose**: Fix permission key mismatch preventing HOD and other users from accessing Leave Management module
+
+  **Problem**:
+  - Sidebar menu requires `academic.leaves.view` permission
+  - Permission constants defined as `leave.view`
+  - Database roles had old `leave.*` permission keys
+  - Mismatch prevented menu from showing even when permissions were granted
+
+  **Solution**:
+  - Created transformation function to migrate all leave permission keys
+  - Updated 3 roles: admission, hod, student
+  - Transformed basic permissions: `leave.view` → `academic.leaves.view`, etc.
+  - Consolidated settings permissions: `leave.types.*`, `leave.workflows.*`, `leave.settings.*` → `academic.leaves.manage`
+  - Migrated approval permissions: `leave.approve.*` → `academic.leaves.approve.*`
+  - Migrated report permissions: `leave.reports.*` → `academic.leaves.reports.*`
+  - Migrated analytics permissions: `leave.analytics.*` → `academic.leaves.analytics.*`
+
+  **Impact**:
+  - ✅ HOD role now has 15 academic.leaves.* permissions
+  - ✅ All old `leave.*` keys removed from database
+  - ✅ Menu visibility now works correctly for granted permissions
+  - ✅ Zero breaking changes (only key format changed)
+  - ✅ Backward compatible with existing permission checks
+
+  **Files Updated**:
+  - `lib/constants/permissions.ts` - Updated permission definitions
+  - `migrations/update_leave_permissions_to_academic_format.sql` - Database migration
+  - `custom_roles` table - Updated permissions JSONB for 3 roles
+
 ### 2025-01-30: Resource Management - Missing Fields Implementation
 
 - **File**: `migrations/20250130_add_missing_resource_fields.sql` ✅ **APPLIED**
