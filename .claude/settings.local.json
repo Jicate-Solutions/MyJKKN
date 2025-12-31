@@ -198,39 +198,5 @@
     "chrome-devtools",
     "next-devtools"
   ],
-  "hooks": {
-    "PermissionRequest": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \".claude\\hooks\\hook-permission.ps1\"",
-            "timeout": 5000
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \".claude\\hooks\\hook-stop.ps1\"",
-            "timeout": 5000
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \".claude\\hooks\\hook-subagent-stop.ps1\"",
-            "timeout": 5000
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": {}
 }
