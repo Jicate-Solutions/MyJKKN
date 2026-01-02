@@ -18,6 +18,8 @@ export interface BatchValidationInput {
     academicYears?: string[];
     regulations?: string[];
     batches?: string[];
+    // Enhanced: Programs with department context for accurate validation
+    programsWithContext?: Array<{ department: string; program: string }>;
     semestersWithContext?: Array<{ program: string; semester: string }>;
     sectionsWithContext?: Array<{ program: string; semester: string; section: string }>;
   };
@@ -141,7 +143,52 @@ export class BulkValidationBatchService {
     }
 
     // STEP 1: Validate programs in parallel (need this first for cascading)
-    if (input.uniqueValues.programs && input.uniqueValues.programs.length > 0) {
+    // ENHANCED: Now supports programsWithContext to include department filtering
+    if (input.uniqueValues.programsWithContext && input.uniqueValues.programsWithContext.length > 0) {
+      // Use programsWithContext for accurate validation with department filtering
+      const programPromises = input.uniqueValues.programsWithContext.map(async (ctx) => {
+        // Get department ID from resolved departments
+        const departmentResult = result.departments.get(ctx.department);
+        const departmentId = departmentResult?.id || undefined;
+
+        console.log(`[batch-validation] Validating program "${ctx.program}" with department "${ctx.department}" (id: ${departmentId})`);
+
+        const validationResult = await NameToIdResolver.resolveProgramId(
+          ctx.program,
+          input.institutionId,
+          departmentId // Pass departmentId for accurate matching
+        );
+        return {
+          key: `${ctx.department}|${ctx.program}`, // Composite key for lookup
+          value: ctx.program,
+          result: validationResult
+        };
+      });
+
+      const programResults = await Promise.all(programPromises);
+      programResults.forEach(({ key, value, result: validationResult }) => {
+        // Store with composite key for accurate lookup during row validation
+        result.programs.set(key, {
+          value,
+          id: validationResult.id,
+          found: validationResult.found,
+          error: validationResult.error,
+          suggestions: validationResult.suggestions
+        });
+        // Also store with just the program name for backward compatibility
+        if (!result.programs.has(value)) {
+          result.programs.set(value, {
+            value,
+            id: validationResult.id,
+            found: validationResult.found,
+            error: validationResult.error,
+            suggestions: validationResult.suggestions
+          });
+        }
+      });
+    } else if (input.uniqueValues.programs && input.uniqueValues.programs.length > 0) {
+      // Fallback: validate programs without department context (legacy support)
+      console.log(`[batch-validation] Warning: Validating programs without department context - may be less accurate`);
       const programPromises = input.uniqueValues.programs.map(async (progName) => {
         const validationResult = await NameToIdResolver.resolveProgramId(
           progName,

@@ -685,18 +685,24 @@ export interface DatabaseValidationErrors {
 
 /**
  * Extract unique values from parsed rows for batch validation
- * For hierarchical fields (semester, section), we include context (program name, semester name)
+ * For hierarchical fields (program, semester, section), we include context for accurate matching
+ * - Programs: department context (for matching program to department)
+ * - Semesters: program context (for matching semester to program)
+ * - Sections: program and semester context (for matching section to semester)
  */
 export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, any> }>) {
   const uniqueValues = {
     institutions: new Set<string>(),
-    programs: new Set<string>(),
+    programs: new Set<string>(), // Legacy: kept for backward compatibility
     degrees: new Set<string>(),
     departments: new Set<string>(),
     academicYears: new Set<string>(),
     regulations: new Set<string>(),
     batches: new Set<string>()
   };
+
+  // For programs, we need to track (department_name, program_name) pairs for accurate matching
+  const programPairs = new Set<string>();
 
   // For semesters, we need to track (program_name, semester_name) pairs
   const semesterPairs = new Set<string>();
@@ -708,12 +714,23 @@ export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, 
     const data = row.sanitizedData;
 
     if (data.institution_name) uniqueValues.institutions.add(data.institution_name);
-    if (data.program_name) uniqueValues.programs.add(data.program_name);
     if (data.degree_name) uniqueValues.degrees.add(data.degree_name);
     if (data.department_name) uniqueValues.departments.add(data.department_name);
     if (data.academic_year_name) uniqueValues.academicYears.add(data.academic_year_name);
     if (data.regulation_name) uniqueValues.regulations.add(data.regulation_name);
     if (data.batch_name) uniqueValues.batches.add(data.batch_name);
+
+    // Track program with its department context for accurate matching
+    // This ensures "(ME) CSE" matches correctly with its linked department
+    if (data.department_name && data.program_name) {
+      programPairs.add(JSON.stringify({
+        department: data.department_name,
+        program: data.program_name
+      }));
+    } else if (data.program_name) {
+      // Also add to legacy programs set for backward compatibility
+      uniqueValues.programs.add(data.program_name);
+    }
 
     // Track semester with its program context
     if (data.program_name && data.semester_name) {
@@ -735,13 +752,14 @@ export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, 
 
   return {
     institutions: Array.from(uniqueValues.institutions),
-    programs: Array.from(uniqueValues.programs),
+    programs: Array.from(uniqueValues.programs), // Legacy: only programs without department context
     degrees: Array.from(uniqueValues.degrees),
     departments: Array.from(uniqueValues.departments),
     academicYears: Array.from(uniqueValues.academicYears),
     regulations: Array.from(uniqueValues.regulations),
     batches: Array.from(uniqueValues.batches),
     // Parse back to objects for API
+    programsWithContext: Array.from(programPairs).map(str => JSON.parse(str)) as Array<{ department: string; program: string }>,
     semestersWithContext: Array.from(semesterPairs).map(str => JSON.parse(str)) as Array<{ program: string; semester: string }>,
     sectionsWithContext: Array.from(sectionTriplets).map(str => JSON.parse(str)) as Array<{ program: string; semester: string; section: string }>
   };
@@ -796,9 +814,17 @@ export function getDatabaseValidationErrors(
     }
   }
 
-  // Check program
+  // Check program (use composite key: DEPARTMENT|PROGRAM when department is available)
   if (data.program_name) {
-    const progResult = validationResult.programs[data.program_name];
+    // Try composite key first (more accurate)
+    const compositeKey = data.department_name ? `${data.department_name}|${data.program_name}` : null;
+    let progResult = compositeKey ? validationResult.programs[compositeKey] : null;
+
+    // Fallback to simple program name lookup if composite key not found
+    if (!progResult) {
+      progResult = validationResult.programs[data.program_name];
+    }
+
     if (progResult && !progResult.found) {
       errors.program = {
         error: progResult.error || 'Program not found in database',
