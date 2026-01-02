@@ -38,6 +38,9 @@ export async function getEnquiry(id: string): Promise<LearnerProfile | null> {
       program:programs(id, program_name),
       semester:semesters(id, semester_name, semester_code),
       section:sections(id, section_name),
+      academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
+      regulation:regulations(id, regulation_code, regulation_year, is_active),
+      batch:batches(id, batch_name, batch_code),
       created_by_user:profiles!learners_profiles_created_by_fkey(id, email, full_name),
       updated_by_user:profiles!learners_profiles_updated_by_fkey(id, email, full_name)
     `

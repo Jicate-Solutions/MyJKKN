@@ -96,11 +96,53 @@ export const COLUMN_MAPPING: Record<string, string[]> = {
   'hostel_type': ['Hostel Type', 'hostel_type'],
   'food_type': ['Food Type', 'food_type'],
 
-  // SECTION 8: Previous Education (All Optional)
-  'last_school': ['Last School', 'last_school', 'school'],
-  'board_of_study': ['Board of Study', 'board_of_study', 'board'],
+  // SECTION 8: Previous Education (Required for database)
+  'last_school': ['Last School', '* Last School', 'last_school', 'school', 'Previous School', 'School Name'],
+  'board_of_study': ['Board of Study', '* Board of Study', 'board_of_study', 'board', 'Board', 'Education Board'],
+
+  // 10th Marks - Individual fields for JSONB (with many variations)
+  'tenth_max_marks': [
+    '10th Max Marks', '* 10th Max Marks', 'tenth_max_marks',
+    '10th Total Marks', 'SSLC Max Marks', 'SSLC Total Marks',
+    'Class 10 Max Marks', 'X Max Marks', '10th Maximum Marks'
+  ],
+  'tenth_obtained_marks': [
+    '10th Obtained Marks', '* 10th Obtained Marks', 'tenth_obtained_marks',
+    '10th Marks Obtained', 'SSLC Obtained Marks', 'SSLC Marks',
+    'Class 10 Obtained Marks', 'X Obtained Marks', '10th Scored Marks'
+  ],
+  'tenth_percentage': [
+    '10th Percentage', '* 10th Percentage', 'tenth_percentage',
+    '10th %', 'SSLC Percentage', 'SSLC %',
+    'Class 10 Percentage', 'X Percentage', '10th Percent'
+  ],
+
+  // 12th Marks - Individual fields for JSONB (with many variations)
+  'twelfth_group': [
+    '12th Group', '* 12th Group', 'twelfth_group',
+    'HSC Group', 'Plus Two Group', 'Class 12 Group',
+    'XII Group', 'Stream', '12th Stream'
+  ],
+  'twelfth_max_marks': [
+    '12th Max Marks', '* 12th Max Marks', 'twelfth_max_marks',
+    '12th Total Marks', 'HSC Max Marks', 'HSC Total Marks',
+    'Class 12 Max Marks', 'XII Max Marks', '12th Maximum Marks'
+  ],
+  'twelfth_obtained_marks': [
+    '12th Obtained Marks', '* 12th Obtained Marks', 'twelfth_obtained_marks',
+    '12th Marks Obtained', 'HSC Obtained Marks', 'HSC Marks',
+    'Class 12 Obtained Marks', 'XII Obtained Marks', '12th Scored Marks'
+  ],
+  'twelfth_percentage': [
+    '12th Percentage', '* 12th Percentage', 'twelfth_percentage',
+    '12th %', 'HSC Percentage', 'HSC %',
+    'Class 12 Percentage', 'XII Percentage', '12th Percent'
+  ],
+
+  // Legacy single-field mapping (for backward compatibility)
   'tenth_marks': ['10th Marks', 'Tenth Marks', 'tenth_marks'],
   'twelfth_marks': ['12th Marks', 'Twelfth Marks', 'twelfth_marks'],
+
   'medical_cutoff_marks': ['Medical Cutoff Marks', 'medical_cutoff_marks', 'medical_cutoff'],
   'engineering_cutoff_marks': ['Engineering Cutoff Marks', 'engineering_cutoff_marks', 'engineering_cutoff'],
 
@@ -132,15 +174,37 @@ export const COLUMN_MAPPING: Record<string, string[]> = {
 
 /**
  * Map Excel columns to expected field names
+ * Uses case-insensitive matching with normalized column names
  */
 export function mapColumns(row: Record<string, any>): Record<string, any> {
   const mapped: Record<string, any> = {};
 
+  // Create a normalized lookup map for row keys (case-insensitive, trimmed)
+  const normalizedRowKeys: Record<string, string> = {};
+  for (const key of Object.keys(row)) {
+    // Normalize: lowercase, trim, remove asterisk prefix, collapse spaces
+    const normalizedKey = key.toLowerCase().trim().replace(/^\*\s*/, '').replace(/\s+/g, ' ');
+    normalizedRowKeys[normalizedKey] = key;
+  }
+
   for (const [targetField, sourceVariations] of Object.entries(COLUMN_MAPPING)) {
+    // First try exact match
     for (const sourceField of sourceVariations) {
       if (row[sourceField] !== undefined && row[sourceField] !== null && row[sourceField] !== '') {
         mapped[targetField] = row[sourceField];
         break;
+      }
+    }
+
+    // If not found, try case-insensitive normalized match
+    if (mapped[targetField] === undefined) {
+      for (const sourceField of sourceVariations) {
+        const normalizedSource = sourceField.toLowerCase().trim().replace(/^\*\s*/, '').replace(/\s+/g, ' ');
+        const originalKey = normalizedRowKeys[normalizedSource];
+        if (originalKey && row[originalKey] !== undefined && row[originalKey] !== null && row[originalKey] !== '') {
+          mapped[targetField] = row[originalKey];
+          break;
+        }
       }
     }
   }
@@ -603,6 +667,8 @@ export interface DatabaseValidationResult {
   degrees: Record<string, FieldValidationResult>;
   departments: Record<string, FieldValidationResult>;
   academicYears: Record<string, FieldValidationResult>;
+  regulations: Record<string, FieldValidationResult>;
+  batches: Record<string, FieldValidationResult>;
 }
 
 export interface DatabaseValidationErrors {
@@ -613,6 +679,8 @@ export interface DatabaseValidationErrors {
   degree?: { error: string; suggestions?: string[] };
   department?: { error: string; suggestions?: string[] };
   academicYear?: { error: string; suggestions?: string[] };
+  regulation?: { error: string; suggestions?: string[] };
+  batch?: { error: string; suggestions?: string[] };
 }
 
 /**
@@ -625,7 +693,9 @@ export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, 
     programs: new Set<string>(),
     degrees: new Set<string>(),
     departments: new Set<string>(),
-    academicYears: new Set<string>()
+    academicYears: new Set<string>(),
+    regulations: new Set<string>(),
+    batches: new Set<string>()
   };
 
   // For semesters, we need to track (program_name, semester_name) pairs
@@ -642,6 +712,8 @@ export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, 
     if (data.degree_name) uniqueValues.degrees.add(data.degree_name);
     if (data.department_name) uniqueValues.departments.add(data.department_name);
     if (data.academic_year_name) uniqueValues.academicYears.add(data.academic_year_name);
+    if (data.regulation_name) uniqueValues.regulations.add(data.regulation_name);
+    if (data.batch_name) uniqueValues.batches.add(data.batch_name);
 
     // Track semester with its program context
     if (data.program_name && data.semester_name) {
@@ -667,6 +739,8 @@ export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, 
     degrees: Array.from(uniqueValues.degrees),
     departments: Array.from(uniqueValues.departments),
     academicYears: Array.from(uniqueValues.academicYears),
+    regulations: Array.from(uniqueValues.regulations),
+    batches: Array.from(uniqueValues.batches),
     // Parse back to objects for API
     semestersWithContext: Array.from(semesterPairs).map(str => JSON.parse(str)) as Array<{ program: string; semester: string }>,
     sectionsWithContext: Array.from(sectionTriplets).map(str => JSON.parse(str)) as Array<{ program: string; semester: string; section: string }>

@@ -87,7 +87,9 @@ export async function POST(request: NextRequest) {
       sections: Object.fromEntries(validationResult.sections),
       degrees: Object.fromEntries(validationResult.degrees),
       departments: Object.fromEntries(validationResult.departments),
-      academicYears: Object.fromEntries(validationResult.academicYears)
+      academicYears: Object.fromEntries(validationResult.academicYears),
+      regulations: Object.fromEntries(validationResult.regulations),
+      batches: Object.fromEntries(validationResult.batches)
     };
 
     return NextResponse.json({

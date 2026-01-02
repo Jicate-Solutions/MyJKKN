@@ -681,7 +681,7 @@ export class NameToIdResolver {
 
   /**
    * Resolve Regulation code/year to ID
-   * @param regulationValue - The regulation code or year (e.g., "R2021" or "2021")
+   * @param regulationValue - The regulation code or year (e.g., "R2021", "R-2021", or "2021")
    * @param institutionId - Optional institution filter
    */
   static async resolveRegulationId(regulationValue: string, institutionId?: string): Promise<NameToIdResult> {
@@ -690,27 +690,45 @@ export class NameToIdResolver {
     }
 
     try {
+      const trimmedValue = regulationValue.trim().toUpperCase();
+
+      // Extract year from regulation value (e.g., "R2021" -> "2021", "R-2021" -> "2021")
+      const yearMatch = trimmedValue.match(/(\d{4})/);
+      const year = yearMatch ? yearMatch[1] : null;
+
+      // Build flexible matching patterns
+      // "R2021" should match "R2021", "R-2021", "REG-2021", etc.
       let query = supabaseAdmin
         .from('regulations')
-        .select('id');
-
-      // Try to match by regulation_code first, then regulation_year
-      const trimmedValue = regulationValue.trim();
+        .select('id, regulation_code, regulation_year')
+        .eq('is_active', true);
 
       if (institutionId) {
         query = query.eq('institution_id', institutionId);
       }
 
-      // Use OR condition to match either regulation_code or regulation_year
-      query = query.or(`regulation_code.ilike.${trimmedValue},regulation_year.ilike.${trimmedValue}`);
+      const { data, error } = await query;
 
-      const { data, error } = await query.single();
-
-      if (error || !data) {
+      if (error || !data || data.length === 0) {
         return { id: null, found: false, error: `Regulation "${regulationValue}" not found` };
       }
 
-      return { id: data.id, found: true };
+      // Find best match: exact code match, then year match
+      let bestMatch = data.find(r =>
+        r.regulation_code?.toUpperCase() === trimmedValue ||
+        r.regulation_code?.toUpperCase().replace(/-/g, '') === trimmedValue.replace(/-/g, '')
+      );
+
+      if (!bestMatch && year) {
+        bestMatch = data.find(r => r.regulation_year === year);
+      }
+
+      if (!bestMatch) {
+        const suggestions = data.slice(0, 3).map(r => r.regulation_code);
+        return { id: null, found: false, error: `Regulation "${regulationValue}" not found`, suggestions };
+      }
+
+      return { id: bestMatch.id, found: true };
     } catch (error) {
       return { id: null, found: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
@@ -718,7 +736,7 @@ export class NameToIdResolver {
 
   /**
    * Resolve Batch name to ID
-   * @param batchName - The batch name (e.g., "2021-2025")
+   * @param batchName - The batch name (e.g., "2021-2025") or batch code (e.g., "UGB24")
    * @param institutionId - Optional institution filter
    */
   static async resolveBatchId(batchName: string, institutionId?: string): Promise<NameToIdResult> {
@@ -727,22 +745,43 @@ export class NameToIdResolver {
     }
 
     try {
+      const trimmedValue = batchName.trim();
+
       let query = supabaseAdmin
         .from('batches')
-        .select('id')
-        .ilike('batch_name', batchName.trim());
+        .select('id, batch_name, batch_code')
+        .eq('is_active', true);
 
       if (institutionId) {
         query = query.eq('institution_id', institutionId);
       }
 
-      const { data, error } = await query.single();
+      const { data, error } = await query;
 
-      if (error || !data) {
+      if (error || !data || data.length === 0) {
         return { id: null, found: false, error: `Batch "${batchName}" not found` };
       }
 
-      return { id: data.id, found: true };
+      // Find best match: exact batch_name match, then batch_code match
+      let bestMatch = data.find(b =>
+        b.batch_name?.toLowerCase() === trimmedValue.toLowerCase() ||
+        b.batch_code?.toLowerCase() === trimmedValue.toLowerCase()
+      );
+
+      if (!bestMatch) {
+        // Try partial match
+        bestMatch = data.find(b =>
+          b.batch_name?.toLowerCase().includes(trimmedValue.toLowerCase()) ||
+          b.batch_code?.toLowerCase().includes(trimmedValue.toLowerCase())
+        );
+      }
+
+      if (!bestMatch) {
+        const suggestions = data.slice(0, 3).map(b => b.batch_name);
+        return { id: null, found: false, error: `Batch "${batchName}" not found`, suggestions };
+      }
+
+      return { id: bestMatch.id, found: true };
     } catch (error) {
       return { id: null, found: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }

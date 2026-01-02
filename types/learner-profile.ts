@@ -174,14 +174,15 @@ export interface LearnerProfile {
   academic_year?: {
     id: string;
     academic_year_name: string;
-    start_date: string;
-    end_date: string;
-    is_active: boolean;
+    start_date?: string;
+    end_date?: string;
+    is_active?: boolean;
   };
   regulation?: {
     id: string;
     regulation_code: string;
     regulation_year: string;
+    is_active?: boolean;
   };
   batch?: {
     id: string;

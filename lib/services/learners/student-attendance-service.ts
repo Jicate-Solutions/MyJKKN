@@ -82,15 +82,22 @@ export class StudentAttendanceService {
         const studentData = students.find((s: any) => s.student_id === learnerId);
 
         if (studentData) {
+          // New format: Period info is embedded directly in periodData
+          // Fallback: Look up from timetable.periods for backward compatibility
           const periodInfo = (timetable.periods as any[])?.find(
             p => p.period_id === periodId
           );
 
+          // Priority: Use embedded period info from attendance data, fallback to timetable periods
+          const periodName = (periodData as any).period_name || periodInfo?.period_name || 'Period';
+          const startTime = (periodData as any).start_time || periodInfo?.start_time || '';
+          const endTime = (periodData as any).end_time || periodInfo?.end_time || '';
+
           records.push({
             date: record.attendance_date,
-            period_name: periodInfo?.period_name || 'Period',
-            start_time: periodInfo?.start_time || '',
-            end_time: periodInfo?.end_time || '',
+            period_name: periodName,
+            start_time: startTime,
+            end_time: endTime,
             course_name: (periodData as any).course_name || 'Unknown',
             course_code: (periodData as any).course_code,
             status: studentData.status,
