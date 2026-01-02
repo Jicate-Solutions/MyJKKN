@@ -78,8 +78,9 @@ export function DataTableRowActions<TData>({
   const [showStatusDialog, setShowStatusDialog] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('');
 
-  const canEdit = isSuperAdmin || canAccess('learners', 'edit');
-  const canDelete = isSuperAdmin || canAccess('learners', 'delete');
+  // Use learners.admissions module for enquiries
+  const canEdit = isSuperAdmin || canAccess('learners.admissions', 'edit');
+  const canDelete = isSuperAdmin || canAccess('learners.admissions', 'delete');
 
   // Use React Query mutation hooks with automatic cache invalidation
   const deleteMutation = useDeleteLearnerProfile();

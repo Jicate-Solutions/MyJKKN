@@ -43,11 +43,11 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
   // Use React Query mutation for delete with automatic cache invalidation
   const deleteMutation = useDeleteLearnerProfile();
 
-  // Only access permissions after they've loaded
+  // Only access permissions after they've loaded - use learners.admissions module for enquiries
   const hasEditPermission =
-    !permissionsLoading && (isSuperAdmin || canAccess('learners', 'edit'));
+    !permissionsLoading && (isSuperAdmin || canAccess('learners.admissions', 'edit'));
   const hasDeletePermission =
-    !permissionsLoading && (isSuperAdmin || canAccess('learners', 'delete'));
+    !permissionsLoading && (isSuperAdmin || canAccess('learners.admissions', 'delete'));
 
   const handleEdit = () => {
     router.push(`/learners/enquiries/${enquiry.id}/edit`);

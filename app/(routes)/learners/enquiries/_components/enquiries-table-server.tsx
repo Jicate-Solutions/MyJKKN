@@ -59,9 +59,9 @@ export function EnquiriesTableServer({
 
   const router = useRouter();
 
-  // Permission check - Super admin has full access, others need 'learners.delete' permission
+  // Permission check - Super admin has full access, others need 'learners.admissions.delete' permission
   const { isSuperAdmin, canAccess } = usePermissions();
-  const canDeleteLearners = isSuperAdmin || canAccess('learners', 'delete');
+  const canDeleteLearners = isSuperAdmin || canAccess('learners.admissions', 'delete');
 
   // Update local data when props change
   useEffect(() => {
