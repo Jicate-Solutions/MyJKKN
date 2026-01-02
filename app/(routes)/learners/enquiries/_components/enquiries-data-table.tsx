@@ -230,6 +230,11 @@ export function EnquiriesDataTable({
       } else if (failed.length > 0) {
         toast.error(`Failed to delete ${failed.length} record${failed.length > 1 ? 's' : ''}`);
       }
+
+      // Trigger table refresh for real-time update
+      if (success.length > 0) {
+        setRefetchTrigger(prev => prev + 1);
+      }
     } catch (error) {
       console.error('[learners/enquiries] Error deleting records:', error);
       toast.error('Failed to delete records. Please try again.');
@@ -282,6 +287,7 @@ export function EnquiriesDataTable({
   return (
     <>
       <DataTable
+        key={`enquiries-table-${refetchTrigger}`}
         fetchDataFn={fetchData}
         getColumns={() => enquiryColumns as any}
         exportConfig={{

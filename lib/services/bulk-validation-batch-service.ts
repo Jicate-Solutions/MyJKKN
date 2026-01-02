@@ -16,6 +16,8 @@ export interface BatchValidationInput {
     degrees?: string[];
     departments?: string[];
     academicYears?: string[];
+    regulations?: string[];
+    batches?: string[];
     semestersWithContext?: Array<{ program: string; semester: string }>;
     sectionsWithContext?: Array<{ program: string; semester: string; section: string }>;
   };
@@ -37,6 +39,8 @@ export interface BatchValidationResult {
   degrees: Map<string, FieldValidationResult>;
   departments: Map<string, FieldValidationResult>;
   academicYears: Map<string, FieldValidationResult>;
+  regulations: Map<string, FieldValidationResult>;
+  batches: Map<string, FieldValidationResult>;
 }
 
 /**
@@ -59,7 +63,9 @@ export class BulkValidationBatchService {
       sections: new Map(),
       degrees: new Map(),
       departments: new Map(),
-      academicYears: new Map()
+      academicYears: new Map(),
+      regulations: new Map(),
+      batches: new Map()
     };
 
     // Validate institutions in parallel
@@ -242,6 +248,56 @@ export class BulkValidationBatchService {
       const yearResults = await Promise.all(yearPromises);
       yearResults.forEach(({ value, result: validationResult }) => {
         result.academicYears.set(value, {
+          value,
+          id: validationResult.id,
+          found: validationResult.found,
+          error: validationResult.error,
+          suggestions: validationResult.suggestions
+        });
+      });
+    }
+
+    // Validate regulations in parallel
+    if (input.uniqueValues.regulations && input.uniqueValues.regulations.length > 0) {
+      const regulationPromises = input.uniqueValues.regulations.map(async (regValue) => {
+        const validationResult = await NameToIdResolver.resolveRegulationId(
+          regValue,
+          input.institutionId
+        );
+        return {
+          value: regValue,
+          result: validationResult
+        };
+      });
+
+      const regulationResults = await Promise.all(regulationPromises);
+      regulationResults.forEach(({ value, result: validationResult }) => {
+        result.regulations.set(value, {
+          value,
+          id: validationResult.id,
+          found: validationResult.found,
+          error: validationResult.error,
+          suggestions: validationResult.suggestions
+        });
+      });
+    }
+
+    // Validate batches in parallel
+    if (input.uniqueValues.batches && input.uniqueValues.batches.length > 0) {
+      const batchPromises = input.uniqueValues.batches.map(async (batchName) => {
+        const validationResult = await NameToIdResolver.resolveBatchId(
+          batchName,
+          input.institutionId
+        );
+        return {
+          value: batchName,
+          result: validationResult
+        };
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      batchResults.forEach(({ value, result: validationResult }) => {
+        result.batches.set(value, {
           value,
           id: validationResult.id,
           found: validationResult.found,

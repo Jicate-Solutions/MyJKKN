@@ -1,766 +1,414 @@
 // ============================================
-// BULK UPLOAD ENQUIRIES COMPONENT
+// ENHANCED BULK UPLOAD ENQUIRIES DIALOG
 // ============================================
-// Created: 2025-01-22
-// Purpose: Bulk upload learner enquiries from Excel/CSV with validation
-// Based on: bulk-upload-admissions.tsx
+// Created: 2025-01-02
+// Purpose: Multi-step bulk upload with preview, validation, and confirmation
+// Features: Data preview, row-by-row validation, error display with suggestions, progress tracking
+// Based on: bulk-upload-profiles-dialog-enhanced.tsx
 // ============================================
 
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { UploadCloud, X, CheckCircle, AlertCircle, FileText, Download, TrendingUp } from 'lucide-react';
-import { LearnerProfileService } from '@/lib/services/learner-profile-service';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  UploadCloud,
+  Download,
+  CheckCircle2,
+  AlertCircle,
+  AlertTriangle,
+  Eye,
+  TrendingUp,
+  ArrowRight,
+  ArrowLeft,
+  X,
+  Filter
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
+import {
+  mapColumns,
+  sanitizeValue,
+  validateRow,
+  findDuplicateEmails,
+  validateDatabaseFields,
+  getDatabaseValidationErrors,
+  type ValidationResult,
+  type DatabaseValidationResult,
+  type DatabaseValidationErrors
+} from '@/lib/utils/bulk-upload-validation';
+import type {
+  ParsedRow,
+  UploadState,
+  ValidationSummary,
+  FilterType,
+  EnquiryUploadResult
+} from './bulk-upload-enquiries-types';
+import { ENQUIRY_REQUIRED_FIELDS, ENQUIRY_WARNING_FIELDS } from './bulk-upload-enquiries-types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Info } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 
-interface ValidationResult {
-  isValid: boolean;
-  errors: string[];
-  warnings: string[];
-}
-
-interface ProcessedRow {
-  rowNumber: number;
-  data: any;
-  status: 'success' | 'error' | 'warning';
-  message: string;
-}
-
-// ============================================
-// LOOKUP FUNCTIONS - Convert names to IDs
-// ============================================
-
-const lookupInstitutionId = async (institutionName: string): Promise<string | null> => {
-  if (!institutionName?.trim()) return null;
-
-  const supabase = createClientSupabaseClient();
-  const trimmedName = institutionName.trim();
-
-  const { data, error } = await supabase
-    .from('institutions')
-    .select('id, name')
-    .ilike('name', trimmedName)
-    .limit(1)
-    .maybeSingle() as { data: { id: string; name: string } | null; error: any };
-
-  if (error) {
-    console.error('[enquiries/bulk-upload] Institution lookup error:', {
-      searchTerm: trimmedName,
-      error
+// Helper component to display validation issues (errors and warnings)
+function IssuesDisplay({
+  validationResult,
+  databaseValidationErrors
+}: {
+  validationResult: ValidationResult;
+  databaseValidationErrors?: DatabaseValidationErrors;
+}) {
+  // Filter warnings to only show for required/warning fields
+  const relevantWarnings = validationResult.warnings.filter((warning) => {
+    const warningLower = warning.toLowerCase();
+    return [...ENQUIRY_REQUIRED_FIELDS, ...ENQUIRY_WARNING_FIELDS].some((field) => {
+      const fieldWithSpaces = field.replace(/_/g, ' ');
+      return warningLower.includes(fieldWithSpaces);
     });
-    return null;
-  }
-
-  if (!data) {
-    console.warn('[enquiries/bulk-upload] Institution not found:', trimmedName);
-    return null;
-  }
-
-  return data.id;
-};
-
-const lookupProgramId = async (programName: string): Promise<string | null> => {
-  if (!programName?.trim()) return null;
-
-  const supabase = createClientSupabaseClient();
-  const trimmedName = programName.trim();
-
-  const { data, error } = await supabase
-    .from('programs')
-    .select('id, program_name')
-    .ilike('program_name', trimmedName)
-    .limit(1)
-    .maybeSingle() as { data: { id: string; program_name: string } | null; error: any };
-
-  if (error) {
-    console.error('[enquiries/bulk-upload] Program lookup error:', {
-      searchTerm: trimmedName,
-      error
-    });
-    return null;
-  }
-
-  if (!data) {
-    console.warn('[enquiries/bulk-upload] Program not found:', trimmedName);
-    return null;
-  }
-
-  return data.id;
-};
-
-const lookupDegreeId = async (degreeName: string): Promise<string | null> => {
-  if (!degreeName?.trim()) return null;
-
-  const supabase = createClientSupabaseClient();
-  const trimmedName = degreeName.trim();
-
-  const { data, error } = await supabase
-    .from('degrees')
-    .select('id, degree_name')
-    .ilike('degree_name', trimmedName)
-    .limit(1)
-    .maybeSingle() as { data: { id: string; degree_name: string } | null; error: any };
-
-  if (error) {
-    console.error('[enquiries/bulk-upload] Degree lookup error:', {
-      searchTerm: trimmedName,
-      error
-    });
-    return null;
-  }
-
-  if (!data) {
-    console.warn('[enquiries/bulk-upload] Degree not found:', trimmedName);
-    return null;
-  }
-
-  return data.id;
-};
-
-const lookupDepartmentId = async (departmentName: string): Promise<string | null> => {
-  if (!departmentName?.trim()) return null;
-
-  const supabase = createClientSupabaseClient();
-  const trimmedName = departmentName.trim();
-
-  const { data, error } = await supabase
-    .from('departments')
-    .select('id, department_name')
-    .ilike('department_name', trimmedName)
-    .limit(1)
-    .maybeSingle() as { data: { id: string; department_name: string } | null; error: any };
-
-  if (error) {
-    console.error('[enquiries/bulk-upload] Department lookup error:', {
-      searchTerm: trimmedName,
-      error
-    });
-    return null;
-  }
-
-  if (!data) {
-    console.warn('[enquiries/bulk-upload] Department not found:', trimmedName);
-    return null;
-  }
-
-  return data.id;
-};
-
-const lookupAcademicYearId = async (academicYearName: string): Promise<string | null> => {
-  if (!academicYearName?.trim()) return null;
-
-  const supabase = createClientSupabaseClient();
-  const trimmedName = academicYearName.trim();
-
-  const { data, error } = await supabase
-    .from('academic_years')
-    .select('id, academic_year_name')
-    .ilike('academic_year_name', trimmedName)
-    .limit(1)
-    .maybeSingle() as { data: { id: string; academic_year_name: string } | null; error: any };
-
-  if (error) {
-    console.error('[enquiries/bulk-upload] Academic Year lookup error:', {
-      searchTerm: trimmedName,
-      error
-    });
-    return null;
-  }
-
-  if (!data) {
-    console.warn('[enquiries/bulk-upload] Academic Year not found:', trimmedName);
-    return null;
-  }
-
-  return data.id;
-};
-
-const lookupSemesterId = async (semesterName: string): Promise<string | null> => {
-  if (!semesterName?.trim()) return null;
-
-  const supabase = createClientSupabaseClient();
-  const trimmedName = semesterName.trim();
-
-  const { data, error } = await supabase
-    .from('semesters')
-    .select('id, semester_name')
-    .ilike('semester_name', trimmedName)
-    .limit(1)
-    .maybeSingle() as { data: { id: string; semester_name: string } | null; error: any };
-
-  if (error) {
-    console.error('[enquiries/bulk-upload] Semester lookup error:', {
-      searchTerm: trimmedName,
-      error
-    });
-    return null;
-  }
-
-  if (!data) {
-    console.warn('[enquiries/bulk-upload] Semester not found:', trimmedName);
-    return null;
-  }
-
-  return data.id;
-};
-
-const lookupSectionId = async (sectionName: string): Promise<string | null> => {
-  if (!sectionName?.trim()) return null;
-
-  const supabase = createClientSupabaseClient();
-  const trimmedName = sectionName.trim();
-
-  const { data, error } = await supabase
-    .from('sections')
-    .select('id, section_name')
-    .ilike('section_name', trimmedName)
-    .limit(1)
-    .maybeSingle() as { data: { id: string; section_name: string } | null; error: any };
-
-  if (error) {
-    console.error('[enquiries/bulk-upload] Section lookup error:', {
-      searchTerm: trimmedName,
-      error
-    });
-    return null;
-  }
-
-  if (!data) {
-    console.warn('[enquiries/bulk-upload] Section not found:', trimmedName);
-    return null;
-  }
-
-  return data.id;
-};
-
-const lookupRegulationId = async (regulationName: string): Promise<string | null> => {
-  if (!regulationName?.trim()) return null;
-
-  const supabase = createClientSupabaseClient();
-  const trimmedName = regulationName.trim();
-
-  const { data, error } = await supabase
-    .from('regulations')
-    .select('id, regulation_code')
-    .ilike('regulation_code', trimmedName)
-    .limit(1)
-    .maybeSingle() as { data: { id: string; regulation_code: string } | null; error: any };
-
-  if (error) {
-    console.error('[enquiries/bulk-upload] Regulation lookup error:', {
-      searchTerm: trimmedName,
-      error
-    });
-    return null;
-  }
-
-  if (!data) {
-    console.warn('[enquiries/bulk-upload] Regulation not found:', trimmedName);
-    return null;
-  }
-
-  return data.id;
-};
-
-const lookupBatchId = async (batchName: string): Promise<string | null> => {
-  if (!batchName?.trim()) return null;
-
-  const supabase = createClientSupabaseClient();
-  const trimmedName = batchName.trim();
-
-  const { data, error } = await supabase
-    .from('batches')
-    .select('id, batch_name')
-    .ilike('batch_name', trimmedName)
-    .limit(1)
-    .maybeSingle() as { data: { id: string; batch_name: string } | null; error: any };
-
-  if (error) {
-    console.error('[enquiries/bulk-upload] Batch lookup error:', {
-      searchTerm: trimmedName,
-      error
-    });
-    return null;
-  }
-
-  if (!data) {
-    console.warn('[enquiries/bulk-upload] Batch not found:', trimmedName);
-    return null;
-  }
-
-  return data.id;
-};
-
-export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => void }) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [processing, setProcessing] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [previewData, setPreviewData] = useState<any[]>([]);
-  const [processedRows, setProcessedRows] = useState<ProcessedRow[]>([]);
-  const [showResults, setShowResults] = useState(false);
-
-  // ============================================
-  // COLUMN MAPPING - Flexible column names
-  // ============================================
-  const getColumnMapping = () => ({
-    // SECTION 1: REQUIRED - Basic Details
-    'first_name': ['* First Name', 'First Name', 'firstname', 'first_name', 'name'],
-    'last_name': ['* Last Name', 'Last Name', 'lastname', 'last_name', 'surname'],
-    'father_name': ['* Father Name', 'Father Name', 'fathername', 'father_name', 'father'],
-    'mother_name': ['* Mother Name', 'Mother Name', 'mothername', 'mother_name', 'mother'],
-    'date_of_birth': ['* Date of Birth', 'Date of Birth', 'dateofbirth', 'date_of_birth', 'dob', 'birth_date'],
-    'gender': ['* Gender', 'Gender', 'sex'],
-    'religion': ['* Religion', 'Religion'],
-    'community': ['* Community', 'Community'],
-    'caste': ['* Caste', 'Caste'],
-
-    // SECTION 2: REQUIRED - Academic & Enrollment (supports both old and new column names)
-    'institution': ['* Institution (Use NAME)', '* Institution', 'Institution', 'college'],
-    'degree': ['* Degree (Use NAME)', '* Degree', 'Degree'],
-    'department': ['* Department (Use NAME)', '* Department', 'Department', 'dept'],
-    'program': ['* Program (Use NAME)', '* Program', 'Program', 'course'],
-    'academic_year': ['* Academic Year (Use NAME)', '* Academic Year', 'Academic Year', 'academicyear', 'academic_year', 'year'],
-    'semester': ['* Semester (Use NAME)', '* Semester', 'Semester', 'sem'],
-    'section': ['* Section (Use NAME)', '* Section', 'Section', 'sec'],
-    'entry_type': ['* Entry Type', 'Entry Type', 'entrytype', 'entry_type'],
-    'scholarship_type': [
-      '* Scholarship Type',
-      'Scholarship Type',
-      'scholarshiptype',
-      'scholarship_type',
-      // Legacy support for backward compatibility
-      '* First Graduate',
-      'First Graduate',
-      'firstgraduate',
-      'first_graduate'
-    ],
-
-    // SECTION 3: REQUIRED - Contact Details
-    'student_mobile': ['* Student Mobile', 'Student Mobile', 'studentmobile', 'student_mobile', 'mobile', 'phone'],
-    'permanent_address_street': ['* Permanent Address Street', 'Permanent Address Street', 'address', 'street', 'permanent_address'],
-    'permanent_address_district': ['* Permanent Address District', 'Permanent Address District', 'district'],
-    'permanent_address_state': ['* Permanent Address State', 'Permanent Address State', 'state'],
-    'permanent_address_pin_code': ['* Permanent Address Pin Code', 'Permanent Address Pin Code', 'pincode', 'pin', 'postal_code'],
-    'accommodation_type': ['* Accommodation Type', 'Accommodation Type', 'accommodationtype', 'accommodation_type'],
-
-    // SECTION 4: OPTIONAL BUT IMPORTANT - For User Creation
-    'college_email': ['College Email (for user login)', 'College Email', 'collegeemail', 'college_email', 'institutional_email', 'institute_email'],
-    'student_email': ['Student Email', 'studentemail', 'student_email', 'email', 'personal_email'],
-    'permanent_address_taluk': ['Permanent Address Taluk', 'taluk'],
-
-    // SECTION 5: OPTIONAL - Additional Family Details
-    'father_occupation': ['Father Occupation', 'fatheroccupation', 'father_occupation'],
-    'father_mobile': ['Father Mobile', 'fathermobile', 'father_mobile', 'father_phone'],
-    'mother_occupation': ['Mother Occupation', 'motheroccupation', 'mother_occupation'],
-    'mother_mobile': ['Mother Mobile', 'mothermobile', 'mother_mobile', 'mother_phone'],
-    'annual_income': ['Annual Income', 'annualincome', 'annual_income', 'income'],
-
-    // SECTION 6: OPTIONAL - Academic Marks
-    'last_school': ['Last School', 'lastschool', 'last_school', 'school'],
-    'board_of_study': ['Board of Study', 'boardofstudy', 'board_of_study', 'board'],
-    'tenth_max_marks': ['10th Max Marks', '10th Maximum Marks', 'tenth_max_marks', '10max'],
-    'tenth_obtained_marks': ['10th Obtained Marks', '10th Marks', 'tenth_obtained_marks', '10obtained'],
-    'tenth_percentage': ['10th Percentage', 'tenth_percentage', '10percentage', '10%'],
-    'twelfth_group': ['12th Group', 'twelfth_group', '12group', 'group'],
-    'twelfth_max_marks': ['12th Max Marks', '12th Maximum Marks', 'twelfth_max_marks', '12max'],
-    'twelfth_obtained_marks': ['12th Obtained Marks', '12th Marks', 'twelfth_obtained_marks', '12obtained'],
-    'twelfth_percentage': ['12th Percentage', 'twelfth_percentage', '12percentage', '12%'],
-
-    // SECTION 7: OPTIONAL - Entrance Exams
-    'neet_roll_number': ['NEET Roll Number', 'neetrollnumber', 'neet_roll_number', 'neet'],
-    'neet_score': ['NEET Score', 'neetscore', 'neet_score'],
-    'medical_cutoff_marks': ['Medical Cutoff Marks', 'medicalcutoffmarks', 'medical_cutoff_marks'],
-    'engineering_cutoff_marks': ['Engineering Cutoff Marks', 'engineeringcutoffmarks', 'engineering_cutoff_marks'],
-    'counseling_applied': ['Counseling Applied', 'counselingapplied', 'counseling_applied'],
-    'counseling_number': ['Counseling Number', 'counselingnumber', 'counseling_number'],
-
-    // SECTION 8: OPTIONAL - Accommodation & Transport
-    'hostel_type': ['Hostel Type', 'hosteltype', 'hostel_type'],
-    'food_type': ['Food Type', 'foodtype', 'food_type'],
-    'bus_required': ['Bus Required', 'busrequired', 'bus_required'],
-    'bus_route': ['Bus Route', 'busroute', 'bus_route'],
-    'bus_pickup_location': ['Bus Pickup Location', 'buspickuplocation', 'bus_pickup_location'],
-
-    // SECTION 9: OPTIONAL - Others
-    'aadhar_number': ['Aadhar Number', 'aadharnumber', 'aadhar_number', 'aadhaar'],
-    'blood_group': ['Blood Group', 'bloodgroup', 'blood_group'],
-    'quota': ['Quota'],
-    'category': ['Category'],
-    'roll_number': ['Roll Number', 'rollnumber', 'roll_number', 'roll'],
-    'register_number': ['Register Number', 'registernumber', 'register_number', 'regno'],
-    'regulation': ['Regulation', 'reg'],
-    'batch': ['Batch'],
-    'reference_type': ['Reference Type', 'referencetype', 'reference_type'],
-    'reference_name': ['Reference Name', 'referencename', 'reference_name'],
-    'reference_contact': ['Reference Contact', 'referencecontact', 'reference_contact'],
-    'enquiry_date': ['Enquiry Date', 'enquirydate', 'enquiry_date'],
   });
 
-  // ============================================
-  // VALIDATION FUNCTION
-  // ============================================
-  const validateRowData = (row: any, rowIndex: number): ValidationResult => {
-    const errors: string[] = [];
-    const warnings: string[] = [];
+  const hasFormatErrors = validationResult.errors.length > 0;
+  const hasDbErrors = databaseValidationErrors && Object.keys(databaseValidationErrors).length > 0;
+  const hasAnyErrors = hasFormatErrors || hasDbErrors;
 
-    // REQUIRED FIELDS - Basic Details
-    if (!row.first_name?.trim()) {
-      errors.push('First Name is required');
+  return (
+    <div className="space-y-1.5">
+      {/* FORMAT VALIDATION ERRORS */}
+      {hasFormatErrors && (
+        <>
+          {validationResult.errors.slice(0, 2).map((error, idx) => (
+            <div key={`error-${idx}`} className="text-xs text-red-600 font-medium break-words">
+              <span className="font-bold">X {error.field}:</span> {error.message}
+            </div>
+          ))}
+          {validationResult.errors.length > 2 && (
+            <div className="text-xs text-red-500 font-medium">
+              +{validationResult.errors.length - 2} more format errors
+            </div>
+          )}
+        </>
+      )}
+
+      {/* DATABASE VALIDATION ERRORS WITH SUGGESTIONS */}
+      {hasDbErrors && (
+        <>
+          {Object.entries(databaseValidationErrors!).map(([field, errorData], idx) => (
+            <div key={`db-error-${idx}`} className="space-y-0.5">
+              <div className="text-xs text-red-600 font-medium break-words">
+                <span className="font-bold">X {field}:</span> {errorData.error}
+              </div>
+              {errorData.suggestions && errorData.suggestions.length > 0 && (
+                <div className="text-xs text-blue-600 pl-4 break-words">
+                  <span className="font-semibold">Try:</span>{' '}
+                  {errorData.suggestions.slice(0, 3).join(', ')}
+                  {errorData.suggestions.length > 3 && ` +${errorData.suggestions.length - 3} more`}
+                </div>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* Show warnings ONLY for required fields (if no errors) */}
+      {!hasAnyErrors && relevantWarnings.length > 0 && (
+        <>
+          {relevantWarnings.slice(0, 2).map((warning, idx) => (
+            <div key={`warning-${idx}`} className="text-xs text-amber-600 break-words">
+              ! {warning}
+            </div>
+          ))}
+          {relevantWarnings.length > 2 && (
+            <div className="text-xs text-amber-500">
+              +{relevantWarnings.length - 2} more warnings
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Show "All Good" if no issues */}
+      {!hasAnyErrors && relevantWarnings.length === 0 && (
+        <div className="text-xs text-green-600 font-medium">
+          OK All fields validated
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => void }) {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState<FilterType>('all');
+
+  // State management
+  const [state, setState] = useState<UploadState>({
+    step: 'select-file',
+    file: null,
+    parsedRows: [],
+    validationSummary: {
+      totalRows: 0,
+      validRows: 0,
+      warningRows: 0,
+      errorRows: 0,
+      duplicateEmails: 0,
+      selectedRows: 0
+    },
+    databaseValidationResult: null,
+    isValidatingDatabase: false,
+    uploadProgress: 0,
+    result: null,
+    error: null
+  });
+
+  // Download template function
+  const downloadTemplate = () => {
+    try {
+      // Create sample data with REQUIRED fields first, then OPTIONAL fields
+      const sampleData = [{
+        // ============================================
+        // REQUIRED FIELDS (marked with *)
+        // ============================================
+
+        // Basic Details
+        '* First Name': 'JOHN',
+        '* Last Name': 'DOE',
+        '* Date of Birth': '2005-01-15',
+        '* Gender': 'MALE',
+        '* Religion': 'HINDU',
+        '* Community': 'BC',
+        '* Caste': 'OBC',
+
+        // Parent/Guardian Information (Mobile is REQUIRED)
+        '* Father Name': 'ROBERT DOE',
+        '* Father Mobile': '9876543211',
+        '* Mother Name': 'MARY DOE',
+        '* Mother Mobile': '9876543212',
+
+        // Academic Assignment
+        '* Institution': 'JKKN College of Engineering and Technology',
+        '* Degree': 'Undergraduate',
+        '* Department': 'Computer Science and Engineering',
+        '* Program': '(BE) CSE',
+        '* Semester': 'Semester 1',
+        '* Section': 'A',
+        '* Academic Year': '2024-2025',
+
+        // Contact Details (Student Email is REQUIRED)
+        '* Student Mobile': '9876543210',
+        '* Student Email': 'john@gmail.com',
+
+        // Address Information
+        '* Permanent Address Street': '123 Main Street',
+        '* Permanent Address District': 'Namakkal',
+        '* Permanent Address Pin Code': '637001',
+        '* Permanent Address State': 'Tamil Nadu',
+
+        // Entry Type & Scholarship Type
+        '* Entry Type': 'FIRST YEAR',
+        '* Scholarship Type': 'FIRST GRADUATE',
+
+        // Accommodation
+        '* Accommodation Type': 'HOSTEL',
+
+        // Previous Education (REQUIRED)
+        '* Last School': 'St. Mary\'s High School',
+        '* Board of Study': 'STATE BOARD',
+        '* 10th Max Marks': '500',
+        '* 10th Obtained Marks': '450',
+        '* 10th Percentage': '90',
+        '* 12th Group': 'SCIENCE',
+        '* 12th Max Marks': '600',
+        '* 12th Obtained Marks': '540',
+        '* 12th Percentage': '90',
+
+        // ============================================
+        // OPTIONAL FIELDS
+        // ============================================
+
+        // Contact (Optional)
+        'College Email': 'john.doe@jkkn.ac.in',
+        'Permanent Address Taluk': 'Namakkal',
+
+        // ============================================
+        // OPTIONAL FIELDS
+        // ============================================
+
+        // Basic Details (Optional)
+        'Aadhar Number': '123456789012',
+        'Blood Group': 'O+',
+
+        // Parent/Guardian (Optional)
+        'Father Occupation': 'Business',
+        'Mother Occupation': 'Teacher',
+        'Annual Income': '500000',
+
+        // Academic (Optional)
+        'Admission Year': '2024',
+        'Regulation': 'R2021',
+        'Batch': '2024-2028',
+
+        // Accommodation (Optional)
+        'Hostel Type': 'AC HOSTEL',
+        'Food Type': 'VEG',
+
+        // Counseling (Optional)
+        'Counseling Applied': 'TRUE',
+        'Quota': 'MANAGEMENT',
+        'Category': 'General',
+
+        // Transport (Optional)
+        'Bus Required': 'TRUE',
+        'Bus Route': 'Route 5',
+        'Bus Pickup Location': 'Central Bus Stand',
+
+        // Reference (Optional)
+        'Reference Type': 'Alumni',
+        'Reference Name': 'Dr. Kumar',
+        'Reference Contact': '9876543299',
+
+        // Entrance Exam Details (Optional)
+        'Medical Cutoff Marks': '',
+        'Engineering Cutoff Marks': '',
+        'NEET Roll Number': '',
+        'NEET Score': '',
+
+        // Enquiry specific
+        'Enquiry Date': new Date().toISOString().split('T')[0],
+      }];
+
+      // Create Instructions sheet with concise information
+      const instructionsData = [
+        { '': '' },
+        { 'BULK UPLOAD ENQUIRIES - QUICK REFERENCE GUIDE': '' },
+        { '': '' },
+
+        { 'HOW TO USE THIS TEMPLATE': '' },
+        { '1': 'Switch to the "Template" sheet (tab at the bottom of this file)' },
+        { '2': 'Fill in all REQUIRED fields (marked with * asterisk)' },
+        { '3': 'Fill OPTIONAL fields only if data is available' },
+        { '4': 'Save the file and upload it to the system' },
+        { '5': 'Fix any validation errors shown and re-upload if needed' },
+        { '': '' },
+
+        { 'FIELD REQUIREMENTS': '' },
+        { 'Required Fields (23)': 'Must be filled for every enquiry - marked with * in template' },
+        { 'Optional Fields (20+)': 'Can be left blank - no asterisk in template' },
+        { '': '' },
+
+        { 'IMPORTANT NOTES FOR ENQUIRIES': '' },
+        { '1. College Email is OPTIONAL': 'Unlike profiles, enquiries do not require college email' },
+        { '2. No user accounts created': 'User accounts are created only after approval' },
+        { '3. Status is "Enquiry"': 'All uploaded records will have enquiry status' },
+        { '': '' },
+
+        { 'DROPDOWN FIELDS - VALID VALUES ONLY': '' },
+        { 'Field Name': 'Valid Options (use these exact values)' },
+        { '': '' },
+        { '* Gender (Required)': 'MALE  |  FEMALE  |  OTHER' },
+        { '* Religion (Required)': 'HINDU  |  CHRISTIAN  |  MUSLIM  |  SIKH  |  BUDDHIST  |  JAIN  |  OTHERS' },
+        { '* Community (Required)': 'OC  |  BC  |  BCM  |  MBC  |  DNC  |  BC-CC  |  SC  |  ST  |  SBC  |  SC (A)' },
+        { '* Entry Type (Required)': 'FIRST YEAR  |  LATERAL ENTRY  |  RE-ADMISSION  |  COLLEGE TRANSFER' },
+        { '* Accommodation Type (Required)': 'HOSTEL  |  DAY SCHOLAR  |  HOME' },
+        { '* Scholarship Type (Required)': 'FIRST GRADUATE  |  PMS SCHOLARSHIP  |  7.5% SCHOLARSHIP  |  NOT APPLICABLE' },
+        { '': '' },
+        { 'Blood Group (Optional)': 'A+  |  A-  |  B+  |  B-  |  AB+  |  AB-  |  O+  |  O-' },
+        { 'Hostel Type (Optional)': 'AC HOSTEL  |  NON-AC HOSTEL' },
+        { 'Food Type (Optional)': 'VEG  |  NON-VEG  |  VEGAN' },
+        { '': '' },
+
+        { 'ENTRANCE EXAM DETAILS (Optional)': '' },
+        { 'Medical Cutoff Marks': 'Numeric value (Example: 195.5)' },
+        { 'Engineering Cutoff Marks': 'Numeric value (Example: 180.25)' },
+        { 'NEET Roll Number': 'Alphanumeric (Example: 123456789012)' },
+        { 'NEET Score': 'Numeric value (Example: 650)' },
+        { '': '' },
+
+        { 'FORMAT GUIDELINES': '' },
+        { 'Date of Birth': 'YYYY-MM-DD  (Example: 2005-01-15)' },
+        { 'Mobile Numbers': '10 digits, no spaces/dashes  (Example: 9876543210)' },
+        { 'Pin Code': '6 digits  (Example: 637001)' },
+        { 'College Email': 'Must end with @jkkn.ac.in if provided' },
+        { 'Academic Year': 'YYYY-YYYY  (Example: 2024-2025)' },
+        { 'Admission Year': 'YYYY  (Example: 2024) - Year of admission' },
+        { '': '' },
+
+        { 'COMMON MISTAKES': '' },
+        { 'Wrong': 'Correct' },
+        { 'Gender: "M" or "F"': 'Use: MALE or FEMALE' },
+        { 'Date: 15/01/2005': 'Use: 2005-01-15 (YYYY-MM-DD)' },
+        { 'Mobile: 98765-43210': 'Use: 9876543210 (no dashes)' },
+        { 'Pin Code: 63701 (5 digits)': 'Use: 637001 (6 digits)' },
+        { '': '' },
+
+        { 'TIPS FOR SUCCESS': '' },
+        { 'TIP 1': 'All dropdown values are case-insensitive (MALE = male = Male)' },
+        { 'TIP 2': 'Required fields marked with * must be filled' },
+        { 'TIP 3': 'Delete the example row before uploading your actual data' },
+        { 'TIP 4': 'Institution, Department, Program names must match exactly as in database' },
+        { 'TIP 5': 'Validation errors will show clearly with suggestions - fix and re-upload' },
+        { '': '' },
+
+        { 'SUPPORT': '' },
+        { 'Need Help?': 'Contact your system administrator' },
+        { 'Last Updated': new Date().toISOString().split('T')[0] },
+        { 'Version': '2.0.0 - Enhanced with Preview & Validation' }
+      ];
+
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+
+      // Add Instructions sheet first
+      const wsInstructions = XLSX.utils.json_to_sheet(instructionsData);
+
+      // Set column widths for instructions sheet
+      wsInstructions['!cols'] = [
+        { wch: 35 }, // Column A (Field names)
+        { wch: 50 }, // Column B (Descriptions)
+      ];
+
+      XLSX.utils.book_append_sheet(wb, wsInstructions, 'Instructions');
+
+      // Add Template sheet
+      const wsTemplate = XLSX.utils.json_to_sheet(sampleData);
+      XLSX.utils.book_append_sheet(wb, wsTemplate, 'Template');
+
+      // Write file
+      XLSX.writeFile(wb, 'bulk-upload-enquiries-template.xlsx');
+      toast.success('Template with instructions downloaded successfully!');
+    } catch (error) {
+      console.error('[bulk-upload-enquiries-enhanced] Error generating template:', error);
+      toast.error('Failed to generate template');
     }
-
-    if (!row.last_name?.trim()) {
-      errors.push('Last Name is required');
-    }
-
-    if (!row.father_name?.trim()) {
-      errors.push('Father Name is required');
-    }
-
-    if (!row.mother_name?.trim()) {
-      errors.push('Mother Name is required');
-    }
-
-    if (!row.date_of_birth) {
-      errors.push('Date of Birth is required');
-    } else {
-      // Validate date format
-      const date = new Date(row.date_of_birth);
-      if (isNaN(date.getTime())) {
-        errors.push('Invalid Date of Birth format (use YYYY-MM-DD)');
-      }
-    }
-
-    if (!row.gender?.trim()) {
-      errors.push('Gender is required');
-    } else if (!['MALE', 'FEMALE', 'OTHER'].includes(row.gender.toUpperCase())) {
-      errors.push('Gender must be MALE, FEMALE, or OTHER');
-    }
-
-    if (!row.religion?.trim()) {
-      errors.push('Religion is required');
-    }
-
-    if (!row.community?.trim()) {
-      errors.push('Community is required');
-    }
-
-    if (!row.caste?.trim()) {
-      errors.push('Caste is required');
-    }
-
-    // REQUIRED FIELDS - Academic & Enrollment
-    if (!row.institution_id) {
-      const institutionName = row.institution || 'N/A';
-      errors.push(`Institution "${institutionName}" not found. Check spelling and ensure it exists in Organization > Institutions.`);
-    }
-
-    if (!row.degree_id) {
-      const degreeName = row.degree || 'N/A';
-      errors.push(`Degree "${degreeName}" not found. Check spelling and ensure it exists in Organization > Degrees.`);
-    }
-
-    if (!row.department_id) {
-      const departmentName = row.department || 'N/A';
-      errors.push(`Department "${departmentName}" not found. Check spelling and ensure it exists in Organization > Departments.`);
-    }
-
-    if (!row.program_id) {
-      const programName = row.program || 'N/A';
-      errors.push(`Program "${programName}" not found. Check spelling and ensure it exists in Organization > Programs.`);
-    }
-
-    if (!row.academic_year_id) {
-      const yearName = row.academic_year || 'N/A';
-      errors.push(`Academic Year "${yearName}" not found. Check spelling and ensure it exists in Organization > Academic Years.`);
-    }
-
-    if (!row.semester_id) {
-      const semesterName = row.semester || 'N/A';
-      errors.push(`Semester "${semesterName}" not found. Check spelling and ensure it exists in Organization > Semesters.`);
-    }
-
-    if (!row.section_id) {
-      const sectionName = row.section || 'N/A';
-      errors.push(`Section "${sectionName}" not found. Check spelling and ensure it exists in Organization > Sections.`);
-    }
-
-    // Entry Type validation
-    const VALID_ENTRY_TYPES = ['FIRST YEAR', 'LATERAL ENTRY', 'RE-ADMISSION', 'COLLEGE TRANSFER'];
-    if (!row.entry_type?.trim()) {
-      errors.push('Entry Type is required');
-    } else {
-      const normalized = row.entry_type.toString().trim().toUpperCase();
-      if (!VALID_ENTRY_TYPES.includes(normalized)) {
-        errors.push(`Entry Type must be one of: ${VALID_ENTRY_TYPES.join(', ')}`);
-      }
-    }
-
-    // Scholarship Type validation
-    const VALID_SCHOLARSHIP = ['FIRST GRADUATE', 'PMS SCHOLARSHIP', '7.5% SCHOLARSHIP', 'NOT APPLICABLE'];
-    if (!row.scholarship_type?.trim()) {
-      errors.push('Scholarship Type is required');
-    } else {
-      const normalized = row.scholarship_type.toString().trim().toUpperCase();
-      if (!VALID_SCHOLARSHIP.includes(normalized)) {
-        errors.push(`Scholarship Type must be one of: ${VALID_SCHOLARSHIP.join(', ')}`);
-      }
-    }
-
-    // REQUIRED FIELDS - Contact Details
-    if (!row.student_mobile?.trim()) {
-      errors.push('Student Mobile is required');
-    } else if (!/^\d{10}$/.test(row.student_mobile.replace(/\D/g, ''))) {
-      errors.push('Invalid Student Mobile format (must be 10 digits)');
-    }
-
-    if (!row.permanent_address_street?.trim()) {
-      errors.push('Permanent Address Street is required');
-    }
-
-    if (!row.permanent_address_district?.trim()) {
-      errors.push('Permanent Address District is required');
-    }
-
-    if (!row.permanent_address_state?.trim()) {
-      errors.push('Permanent Address State is required');
-    }
-
-    if (!row.permanent_address_pin_code?.trim()) {
-      errors.push('Permanent Address Pin Code is required');
-    } else if (!/^\d{6}$/.test(row.permanent_address_pin_code.trim())) {
-      errors.push('Invalid Pin Code format (must be 6 digits)');
-    }
-
-    if (!row.accommodation_type?.trim()) {
-      errors.push('Accommodation Type is required');
-    } else if (!['DAY SCHOLAR', 'HOSTEL'].includes(row.accommodation_type.toUpperCase())) {
-      errors.push('Accommodation Type must be DAY SCHOLAR or HOSTEL');
-    }
-
-    // OPTIONAL BUT IMPORTANT - Validation for College Email (if provided)
-    if (row.college_email?.trim()) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.college_email)) {
-        errors.push('Invalid College Email format');
-      } else if (!row.college_email.toLowerCase().endsWith('@jkkn.ac.in')) {
-        warnings.push('College Email should use @jkkn.ac.in domain for user account creation');
-      }
-    } else {
-      warnings.push('College Email not provided - user account cannot be created without it');
-    }
-
-    // Validate Student Email if provided
-    if (row.student_email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.student_email)) {
-      errors.push('Invalid Student Email format');
-    }
-
-    // Validate mobile numbers if provided
-    if (row.father_mobile?.trim() && !/^\d{10}$/.test(row.father_mobile.replace(/\D/g, ''))) {
-      errors.push('Invalid Father Mobile format (must be 10 digits)');
-    }
-
-    if (row.mother_mobile?.trim() && !/^\d{10}$/.test(row.mother_mobile.replace(/\D/g, ''))) {
-      errors.push('Invalid Mother Mobile format (must be 10 digits)');
-    }
-
-    // Warnings for missing important optional fields
-    if (!row.father_mobile?.trim()) {
-      warnings.push('Father Mobile not provided');
-    }
-
-    if (!row.mother_mobile?.trim()) {
-      warnings.push('Mother Mobile not provided');
-    }
-
-    if (!row.student_email?.trim()) {
-      warnings.push('Student Email not provided');
-    }
-
-    return {
-      isValid: errors.length === 0,
-      errors,
-      warnings
-    };
   };
 
-  /**
-   * Maps scholarship type with backward compatibility for legacy boolean values
-   * Fixes critical bug where Boolean('FALSE') returns true
-   *
-   * @param value - The scholarship type value from Excel (can be boolean or string)
-   * @returns Normalized scholarship type value
-   */
-  const mapScholarshipType = (value: any): string => {
-    if (!value) return '';
-
-    const normalized = value.toString().trim().toUpperCase();
-
-    // Valid modern values
-    const validTypes = ['FIRST GRADUATE', 'PMS SCHOLARSHIP', '7.5% SCHOLARSHIP', 'NOT APPLICABLE'];
-    if (validTypes.includes(normalized)) {
-      return normalized;
-    }
-
-    // Legacy boolean conversion for backward compatibility
-    // CRITICAL FIX: Boolean('FALSE') returns true, so we need proper string comparison
-    if (normalized === 'TRUE' || normalized === 'YES' || normalized === '1') {
-      return 'FIRST GRADUATE';
-    }
-
-    if (normalized === 'FALSE' || normalized === 'NO' || normalized === '0') {
-      return 'NOT APPLICABLE';
-    }
-
-    return value.toString().trim().toUpperCase();
-  };
-
-  // ============================================
-  // MAP ROW DATA - Convert Excel row to API format
-  // ============================================
-  const mapRowData = async (row: any) => {
-    const columnMapping = getColumnMapping();
-    const mappedData: any = {};
-
-    // Map columns to our expected format
-    Object.entries(columnMapping).forEach(([targetKey, possibleKeys]) => {
-      for (const key of possibleKeys) {
-        const value = row[key] || row[key.toLowerCase()] || row[key.toUpperCase()];
-        if (value !== undefined && value !== null && value !== '') {
-          mappedData[targetKey] = value;
-          break;
-        }
-      }
-    });
-
-    // Lookup IDs from names (async)
-    const institutionId = await lookupInstitutionId(mappedData.institution);
-    const programId = await lookupProgramId(mappedData.program);
-    const degreeId = await lookupDegreeId(mappedData.degree);
-    const departmentId = await lookupDepartmentId(mappedData.department);
-    const academicYearId = await lookupAcademicYearId(mappedData.academic_year);
-    const semesterId = await lookupSemesterId(mappedData.semester);
-    const sectionId = await lookupSectionId(mappedData.section);
-    const regulationId = await lookupRegulationId(mappedData.regulation);
-    const batchId = await lookupBatchId(mappedData.batch);
-
-    // Format data for API (following LearnerProfile structure)
-    return {
-      // Basic Details - Convert to UPPERCASE
-      first_name: mappedData.first_name?.toString().trim().toUpperCase() || '',
-      last_name: mappedData.last_name?.toString().trim().toUpperCase() || '',
-      father_name: mappedData.father_name?.toString().trim().toUpperCase() || '',
-      father_occupation: mappedData.father_occupation?.toString().trim().toUpperCase() || '',
-      father_mobile: mappedData.father_mobile?.toString().replace(/\D/g, '') || '',
-      mother_name: mappedData.mother_name?.toString().trim().toUpperCase() || '',
-      mother_occupation: mappedData.mother_occupation?.toString().trim().toUpperCase() || '',
-      mother_mobile: mappedData.mother_mobile?.toString().replace(/\D/g, '') || '',
-      date_of_birth: mappedData.date_of_birth ? new Date(mappedData.date_of_birth).toISOString().split('T')[0] : '',
-      gender: mappedData.gender?.toString().trim().toUpperCase() || '',
-      religion: mappedData.religion?.toString().trim().toUpperCase() || '',
-      community: mappedData.community?.toString().trim().toUpperCase() || '',
-      caste: mappedData.caste?.toString().trim().toUpperCase() || '',
-      aadhar_number: mappedData.aadhar_number?.toString() || '',
-      blood_group: mappedData.blood_group?.toString().toUpperCase() || '',
-      annual_income: mappedData.annual_income?.toString() || '',
-
-      // Academic Information
-      last_school: mappedData.last_school?.toString().trim().toUpperCase() || '',
-      board_of_study: mappedData.board_of_study?.toString().trim().toUpperCase() || '',
-      tenth_marks: {
-        max_marks: mappedData.tenth_max_marks?.toString() || '',
-        obtained_marks: mappedData.tenth_obtained_marks?.toString() || '',
-        percentage: mappedData.tenth_percentage?.toString() || ''
-      },
-      twelfth_marks: {
-        group: mappedData.twelfth_group?.toString().trim().toUpperCase() || '',
-        max_marks: mappedData.twelfth_max_marks?.toString() || '',
-        obtained_marks: mappedData.twelfth_obtained_marks?.toString() || '',
-        percentage: mappedData.twelfth_percentage?.toString() || '',
-        subjects: {}
-      },
-      medical_cutoff_marks: mappedData.medical_cutoff_marks?.toString() || '',
-      engineering_cutoff_marks: mappedData.engineering_cutoff_marks?.toString() || '',
-      neet_roll_number: mappedData.neet_roll_number?.toString() || '',
-      neet_score: mappedData.neet_score?.toString() || '',
-      counseling_applied: Boolean(mappedData.counseling_applied),
-      counseling_number: mappedData.counseling_number?.toString() || '',
-      scholarship_type: mapScholarshipType(mappedData.scholarship_type),
-      quota: mappedData.quota?.toString().trim().toUpperCase() || '',
-      category: mappedData.category?.toString().trim().toUpperCase() || '',
-      entry_type: mappedData.entry_type?.toString().trim().toUpperCase() || '',
-
-      // Course Selection - Store IDs
-      institution_id: institutionId || null,
-      degree_id: degreeId || null,
-      department_id: departmentId || null,
-      program_id: programId || null,
-      academic_year_id: academicYearId || null,
-      semester_id: semesterId || null,
-      section_id: sectionId || null,
-      regulation_id: regulationId || null,
-      batch_id: batchId || null,
-      roll_number: mappedData.roll_number?.toString().trim() || '',
-      register_number: mappedData.register_number?.toString().trim() || '',
-      college_email: mappedData.college_email?.toString().trim().toLowerCase() || '',
-
-      // Contact Details
-      student_mobile: mappedData.student_mobile?.toString().replace(/\D/g, '') || '',
-      student_email: mappedData.student_email?.toString().trim().toLowerCase() || '',
-      permanent_address_street: mappedData.permanent_address_street?.toString().trim().toUpperCase() || '',
-      permanent_address_taluk: mappedData.permanent_address_taluk?.toString().trim().toUpperCase() || '',
-      permanent_address_district: mappedData.permanent_address_district?.toString().trim().toUpperCase() || '',
-      permanent_address_pin_code: mappedData.permanent_address_pin_code?.toString() || '',
-      permanent_address_state: mappedData.permanent_address_state?.toString().trim().toUpperCase() || '',
-
-      // Accommodation Preferences
-      accommodation_type: mappedData.accommodation_type?.toString().trim().toUpperCase() || '',
-      hostel_type: mappedData.hostel_type?.toString().trim().toUpperCase() || '',
-      food_type: mappedData.food_type?.toString().trim().toUpperCase() || '',
-      bus_required: Boolean(mappedData.bus_required),
-      bus_route: mappedData.bus_route?.toString().trim().toUpperCase() || '',
-      bus_pickup_location: mappedData.bus_pickup_location?.toString().trim().toUpperCase() || '',
-      reference_type: mappedData.reference_type?.toString().trim().toUpperCase() || '',
-      reference_name: mappedData.reference_name?.toString().trim().toUpperCase() || '',
-      reference_contact: mappedData.reference_contact?.toString() || '',
-      enquiry_date: mappedData.enquiry_date || new Date().toISOString().split('T')[0],
-
-      // Store original names for validation error messages
-      institution: mappedData.institution?.toString().trim() || '',
-      degree: mappedData.degree?.toString().trim() || '',
-      department: mappedData.department?.toString().trim() || '',
-      program: mappedData.program?.toString().trim() || '',
-      academic_year: mappedData.academic_year?.toString().trim() || '',
-      semester: mappedData.semester?.toString().trim() || '',
-      section: mappedData.section?.toString().trim() || '',
-
-      // Set default lifecycle status to 'enquiry' (CRITICAL - NOT creating users immediately)
-      lifecycle_status: 'enquiry' as const,
-      is_profile_complete: false,
-    };
-  };
-
-  // ============================================
-  // FILE HANDLING
-  // ============================================
+  // Handle file selection
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -770,851 +418,1226 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
       return;
     }
 
-    setSelectedFile(file);
-    await processFile(file);
-  };
+    setState(prev => ({ ...prev, file, step: 'preview-data', error: null }));
 
-  const processFile = async (file: File) => {
-    setProcessing(true);
+    // Parse file
     try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data);
-
-      // Find the "Enquiry Template" sheet (or use second sheet as fallback)
-      let worksheet;
-      const templateSheetName = workbook.SheetNames.find(name =>
-        name.includes('Enquiry Template') || name.includes('Template')
-      );
-
-      if (templateSheetName) {
-        worksheet = workbook.Sheets[templateSheetName];
-        console.log('[enquiries/bulk-upload] Reading from sheet:', templateSheetName);
-      } else {
-        // Fallback: If multi-sheet workbook, use second sheet; otherwise use first
-        const sheetIndex = workbook.SheetNames.length > 1 ? 1 : 0;
-        worksheet = workbook.Sheets[workbook.SheetNames[sheetIndex]];
-        console.log('[enquiries/bulk-upload] Reading from sheet:', workbook.SheetNames[sheetIndex]);
-      }
-
-      const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-      if (jsonData.length === 0) {
-        toast.error('The uploaded file contains no data');
-        return;
-      }
-
-      console.log('[enquiries/bulk-upload] Parsed Excel data:', jsonData.slice(0, 2));
-
-      // Process and validate data (async for lookups)
-      const processedData: any[] = [];
-
-      for (let index = 0; index < jsonData.length; index++) {
-        const row = jsonData[index] as any;
-
-        // Skip completely empty rows (all required fields are empty)
-        const hasAnyData =
-          row['* First Name'] ||
-          row['* Last Name'] ||
-          row['* Institution (Use NAME)'] ||
-          row['* Institution'] ||
-          row['* Program (Use NAME)'] ||
-          row['* Program'];
-
-        if (!hasAnyData) {
-          console.log(`[enquiries/bulk-upload] Skipping empty row ${index + 1}`);
-          continue;
-        }
-
-        const mappedData = await mapRowData(row);
-        const validation = validateRowData(mappedData, index + 1);
-
-        processedData.push({
-          rowNumber: index + 1,
-          originalData: row,
-          mappedData,
-          validation
-        });
-      }
-
-      setPreviewData(processedData);
-      toast.success(`Loaded ${jsonData.length} records for preview`);
-
+      await parseAndValidateFile(file);
     } catch (error) {
-      console.error('[enquiries/bulk-upload] Error processing file:', error);
-      toast.error('Failed to process file. Please check the format.');
-    } finally {
-      setProcessing(false);
+      console.error('[bulk-upload-enquiries-enhanced] Parse error:', error);
+      setState(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Failed to parse file',
+        step: 'select-file'
+      }));
+      toast.error('Failed to parse file');
     }
   };
 
-  // ============================================
-  // UPLOAD HANDLER
-  // ============================================
+  // Parse and validate file
+  const parseAndValidateFile = async (file: File) => {
+    return new Promise<void>((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+
+          // Find the template sheet
+          let sheetName = workbook.SheetNames[0];
+          const templateSheet = workbook.SheetNames.find(name =>
+            name.toLowerCase().includes('template') ||
+            name.toLowerCase().includes('enquiry')
+          );
+          if (templateSheet) {
+            sheetName = templateSheet;
+          } else if (workbook.SheetNames.length > 1) {
+            // Skip Instructions sheet if it exists
+            sheetName = workbook.SheetNames.find(name =>
+              !name.toLowerCase().includes('instruction') &&
+              !name.toLowerCase().includes('info')
+            ) || workbook.SheetNames[1];
+          }
+
+          const firstSheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+
+          if (jsonData.length === 0) {
+            reject(new Error('No data found in file'));
+            return;
+          }
+
+          // Parse and map rows
+          const parsedRows: ParsedRow[] = jsonData.map((row: any, index) => {
+            const mappedData = mapColumns(row);
+
+            // Debug log for first row to show column mapping (development only)
+            if (process.env.NODE_ENV === 'development' && index === 0) {
+              console.log('[bulk-upload-enquiries] Excel column names:', Object.keys(row));
+              console.log('[bulk-upload-enquiries] Mapped education fields:', {
+                tenth_max_marks: mappedData.tenth_max_marks,
+                tenth_obtained_marks: mappedData.tenth_obtained_marks,
+                tenth_percentage: mappedData.tenth_percentage,
+                twelfth_group: mappedData.twelfth_group,
+                twelfth_max_marks: mappedData.twelfth_max_marks,
+                twelfth_obtained_marks: mappedData.twelfth_obtained_marks,
+                twelfth_percentage: mappedData.twelfth_percentage,
+              });
+            }
+
+            // Sanitize data (using enquiry-specific fields)
+            const sanitizedData = {
+              // SECTION 1: Basic Details
+              first_name: sanitizeValue(mappedData.first_name, 'text'),
+              last_name: sanitizeValue(mappedData.last_name, 'text'),
+              date_of_birth: sanitizeValue(mappedData.date_of_birth, 'date'),
+              gender: sanitizeValue(mappedData.gender, 'text'),
+              religion: sanitizeValue(mappedData.religion, 'text'),
+              community: sanitizeValue(mappedData.community, 'text'),
+              caste: sanitizeValue(mappedData.caste, 'text'),
+              aadhar_number: sanitizeValue(mappedData.aadhar_number, 'number'),
+              blood_group: sanitizeValue(mappedData.blood_group, 'text'),
+
+              // SECTION 2: Parent/Guardian Information
+              father_name: sanitizeValue(mappedData.father_name, 'text'),
+              father_occupation: sanitizeValue(mappedData.father_occupation, 'text'),
+              father_mobile: sanitizeValue(mappedData.father_mobile, 'mobile'),
+              mother_name: sanitizeValue(mappedData.mother_name, 'text'),
+              mother_occupation: sanitizeValue(mappedData.mother_occupation, 'text'),
+              mother_mobile: sanitizeValue(mappedData.mother_mobile, 'mobile'),
+              annual_income: sanitizeValue(mappedData.annual_income, 'number'),
+
+              // SECTION 3: Academic Assignment
+              institution_name: sanitizeValue(mappedData.institution_name, 'text'),
+              degree_name: sanitizeValue(mappedData.degree_name, 'text'),
+              department_name: sanitizeValue(mappedData.department_name, 'text'),
+              program_name: sanitizeValue(mappedData.program_name, 'text'),
+              semester_name: sanitizeValue(mappedData.semester_name, 'text'),
+              section_name: sanitizeValue(mappedData.section_name, 'text'),
+              academic_year_name: sanitizeValue(mappedData.academic_year_name, 'text'),
+              admission_year: sanitizeValue(mappedData.admission_year, 'number'),
+              regulation_name: sanitizeValue(mappedData.regulation_name, 'text'),
+              batch_name: sanitizeValue(mappedData.batch_name, 'text'),
+
+              // SECTION 4: Contact Details
+              student_mobile: sanitizeValue(mappedData.student_mobile, 'mobile'),
+              college_email: sanitizeValue(mappedData.college_email, 'email'),
+              student_email: sanitizeValue(mappedData.student_email, 'email'),
+
+              // SECTION 5: Address Information
+              permanent_address_street: sanitizeValue(mappedData.permanent_address_street, 'text'),
+              permanent_address_taluk: sanitizeValue(mappedData.permanent_address_taluk, 'text'),
+              permanent_address_district: sanitizeValue(mappedData.permanent_address_district, 'text'),
+              permanent_address_pin_code: sanitizeValue(mappedData.permanent_address_pin_code, 'number'),
+              permanent_address_state: sanitizeValue(mappedData.permanent_address_state, 'text'),
+
+              // SECTION 6: Entry Type & Scholarship Type
+              entry_type: sanitizeValue(mappedData.entry_type, 'text'),
+              scholarship_type: sanitizeValue(mappedData.scholarship_type, 'text'),
+
+              // SECTION 7: Accommodation
+              accommodation_type: sanitizeValue(mappedData.accommodation_type, 'text'),
+              hostel_type: sanitizeValue(mappedData.hostel_type, 'text'),
+              food_type: sanitizeValue(mappedData.food_type, 'text'),
+
+              // SECTION 8: Previous Education (Required)
+              last_school: sanitizeValue(mappedData.last_school, 'text'),
+              board_of_study: sanitizeValue(mappedData.board_of_study, 'text'),
+              // 10th Marks (individual fields for JSONB)
+              tenth_max_marks: sanitizeValue(mappedData.tenth_max_marks, 'number'),
+              tenth_obtained_marks: sanitizeValue(mappedData.tenth_obtained_marks, 'number'),
+              tenth_percentage: sanitizeValue(mappedData.tenth_percentage, 'number'),
+              // 12th Marks (individual fields for JSONB)
+              twelfth_group: sanitizeValue(mappedData.twelfth_group, 'text'),
+              twelfth_max_marks: sanitizeValue(mappedData.twelfth_max_marks, 'number'),
+              twelfth_obtained_marks: sanitizeValue(mappedData.twelfth_obtained_marks, 'number'),
+              twelfth_percentage: sanitizeValue(mappedData.twelfth_percentage, 'number'),
+              // Entrance Exam Details (Optional)
+              medical_cutoff_marks: sanitizeValue(mappedData.medical_cutoff_marks, 'number'),
+              engineering_cutoff_marks: sanitizeValue(mappedData.engineering_cutoff_marks, 'number'),
+              neet_roll_number: sanitizeValue(mappedData.neet_roll_number, 'text'),
+              neet_score: sanitizeValue(mappedData.neet_score, 'number'),
+
+              // SECTION 9: Counseling
+              counseling_applied: sanitizeValue(mappedData.counseling_applied, 'text'),
+              quota: sanitizeValue(mappedData.quota, 'text'),
+              category: sanitizeValue(mappedData.category, 'text'),
+
+              // SECTION 9: Transport
+              bus_required: sanitizeValue(mappedData.bus_required, 'text'),
+              bus_route: sanitizeValue(mappedData.bus_route, 'text'),
+              bus_pickup_location: sanitizeValue(mappedData.bus_pickup_location, 'text'),
+
+              // SECTION 10: Reference
+              reference_type: sanitizeValue(mappedData.reference_type, 'text'),
+              reference_name: sanitizeValue(mappedData.reference_name, 'text'),
+              reference_contact: sanitizeValue(mappedData.reference_contact, 'text'),
+
+              // SECTION 11: Enquiry Specific
+              enquiry_date: sanitizeValue(mappedData.enquiry_date, 'date') || new Date().toISOString().split('T')[0],
+            };
+
+            // Validate row using the shared validation function
+            // Note: For enquiries, college_email is optional, so we use the standard validateRow
+            // which already handles this based on the data structure
+            const validationResult = validateRow(sanitizedData);
+
+            return {
+              rowNumber: index + 2, // Excel row number (1-indexed + header row)
+              originalData: row,
+              mappedData,
+              sanitizedData,
+              validationStatus: validationResult.status,
+              validationResult,
+              selected: validationResult.status === 'valid' || validationResult.status === 'warning',
+              isDuplicate: false
+            };
+          });
+
+          // Check for duplicate emails (only if college_email is provided)
+          const duplicates = findDuplicateEmails(parsedRows);
+          duplicates.forEach((rowIndices) => {
+            rowIndices.forEach((rowIndex) => {
+              parsedRows[rowIndex].isDuplicate = true;
+              parsedRows[rowIndex].validationStatus = 'error';
+              parsedRows[rowIndex].validationResult?.errors.push({
+                field: 'college_email',
+                message: 'Duplicate email in this file'
+              });
+            });
+          });
+
+          // Calculate summary
+          const summary: ValidationSummary = {
+            totalRows: parsedRows.length,
+            validRows: parsedRows.filter(r => r.validationStatus === 'valid').length,
+            warningRows: parsedRows.filter(r => r.validationStatus === 'warning').length,
+            errorRows: parsedRows.filter(r => r.validationStatus === 'error').length,
+            duplicateEmails: duplicates.size,
+            selectedRows: parsedRows.filter(r => r.selected).length
+          };
+
+          setState(prev => ({
+            ...prev,
+            parsedRows,
+            validationSummary: summary,
+            step: 'validating-format'
+          }));
+
+          toast.success(`Format validation complete: ${summary.validRows} valid, ${summary.errorRows} errors.`);
+
+          // Now perform database validation
+          performDatabaseValidation(parsedRows);
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      };
+
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
+  // Perform database validation
+  const performDatabaseValidation = async (parsedRows: ParsedRow[]) => {
+    try {
+      setState(prev => ({ ...prev, step: 'validating-database', isValidatingDatabase: true }));
+      toast.loading('Validating against database...', { id: 'db-validation' });
+
+      // Call database validation API
+      const dbValidationResult = await validateDatabaseFields(parsedRows);
+
+      // Debug logging for regulations and batches
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[bulk-upload-enquiries] Database validation complete');
+        console.log('[bulk-upload-enquiries] Regulations validation result:', dbValidationResult.regulations);
+        console.log('[bulk-upload-enquiries] Batches validation result:', dbValidationResult.batches);
+        console.log('[bulk-upload-enquiries] First row regulation_name:', parsedRows[0]?.sanitizedData?.regulation_name);
+        console.log('[bulk-upload-enquiries] First row batch_name:', parsedRows[0]?.sanitizedData?.batch_name);
+      }
+
+      // Merge database validation results with existing validation
+      const updatedRows = parsedRows.map(row => {
+        const dbErrors = getDatabaseValidationErrors(row.sanitizedData, dbValidationResult);
+        const hasDbErrors = Object.keys(dbErrors).length > 0;
+
+        // Add database validation errors to the row
+        const updatedRow: ParsedRow = {
+          ...row,
+          databaseValidationErrors: dbErrors
+        };
+
+        // Update validation status based on database + format validation
+        if (row.validationStatus === 'error') {
+          // Keep error status if format validation failed
+          updatedRow.validationStatus = 'error';
+        } else if (hasDbErrors) {
+          // Set to error if database validation failed
+          updatedRow.validationStatus = 'error';
+          updatedRow.selected = false; // Unselect rows with database errors
+        }
+
+        return updatedRow;
+      });
+
+      // Recalculate summary with database validation results
+      const summary: ValidationSummary = {
+        totalRows: updatedRows.length,
+        validRows: updatedRows.filter(r => r.validationStatus === 'valid').length,
+        warningRows: updatedRows.filter(r => r.validationStatus === 'warning').length,
+        errorRows: updatedRows.filter(r => r.validationStatus === 'error').length,
+        duplicateEmails: state.validationSummary.duplicateEmails,
+        selectedRows: updatedRows.filter(r => r.selected).length
+      };
+
+      setState(prev => ({
+        ...prev,
+        parsedRows: updatedRows,
+        validationSummary: summary,
+        databaseValidationResult: dbValidationResult,
+        isValidatingDatabase: false,
+        step: 'validate'
+      }));
+
+      toast.dismiss('db-validation');
+
+      if (summary.errorRows > 0) {
+        toast.error(`Database validation found ${summary.errorRows} errors. Check suggestions.`);
+      } else {
+        toast.success('Database validation complete! All fields verified.');
+      }
+    } catch (error) {
+      console.error('[bulk-upload-enquiries] Database validation failed:', error);
+      setState(prev => ({
+        ...prev,
+        isValidatingDatabase: false,
+        step: 'validate',
+        error: error instanceof Error ? error.message : 'Database validation failed'
+      }));
+      toast.dismiss('db-validation');
+      toast.error('Database validation failed. You can still upload, but some rows may fail.');
+    }
+  };
+
+  // Toggle row selection
+  const toggleRowSelection = (rowNumber: number) => {
+    setState(prev => ({
+      ...prev,
+      parsedRows: prev.parsedRows.map(row =>
+        row.rowNumber === rowNumber ? { ...row, selected: !row.selected } : row
+      ),
+      validationSummary: {
+        ...prev.validationSummary,
+        selectedRows: prev.parsedRows.filter(r =>
+          r.rowNumber === rowNumber ? !r.selected : r.selected
+        ).length
+      }
+    }));
+  };
+
+  // Select all/none
+  const toggleSelectAll = (selected: boolean) => {
+    setState(prev => ({
+      ...prev,
+      parsedRows: prev.parsedRows.map(row => ({
+        ...row,
+        selected: row.validationStatus !== 'error' && selected
+      })),
+      validationSummary: {
+        ...prev.validationSummary,
+        selectedRows: selected
+          ? prev.parsedRows.filter(r => r.validationStatus !== 'error').length
+          : 0
+      }
+    }));
+  };
+
+  // Helper function to get ID from database validation result
+  const getIdFromValidation = (
+    fieldType: 'institutions' | 'programs' | 'semesters' | 'sections' | 'degrees' | 'departments' | 'academicYears' | 'regulations' | 'batches',
+    key: string
+  ): string | null => {
+    if (!state.databaseValidationResult) return null;
+    const result = state.databaseValidationResult[fieldType]?.[key];
+    return result?.id || null;
+  };
+
+  // Helper function to build composite key for hierarchical lookups
+  const buildCompositeKey = (parts: (string | undefined)[]): string => {
+    return parts.filter(Boolean).join('|');
+  };
+
+  // Handle upload
   const handleUpload = async () => {
-    if (!previewData.length) {
-      toast.error('No data to upload');
+    if (state.validationSummary.selectedRows === 0) {
+      toast.error('No valid rows selected for upload');
       return;
     }
 
-    setUploading(true);
-    setUploadProgress(0);
-    setShowResults(false);
-    setProcessedRows([]);
+    setState(prev => ({ ...prev, step: 'uploading', uploadProgress: 0 }));
 
-    const results: ProcessedRow[] = [];
-    let successCount = 0;
-    let errorCount = 0;
+    const selectedRows = state.parsedRows.filter(r => r.selected);
+    const results: EnquiryUploadResult = {
+      success: true,
+      upload_summary: {
+        total_rows: selectedRows.length,
+        valid_rows: selectedRows.length,
+        invalid_rows: 0,
+        enquiries_created: 0,
+        enquiries_failed: 0
+      },
+      errors: []
+    };
 
     try {
-      for (let i = 0; i < previewData.length; i++) {
-        const item = previewData[i];
-        const progress = ((i + 1) / previewData.length) * 100;
-        setUploadProgress(Math.round(progress));
+      for (let i = 0; i < selectedRows.length; i++) {
+        const row = selectedRows[i];
+        const progress = ((i + 1) / selectedRows.length) * 100;
+        setState(prev => ({ ...prev, uploadProgress: Math.round(progress) }));
 
         try {
-          // Skip rows with validation errors
-          if (!item.validation.isValid) {
-            results.push({
-              rowNumber: item.rowNumber,
-              data: item.originalData,
-              status: 'error',
-              message: `Validation failed: ${item.validation.errors.join(', ')}`
+          const data = row.sanitizedData;
+
+          // Debug log for education fields (helps track mapping issues)
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[bulk-upload-enquiries] Row', row.rowNumber, 'Education fields:', {
+              last_school: data.last_school,
+              board_of_study: data.board_of_study,
+              tenth_max_marks: data.tenth_max_marks,
+              tenth_obtained_marks: data.tenth_obtained_marks,
+              tenth_percentage: data.tenth_percentage,
+              twelfth_group: data.twelfth_group,
+              twelfth_max_marks: data.twelfth_max_marks,
+              twelfth_obtained_marks: data.twelfth_obtained_marks,
+              twelfth_percentage: data.twelfth_percentage,
             });
-            errorCount++;
-            continue;
           }
 
-          // Remove validation-only fields before sending to API
-          const {
-            institution,
-            degree,
-            department,
-            program,
-            academic_year,
-            semester,
-            section,
-            ...enquiryData
-          } = item.mappedData;
+          // Build composite keys for hierarchical lookups
+          const semesterKey = buildCompositeKey([data.program_name, data.semester_name]);
+          const sectionKey = buildCompositeKey([data.program_name, data.semester_name, data.section_name]);
 
-          // Create enquiry
+          // Get resolved IDs from database validation result
+          const institution_id = getIdFromValidation('institutions', data.institution_name);
+          const program_id = getIdFromValidation('programs', data.program_name);
+          const semester_id = getIdFromValidation('semesters', semesterKey);
+          const section_id = getIdFromValidation('sections', sectionKey);
+          const degree_id = getIdFromValidation('degrees', data.degree_name);
+          const department_id = getIdFromValidation('departments', data.department_name);
+          const academic_year_id = getIdFromValidation('academicYears', data.academic_year_name);
+          const regulation_id = data.regulation_name ? getIdFromValidation('regulations', data.regulation_name) : null;
+          const batch_id = data.batch_name ? getIdFromValidation('batches', data.batch_name) : null;
+
+          // Debug logging for regulation and batch IDs
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[bulk-upload-enquiries] Row', row.rowNumber, 'ID Resolution:', {
+              regulation_name: data.regulation_name,
+              regulation_id,
+              batch_name: data.batch_name,
+              batch_id,
+              academic_year_name: data.academic_year_name,
+              academic_year_id,
+              admission_year: data.admission_year,
+            });
+          }
+
+          // Prepare data for API with resolved IDs (enquiry specific)
+          // Remove _name fields and add _id fields
+          const enquiryData = {
+            // Personal Info
+            first_name: data.first_name,
+            last_name: data.last_name,
+            date_of_birth: data.date_of_birth,
+            gender: data.gender,
+            religion: data.religion,
+            community: data.community,
+            caste: data.caste,
+            aadhar_number: data.aadhar_number,
+            blood_group: data.blood_group,
+
+            // Parent/Guardian Info
+            father_name: data.father_name,
+            father_occupation: data.father_occupation,
+            father_mobile: data.father_mobile,
+            mother_name: data.mother_name,
+            mother_occupation: data.mother_occupation,
+            mother_mobile: data.mother_mobile,
+            annual_income: data.annual_income,
+
+            // Academic Assignment (IDs, not names)
+            institution_id,
+            degree_id,
+            department_id,
+            program_id,
+            semester_id,
+            section_id,
+            academic_year_id,
+            admission_year: data.admission_year ? parseInt(data.admission_year) : null,
+            regulation_id,
+            batch_id,
+
+            // Contact Details
+            student_mobile: data.student_mobile,
+            college_email: data.college_email,
+            student_email: data.student_email,
+
+            // Address Information
+            permanent_address_street: data.permanent_address_street,
+            permanent_address_taluk: data.permanent_address_taluk,
+            permanent_address_district: data.permanent_address_district,
+            permanent_address_pin_code: data.permanent_address_pin_code,
+            permanent_address_state: data.permanent_address_state,
+
+            // Entry & Scholarship
+            entry_type: data.entry_type,
+            scholarship_type: data.scholarship_type,
+
+            // Accommodation
+            accommodation_type: data.accommodation_type,
+            hostel_type: data.hostel_type,
+            food_type: data.food_type,
+
+            // Previous Education (Required)
+            last_school: data.last_school || 'Not Provided',
+            board_of_study: data.board_of_study || 'Not Provided',
+            // Build JSONB objects for marks - ensure all values are strings
+            tenth_marks: {
+              max_marks: String(data.tenth_max_marks || '0'),
+              obtained_marks: String(data.tenth_obtained_marks || '0'),
+              percentage: String(data.tenth_percentage || '0'),
+            },
+            twelfth_marks: {
+              group: String(data.twelfth_group || 'Not Provided'),
+              max_marks: String(data.twelfth_max_marks || '0'),
+              obtained_marks: String(data.twelfth_obtained_marks || '0'),
+              percentage: String(data.twelfth_percentage || '0'),
+            },
+
+            // Entrance Exam Details (Optional)
+            medical_cutoff_marks: data.medical_cutoff_marks ? String(data.medical_cutoff_marks) : null,
+            engineering_cutoff_marks: data.engineering_cutoff_marks ? String(data.engineering_cutoff_marks) : null,
+            neet_roll_number: data.neet_roll_number || null,
+            neet_score: data.neet_score ? String(data.neet_score) : null,
+
+            // Counseling
+            counseling_applied: data.counseling_applied === 'TRUE' || data.counseling_applied === 'true',
+            quota: data.quota,
+            category: data.category,
+
+            // Transport
+            bus_required: data.bus_required === 'TRUE' || data.bus_required === 'true',
+            bus_route: data.bus_route,
+            bus_pickup_location: data.bus_pickup_location,
+
+            // Reference
+            reference_type: data.reference_type,
+            reference_name: data.reference_name,
+            reference_contact: data.reference_contact,
+
+            // Enquiry specific
+            enquiry_date: data.enquiry_date || new Date().toISOString().split('T')[0],
+            lifecycle_status: 'enquiry' as const,
+            is_profile_complete: false,
+          };
+
+          // Create enquiry using LearnerProfileService
           await LearnerProfileService.createLearnerProfile(enquiryData as any);
 
-          results.push({
-            rowNumber: item.rowNumber,
-            data: item.originalData,
-            status: 'success',
-            message: `Successfully created enquiry for ${item.mappedData.first_name} ${item.mappedData.last_name}`
-          });
-          successCount++;
-
+          results.upload_summary.enquiries_created++;
         } catch (error: any) {
-          console.error(`[enquiries/bulk-upload] Error creating enquiry for row ${item.rowNumber}:`, error);
-          results.push({
-            rowNumber: item.rowNumber,
-            data: item.originalData,
-            status: 'error',
-            message: error.message || 'Failed to create enquiry'
+          console.error(`[bulk-upload-enquiries] Error creating enquiry for row ${row.rowNumber}:`, error);
+          results.upload_summary.enquiries_failed++;
+          results.errors.push({
+            row: row.rowNumber,
+            name: `${row.sanitizedData.first_name} ${row.sanitizedData.last_name}`,
+            error: error.message || 'Failed to create enquiry'
           });
-          errorCount++;
         }
 
         // Small delay to prevent overwhelming the database
-        if (i < previewData.length - 1) {
+        if (i < selectedRows.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
 
-      setProcessedRows(results);
-      setShowResults(true);
+      setState(prev => ({ ...prev, result: results, step: 'results', uploadProgress: 100 }));
 
-      // Show final results
-      if (successCount > 0 && errorCount === 0) {
-        toast.success(`Successfully uploaded ${successCount} enquiries`);
-      } else if (successCount > 0 && errorCount > 0) {
-        toast.success(`Uploaded ${successCount} enquiries. ${errorCount} failed.`);
-      } else {
-        toast.error(`Upload failed. ${errorCount} records had errors.`);
+      // Show success message
+      if (results.upload_summary.enquiries_created > 0) {
+        toast.success(`Successfully created ${results.upload_summary.enquiries_created} enquiries!`);
+
+        // Refresh the page data to show newly created enquiries in real-time
+        router.refresh();
       }
 
-      // Call onSuccess callback if provided
-      if (successCount > 0 && onSuccess) {
+      if (results.upload_summary.enquiries_failed > 0) {
+        toast.error(`${results.upload_summary.enquiries_failed} enquiries failed to create`);
+      }
+
+      if (onSuccess && results.upload_summary.enquiries_created > 0) {
         onSuccess();
       }
-
     } catch (error) {
-      console.error('[enquiries/bulk-upload] Bulk upload error:', error);
-      toast.error('Upload failed. Please try again.');
-    } finally {
-      setUploading(false);
-      setUploadProgress(100);
+      console.error('[bulk-upload-enquiries-enhanced] Upload error:', error);
+      toast.error(error instanceof Error ? error.message : 'Upload failed');
+      setState(prev => ({
+        ...prev,
+        step: 'validate',
+        error: error instanceof Error ? error.message : 'Upload failed'
+      }));
     }
   };
 
-  // ============================================
-  // TEMPLATE DOWNLOAD - Ordered Fields
-  // ============================================
-  const downloadTemplate = () => {
-    try {
-
-    // ============================================
-    // INFORMATION SHEET - Detailed Instructions
-    // ============================================
-    const infoData = [
-      // Header
-      { 'A': '📋 ENQUIRY BULK UPLOAD - INFORMATION & INSTRUCTIONS', 'B': '', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      // Overview
-      { 'A': '📖 OVERVIEW', 'B': '', 'C': '' },
-      { 'A': 'This template is used to bulk upload student enquiries to the MyJKKN system.', 'B': '', 'C': '' },
-      { 'A': 'Please read all instructions carefully before filling the template.', 'B': '', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      // Important Notes
-      { 'A': '⚠️ IMPORTANT NOTES', 'B': '', 'C': '' },
-      { 'A': '1. All fields marked with * are REQUIRED', 'B': '', 'C': '' },
-      { 'A': '2. Use EXACT NAMES from your database (not IDs) for Institution, Degree, Department, Program, etc.', 'B': '', 'C': '' },
-      { 'A': '3. Check the sample data row for correct format examples', 'B': '', 'C': '' },
-      { 'A': '4. Delete the sample data row (row 2 in Template sheet) before uploading OR update it with real data', 'B': '', 'C': '' },
-      { 'A': '5. All uploaded enquiries will have status "Enquiry" by default', 'B': '', 'C': '' },
-      { 'A': '6. User accounts are NOT created during upload - only after manual approval', 'B': '', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      // Field Guide Header
-      { 'A': '📝 FIELD-BY-FIELD GUIDE', 'B': '', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      // SECTION 1
-      { 'A': '▶ SECTION 1: REQUIRED - Basic Details', 'B': '', 'C': '' },
-      { 'A': 'Field Name', 'B': 'Format/Valid Values', 'C': 'Example' },
-      { 'A': '* First Name', 'B': 'Text (will be converted to UPPERCASE)', 'C': 'RAJESH' },
-      { 'A': '* Last Name', 'B': 'Text (will be converted to UPPERCASE)', 'C': 'KUMAR' },
-      { 'A': '* Father Name', 'B': 'Text (will be converted to UPPERCASE)', 'C': 'SURESH KUMAR' },
-      { 'A': '* Mother Name', 'B': 'Text (will be converted to UPPERCASE)', 'C': 'LAKSHMI DEVI' },
-      { 'A': '* Date of Birth', 'B': 'YYYY-MM-DD format', 'C': '2005-06-15' },
-      { 'A': '* Gender', 'B': 'MALE, FEMALE, or OTHER', 'C': 'MALE' },
-      { 'A': '* Religion', 'B': 'Hindu, Christian, Muslim, etc.', 'C': 'Hindu' },
-      { 'A': '* Community', 'B': 'BC, MBC, SC, ST, OC, etc.', 'C': 'BC' },
-      { 'A': '* Caste', 'B': 'Your caste name', 'C': 'Vanniyar' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      // SECTION 2
-      { 'A': '▶ SECTION 2: REQUIRED - Academic & Enrollment', 'B': '', 'C': '' },
-      { 'A': '⚠️ IMPORTANT: Use EXACT names as they appear in your database!', 'B': '', 'C': '' },
-      { 'A': 'Field Name', 'B': 'Format/Valid Values', 'C': 'Example' },
-      { 'A': '* Institution', 'B': 'Full institution name from database', 'C': 'JKKN College of Engineering' },
-      { 'A': '* Degree', 'B': 'Degree name from database', 'C': 'Undergraduate' },
-      { 'A': '* Department', 'B': 'Full department name from database', 'C': 'Computer Science and Engineering' },
-      { 'A': '* Program', 'B': 'Program name from database', 'C': 'B.E. COMPUTER SCIENCE AND ENGINEERING' },
-      { 'A': '* Academic Year', 'B': 'Year in format YYYY-YYYY', 'C': '2024-2025' },
-      { 'A': '* Semester', 'B': 'Semester name from database', 'C': 'Semester 1' },
-      { 'A': '* Section', 'B': 'Section name from database', 'C': 'A' },
-      { 'A': '* Entry Type', 'B': 'FIRST YEAR, LATERAL ENTRY, RE-ADMISSION, or COLLEGE TRANSFER', 'C': 'FIRST YEAR' },
-      { 'A': '* Scholarship Type', 'B': 'FIRST GRADUATE, PMS SCHOLARSHIP, 7.5% SCHOLARSHIP, or NOT APPLICABLE', 'C': 'FIRST GRADUATE' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      // SECTION 3
-      { 'A': '▶ SECTION 3: REQUIRED - Contact Details', 'B': '', 'C': '' },
-      { 'A': 'Field Name', 'B': 'Format/Valid Values', 'C': 'Example' },
-      { 'A': '* Student Mobile', 'B': '10-digit mobile number', 'C': '9876543210' },
-      { 'A': '* Permanent Address Street', 'B': 'Full street address', 'C': '123, Main Street, Gandhi Nagar' },
-      { 'A': '* Permanent Address District', 'B': 'District name', 'C': 'Namakkal' },
-      { 'A': '* Permanent Address State', 'B': 'State name', 'C': 'Tamil Nadu' },
-      { 'A': '* Permanent Address Pin Code', 'B': '6-digit pin code', 'C': '637001' },
-      { 'A': '* Accommodation Type', 'B': 'DAY SCHOLAR or HOSTEL', 'C': 'HOSTEL' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      // SECTION 4
-      { 'A': '▶ SECTION 4: OPTIONAL - For User Account Creation', 'B': '', 'C': '' },
-      { 'A': '✅ Fill these fields to enable auto user creation after approval', 'B': '', 'C': '' },
-      { 'A': 'Field Name', 'B': 'Format/Valid Values', 'C': 'Example' },
-      { 'A': 'College Email', 'B': 'Must end with @jkkn.ac.in', 'C': 'rajesh.kumar@jkkn.ac.in' },
-      { 'A': 'Student Email', 'B': 'Personal email address', 'C': 'rajesh.kumar2005@gmail.com' },
-      { 'A': 'Permanent Address Taluk', 'B': 'Taluk/Tehsil name', 'C': 'Namakkal' },
-      { 'A': '', 'B': '', 'C': '' },
-      { 'A': '📌 User Creation Requirements:', 'B': '', 'C': '' },
-      { 'A': '  1. College Email must be provided and end with @jkkn.ac.in', 'B': '', 'C': '' },
-      { 'A': '  2. Academic Year, Semester, and Section must be assigned', 'B': '', 'C': '' },
-      { 'A': '  3. Status must be changed to "Approved" via bulk status update', 'B': '', 'C': '' },
-      { 'A': '  4. User account will be created automatically when all conditions are met', 'B': '', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      // Other sections summary
-      { 'A': '▶ SECTION 5: OPTIONAL - Family Details', 'B': '', 'C': '' },
-      { 'A': 'Father Occupation, Father Mobile, Mother Occupation, Mother Mobile, Annual Income', 'B': '', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      { 'A': '▶ SECTION 6: OPTIONAL - Academic Marks', 'B': '', 'C': '' },
-      { 'A': 'Last School, Board of Study, 10th Marks, 12th Marks, Percentage', 'B': '', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      { 'A': '▶ SECTION 7: OPTIONAL - Entrance Exams', 'B': '', 'C': '' },
-      { 'A': 'NEET Roll Number, NEET Score, Cutoff Marks, Counseling Details', 'B': '', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      { 'A': '▶ SECTION 8: OPTIONAL - Accommodation & Transport', 'B': '', 'C': '' },
-      { 'A': 'Hostel Type, Food Type, Bus Required, Bus Route, Bus Pickup Location', 'B': '', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      { 'A': '▶ SECTION 9: OPTIONAL - Others', 'B': '', 'C': '' },
-      { 'A': 'Field Name', 'B': 'Format/Valid Values', 'C': 'Example' },
-      { 'A': 'Aadhar Number', 'B': '12-digit Aadhar number', 'C': '123456789012' },
-      { 'A': 'Blood Group', 'B': 'A+, B+, O+, AB+, A-, B-, O-, AB-', 'C': 'O+' },
-      { 'A': 'Quota', 'B': 'GOVERNMENT, MANAGEMENT, or NRI', 'C': 'GOVERNMENT' },
-      { 'A': 'Category', 'B': 'GENERAL, OBC, SC, ST, or OTHER', 'C': 'OBC' },
-      { 'A': 'Roll Number', 'B': 'Student roll number', 'C': 'CSE001' },
-      { 'A': 'Register Number', 'B': 'Register number', 'C': 'REG2024001' },
-      { 'A': 'Regulation', 'B': 'Regulation year', 'C': '2021' },
-      { 'A': 'Batch', 'B': 'Batch year', 'C': '2024' },
-      { 'A': 'Reference Type', 'B': 'DIRECT APPLICATION, JKKN STAFF, CURRENT/FORMER STUDENT, EDUCATIONAL CONSULTANT, SOCIAL MEDIA, OTHERS', 'C': 'SOCIAL MEDIA' },
-      { 'A': 'Reference Name', 'B': 'Name of person who referred (if applicable)', 'C': 'John Doe' },
-      { 'A': 'Reference Contact', 'B': 'Contact number of reference', 'C': '9876543210' },
-      { 'A': 'Enquiry Date', 'B': 'YYYY-MM-DD format', 'C': new Date().toISOString().split('T')[0] },
-      { 'A': '', 'B': '', 'C': '' },
-
-      // Common Errors
-      { 'A': '❌ COMMON ERRORS TO AVOID', 'B': '', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-      { 'A': 'Error', 'B': 'Wrong', 'C': 'Correct' },
-      { 'A': 'Institution name mismatch', 'B': 'JKKN Engineering College', 'C': 'Use EXACT name from your database' },
-      { 'A': 'Program name not matching', 'B': 'B.E CSE', 'C': 'Use full name: B.E Computer Science and Engineering' },
-      { 'A': 'Using IDs instead of names', 'B': 'inst_123 or prog_456', 'C': 'Use full names, not IDs' },
-      { 'A': 'Wrong date format', 'B': '15/06/2005 or 15-06-2005', 'C': '2005-06-15 (YYYY-MM-DD)' },
-      { 'A': 'Invalid gender value', 'B': 'M or F', 'C': 'MALE or FEMALE' },
-      { 'A': 'Invalid boolean value', 'B': 'Yes or No', 'C': 'TRUE or FALSE' },
-      { 'A': 'Wrong email domain', 'B': '@gmail.com for college email', 'C': '@jkkn.ac.in (for college email)' },
-      { 'A': 'Missing required fields', 'B': 'Leaving * fields empty', 'C': 'Fill all * marked fields' },
-      { 'A': 'Uploading sample data as-is', 'B': 'Not deleting/updating row 2', 'C': 'Delete sample row OR update with real data' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      // Upload Steps
-      { 'A': '📤 UPLOAD STEPS', 'B': '', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-      { 'A': 'Step 1', 'B': 'Go to the "Enquiry Template" sheet', 'C': '' },
-      { 'A': 'Step 2', 'B': 'Delete row 2 (sample data) OR update it with real data', 'C': '' },
-      { 'A': 'Step 3', 'B': '🎯 USE DROPDOWNS! Click on Institution/Degree/Program cells to see dropdown arrow', 'C': '' },
-      { 'A': '', 'B': '   • Institution, Degree, Department, Program = Click cell → dropdown appears', 'C': '' },
-      { 'A': '', 'B': '   • Academic Year, Semester, Section = Click cell → dropdown appears', 'C': '' },
-      { 'A': '', 'B': '   • Gender, Entry Type, First Graduate, Accommodation = Click cell → dropdown appears', 'C': '' },
-      { 'A': 'Step 4', 'B': '💡 TIP: If dropdown doesn\'t show all options, check lookup sheets (tabs at bottom)', 'C': '' },
-      { 'A': 'Step 5', 'B': 'Fill all required (*) fields using dropdowns', 'C': '' },
-      { 'A': 'Step 6', 'B': 'Save the file', 'C': '' },
-      { 'A': 'Step 7', 'B': 'Upload in MyJKKN bulk upload dialog', 'C': '' },
-      { 'A': 'Step 8', 'B': 'Review validation results - all names should match now!', 'C': '' },
-      { 'A': 'Step 9', 'B': 'If any errors, go back to lookup sheets and copy exact names', 'C': '' },
-      { 'A': 'Step 10', 'B': 'Click "Upload Valid Records" to save to database', 'C': '' },
-      { 'A': '', 'B': '', 'C': '' },
-
-      // Support
-      { 'A': '📞 NEED HELP?', 'B': '', 'C': '' },
-      { 'A': 'If you encounter any issues or need assistance:', 'B': '', 'C': '' },
-      { 'A': '• Check the validation error messages carefully', 'B': '', 'C': '' },
-      { 'A': '• Ensure all required fields are filled', 'B': '', 'C': '' },
-      { 'A': '• Verify academic field names match exactly with database', 'B': '', 'C': '' },
-      { 'A': '• Contact your system administrator for support', 'B': '', 'C': '' },
-    ];
-
-    // Sample data row with realistic example
-    const sampleDataRow = {
-      // SECTION 1: REQUIRED - Basic Details
-      '* First Name': 'Rajesh',
-      '* Last Name': 'Kumar',
-      '* Father Name': 'Suresh Kumar',
-      '* Mother Name': 'Lakshmi Devi',
-      '* Date of Birth': '2005-06-15',
-      '* Gender': 'MALE',
-      '* Religion': 'Hindu',
-      '* Community': 'BC',
-      '* Caste': 'Vanniyar',
-
-      // SECTION 2: REQUIRED - Academic & Enrollment
-      '* Institution (Use NAME)': 'JKKN College of Engineering and Technology',
-      '* Degree (Use NAME)': 'Undergraduate',
-      '* Department (Use NAME)': 'Computer Science and Engineering',
-      '* Program (Use NAME)': '	(BE) CSE',
-      '* Academic Year (Use NAME)': '2024-2025',
-      '* Semester (Use NAME)': '	Semester 1',
-      '* Section (Use NAME)': 'A',
-      '* Entry Type': 'FIRST YEAR',
-      '* Scholarship Type': 'FIRST GRADUATE',
-
-      // SECTION 3: REQUIRED - Contact Details
-      '* Student Mobile': '9876543210',
-      '* Permanent Address Street': '123, Main Street, Gandhi Nagar',
-      '* Permanent Address District': 'Namakkal',
-      '* Permanent Address State': 'Tamil Nadu',
-      '* Permanent Address Pin Code': '637001',
-      '* Accommodation Type': 'HOSTEL',
-
-      // SECTION 4: OPTIONAL - For User Account Creation
-      'College Email (for user login)': 'rajesh.kumar@jkkn.ac.in',
-      'Student Email': 'rajesh.kumar2005@gmail.com',
-      'Permanent Address Taluk': 'Namakkal',
-
-      // SECTION 5: OPTIONAL - Family Details
-      'Father Occupation': 'Business',
-      'Father Mobile': '9876543211',
-      'Mother Occupation': 'Homemaker',
-      'Mother Mobile': '9876543212',
-      'Annual Income': '500000',
-
-      // SECTION 6: OPTIONAL - Academic Marks
-      'Last School': 'Government Higher Secondary School',
-      'Board of Study': 'State Board',
-      '10th Max Marks': '500',
-      '10th Obtained Marks': '450',
-      '10th Percentage': '90',
-      '12th Group': 'Science',
-      '12th Max Marks': '600',
-      '12th Obtained Marks': '540',
-      '12th Percentage': '90',
-
-      // SECTION 7: OPTIONAL - Entrance Exams
-      'NEET Roll Number': '',
-      'NEET Score': '',
-      'Medical Cutoff Marks': '',
-      'Engineering Cutoff Marks': '175',
-      'Counseling Applied': 'TRUE',
-      'Counseling Number': 'TNEA123456',
-
-      // SECTION 8: OPTIONAL - Accommodation & Transport
-      'Hostel Type': 'Boys Hostel A',
-      'Food Type': 'VEG',
-      'Bus Required': 'FALSE',
-      'Bus Route': '',
-      'Bus Pickup Location': '',
-
-      // SECTION 9: OPTIONAL - Others
-      'Aadhar Number': '123456789012',
-      'Blood Group': 'O+',
-      'Quota': 'GOVERNMENT',
-      'Category': 'OBC',
-      'Roll Number': '',
-      'Register Number': '',
-      'Regulation': '2021',
-      'Batch': '2024',
-      'Reference Type': 'Website',
-      'Reference Name': '',
-      'Reference Contact': '',
-      'Enquiry Date': new Date().toISOString().split('T')[0],
-    };
-
-    // Empty template row for users to fill
-    const emptyRow = {
-      // SECTION 1: REQUIRED - Basic Details
-      '* First Name': '',
-      '* Last Name': '',
-      '* Father Name': '',
-      '* Mother Name': '',
-      '* Date of Birth': '',
-      '* Gender': '',
-      '* Religion': '',
-      '* Community': '',
-      '* Caste': '',
-
-      // SECTION 2: REQUIRED - Academic & Enrollment
-      '* Institution (Use NAME)': '',
-      '* Degree (Use NAME)': '',
-      '* Department (Use NAME)': '',
-      '* Program (Use NAME)': '',
-      '* Academic Year (Use NAME)': '',
-      '* Semester (Use NAME)': '',
-      '* Section (Use NAME)': '',
-      '* Entry Type': '',
-      '* First Graduate': '',
-
-      // SECTION 3: REQUIRED - Contact Details
-      '* Student Mobile': '',
-      '* Permanent Address Street': '',
-      '* Permanent Address District': '',
-      '* Permanent Address State': '',
-      '* Permanent Address Pin Code': '',
-      '* Accommodation Type': '',
-
-      // SECTION 4: OPTIONAL - For User Account Creation
-      'College Email (for user login)': '',
-      'Student Email': '',
-      'Permanent Address Taluk': '',
-
-      // SECTION 5: OPTIONAL - Family Details
-      'Father Occupation': '',
-      'Father Mobile': '',
-      'Mother Occupation': '',
-      'Mother Mobile': '',
-      'Annual Income': '',
-
-      // SECTION 6: OPTIONAL - Academic Marks
-      'Last School': '',
-      'Board of Study': '',
-      '10th Max Marks': '',
-      '10th Obtained Marks': '',
-      '10th Percentage': '',
-      '12th Group': '',
-      '12th Max Marks': '',
-      '12th Obtained Marks': '',
-      '12th Percentage': '',
-
-      // SECTION 7: OPTIONAL - Entrance Exams
-      'NEET Roll Number': '',
-      'NEET Score': '',
-      'Medical Cutoff Marks': '',
-      'Engineering Cutoff Marks': '',
-      'Counseling Applied': '',
-      'Counseling Number': '',
-
-      // SECTION 8: OPTIONAL - Accommodation & Transport
-      'Hostel Type': '',
-      'Food Type': '',
-      'Bus Required': '',
-      'Bus Route': '',
-      'Bus Pickup Location': '',
-
-      // SECTION 9: OPTIONAL - Others
-      'Aadhar Number': '',
-      'Blood Group': '',
-      'Quota': '',
-      'Category': '',
-      'Roll Number': '',
-      'Register Number': '',
-      'Regulation': '',
-      'Batch': '',
-      'Reference Type': '',
-      'Reference Name': '',
-      'Reference Contact': '',
-      'Enquiry Date': '',
-    };
-
-    // ============================================
-    // TEMPLATE SHEET - Clean template with sample data
-    // ============================================
-    // Only include sample data row - users can add their own rows in Excel
-    const templateData = [sampleDataRow];
-
-    const wsTemplate = XLSX.utils.json_to_sheet(templateData);
-
-
-    // Set column widths for better readability
-    const columnWidths = [
-      { wch: 20 }, // First Name
-      { wch: 20 }, // Last Name
-      { wch: 25 }, // Father Name
-      { wch: 25 }, // Mother Name
-      { wch: 15 }, // Date of Birth
-      { wch: 15 }, // Gender
-      { wch: 15 }, // Religion
-      { wch: 15 }, // Community
-      { wch: 15 }, // Caste
-      { wch: 40 }, // Institution
-      { wch: 20 }, // Degree
-      { wch: 40 }, // Department
-      { wch: 30 }, // Program
-      { wch: 20 }, // Academic Year
-      { wch: 20 }, // Semester
-      { wch: 15 }, // Section
-      { wch: 20 }, // Entry Type
-      { wch: 15 }, // First Graduate
-      { wch: 15 }, // Student Mobile
-      { wch: 35 }, // Permanent Address Street
-      { wch: 20 }, // District
-      { wch: 20 }, // State
-      { wch: 12 }, // Pin Code
-      { wch: 20 }, // Accommodation Type
-      { wch: 35 }, // College Email
-      { wch: 30 }, // Student Email
-      { wch: 20 }, // Taluk
-    ];
-    wsTemplate['!cols'] = columnWidths;
-
-    // ============================================
-    // INFORMATION SHEET - Create worksheet
-    // ============================================
-    const wsInfo = XLSX.utils.json_to_sheet(infoData);
-
-    // Set column widths for information sheet
-    wsInfo['!cols'] = [
-      { wch: 80 }, // Column A - wide for instructions
-      { wch: 50 }, // Column B - for format/values
-      { wch: 50 }, // Column C - for examples
-    ];
-
-    // ============================================
-    // CREATE WORKBOOK WITH SHEETS
-    // ============================================
-    const wb = XLSX.utils.book_new();
-
-    // Add Information sheet first (so users see it when opening)
-    XLSX.utils.book_append_sheet(wb, wsInfo, '📖 Information');
-
-    // Add Template sheet second
-    XLSX.utils.book_append_sheet(wb, wsTemplate, 'Enquiry Template');
-
-    // Download the file
-    XLSX.writeFile(wb, 'enquiry-bulk-upload-template.xlsx');
-
-    toast.success('Template downloaded successfully!');
-
-    } catch (error) {
-      console.error('[bulk-upload] Error generating template:', error);
-      toast.error('Failed to generate template. Please try again.');
-    }
-  };
-
+  // Reset state
   const resetUpload = () => {
-    setSelectedFile(null);
-    setPreviewData([]);
-    setProcessedRows([]);
-    setShowResults(false);
-    setUploadProgress(0);
-    setUploading(false);
-    setProcessing(false);
+    setState({
+      step: 'select-file',
+      file: null,
+      parsedRows: [],
+      validationSummary: {
+        totalRows: 0,
+        validRows: 0,
+        warningRows: 0,
+        errorRows: 0,
+        duplicateEmails: 0,
+        selectedRows: 0
+      },
+      databaseValidationResult: null,
+      isValidatingDatabase: false,
+      uploadProgress: 0,
+      result: null,
+      error: null
+    });
+    setFilter('all');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
-  // Calculate statistics for preview
-  const validRows = previewData.filter(item => item.validation.isValid);
-  const invalidRows = previewData.filter(item => !item.validation.isValid);
-  const warningRows = previewData.filter(item => item.validation.warnings.length > 0);
+  // Filter rows based on current filter
+  const filteredRows = useMemo(() => {
+    switch (filter) {
+      case 'valid':
+        return state.parsedRows.filter(r => r.validationStatus === 'valid');
+      case 'warning':
+        return state.parsedRows.filter(r => r.validationStatus === 'warning');
+      case 'error':
+        return state.parsedRows.filter(r => r.validationStatus === 'error');
+      case 'selected':
+        return state.parsedRows.filter(r => r.selected);
+      default:
+        return state.parsedRows;
+    }
+  }, [state.parsedRows, filter]);
+
+  // Render validation status badge
+  const ValidationBadge = ({ status }: { status: string }) => {
+    switch (status) {
+      case 'valid':
+        return (
+          <Badge variant="outline" className="border-green-500 text-green-700 bg-green-50">
+            <CheckCircle2 className="h-3 w-3 mr-1" />
+            Valid
+          </Badge>
+        );
+      case 'warning':
+        return (
+          <Badge variant="outline" className="border-yellow-500 text-yellow-700 bg-yellow-50">
+            <AlertTriangle className="h-3 w-3 mr-1" />
+            Warning
+          </Badge>
+        );
+      case 'error':
+        return (
+          <Badge variant="outline" className="border-red-500 text-red-700 bg-red-50">
+            <AlertCircle className="h-3 w-3 mr-1" />
+            Error
+          </Badge>
+        );
+      default:
+        return null;
+    }
+  };
+
+  // Handle dialog close - reset data when closing
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      resetUpload();
+    }
+    setOpen(newOpen);
+  };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant='outline'>
-          <UploadCloud className='mr-2 h-4 w-4' />
-          Bulk Upload
+        <Button variant="outline" size="sm">
+          <UploadCloud className="mr-2 h-4 w-4" />
+          Bulk Upload Enquiries
         </Button>
       </DialogTrigger>
-      <DialogContent className='sm:max-w-5xl h-[90vh] flex flex-col p-0'>
-        <DialogHeader className='px-6 py-4 border-b bg-muted/50 flex-shrink-0'>
-          <div className='flex items-start justify-between gap-4'>
-            <div className='flex-1'>
-              <DialogTitle className='text-xl flex items-center gap-2'>
-                <UploadCloud className='h-5 w-5' />
+      <DialogContent className="sm:max-w-[95vw] lg:max-w-7xl h-[90vh] flex flex-col p-0">
+        <DialogHeader className="px-6 py-4 border-b bg-muted/50 flex-shrink-0">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <DialogTitle className="text-xl flex items-center gap-2">
+                <UploadCloud className="h-5 w-5" />
                 Bulk Upload Enquiries
               </DialogTitle>
-              <DialogDescription className='mt-1.5'>
-                Upload learner enquiries from Excel or CSV file. Records will be created with &quot;Enquiry&quot; status.
+              <DialogDescription className="mt-1.5">
+                Upload - Preview - Validate - Confirm - Upload with Progress
               </DialogDescription>
             </div>
             <Button
-              variant='outline'
-              size='sm'
+              variant="outline"
+              size="sm"
               onClick={downloadTemplate}
-              className='flex-shrink-0'
+              className="flex-shrink-0"
             >
-              <Download className='mr-2 h-4 w-4' />
+              <Download className="mr-2 h-4 w-4" />
               Download Template
             </Button>
           </div>
+
+          {/* Step Indicator */}
+          <div className="mt-4 flex items-center gap-2">
+            {[
+              { key: 'select-file', label: '1. Select File' },
+              { key: 'validate', label: '2. Validate' },
+              { key: 'confirm', label: '3. Confirm' },
+              { key: 'uploading', label: '4. Upload' },
+              { key: 'results', label: '5. Results' }
+            ].map((step, index) => {
+              const isValidating = state.step === 'validating-format' || state.step === 'validating-database';
+              const isCurrentStep = state.step === step.key || (isValidating && step.key === 'validate');
+
+              return (
+                <div key={step.key} className="flex items-center">
+                  <div
+                    className={`px-3 py-1 rounded-md text-sm font-medium ${
+                      isCurrentStep
+                        ? 'bg-primary text-primary-foreground'
+                        : state.parsedRows.length > 0 &&
+                          ['validate', 'confirm', 'uploading', 'results'].includes(step.key) &&
+                          ['validate', 'confirm', 'uploading', 'results'].indexOf(state.step) >=
+                            ['validate', 'confirm', 'uploading', 'results'].indexOf(step.key)
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {step.key === 'validate' && isValidating
+                      ? state.step === 'validating-format'
+                        ? '2. Validating Format...'
+                        : '2. Validating Database...'
+                      : step.label}
+                  </div>
+                  {index < 4 && <ArrowRight className="h-4 w-4 mx-2 text-muted-foreground" />}
+                </div>
+              );
+            })}
+          </div>
         </DialogHeader>
 
-        <div className='flex-1 overflow-y-auto min-h-0'>
-          {!selectedFile ? (
-            // File Upload Section
-            <div className='flex items-center justify-center p-6 md:p-8'>
-              <div className='flex flex-col items-center justify-center max-w-2xl mx-auto text-center space-y-6 w-full'>
+        <div className="flex-1 overflow-y-auto min-h-0 p-6">
+          {/* Step 1: Select File */}
+          {state.step === 'select-file' && (
+            <div className="flex items-center justify-center h-full">
+              <div className="flex flex-col items-center justify-center max-w-2xl mx-auto text-center space-y-6">
                 <input
-                  type='file'
-                  accept='.xlsx,.csv'
+                  type="file"
+                  accept=".xlsx,.csv"
                   onChange={handleFileSelect}
-                  className='hidden'
+                  className="hidden"
                   ref={fileInputRef}
                 />
 
-                {/* Important Notice */}
-                <Alert className='text-left w-full'>
-                  <Info className='h-4 w-4' />
-                  <AlertTitle>Before You Upload</AlertTitle>
-                  <AlertDescription className='space-y-2'>
-                    <p className='font-medium'>All uploaded records will have status = &quot;Enquiry&quot;</p>
-                    <p className='text-sm'>To create user accounts:</p>
-                    <ol className='text-sm list-decimal list-inside space-y-1 pl-2'>
-                      <li>Upload enquiries using this tool</li>
-                      <li>Review and verify the records</li>
-                      <li>Use &quot;Bulk Actions&quot; to change status to &quot;Approved&quot;</li>
-                      <li>System will auto-activate and create user accounts if profile is complete</li>
-                    </ol>
-                  </AlertDescription>
-                </Alert>
-
-                <div className='w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0'>
-                  <UploadCloud className='h-10 w-10 text-primary' />
+                <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center">
+                  <UploadCloud className="h-10 w-10 text-primary" />
                 </div>
 
-                <div className='space-y-3'>
-                  <h3 className='text-lg font-semibold'>Upload Excel/CSV File</h3>
-                  <p className='text-sm text-muted-foreground'>
-                    Select a file containing learner enquiry data with required fields
+                <div className="space-y-3">
+                  <h3 className="text-lg font-semibold">Upload Excel File</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Select a file containing enquiry data for preview and validation
                   </p>
                 </div>
 
                 <Button
-                  size='lg'
+                  size="lg"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={processing}
-                  className='w-full sm:w-auto'
+                  className="w-full sm:w-auto"
                 >
-                  <UploadCloud className='mr-2 h-5 w-5' />
-                  {processing ? 'Processing...' : 'Choose File'}
+                  <UploadCloud className="mr-2 h-5 w-5" />
+                  Choose File
                 </Button>
 
-                <p className='text-xs text-muted-foreground'>
-                  Supports Excel (.xlsx) and CSV files • Click &quot;Download Template&quot; above to get started
+                <p className="text-xs text-muted-foreground">
+                  Supports Excel (.xlsx) and CSV files
                 </p>
               </div>
             </div>
-          ) : (
-            // Preview and Results Section
-            <div className='p-4 md:p-6 space-y-4 md:space-y-6'>
-              {/* File Info & Statistics */}
-              <div className='space-y-4'>
-                <div className='flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-muted rounded-lg'>
-                  <div className='flex items-center gap-3 min-w-0 flex-1'>
-                    <FileText className='h-6 w-6 text-muted-foreground flex-shrink-0' />
-                    <div className='min-w-0 flex-1'>
-                      <p className='font-semibold truncate'>{selectedFile.name}</p>
-                      <p className='text-sm text-muted-foreground'>
-                        {previewData.length} records loaded
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    variant='ghost'
-                    size='sm'
-                    onClick={resetUpload}
-                    disabled={uploading}
-                    className='flex-shrink-0'
-                  >
-                    <X className='h-4 w-4' />
-                  </Button>
-                </div>
+          )}
 
-                {/* Statistics Cards */}
-                {!showResults && previewData.length > 0 && (
-                  <div className='grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4'>
-                    <Card>
-                      <CardHeader className='pb-3'>
-                        <CardDescription>Valid Records</CardDescription>
-                        <CardTitle className='text-2xl md:text-3xl text-green-600'>
-                          {validRows.length}
-                        </CardTitle>
-                      </CardHeader>
-                    </Card>
-                    <Card>
-                      <CardHeader className='pb-3'>
-                        <CardDescription>Invalid Records</CardDescription>
-                        <CardTitle className='text-2xl md:text-3xl text-red-600'>
-                          {invalidRows.length}
-                        </CardTitle>
-                      </CardHeader>
-                    </Card>
-                    <Card>
-                      <CardHeader className='pb-3'>
-                        <CardDescription>With Warnings</CardDescription>
-                        <CardTitle className='text-2xl md:text-3xl text-yellow-600'>
-                          {warningRows.length}
-                        </CardTitle>
-                      </CardHeader>
-                    </Card>
-                  </div>
-                )}
+          {/* Step 2 & 3: Preview and Validate */}
+          {(state.step === 'preview-data' || state.step === 'validate') && (
+            <div className="space-y-4">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardDescription>Total Rows</CardDescription>
+                    <CardTitle className="text-2xl">{state.validationSummary.totalRows}</CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardDescription>Valid</CardDescription>
+                    <CardTitle className="text-2xl text-green-600">
+                      {state.validationSummary.validRows}
+                    </CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardDescription>Warnings</CardDescription>
+                    <CardTitle className="text-2xl text-yellow-600">
+                      {state.validationSummary.warningRows}
+                    </CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardDescription>Errors</CardDescription>
+                    <CardTitle className="text-2xl text-red-600">
+                      {state.validationSummary.errorRows}
+                    </CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardDescription>Selected</CardDescription>
+                    <CardTitle className="text-2xl text-blue-600">
+                      {state.validationSummary.selectedRows}
+                    </CardTitle>
+                  </CardHeader>
+                </Card>
               </div>
 
-              {/* Progress Bar */}
-              {uploading && (
-                <div className='space-y-3'>
-                  <Progress value={uploadProgress} className='h-3' />
-                  <p className='text-sm text-center text-muted-foreground flex items-center justify-center gap-2'>
-                    <TrendingUp className='h-4 w-4 animate-pulse' />
-                    Processing {uploadProgress}%...
+              {/* Important Notice */}
+              <Alert variant="default" className="border-blue-500 bg-blue-50 dark:bg-blue-950">
+                <AlertCircle className="h-4 w-4 text-blue-600" />
+                <AlertTitle className="text-blue-900 dark:text-blue-100">Enquiry Upload Info</AlertTitle>
+                <AlertDescription className="text-sm text-blue-800 dark:text-blue-200">
+                  <p><strong>All uploaded records will have status &quot;Enquiry&quot;</strong></p>
+                  <p>User accounts will NOT be created during upload - only after manual approval via bulk status update.</p>
+                </AlertDescription>
+              </Alert>
+
+              {/* Filter and Actions */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-muted-foreground" />
+                  <Select value={filter} onValueChange={(v) => setFilter(v as FilterType)}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Rows</SelectItem>
+                      <SelectItem value="selected">Selected Only</SelectItem>
+                      <SelectItem value="valid">Valid Only</SelectItem>
+                      <SelectItem value="warning">Warnings Only</SelectItem>
+                      <SelectItem value="error">Errors Only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-sm text-muted-foreground">
+                    Showing {filteredRows.length} of {state.parsedRows.length} rows
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => toggleSelectAll(true)}
+                  >
+                    Select All Valid
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => toggleSelectAll(false)}
+                  >
+                    Deselect All
+                  </Button>
+                </div>
+              </div>
+
+              {/* Data Table */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-[400px] overflow-auto relative">
+                  <Table className="relative">
+                    <TableHeader>
+                      <TableRow>
+                        {/* Sticky Left Columns */}
+                        <TableHead className="sticky left-0 bg-background z-20 w-12 border-r"></TableHead>
+                        <TableHead className="sticky left-12 bg-background z-20 w-16 border-r">Row</TableHead>
+                        <TableHead className="sticky left-28 bg-background z-20 w-24 border-r">Status</TableHead>
+
+                        {/* SECTION 1: Personal Info (Required) */}
+                        <TableHead className="min-w-[120px]">First Name*</TableHead>
+                        <TableHead className="min-w-[120px]">Last Name*</TableHead>
+                        <TableHead className="min-w-[100px]">DOB*</TableHead>
+                        <TableHead className="min-w-[80px]">Gender*</TableHead>
+                        <TableHead className="min-w-[100px]">Religion*</TableHead>
+                        <TableHead className="min-w-[80px]">Community*</TableHead>
+                        <TableHead className="min-w-[80px]">Caste*</TableHead>
+                        <TableHead className="min-w-[120px]">Aadhar No.</TableHead>
+                        <TableHead className="min-w-[80px]">Blood Group</TableHead>
+
+                        {/* SECTION 2: Parent/Guardian Info */}
+                        <TableHead className="min-w-[150px]">Father Name*</TableHead>
+                        <TableHead className="min-w-[120px]">Father Occupation</TableHead>
+                        <TableHead className="min-w-[120px]">Father Mobile</TableHead>
+                        <TableHead className="min-w-[150px]">Mother Name*</TableHead>
+                        <TableHead className="min-w-[120px]">Mother Occupation</TableHead>
+                        <TableHead className="min-w-[120px]">Mother Mobile</TableHead>
+                        <TableHead className="min-w-[100px]">Annual Income</TableHead>
+
+                        {/* SECTION 3: Academic Assignment */}
+                        <TableHead className="min-w-[200px]">Institution*</TableHead>
+                        <TableHead className="min-w-[120px]">Degree*</TableHead>
+                        <TableHead className="min-w-[150px]">Department*</TableHead>
+                        <TableHead className="min-w-[120px]">Program*</TableHead>
+                        <TableHead className="min-w-[120px]">Semester*</TableHead>
+                        <TableHead className="min-w-[80px]">Section*</TableHead>
+                        <TableHead className="min-w-[100px]">Academic Year*</TableHead>
+                        <TableHead className="min-w-[100px]">Admission Year</TableHead>
+                        <TableHead className="min-w-[100px]">Regulation</TableHead>
+                        <TableHead className="min-w-[100px]">Batch</TableHead>
+
+                        {/* SECTION 4: Contact Details */}
+                        <TableHead className="min-w-[120px]">Student Mobile*</TableHead>
+                        <TableHead className="min-w-[180px]">College Email</TableHead>
+                        <TableHead className="min-w-[180px]">Student Email</TableHead>
+
+                        {/* SECTION 5: Address Information */}
+                        <TableHead className="min-w-[200px]">Address Street*</TableHead>
+                        <TableHead className="min-w-[120px]">Taluk</TableHead>
+                        <TableHead className="min-w-[120px]">District*</TableHead>
+                        <TableHead className="min-w-[100px]">Pin Code*</TableHead>
+                        <TableHead className="min-w-[120px]">State*</TableHead>
+
+                        {/* SECTION 6: Entry & Scholarship */}
+                        <TableHead className="min-w-[120px]">Entry Type*</TableHead>
+                        <TableHead className="min-w-[150px]">Scholarship Type*</TableHead>
+
+                        {/* SECTION 7: Accommodation */}
+                        <TableHead className="min-w-[130px]">Accommodation*</TableHead>
+                        <TableHead className="min-w-[100px]">Hostel Type</TableHead>
+                        <TableHead className="min-w-[80px]">Food Type</TableHead>
+
+                        {/* SECTION 8: Previous Education */}
+                        <TableHead className="min-w-[150px]">Last School*</TableHead>
+                        <TableHead className="min-w-[120px]">Board*</TableHead>
+                        <TableHead className="min-w-[80px]">10th Max</TableHead>
+                        <TableHead className="min-w-[80px]">10th Obt</TableHead>
+                        <TableHead className="min-w-[80px]">10th %</TableHead>
+                        <TableHead className="min-w-[100px]">12th Group</TableHead>
+                        <TableHead className="min-w-[80px]">12th Max</TableHead>
+                        <TableHead className="min-w-[80px]">12th Obt</TableHead>
+                        <TableHead className="min-w-[80px]">12th %</TableHead>
+
+                        {/* Entrance Exam Details */}
+                        <TableHead className="min-w-[100px]">Medical Cutoff</TableHead>
+                        <TableHead className="min-w-[100px]">Engg Cutoff</TableHead>
+                        <TableHead className="min-w-[120px]">NEET Roll No</TableHead>
+                        <TableHead className="min-w-[80px]">NEET Score</TableHead>
+
+                        {/* SECTION 9: Counseling */}
+                        <TableHead className="min-w-[100px]">Counseling</TableHead>
+                        <TableHead className="min-w-[100px]">Quota</TableHead>
+                        <TableHead className="min-w-[80px]">Category</TableHead>
+
+                        {/* SECTION 10: Transport */}
+                        <TableHead className="min-w-[100px]">Bus Required</TableHead>
+                        <TableHead className="min-w-[120px]">Bus Route</TableHead>
+                        <TableHead className="min-w-[150px]">Pickup Location</TableHead>
+
+                        {/* SECTION 11: Reference */}
+                        <TableHead className="min-w-[100px]">Ref. Type</TableHead>
+                        <TableHead className="min-w-[120px]">Ref. Name</TableHead>
+                        <TableHead className="min-w-[120px]">Ref. Contact</TableHead>
+
+                        {/* SECTION 12: Enquiry */}
+                        <TableHead className="min-w-[100px]">Enquiry Date</TableHead>
+
+                        {/* Errors Column - Sticky Right */}
+                        <TableHead className="sticky right-0 bg-background z-20 min-w-[300px] border-l">Issues</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredRows.map((row) => (
+                        <TableRow key={row.rowNumber} className="hover:bg-muted/50">
+                          {/* Sticky Left Columns */}
+                          <TableCell className="sticky left-0 bg-background z-20 border-r">
+                            <Checkbox
+                              checked={row.selected}
+                              onCheckedChange={() => toggleRowSelection(row.rowNumber)}
+                              disabled={row.validationStatus === 'error'}
+                            />
+                          </TableCell>
+                          <TableCell className="sticky left-12 bg-background z-20 font-mono text-sm border-r">{row.rowNumber}</TableCell>
+                          <TableCell className="sticky left-28 bg-background z-20 border-r">
+                            <ValidationBadge status={row.validationStatus} />
+                          </TableCell>
+
+                          {/* SECTION 1: Personal Info */}
+                          <TableCell className="text-xs">{row.sanitizedData.first_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.last_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.date_of_birth || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.gender || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.religion || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.community || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.caste || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.aadhar_number || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.blood_group || '-'}</TableCell>
+
+                          {/* SECTION 2: Parent/Guardian Info */}
+                          <TableCell className="text-xs">{row.sanitizedData.father_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.father_occupation || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.father_mobile || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.mother_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.mother_occupation || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.mother_mobile || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.annual_income || '-'}</TableCell>
+
+                          {/* SECTION 3: Academic Assignment */}
+                          <TableCell className="text-xs">{row.sanitizedData.institution_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.degree_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.department_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.program_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.semester_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.section_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.academic_year_name || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.admission_year || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.regulation_name || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.batch_name || '-'}</TableCell>
+
+                          {/* SECTION 4: Contact Details */}
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.student_mobile || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.college_email || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.student_email || '-'}</TableCell>
+
+                          {/* SECTION 5: Address Information */}
+                          <TableCell className="text-xs">{row.sanitizedData.permanent_address_street || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.permanent_address_taluk || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.permanent_address_district || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.permanent_address_pin_code || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.permanent_address_state || '-'}</TableCell>
+
+                          {/* SECTION 6: Entry & Scholarship */}
+                          <TableCell className="text-xs">{row.sanitizedData.entry_type || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.scholarship_type || '-'}</TableCell>
+
+                          {/* SECTION 7: Accommodation */}
+                          <TableCell className="text-xs">{row.sanitizedData.accommodation_type || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.hostel_type || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.food_type || '-'}</TableCell>
+
+                          {/* SECTION 8: Previous Education */}
+                          <TableCell className="text-xs">{row.sanitizedData.last_school || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.board_of_study || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.tenth_max_marks || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.tenth_obtained_marks || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.tenth_percentage || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.twelfth_group || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.twelfth_max_marks || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.twelfth_obtained_marks || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.twelfth_percentage || '-'}</TableCell>
+
+                          {/* Entrance Exam Details */}
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.medical_cutoff_marks || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.engineering_cutoff_marks || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.neet_roll_number || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.neet_score || '-'}</TableCell>
+
+                          {/* SECTION 9: Counseling */}
+                          <TableCell className="text-xs">{row.sanitizedData.counseling_applied || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.quota || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.category || '-'}</TableCell>
+
+                          {/* SECTION 10: Transport */}
+                          <TableCell className="text-xs">{row.sanitizedData.bus_required || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.bus_route || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.bus_pickup_location || '-'}</TableCell>
+
+                          {/* SECTION 11: Reference */}
+                          <TableCell className="text-xs">{row.sanitizedData.reference_type || '-'}</TableCell>
+                          <TableCell className="text-xs">{row.sanitizedData.reference_name || '-'}</TableCell>
+                          <TableCell className="text-xs font-mono">{row.sanitizedData.reference_contact || '-'}</TableCell>
+
+                          {/* SECTION 12: Enquiry */}
+                          <TableCell className="text-xs">{row.sanitizedData.enquiry_date || '-'}</TableCell>
+
+                          {/* Issues Column - Sticky Right */}
+                          <TableCell className="sticky right-0 bg-background z-20 min-w-[300px] border-l">
+                            {row.validationResult && (
+                              <IssuesDisplay
+                                validationResult={row.validationResult}
+                                databaseValidationErrors={row.databaseValidationErrors}
+                              />
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              {state.validationSummary.errorRows > 0 && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Validation Errors Found</AlertTitle>
+                  <AlertDescription>
+                    {state.validationSummary.errorRows} rows have errors. Only valid rows can be uploaded.
+                    Fix errors in your Excel file or proceed with valid rows only.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
+
+          {/* Step 4: Confirm */}
+          {state.step === 'confirm' && (
+            <div className="space-y-4">
+              <Alert>
+                <Eye className="h-4 w-4" />
+                <AlertTitle>Ready to Upload</AlertTitle>
+                <AlertDescription>
+                  You are about to upload {state.validationSummary.selectedRows} enquiries.
+                  All records will have status &quot;Enquiry&quot; - user accounts will be created only after approval.
+                </AlertDescription>
+              </Alert>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Selected Rows</CardTitle>
+                    <CardDescription className="text-3xl font-bold text-blue-600">
+                      {state.validationSummary.selectedRows}
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Valid Rows</CardTitle>
+                    <CardDescription className="text-3xl font-bold text-green-600">
+                      {state.validationSummary.validRows}
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Skipped (Errors)</CardTitle>
+                    <CardDescription className="text-3xl font-bold text-red-600">
+                      {state.validationSummary.errorRows}
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+              </div>
+            </div>
+          )}
+
+          {/* Step 5: Uploading */}
+          {state.step === 'uploading' && (
+            <div className="flex items-center justify-center h-full">
+              <div className="w-full max-w-md space-y-6">
+                <div className="text-center">
+                  <TrendingUp className="h-16 w-16 mx-auto mb-4 text-primary animate-pulse" />
+                  <h3 className="text-lg font-semibold mb-2">Uploading Enquiries...</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Processing {state.validationSummary.selectedRows} enquiry records
                   </p>
                 </div>
-              )}
 
-              {/* Results */}
-              {showResults && (
-                <div className='space-y-3'>
-                  <div className='flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3'>
-                    <h4 className='font-semibold text-lg'>Upload Results</h4>
-                    <div className='flex flex-wrap gap-2'>
-                      <Badge variant='outline' className='bg-green-50 text-green-700 border-green-200'>
-                        <CheckCircle className='mr-1 h-3 w-3' />
-                        {processedRows.filter(r => r.status === 'success').length} Success
-                      </Badge>
-                      <Badge variant='outline' className='bg-red-50 text-red-700 border-red-200'>
-                        <AlertCircle className='mr-1 h-3 w-3' />
-                        {processedRows.filter(r => r.status === 'error').length} Errors
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <div className='space-y-2 max-h-[400px] overflow-y-auto border rounded-lg p-3 bg-muted/20'>
-                    {processedRows.map((row) => (
-                      <div
-                        key={row.rowNumber}
-                        className={`flex items-start gap-3 p-3 rounded-lg text-sm ${
-                          row.status === 'success'
-                            ? 'bg-green-50 text-green-800 border border-green-200'
-                            : 'bg-red-50 text-red-800 border border-red-200'
-                        }`}
-                      >
-                        {row.status === 'success' ? (
-                          <CheckCircle className='h-5 w-5 mt-0.5 flex-shrink-0' />
-                        ) : (
-                          <AlertCircle className='h-5 w-5 mt-0.5 flex-shrink-0' />
-                        )}
-                        <div className='flex-1 min-w-0'>
-                          <p className='font-semibold'>Row {row.rowNumber}</p>
-                          <p className='text-xs break-words'>{row.message}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                <div className="space-y-2">
+                  <Progress value={state.uploadProgress} className="h-3" />
+                  <p className="text-sm text-center text-muted-foreground">
+                    {state.uploadProgress}% Complete
+                  </p>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 6: Results */}
+          {state.step === 'results' && state.result && (
+            <div className="space-y-6">
+              {/* Statistics Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardDescription>Enquiries Created</CardDescription>
+                    <CardTitle className="text-3xl text-green-600">
+                      {state.result.upload_summary.enquiries_created}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      Out of {state.result.upload_summary.total_rows} selected rows
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardDescription>Failed</CardDescription>
+                    <CardTitle className="text-3xl text-red-600">
+                      {state.result.upload_summary.enquiries_failed}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      Check errors below for details
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Success Message */}
+              {state.result.upload_summary.enquiries_created > 0 && (
+                <Alert className="border-green-500 bg-green-50">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <AlertTitle className="text-green-900">Upload Complete!</AlertTitle>
+                  <AlertDescription className="text-green-800">
+                    {state.result.upload_summary.enquiries_created} enquiries have been created successfully.
+                    You can now review them in the Enquiries list and use bulk status update to approve them.
+                  </AlertDescription>
+                </Alert>
               )}
 
-              {/* Validation Preview */}
-              {previewData.length > 0 && !showResults && (
-                <div className='space-y-3'>
-                  <h4 className='font-semibold text-lg'>Data Preview & Validation</h4>
-                  <div className='space-y-2 max-h-[400px] overflow-y-auto border rounded-lg p-3 bg-muted/20'>
-                    {previewData.slice(0, 15).map((item) => (
+              {/* Errors */}
+              {state.result.errors.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-lg text-red-600">
+                    Errors ({state.result.errors.length})
+                  </h4>
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto border rounded-lg p-3 bg-muted/20">
+                    {state.result.errors.map((error, index) => (
                       <div
-                        key={item.rowNumber}
-                        className={`flex items-start gap-3 p-3 rounded-lg text-sm ${
-                          item.validation.isValid
-                            ? 'bg-green-50 text-green-800 border border-green-200'
-                            : 'bg-red-50 text-red-800 border border-red-200'
-                        }`}
+                        key={index}
+                        className="flex items-start gap-3 p-3 rounded-lg text-sm bg-red-50 border border-red-200"
                       >
-                        {item.validation.isValid ? (
-                          <CheckCircle className='h-5 w-5 mt-0.5 flex-shrink-0' />
-                        ) : (
-                          <AlertCircle className='h-5 w-5 mt-0.5 flex-shrink-0' />
-                        )}
-                        <div className='flex-1 min-w-0'>
-                          <p className='font-semibold'>
-                            Row {item.rowNumber}: {item.mappedData.first_name} {item.mappedData.last_name}
-                          </p>
-                          {item.validation.errors.length > 0 && (
-                            <p className='text-xs mt-1 break-words'>
-                              <span className='font-medium'>Errors:</span> {item.validation.errors.join(', ')}
-                            </p>
-                          )}
-                          {item.validation.warnings.length > 0 && (
-                            <p className='text-xs mt-1 text-yellow-700 break-words'>
-                              <span className='font-medium'>Warnings:</span> {item.validation.warnings.join(', ')}
-                            </p>
-                          )}
+                        <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-red-800">Row {error.row}</p>
+                          {error.name && <p className="text-xs text-red-700">{error.name}</p>}
+                          <p className="text-xs text-red-700 break-words">{error.error}</p>
                         </div>
                       </div>
                     ))}
-                    {previewData.length > 15 && (
-                      <p className='text-xs text-muted-foreground text-center py-2'>
-                        ...and {previewData.length - 15} more records
-                      </p>
-                    )}
                   </div>
                 </div>
               )}
@@ -1622,43 +1645,84 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
           )}
         </div>
 
-        <DialogFooter className='px-4 md:px-6 py-4 border-t bg-muted/50 flex-shrink-0'>
-          {selectedFile && !showResults && (
-            <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:justify-end'>
-              <Button
-                variant='outline'
-                onClick={resetUpload}
-                disabled={uploading}
-                className='w-full sm:w-auto'
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleUpload}
-                disabled={uploading || previewData.length === 0 || validRows.length === 0}
-                className='w-full sm:w-auto'
-              >
-                {uploading ? (
-                  <>
-                    <TrendingUp className='mr-2 h-4 w-4 animate-pulse' />
-                    Uploading...
-                  </>
-                ) : (
-                  <>
-                    <UploadCloud className='mr-2 h-4 w-4' />
-                    Upload {validRows.length} Valid Record{validRows.length !== 1 ? 's' : ''}
-                  </>
-                )}
-              </Button>
+        {/* Footer with Actions */}
+        <div className="px-6 py-4 border-t bg-muted/50 flex-shrink-0">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              {state.step !== 'select-file' && state.step !== 'results' && (
+                <Button
+                  variant="destructive"
+                  onClick={resetUpload}
+                  disabled={state.step === 'uploading'}
+                  className="gap-2"
+                >
+                  <X className="h-4 w-4" />
+                  Clear Upload
+                </Button>
+              )}
             </div>
-          )}
-          {showResults && (
-            <Button onClick={resetUpload} className='w-full sm:w-auto'>
-              <UploadCloud className='mr-2 h-4 w-4' />
-              Upload Another File
-            </Button>
-          )}
-        </DialogFooter>
+
+            <div className="flex gap-2">
+              {state.step === 'validate' && (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={resetUpload}
+                    className="gap-2"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Start Over
+                  </Button>
+                  <Button
+                    onClick={() => setState(prev => ({ ...prev, step: 'confirm' }))}
+                    disabled={state.validationSummary.selectedRows === 0}
+                    className="gap-2"
+                  >
+                    Continue
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+
+              {state.step === 'confirm' && (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setState(prev => ({ ...prev, step: 'validate' }))}
+                    className="gap-2"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Back to Review
+                  </Button>
+                  <Button
+                    onClick={handleUpload}
+                    className="gap-2"
+                  >
+                    <UploadCloud className="h-4 w-4" />
+                    Upload {state.validationSummary.selectedRows} Enquiries
+                  </Button>
+                </>
+              )}
+
+              {state.step === 'results' && (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setOpen(false)}
+                    className="gap-2"
+                  >
+                    <X className="h-4 w-4" />
+                    Close
+                  </Button>
+                  <Button onClick={resetUpload} className="gap-2">
+                    <UploadCloud className="h-4 w-4" />
+                    Upload Another File
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
