@@ -40,8 +40,8 @@ export default function NewEnquiryPage() {
     isLoading: permissionsLoading,
   } = usePermissions([], { waitForLoad: true });
 
-  // Define access permissions
-  const canCreateEnquiries = isSuperAdmin || canAccess('learners', 'create');
+  // Define access permissions - use learners.admissions module for enquiries
+  const canCreateEnquiries = isSuperAdmin || canAccess('learners.admissions', 'create');
 
   // Track when permissions are loaded
   useEffect(() => {
