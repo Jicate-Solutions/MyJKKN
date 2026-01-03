@@ -257,7 +257,7 @@ export async function sendInvoice(
       .select(
         `
         *,
-        student:students(id, first_name, last_name, college_email),
+        student:learners_profiles(id, first_name, last_name, college_email),
         institution:institutions(id, name)
       `
       )
@@ -317,7 +317,7 @@ export async function downloadInvoicePDF(id: string): Promise<ActionResult<{ url
       .select(
         `
         *,
-        student:students(id, first_name, last_name, roll_number, college_email),
+        student:learners_profiles(id, first_name, last_name, roll_number, college_email),
         institution:institutions(id, name, counselling_code),
         invoice_items:billing_invoice_items(
           id,

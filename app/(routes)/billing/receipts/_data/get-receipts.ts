@@ -38,7 +38,7 @@ export async function getReceipts(
   let query = supabase.from('billing_receipts').select(
     `
       *,
-      student:students(
+      student:learners_profiles(
         id,
         first_name,
         last_name,

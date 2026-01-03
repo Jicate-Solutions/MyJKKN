@@ -45,7 +45,7 @@ export async function getInvoices(
   let query = supabase.from('billing_invoices').select(
     `
       *,
-      student:students(
+      student:learners_profiles(
         id,
         first_name,
         last_name,

@@ -31,7 +31,7 @@ export async function getInvoice(id: string): Promise<BillingInvoice> {
     .select(
       `
       *,
-      student:students(
+      student:learners_profiles(
         id,
         first_name,
         last_name,

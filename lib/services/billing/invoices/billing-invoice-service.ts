@@ -159,7 +159,7 @@ export class BillingInvoiceService {
       let query = (this.supabase as any).from('billing_invoices').select(
         `
           *,
-          student:students(
+          student:learners_profiles(
             id,
             first_name,
             last_name,
@@ -264,7 +264,7 @@ export class BillingInvoiceService {
         .select(
           `
           *,
-          student:students(
+          student:learners_profiles(
             id,
             first_name,
             last_name,
@@ -885,7 +885,7 @@ export class BillingInvoiceService {
         .select(
           `
           *,
-          student:students(
+          student:learners_profiles(
             id,
             first_name,
             last_name,
@@ -934,7 +934,7 @@ export class BillingInvoiceService {
         .select(
           `
           *,
-          student:students(
+          student:learners_profiles(
             id,
             first_name,
             last_name,
@@ -994,7 +994,7 @@ export class BillingInvoiceService {
         .select(
           `
           *,
-          student:students(
+          student:learners_profiles(
             id,
             first_name,
             last_name,
