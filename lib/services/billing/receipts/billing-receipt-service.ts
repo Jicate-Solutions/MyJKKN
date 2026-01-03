@@ -111,12 +111,12 @@ export class BillingReceiptService {
         .select(
           `
           *,
-          student:students (
+          student:learners_profiles (
             id,
             first_name,
             last_name,
             roll_number,
-            student_email
+            college_email
           ),
           institution:institutions (
             id,
@@ -183,12 +183,12 @@ export class BillingReceiptService {
         .select(
           `
           *,
-          student:students (
+          student:learners_profiles (
             id,
             first_name,
             last_name,
             roll_number,
-            student_email
+            college_email
           ),
           institution:institutions (
             id,
@@ -232,12 +232,12 @@ export class BillingReceiptService {
       let query = (this.supabase as any).from('billing_receipts').select(
         `
           *,
-          student:students (
+          student:learners_profiles (
             id,
             first_name,
             last_name,
             roll_number,
-            student_email
+            college_email
           ),
           institution:institutions (
             id,
@@ -330,12 +330,12 @@ export class BillingReceiptService {
         .select(
           `
           *,
-          student:students (
+          student:learners_profiles (
             id,
             first_name,
             last_name,
             roll_number,
-            student_email
+            college_email
           ),
           institution:institutions (
             id,
@@ -774,7 +774,7 @@ export class BillingReceiptService {
             first_name,
             last_name,
             roll_number,
-            student_email
+            college_email
           ),
           institution:institutions(
             id,
@@ -819,12 +819,12 @@ export class BillingReceiptService {
               sub_category_name
             )
           ),
-          student:students (
+          student:learners_profiles (
             id,
             first_name,
             last_name,
             roll_number,
-            student_email,
+            college_email,
             institution_id
           )
         `
