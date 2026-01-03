@@ -34,7 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useAuth } from '@/hooks/use-auth';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
 import { toast } from 'sonner';
@@ -73,12 +73,13 @@ import { ExportDashboardDialog } from './_components/export-dashboard-dialog';
 export default function LearnersAnalyticsDashboard() {
   const queryClient = useQueryClient();
   const { can, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
-  const {
-    canAccessAllInstitutions,
-    getAccessibleInstitutionIds,
-    institutions,
-    loading: institutionsLoading
-  } = useUserInstitutionAccess();
+  const { profile, isLoading: authLoading } = useAuth();
+
+  // Institution access based on user's profile
+  // Super admins can access all institutions
+  // Regular users can only access their own institution
+  const canAccessAllInstitutions = isSuperAdmin || profile?.institution_id === null;
+  const userInstitutionId = profile?.institution_id;
 
   // State management
   const [showFilters, setShowFilters] = useState(false);
@@ -91,16 +92,16 @@ export default function LearnersAnalyticsDashboard() {
     setLastUpdated(new Date());
   }, []);
 
-  // Permission check
-  const hasAccess = can('learners.dashboard');
+  // Permission check - using correct permission key from database
+  const hasAccess = can('learners.dashboard.view');
 
-  // Initialize filters with institution filtering based on user access
+  // Initialize filters with institution filtering based on user's profile institution_id
   // NOTE: No date range by default - shows all data
   // Users can apply date range filter via the filter panel if needed
   const [filters, setFilters] = useState<LearnerDashboardFilters>({
     institutionIds: canAccessAllInstitutions
       ? undefined
-      : getAccessibleInstitutionIds()
+      : userInstitutionId ? [userInstitutionId] : []
   });
 
   // Fetch dashboard stats
@@ -112,7 +113,7 @@ export default function LearnersAnalyticsDashboard() {
   } = useQuery({
     queryKey: ['learners', 'dashboard', filters],
     queryFn: () => LearnerProfileService.getDashboardStats(filters),
-    enabled: hasAccess && !institutionsLoading,
+    enabled: hasAccess && !authLoading && !permissionsLoading,
     staleTime: 0,
     gcTime: 0,
     refetchOnMount: true
@@ -146,7 +147,7 @@ export default function LearnersAnalyticsDashboard() {
     setFilters({
       institutionIds: canAccessAllInstitutions
         ? undefined
-        : getAccessibleInstitutionIds(),
+        : userInstitutionId ? [userInstitutionId] : [],
       dateRange: {
         from: subDays(new Date(), 30),
         to: new Date()
@@ -167,7 +168,7 @@ export default function LearnersAnalyticsDashboard() {
   ).length;
 
   // Loading state - Check this FIRST to prevent permission flash
-  if (isLoading || institutionsLoading || permissionsLoading) {
+  if (isLoading || authLoading || permissionsLoading) {
     return (
       <ContentLayout title="Learners Analytics">
         <PageBreadcrumb items={breadcrumbItems} />
@@ -197,7 +198,7 @@ export default function LearnersAnalyticsDashboard() {
   }
 
   // Main dashboard render
-  if (isLoading || institutionsLoading) {
+  if (isLoading || authLoading) {
     return (
       <ContentLayout title="Learners Analytics">
         <PageBreadcrumb items={breadcrumbItems} />
@@ -249,8 +250,8 @@ export default function LearnersAnalyticsDashboard() {
               </div>
               <p className="text-sm sm:text-base text-blue-100">
                 Comprehensive analytics for {stats.totalCount.toLocaleString()} learners
-                {!canAccessAllInstitutions && institutions.length > 0 && (
-                  <> across {institutions.length} institution(s)</>
+                {!canAccessAllInstitutions && userInstitutionId && (
+                  <> in your institution</>
                 )}
               </p>
               <p className="text-xs text-blue-200 mt-1">
@@ -308,7 +309,7 @@ export default function LearnersAnalyticsDashboard() {
                 onFiltersChange={handleFiltersChange}
                 onReset={handleResetFilters}
                 canAccessAllInstitutions={canAccessAllInstitutions}
-                accessibleInstitutionIds={getAccessibleInstitutionIds()}
+                accessibleInstitutionIds={userInstitutionId ? [userInstitutionId] : []}
               />
             </CardContent>
           </Card>
