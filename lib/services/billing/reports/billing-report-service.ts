@@ -260,7 +260,7 @@ export class BillingReportService {
           receipt_date,
           payment_mode,
           payment_amount,
-          student:students(
+          student:learners_profiles(
             first_name,
             last_name,
             roll_number
@@ -349,7 +349,7 @@ export class BillingReportService {
           effective_date,
           bill:billing_student_bills(
             bill_description,
-            student:students(
+            student:learners_profiles(
               first_name,
             last_name,
               roll_number,
@@ -417,7 +417,7 @@ export class BillingReportService {
           refund_date,
           receipt:billing_receipts(
             receipt_number,
-            student:students(
+            student:learners_profiles(
               first_name,
             last_name,
               roll_number,
@@ -482,7 +482,7 @@ export class BillingReportService {
           grand_total,
           billing_period_from,
           billing_period_to,
-          student:students(
+          student:learners_profiles(
             first_name,
             last_name,
             roll_number
@@ -849,7 +849,7 @@ export class BillingReportService {
       .select(
         `
         *,
-        student:students(first_name, last_name, roll_number),
+        student:learners_profiles(first_name, last_name, roll_number),
         institution:institutions(name)
       `
       )
@@ -873,7 +873,7 @@ export class BillingReportService {
       .select(
         `
         *,
-        student:students(first_name, last_name, roll_number),
+        student:learners_profiles(first_name, last_name, roll_number),
         institution:institutions(name)
       `
       )
@@ -899,7 +899,7 @@ export class BillingReportService {
         *,
         receipt:billing_receipts(
           receipt_number,
-          student:students(student_name, roll_number)
+          student:learners_profiles(student_name, roll_number)
         )
       `
       )

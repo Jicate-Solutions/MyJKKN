@@ -38,7 +38,7 @@ export class StudentBillService {
         .select(
           `
           *,
-          student:students(
+          student:learners_profiles(
             id,
             first_name,
             last_name,
@@ -178,7 +178,7 @@ export class StudentBillService {
         .select(
           `
           *,
-          student:students(
+          student:learners_profiles(
             id,
             first_name,
             last_name,
@@ -293,7 +293,7 @@ export class StudentBillService {
             created_by,
             created_at,
             updated_at,
-            student:students(
+            student:learners_profiles(
               first_name,
               last_name,
               roll_number,
@@ -343,7 +343,7 @@ export class StudentBillService {
             created_by,
             created_at,
             updated_at,
-            student:students(
+            student:learners_profiles(
               first_name,
               last_name,
               roll_number,
@@ -565,7 +565,7 @@ export class StudentBillService {
         .select(
           `
           *,
-          student:students(
+          student:learners_profiles(
             id,
             first_name,
             last_name,
@@ -601,7 +601,7 @@ export class StudentBillService {
             *,
             receipt:billing_receipts(
               *,
-              student:students(id, first_name, last_name, college_email),
+              student:learners_profiles(id, first_name, last_name, college_email),
               accountant:profiles(id, full_name),
               refunds:billing_refunds(
                 *,

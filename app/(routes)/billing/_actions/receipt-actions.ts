@@ -237,7 +237,7 @@ export async function sendReceipt(
       .select(
         `
         *,
-        student:students(id, first_name, last_name, college_email)
+        student:learners_profiles(id, first_name, last_name, college_email)
       `
       )
       .eq('id', id)

@@ -26,7 +26,7 @@ export async function getReceipt(id: string): Promise<BillingReceipt> {
     .select(
       `
       *,
-      student:students(
+      student:learners_profiles(
         id,
         first_name,
         last_name,
