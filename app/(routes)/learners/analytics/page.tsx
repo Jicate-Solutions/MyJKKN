@@ -35,7 +35,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
 import { toast } from 'sonner';
 
@@ -104,7 +103,7 @@ export default function LearnersAnalyticsDashboard() {
       : userInstitutionId ? [userInstitutionId] : []
   });
 
-  // Fetch dashboard stats
+  // Fetch dashboard stats via API route
   const {
     data: dashboardStats,
     isLoading,
@@ -112,7 +111,45 @@ export default function LearnersAnalyticsDashboard() {
     refetch
   } = useQuery({
     queryKey: ['learners', 'dashboard', filters],
-    queryFn: () => LearnerProfileService.getDashboardStats(filters),
+    queryFn: async () => {
+      // Build query parameters from filters
+      const searchParams = new URLSearchParams();
+
+      if (filters.institutionIds) {
+        searchParams.set('institutionIds', filters.institutionIds.join(','));
+      }
+      if (filters.academicYearId) {
+        searchParams.set('academicYearId', filters.academicYearId);
+      }
+      if (filters.degreeId) {
+        searchParams.set('degreeId', filters.degreeId);
+      }
+      if (filters.departmentId) {
+        searchParams.set('departmentId', filters.departmentId);
+      }
+      if (filters.programId) {
+        searchParams.set('programId', filters.programId);
+      }
+      if (filters.semesterId) {
+        searchParams.set('semesterId', filters.semesterId);
+      }
+      if (filters.sectionId) {
+        searchParams.set('sectionId', filters.sectionId);
+      }
+      if (filters.dateRange?.from && filters.dateRange?.to) {
+        searchParams.set('dateFrom', filters.dateRange.from.toISOString());
+        searchParams.set('dateTo', filters.dateRange.to.toISOString());
+      }
+
+      const response = await fetch(`/api/learners/dashboard/stats?${searchParams.toString()}`);
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch dashboard stats');
+      }
+
+      return response.json();
+    },
     enabled: hasAccess && !authLoading && !permissionsLoading,
     staleTime: 0,
     gcTime: 0,

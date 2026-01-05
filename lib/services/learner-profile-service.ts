@@ -1042,11 +1042,15 @@ export class LearnerProfileService {
   /**
    * Get comprehensive dashboard statistics
    * All queries run in parallel for performance
+   *
+   * @param filters - Dashboard filters
+   * @param supabaseClient - Optional Supabase client (for server-side usage)
    */
   static async getDashboardStats(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').LearnerDashboardStats> {
-    const supabase = createClientSupabaseClient();
+    const supabase = supabaseClient || createClientSupabaseClient();
 
     try {
       // Build base query filters
@@ -1102,13 +1106,16 @@ export class LearnerProfileService {
           .lte('created_at', filters.dateRange.to.toISOString());
       }
 
-      // IMPORTANT: Apply range AFTER all filters to fetch up to 10,000 records
-      // This must be called last to override Supabase's default 1000 row limit
-      baseQuery = baseQuery.range(0, 9999);
+      // OPTIMIZED: Use COUNT query instead of fetching all records
+      // This prevents timeout errors when there are thousands of records
+      const { count: totalCount, error: countError } = await baseQuery;
 
-      // Run all queries in parallel
+      if (countError) throw countError;
+
+      console.log('[learners/analytics] Total count from query:', totalCount);
+
+      // Run all queries in parallel (removed hierarchical institutions to prevent timeout)
       const [
-        allData,
         statusCounts,
         institutionData,
         departmentData,
@@ -1127,16 +1134,12 @@ export class LearnerProfileService {
         communityData,
         entryTypeData,
         accommodationData,
-        completionTiers,
-        hierarchicalInstitutions
+        completionTiers
       ] = await Promise.all([
-        // 1. Get all data for complex calculations
-        baseQuery,
-
-        // 2. Count by status
+        // 1. Count by status
         this.getCountByStatus(filters),
 
-        // 3. Distribution queries
+        // 2. Distribution queries
         this.getDistributionByInstitution(filters),
         this.getDistributionByDepartment(filters),
         this.getDistributionByProgram(filters),
@@ -1145,40 +1148,28 @@ export class LearnerProfileService {
         this.getDistributionByGender(filters),
         this.getDistributionByAcademicYear(filters),
 
-        // 4. Time series queries
+        // 3. Time series queries
         this.getEnquiriesTrend(filters),
         this.getActivationsTrend(filters),
         this.getGraduationsTrend(filters),
 
-        // 5. Geographic distributions
+        // 4. Geographic distributions
         this.getDistributionByState(filters),
         this.getDistributionByDistrict(filters),
 
-        // 6. Demographic distributions
+        // 5. Demographic distributions
         this.getDistributionByAge(filters),
         this.getDistributionByReligion(filters),
         this.getDistributionByCommunity(filters),
         this.getDistributionByEntryType(filters),
         this.getDistributionByAccommodationType(filters),
 
-        // 7. Profile completion tiers
-        this.getProfileCompletionTiers(filters),
-
-        // 8. Hierarchical institution data
-        this.getHierarchicalInstitutions(filters)
+        // 6. Profile completion tiers
+        this.getProfileCompletionTiers(filters)
       ]);
 
-      if (allData.error) throw allData.error;
-
-      const profiles = (allData.data as LearnerProfile[]) || [];
-      const totalCount = allData.count || 0;
-
       // DEBUG: Log counts by status
-      console.log('[learners/analytics] Profile counts from query:', {
-        totalCount,
-        profilesLength: profiles.length,
-        filters: JSON.stringify(filters, null, 2)
-      });
+      console.log('[learners/analytics] Total count:', totalCount);
 
       // Calculate overview counts from statusCounts query instead of limited profiles array
       // This fixes the issue where only 1000 profiles were being fetched
@@ -1262,29 +1253,21 @@ export class LearnerProfileService {
         missingSection: missingSection || 0
       });
 
-      // Trends (last 7 and 30 days)
+      // Trends (last 7 and 30 days) - Use server-side COUNT queries
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
-      const newEnquiries7Days = profiles.filter(p => new Date(p.created_at) >= sevenDaysAgo).length;
-      const newEnquiries30Days = profiles.filter(p => new Date(p.created_at) >= thirtyDaysAgo).length;
-      const newEnquiries30To60Days = profiles.filter(
-        p => new Date(p.created_at) >= sixtyDaysAgo && new Date(p.created_at) < thirtyDaysAgo
-      ).length;
+      // New enquiries counts
+      const newEnquiries7Days = await this.getCountByDateRange(filters, sevenDaysAgo, now, 'created_at', undefined, supabase);
+      const newEnquiries30Days = await this.getCountByDateRange(filters, thirtyDaysAgo, now, 'created_at', undefined, supabase);
+      const newEnquiries30To60Days = await this.getCountByDateRange(filters, sixtyDaysAgo, thirtyDaysAgo, 'created_at', undefined, supabase);
 
-      const activations7Days = profiles.filter(
-        p => p.lifecycle_status === 'active' && new Date(p.updated_at) >= sevenDaysAgo
-      ).length;
-      const activations30Days = profiles.filter(
-        p => p.lifecycle_status === 'active' && new Date(p.updated_at) >= thirtyDaysAgo
-      ).length;
-      const activations30To60Days = profiles.filter(
-        p => p.lifecycle_status === 'active' &&
-        new Date(p.updated_at) >= sixtyDaysAgo &&
-        new Date(p.updated_at) < thirtyDaysAgo
-      ).length;
+      // Active learner counts (by updated_at)
+      const activations7Days = await this.getCountByDateRange(filters, sevenDaysAgo, now, 'updated_at', 'active', supabase);
+      const activations30Days = await this.getCountByDateRange(filters, thirtyDaysAgo, now, 'updated_at', 'active', supabase);
+      const activations30To60Days = await this.getCountByDateRange(filters, sixtyDaysAgo, thirtyDaysAgo, 'updated_at', 'active', supabase);
 
       // Calculate percentage changes
       const enquiries7DayChange = this.calculatePercentageChange(newEnquiries7Days, newEnquiries30Days - newEnquiries7Days);
@@ -1333,29 +1316,11 @@ export class LearnerProfileService {
           missingAcademicYear: missingAcademicYear || 0,
           missingSemester: missingSemester || 0,
           missingSection: missingSection || 0,
-          // Completion tiers
-          excellent: profiles.filter(p => {
-            const complete = this.calculateProfileCompleteness(p);
-            return complete ? 1 : 0;
-          }).length,
-          good: profiles.filter(p => {
-            // 80-99% complete (has 3 of 4 required fields)
-            const fields = [p.college_email, p.academic_year_id, p.semester_id, p.section_id];
-            const filled = fields.filter(f => f).length;
-            return filled === 3;
-          }).length,
-          needsWork: profiles.filter(p => {
-            // 50-79% complete (has 2 of 4 required fields)
-            const fields = [p.college_email, p.academic_year_id, p.semester_id, p.section_id];
-            const filled = fields.filter(f => f).length;
-            return filled === 2;
-          }).length,
-          critical: profiles.filter(p => {
-            // <50% complete (has 0-1 of 4 required fields)
-            const fields = [p.college_email, p.academic_year_id, p.semester_id, p.section_id];
-            const filled = fields.filter(f => f).length;
-            return filled <= 1;
-          }).length,
+          // Completion tiers from getProfileCompletionTiers
+          excellent: completionTiers.excellent || 0,
+          good: completionTiers.good || 0,
+          needsWork: completionTiers.needsWork || 0,
+          critical: completionTiers.critical || 0,
         },
 
         // Trends
@@ -1405,7 +1370,9 @@ export class LearnerProfileService {
         byAcademicYear: academicYearData,
 
         // Hierarchical organizational data
-        hierarchicalInstitutions,
+        // TEMP: Disabled to prevent timeout - this query fetches all records
+        // TODO: Optimize getHierarchicalInstitutions to use aggregation
+        hierarchicalInstitutions: [],
 
         // Geographic distributions
         byState: stateData,
@@ -1453,6 +1420,72 @@ export class LearnerProfileService {
     if (change > 5) return 'up';
     if (change < -5) return 'down';
     return 'stable';
+  }
+
+  /**
+   * Helper: Get count by date range
+   * Uses server-side COUNT query for performance
+   */
+  private static async getCountByDateRange(
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    fromDate: Date,
+    toDate: Date,
+    dateField: 'created_at' | 'updated_at' = 'created_at',
+    status?: import('@/types/learner-profile').LifecycleStatus,
+    supabaseClient?: any
+  ): Promise<number> {
+    const supabase = supabaseClient || createClientSupabaseClient();
+
+    let query = supabase
+      .from('learners_profiles')
+      .select('*', { count: 'exact', head: true });
+
+    // Apply filters
+    if (filters.institutionIds && filters.institutionIds.length > 0) {
+      query = query.in('institution_id', filters.institutionIds);
+    }
+
+    if (filters.academicYearId) {
+      query = query.eq('academic_year_id', filters.academicYearId);
+    }
+
+    if (filters.degreeId) {
+      query = query.eq('degree_id', filters.degreeId);
+    }
+
+    if (filters.departmentId) {
+      query = query.eq('department_id', filters.departmentId);
+    }
+
+    if (filters.programId) {
+      query = query.eq('program_id', filters.programId);
+    }
+
+    if (filters.semesterId) {
+      query = query.eq('semester_id', filters.semesterId);
+    }
+
+    if (filters.sectionId) {
+      query = query.eq('section_id', filters.sectionId);
+    }
+
+    if (status) {
+      query = query.eq('lifecycle_status', status);
+    }
+
+    // Apply date range filter
+    query = query
+      .gte(dateField, fromDate.toISOString())
+      .lt(dateField, toDate.toISOString());
+
+    const { count, error } = await query;
+
+    if (error) {
+      console.error(`[learners/analytics] Error getting count by date range:`, error);
+      return 0;
+    }
+
+    return count || 0;
   }
 
   /**
@@ -2326,9 +2359,10 @@ export class LearnerProfileService {
    * Fetches all learner records to build accurate hierarchy
    */
   private static async getHierarchicalInstitutions(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').HierarchicalInstitution[]> {
-    const supabase = createClientSupabaseClient();
+    const supabase = supabaseClient || createClientSupabaseClient();
 
     console.log('[learners/analytics] Fetching hierarchical institution data...');
 
