@@ -3,18 +3,23 @@
 // ============================================
 // Created: 2025-01-27
 // Updated: 2025-12-27 - Added dropdown value validation
+// Updated: 2026-01-05 - Added dropdown normalization to sanitizeValue
 // Purpose: Client-side validation for bulk upload preview
+// Note: Automatically normalizes case-sensitive fields to UPPERCASE before database storage
 // ============================================
 
 import {
   validateDropdownValue,
+  normalizeDropdownValue,
   GENDER_VALUES,
   RELIGION_VALUES,
   COMMUNITY_VALUES,
   BLOOD_GROUP_VALUES,
   ENTRY_TYPE_VALUES,
   ACCOMMODATION_VALUES,
+  HOSTEL_TYPE_VALUES,
   FOOD_TYPE_VALUES,
+  QUOTA_VALUES,
   SCHOLARSHIP_TYPE_VALUES
 } from '@/lib/constants/learner-dropdown-values';
 
@@ -222,9 +227,22 @@ export function mapColumns(row: Record<string, any>): Record<string, any> {
 }
 
 /**
- * Sanitize and clean values
+ * Sanitize and clean values with dropdown normalization
+ *
+ * @param value - The raw value from Excel
+ * @param type - The data type (text/email/mobile/number/date)
+ * @param fieldName - Optional field name for dropdown normalization
+ * @returns Sanitized and normalized value
+ *
+ * For dropdown fields, normalizes to UPPERCASE using predefined constants
+ * For state/district/taluk, normalizes to UPPERCASE
+ * For other text fields, converts to UPPERCASE
  */
-export function sanitizeValue(value: any, type: 'text' | 'email' | 'mobile' | 'number' | 'date'): string | undefined {
+export function sanitizeValue(
+  value: any,
+  type: 'text' | 'email' | 'mobile' | 'number' | 'date',
+  fieldName?: string
+): string | undefined {
   if (value === null || value === undefined || value === '') return undefined;
 
   const strValue = String(value).trim();
@@ -232,6 +250,40 @@ export function sanitizeValue(value: any, type: 'text' | 'email' | 'mobile' | 'n
 
   switch (type) {
     case 'text':
+      // Apply dropdown normalization for known dropdown fields
+      if (fieldName) {
+        switch (fieldName) {
+          case 'gender':
+            return normalizeDropdownValue(strValue, GENDER_VALUES) ?? strValue.toUpperCase();
+          case 'religion':
+            return normalizeDropdownValue(strValue, RELIGION_VALUES) ?? strValue.toUpperCase();
+          case 'community':
+            return normalizeDropdownValue(strValue, COMMUNITY_VALUES) ?? strValue.toUpperCase();
+          case 'blood_group':
+            return normalizeDropdownValue(strValue, BLOOD_GROUP_VALUES) ?? strValue.toUpperCase();
+          case 'entry_type':
+            return normalizeDropdownValue(strValue, ENTRY_TYPE_VALUES) ?? strValue.toUpperCase();
+          case 'accommodation_type':
+            return normalizeDropdownValue(strValue, ACCOMMODATION_VALUES) ?? strValue.toUpperCase();
+          case 'hostel_type':
+            return normalizeDropdownValue(strValue, HOSTEL_TYPE_VALUES) ?? strValue.toUpperCase();
+          case 'food_type':
+            return normalizeDropdownValue(strValue, FOOD_TYPE_VALUES) ?? strValue.toUpperCase();
+          case 'quota':
+            return normalizeDropdownValue(strValue, QUOTA_VALUES) ?? strValue.toUpperCase();
+          case 'scholarship_type':
+            return normalizeDropdownValue(strValue, SCHOLARSHIP_TYPE_VALUES) ?? strValue.toUpperCase();
+          // For state/district/taluk, just UPPERCASE
+          case 'permanent_address_state':
+          case 'permanent_address_district':
+          case 'permanent_address_taluk':
+            return strValue.toUpperCase();
+          default:
+            // For all other text fields, just UPPERCASE
+            return strValue.toUpperCase();
+        }
+      }
+      // If no field name provided, default to UPPERCASE
       return strValue.toUpperCase();
     case 'email':
       return strValue.toLowerCase();
