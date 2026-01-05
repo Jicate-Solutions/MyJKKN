@@ -99,7 +99,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
     // Legacy support for old templates
     'First Graduate',
     '* First Graduate',
-    'first_graduate'
+    'scholarship_type'
   ],
 
   // SECTION 7: Previous Education

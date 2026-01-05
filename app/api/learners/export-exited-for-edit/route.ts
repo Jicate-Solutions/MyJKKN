@@ -207,7 +207,7 @@ export async function GET(request: NextRequest) {
 
       // SECTION 6: Entry Type
       'Entry Type': learner.entry_type || '',
-      'First Graduate': learner.first_graduate ? 'TRUE' : 'FALSE',
+      'First Graduate': learner.scholarship_type ? 'TRUE' : 'FALSE',
 
       // SECTION 7: Previous Education
       'Last School': learner.last_school || '',
