@@ -473,12 +473,12 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
               first_name: sanitizeValue(mappedData.first_name, 'text'),
               last_name: sanitizeValue(mappedData.last_name, 'text'),
               date_of_birth: sanitizeValue(mappedData.date_of_birth, 'date'),
-              gender: sanitizeValue(mappedData.gender, 'text'),
-              religion: sanitizeValue(mappedData.religion, 'text'),
-              community: sanitizeValue(mappedData.community, 'text'),
+              gender: sanitizeValue(mappedData.gender, 'text', 'gender'),
+              religion: sanitizeValue(mappedData.religion, 'text', 'religion'),
+              community: sanitizeValue(mappedData.community, 'text', 'community'),
               caste: sanitizeValue(mappedData.caste, 'text'),
               aadhar_number: sanitizeValue(mappedData.aadhar_number, 'number'),
-              blood_group: sanitizeValue(mappedData.blood_group, 'text'),
+              blood_group: sanitizeValue(mappedData.blood_group, 'text', 'blood_group'),
               admission_year: sanitizeValue(mappedData.admission_year, 'text'),
 
               // SECTION 2: Parent/Guardian Information
@@ -508,19 +508,19 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
               // SECTION 5: Address Information
               permanent_address_street: sanitizeValue(mappedData.permanent_address_street, 'text'),
-              permanent_address_taluk: sanitizeValue(mappedData.permanent_address_taluk, 'text'),
-              permanent_address_district: sanitizeValue(mappedData.permanent_address_district, 'text'),
+              permanent_address_taluk: sanitizeValue(mappedData.permanent_address_taluk, 'text', 'permanent_address_taluk'),
+              permanent_address_district: sanitizeValue(mappedData.permanent_address_district, 'text', 'permanent_address_district'),
               permanent_address_pin_code: sanitizeValue(mappedData.permanent_address_pin_code, 'number'),
-              permanent_address_state: sanitizeValue(mappedData.permanent_address_state, 'text'),
+              permanent_address_state: sanitizeValue(mappedData.permanent_address_state, 'text', 'permanent_address_state'),
 
               // SECTION 6: Entry Type & Scholarship Type
-              entry_type: sanitizeValue(mappedData.entry_type, 'text'),
-              scholarship_type: sanitizeValue(mappedData.scholarship_type, 'text'),
+              entry_type: sanitizeValue(mappedData.entry_type, 'text', 'entry_type'),
+              scholarship_type: sanitizeValue(mappedData.scholarship_type, 'text', 'scholarship_type'),
 
               // SECTION 7: Accommodation
-              accommodation_type: sanitizeValue(mappedData.accommodation_type, 'text'),
-              hostel_type: sanitizeValue(mappedData.hostel_type, 'text'),
-              food_type: sanitizeValue(mappedData.food_type, 'text'),
+              accommodation_type: sanitizeValue(mappedData.accommodation_type, 'text', 'accommodation_type'),
+              hostel_type: sanitizeValue(mappedData.hostel_type, 'text', 'hostel_type'),
+              food_type: sanitizeValue(mappedData.food_type, 'text', 'food_type'),
 
               // SECTION 8: Previous Education
               last_school: sanitizeValue(mappedData.last_school, 'text'),
@@ -537,7 +537,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
               // SECTION 10: Counseling Information
               counseling_applied: sanitizeValue(mappedData.counseling_applied, 'text'),
               counseling_number: sanitizeValue(mappedData.counseling_number, 'text'),
-              quota: sanitizeValue(mappedData.quota, 'text'),
+              quota: sanitizeValue(mappedData.quota, 'text', 'quota'),
               category: sanitizeValue(mappedData.category, 'text'),
 
               // SECTION 11: Transport
