@@ -78,7 +78,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 6: Entry Type
   'entry_type': ['Entry Type', 'entry_type'],
-  'first_graduate': ['First Graduate', 'first_graduate'],
+  'scholarship_type': ['First Graduate', 'scholarship_type'],
 
   // SECTION 7: Previous Education
   'last_school': ['Last School', 'last_school'],
@@ -478,9 +478,9 @@ export async function POST(request: NextRequest) {
       if (mappedData.entry_type) {
         sanitizedData.entry_type = sanitizeValue(mappedData.entry_type, 'text');
       }
-      if (mappedData.first_graduate !== undefined) {
-        const val = String(mappedData.first_graduate).toUpperCase();
-        sanitizedData.first_graduate = val === 'TRUE' || val === '1' || val === 'YES';
+      if (mappedData.scholarship_type !== undefined) {
+        const val = String(mappedData.scholarship_type).toUpperCase();
+        sanitizedData.scholarship_type = val === 'TRUE' || val === '1' || val === 'YES';
       }
 
       // SECTION 7: Previous Education

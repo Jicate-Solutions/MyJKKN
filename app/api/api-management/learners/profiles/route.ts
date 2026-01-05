@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
       mother_name, mother_occupation, mother_mobile, annual_income, last_school,
       board_of_study, tenth_marks, twelfth_marks, medical_cutoff_marks,
       engineering_cutoff_marks, neet_roll_number, neet_score, counseling_applied,
-      counseling_number, first_graduate, quota, category, entry_type, student_mobile,
+      counseling_number, scholarship_type, quota, category, entry_type, student_mobile,
       student_email, permanent_address_street, permanent_address_taluk,
       permanent_address_district, permanent_address_pin_code, permanent_address_state,
       accommodation_type, hostel_type, food_type, bus_required, bus_route,
