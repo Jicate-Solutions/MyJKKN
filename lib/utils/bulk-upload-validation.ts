@@ -701,6 +701,9 @@ export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, 
     batches: new Set<string>()
   };
 
+  // For departments, we need to track (institution_name, department_name) pairs for accurate matching
+  const departmentPairs = new Set<string>();
+
   // For programs, we need to track (department_name, program_name) pairs for accurate matching
   const programPairs = new Set<string>();
 
@@ -715,15 +718,34 @@ export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, 
 
     if (data.institution_name) uniqueValues.institutions.add(data.institution_name);
     if (data.degree_name) uniqueValues.degrees.add(data.degree_name);
-    if (data.department_name) uniqueValues.departments.add(data.department_name);
     if (data.academic_year_name) uniqueValues.academicYears.add(data.academic_year_name);
     if (data.regulation_name) uniqueValues.regulations.add(data.regulation_name);
     if (data.batch_name) uniqueValues.batches.add(data.batch_name);
 
-    // Track program with its department context for accurate matching
-    // This ensures "(ME) CSE" matches correctly with its linked department
-    if (data.department_name && data.program_name) {
+    // Track department with its institution context for accurate matching
+    // This ensures "Mathematics" matches correctly with its linked institution
+    if (data.institution_name && data.department_name) {
+      departmentPairs.add(JSON.stringify({
+        institution: data.institution_name,
+        department: data.department_name
+      }));
+    } else if (data.department_name) {
+      // Also add to legacy departments set for backward compatibility
+      uniqueValues.departments.add(data.department_name);
+    }
+
+    // Track program with its department AND institution context for accurate matching
+    // This ensures "(ME) CSE" matches correctly with its linked department and institution
+    if (data.institution_name && data.department_name && data.program_name) {
       programPairs.add(JSON.stringify({
+        institution: data.institution_name,
+        department: data.department_name,
+        program: data.program_name
+      }));
+    } else if (data.department_name && data.program_name) {
+      // Fallback: only department context (less accurate)
+      programPairs.add(JSON.stringify({
+        institution: '', // Empty institution for fallback
         department: data.department_name,
         program: data.program_name
       }));
@@ -754,12 +776,13 @@ export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, 
     institutions: Array.from(uniqueValues.institutions),
     programs: Array.from(uniqueValues.programs), // Legacy: only programs without department context
     degrees: Array.from(uniqueValues.degrees),
-    departments: Array.from(uniqueValues.departments),
+    departments: Array.from(uniqueValues.departments), // Legacy: only departments without institution context
     academicYears: Array.from(uniqueValues.academicYears),
     regulations: Array.from(uniqueValues.regulations),
     batches: Array.from(uniqueValues.batches),
-    // Parse back to objects for API
-    programsWithContext: Array.from(programPairs).map(str => JSON.parse(str)) as Array<{ department: string; program: string }>,
+    // Parse back to objects for API - WITH CONTEXT for cascading validation
+    departmentsWithContext: Array.from(departmentPairs).map(str => JSON.parse(str)) as Array<{ institution: string; department: string }>,
+    programsWithContext: Array.from(programPairs).map(str => JSON.parse(str)) as Array<{ institution: string; department: string; program: string }>,
     semestersWithContext: Array.from(semesterPairs).map(str => JSON.parse(str)) as Array<{ program: string; semester: string }>,
     sectionsWithContext: Array.from(sectionTriplets).map(str => JSON.parse(str)) as Array<{ program: string; semester: string; section: string }>
   };
@@ -868,9 +891,17 @@ export function getDatabaseValidationErrors(
     }
   }
 
-  // Check department
+  // Check department (use composite key: INSTITUTION|DEPARTMENT when institution is available)
   if (data.department_name) {
-    const deptResult = validationResult.departments[data.department_name];
+    // Try composite key first (more accurate)
+    const compositeKey = data.institution_name ? `${data.institution_name}|${data.department_name}` : null;
+    let deptResult = compositeKey ? validationResult.departments[compositeKey] : null;
+
+    // Fallback to simple department name lookup if composite key not found
+    if (!deptResult) {
+      deptResult = validationResult.departments[data.department_name];
+    }
+
     if (deptResult && !deptResult.found) {
       errors.department = {
         error: deptResult.error || 'Department not found in database',

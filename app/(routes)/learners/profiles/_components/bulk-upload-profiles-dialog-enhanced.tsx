@@ -1312,7 +1312,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                           <TableCell className="text-xs">{row.sanitizedData.accommodation_type || '-'}</TableCell>
 
                           {/* Issues Column - Sticky Right */}
-                          <TableCell className="border-l">
+                          <TableCell className="sticky right-0 bg-background z-20 min-w-[300px] border-l">
                             {row.validationResult && (
                               <IssuesDisplay
                                 validationResult={row.validationResult}

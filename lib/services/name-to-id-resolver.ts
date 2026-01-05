@@ -234,23 +234,59 @@ export class NameToIdResolver {
     }
 
     try {
+      console.log(`[name-to-id] 🔍 Resolving Department ID for: "${departmentName}"`);
+      console.log(`[name-to-id] 📋 Query params:`, { departmentName: departmentName.trim(), institutionId });
+
+      // Build query with institution filter
       let query = supabaseAdmin
         .from('departments')
-        .select('id')
-        .ilike('department_name', departmentName.trim());
+        .select('id, department_name, institution_id');
 
+      // Apply exact match first
+      query = query.ilike('department_name', departmentName.trim());
+
+      // CRITICAL: Apply institution filter if provided (prevents multiple matches)
       if (institutionId) {
         query = query.eq('institution_id', institutionId);
       }
 
-      const { data, error } = await query.single();
+      // Use .maybeSingle() instead of .single() to handle multiple matches gracefully
+      const { data, error } = await query.maybeSingle();
 
-      if (error || !data) {
-        return { id: null, found: false, error: `Department "${departmentName}" not found` };
+      // If exact match with institution filter succeeds, return it
+      if (data && !error) {
+        console.log(`[name-to-id] ✅ Department found:`, data);
+        return { id: data.id, found: true };
       }
 
-      return { id: data.id, found: true };
+      // If no exact match, try to get all matches to provide suggestions
+      const { data: allMatches, error: allError } = await supabaseAdmin
+        .from('departments')
+        .select('id, department_name, institution_id')
+        .ilike('department_name', `%${departmentName.trim()}%`)
+        .limit(10);
+
+      if (allError || !allMatches || allMatches.length === 0) {
+        console.error(`[name-to-id] ❌ Department not found:`, departmentName);
+        return {
+          id: null,
+          found: false,
+          error: `Department "${departmentName}" not found`
+        };
+      }
+
+      // If we have matches, provide them as suggestions
+      const suggestions = allMatches.map(d => d.department_name);
+      console.warn(`[name-to-id] ⚠️ Multiple departments found for "${departmentName}". Suggestions:`, suggestions);
+
+      return {
+        id: null,
+        found: false,
+        error: `Department "${departmentName}" not found`,
+        suggestions: suggestions
+      };
     } catch (error) {
+      console.error(`[name-to-id] ❌ Exception in resolveDepartmentId:`, error);
       return { id: null, found: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
