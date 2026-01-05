@@ -329,8 +329,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                       />
                     </FormControl>
                     <FormDescription>
-                      Code must contain only uppercase letters, numbers,
-                      underscores, or hyphens
+                      Code can be reused across different programs. Uniqueness is enforced by semester name within the organizational hierarchy.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

@@ -68,9 +68,13 @@ export class SemesterService {
 
       if (error) {
         if (error.code === '23505') {
-          throw new Error(
-            `Semester code "${data.semester_code}" already exists`
-          );
+          // Check if it's a duplicate semester name in the hierarchy
+          if (error.message?.includes('unique_semester_hierarchy')) {
+            throw new Error(
+              `A semester with the name "${data.semester_name}" already exists in this program`
+            );
+          }
+          throw new Error('A duplicate entry already exists');
         }
         throw error;
       }
