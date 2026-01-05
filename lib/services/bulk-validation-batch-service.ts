@@ -18,8 +18,9 @@ export interface BatchValidationInput {
     academicYears?: string[];
     regulations?: string[];
     batches?: string[];
-    // Enhanced: Programs with department context for accurate validation
-    programsWithContext?: Array<{ department: string; program: string }>;
+    // Enhanced: Hierarchical validation with context (follows cascading order)
+    departmentsWithContext?: Array<{ institution: string; department: string }>;
+    programsWithContext?: Array<{ institution: string; department: string; program: string }>;
     semestersWithContext?: Array<{ program: string; semester: string }>;
     sectionsWithContext?: Array<{ program: string; semester: string; section: string }>;
   };
@@ -117,8 +118,52 @@ export class BulkValidationBatchService {
       });
     }
 
-    // Validate departments in parallel
-    if (input.uniqueValues.departments && input.uniqueValues.departments.length > 0) {
+    // Validate departments WITH INSTITUTION CONTEXT (CASCADING from institutions)
+    // ENHANCED: Now uses departmentsWithContext to include institution filtering
+    if (input.uniqueValues.departmentsWithContext && input.uniqueValues.departmentsWithContext.length > 0) {
+      // Use departmentsWithContext for accurate validation with institution filtering
+      const deptPromises = input.uniqueValues.departmentsWithContext.map(async (ctx) => {
+        // Get institution ID from resolved institutions (CASCADE!)
+        const institutionResult = result.institutions.get(ctx.institution);
+        const institutionId = institutionResult?.id || undefined;
+
+        console.log(`[batch-validation] Validating department "${ctx.department}" with institution "${ctx.institution}" (id: ${institutionId})`);
+
+        const validationResult = await NameToIdResolver.resolveDepartmentId(
+          ctx.department,
+          institutionId // Pass institutionId from Excel data, not user profile!
+        );
+        return {
+          key: `${ctx.institution}|${ctx.department}`, // Composite key for lookup
+          value: ctx.department,
+          result: validationResult
+        };
+      });
+
+      const deptResults = await Promise.all(deptPromises);
+      deptResults.forEach(({ key, value, result: validationResult }) => {
+        // Store with composite key for accurate lookup during row validation
+        result.departments.set(key, {
+          value,
+          id: validationResult.id,
+          found: validationResult.found,
+          error: validationResult.error,
+          suggestions: validationResult.suggestions
+        });
+        // Also store with just the department name for backward compatibility
+        if (!result.departments.has(value)) {
+          result.departments.set(value, {
+            value,
+            id: validationResult.id,
+            found: validationResult.found,
+            error: validationResult.error,
+            suggestions: validationResult.suggestions
+          });
+        }
+      });
+    } else if (input.uniqueValues.departments && input.uniqueValues.departments.length > 0) {
+      // Fallback: validate departments without institution context (legacy support)
+      console.log(`[batch-validation] Warning: Validating departments without institution context - may be less accurate`);
       const deptPromises = input.uniqueValues.departments.map(async (deptName) => {
         const validationResult = await NameToIdResolver.resolveDepartmentId(
           deptName,
@@ -142,13 +187,20 @@ export class BulkValidationBatchService {
       });
     }
 
-    // STEP 1: Validate programs in parallel (need this first for cascading)
+    // STEP 2: Validate programs WITH DEPARTMENT CONTEXT (CASCADING from departments)
     // ENHANCED: Now supports programsWithContext to include department filtering
     if (input.uniqueValues.programsWithContext && input.uniqueValues.programsWithContext.length > 0) {
       // Use programsWithContext for accurate validation with department filtering
       const programPromises = input.uniqueValues.programsWithContext.map(async (ctx) => {
-        // Get department ID from resolved departments
-        const departmentResult = result.departments.get(ctx.department);
+        // Get department ID from resolved departments using COMPOSITE KEY (CASCADE!)
+        const departmentCompositeKey = ctx.institution ? `${ctx.institution}|${ctx.department}` : ctx.department;
+        let departmentResult = result.departments.get(departmentCompositeKey);
+
+        // Fallback to simple key if composite not found
+        if (!departmentResult) {
+          departmentResult = result.departments.get(ctx.department);
+        }
+
         const departmentId = departmentResult?.id || undefined;
 
         console.log(`[batch-validation] Validating program "${ctx.program}" with department "${ctx.department}" (id: ${departmentId})`);
@@ -212,11 +264,11 @@ export class BulkValidationBatchService {
       });
     }
 
-    // STEP 2: Validate semesters with program context
+    // STEP 3: Validate semesters WITH PROGRAM CONTEXT (CASCADING from programs)
     // Key format: "PROGRAM_NAME|SEMESTER_NAME" so we can lookup later
     if (input.uniqueValues.semestersWithContext && input.uniqueValues.semestersWithContext.length > 0) {
       const semesterPromises = input.uniqueValues.semestersWithContext.map(async (ctx) => {
-        // Get the program ID from step 1
+        // Get the program ID from step 2 (CASCADE!)
         const programResult = result.programs.get(ctx.program);
         const programId = programResult?.id || undefined;
 
@@ -245,11 +297,11 @@ export class BulkValidationBatchService {
       });
     }
 
-    // STEP 3: Validate sections with program AND semester context
+    // STEP 4: Validate sections WITH PROGRAM AND SEMESTER CONTEXT (CASCADING from semesters)
     // Key format: "PROGRAM_NAME|SEMESTER_NAME|SECTION_NAME"
     if (input.uniqueValues.sectionsWithContext && input.uniqueValues.sectionsWithContext.length > 0) {
       const sectionPromises = input.uniqueValues.sectionsWithContext.map(async (ctx) => {
-        // Get the semester ID from step 2
+        // Get the semester ID from step 3 (CASCADE!)
         const semesterKey = `${ctx.program}|${ctx.semester}`;
         const semesterResult = result.semesters.get(semesterKey);
         const semesterId = semesterResult?.id || undefined;
