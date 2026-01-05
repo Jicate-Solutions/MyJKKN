@@ -86,6 +86,13 @@ export class FacultyAttendanceService {
       const targetDate = date || format(new Date(), 'yyyy-MM-dd');
       const dayOfWeek = this.getDayOfWeekFromDate(targetDate).toUpperCase();
 
+      // DEBUG: Log entry point
+      console.log('[FACULTY-ATTENDANCE] === START ===', {
+        staffId,
+        targetDate,
+        dayOfWeek
+      });
+
       // First get the staff member's details
       const { data: staffData, error: staffError } = (await this.supabase
         .from('staff')
@@ -97,6 +104,13 @@ export class FacultyAttendanceService {
         logger.error('academic/faculty-attendance', 'Staff not found', staffError);
         return { periods: [], searchContext: {} };
       }
+
+      // DEBUG: Log staff data
+      console.log('[FACULTY-ATTENDANCE] Staff found', {
+        staffId: staffData.id,
+        institutionId: staffData.institution_id,
+        departmentId: staffData.department_id
+      });
 
       // Get current academic year for the institution
       const { data: academicYears, error: yearError } = (await this.supabase
@@ -113,6 +127,12 @@ export class FacultyAttendanceService {
       }
 
       const academicYear = academicYears[0];
+
+      // DEBUG: Log academic year
+      console.log('[FACULTY-ATTENDANCE] Academic year found', {
+        academicYearId: academicYear.id,
+        academicYearName: academicYear.academic_year_name
+      });
 
       // OPTIMIZATION: Get timetables with all related data in a single query
       const { data: timetables, error: timetableError } = (await this.supabase
@@ -138,14 +158,42 @@ export class FacultyAttendanceService {
         .eq('is_active', true)) as { data: TimetableWithRelations[] | null; error: any };
 
       if (timetableError || !timetables || timetables.length === 0) {
+        logger.warn('academic/faculty-attendance', 'No timetables found', {
+          timetableError,
+          timetablesLength: timetables?.length || 0
+        });
         return { periods: [], searchContext: {} };
       }
+
+      // DEBUG: Log timetables found
+      console.log('[FACULTY-ATTENDANCE] Timetables found', {
+        count: timetables.length,
+        timetables: timetables.map(t => ({
+          id: t.id,
+          format: t.timetable_format,
+          startDate: t.start_date,
+          endDate: t.end_date,
+          sectionId: t.section_id,
+          semesterId: t.semester_id
+        }))
+      });
 
       // OPTIMIZATION: Extract all unique course IDs first, then batch fetch
       const courseIds = new Set<string>();
       const facultyPeriods: AttendancePeriodOption[] = [];
 
+      console.warn('🚨🚨🚨 PROCESSING', timetables.length, 'TIMETABLES FOR STAFF:', staffId);
+
       for (const timetable of timetables) {
+        // DEBUG: Log timetable being processed
+        console.log('[FACULTY-ATTENDANCE] Processing timetable', {
+          timetableId: timetable.id,
+          format: timetable.timetable_format,
+          startDate: timetable.start_date,
+          endDate: timetable.end_date,
+          targetDate
+        });
+
         // Check if this date is valid for this timetable
         const isDateValid = this.isDateInTimetableRange(
           targetDate,
@@ -155,12 +203,31 @@ export class FacultyAttendanceService {
           (timetable.selected_dates as string[]) || []
         );
 
+        // DEBUG: Log date validation result
+        console.log('[FACULTY-ATTENDANCE] Date validation result', {
+          timetableId: timetable.id,
+          isDateValid,
+          format: timetable.timetable_format
+        });
+
         if (!isDateValid) continue;
 
         const timetableData = timetable.timetable_data as TimetableDataStructure | null;
         const periodsDefinition = timetable.periods as Record<string, any> | null;
 
-        if (!timetableData) continue;
+        // DEBUG: Log timetable data structure
+        console.log('[FACULTY-ATTENDANCE] Timetable data check', {
+          timetableId: timetable.id,
+          hasTimetableData: !!timetableData,
+          timetableDataKeys: timetableData ? Object.keys(timetableData) : [],
+          dayOfWeekExists: timetableData ? dayOfWeek in timetableData : false,
+          lookingForDay: dayOfWeek
+        });
+
+        if (!timetableData) {
+          console.warn('❌ No timetable_data for timetable:', timetable.id);
+          continue;
+        }
 
         // FIX: 2025-12-16 - Handle batch format timetables (CRRI clinical postings)
         // Batch timetables use DATE keys (e.g., "2025-12-05") not day-of-week keys (e.g., "MONDAY")
@@ -265,7 +332,17 @@ export class FacultyAttendanceService {
           dayData = timetableData[dayOfWeek];
         }
 
-        if (!dayData) continue;
+        if (!dayData) {
+          console.warn('❌ No data for', dayOfWeek, 'in timetable:', timetable.id, '- Available days:', Object.keys(timetableData));
+          continue;
+        }
+
+        // DEBUG: Log day data
+        console.log('[FACULTY-ATTENDANCE] Day data found', {
+          timetableId: timetable.id,
+          dayOfWeek,
+          periodIds: Object.keys(dayData)
+        });
 
         // Extract periods for this day where staff is assigned
 
@@ -285,11 +362,24 @@ export class FacultyAttendanceService {
               subSlot.staff_ids.includes(staffId)
             );
 
+          // DEBUG: Log staff assignment check
+          console.log('[FACULTY-ATTENDANCE] Checking staff assignment for period', {
+            timetableId: timetable.id,
+            periodId,
+            staffId,
+            slotPrimaryStaffId: slot.primary_staff_id,
+            slotStaffIds: slot.staff_ids,
+            isAssignedToSlot,
+            isAssignedToSubSlot,
+            hasSubSlots: !!slot.sub_slots
+          });
+
           if (!isAssignedToSlot && !isAssignedToSubSlot) continue;
 
           // Find period definition
+          // FIX: 2026-01-05 - Changed p.period_id to p.id to match actual field name in periods array
           const periodDef = Array.isArray(periodsDefinition)
-            ? periodsDefinition.find((p: any) => p.period_id === periodId)
+            ? periodsDefinition.find((p: any) => p.id === periodId)
             : null;
 
           if (!periodDef) continue;
@@ -393,6 +483,14 @@ export class FacultyAttendanceService {
         return timeA - timeB;
       });
 
+      // DEBUG: Log final period count
+      console.log('[FACULTY-ATTENDANCE] === END ===', {
+        totalPeriodsFound: facultyPeriods.length,
+        targetDate,
+        dayOfWeek,
+        timetablesProcessed: timetables.length
+      });
+
       if (facultyPeriods.length === 0) {
         logger.warn('academic/faculty-attendance', 'No periods found for faculty', {
           targetDate,
@@ -489,9 +587,19 @@ export class FacultyAttendanceService {
       return selectedDates.includes(targetDate);
     }
 
-    // Unknown format - log warning and return false for safety
+    // Unknown format - fallback to simple date range check if available
+    // Updated: 2025-01-05 - Fix for periods not showing in My Classes tab
+    // This makes the date validation consistent with AttendanceService behavior
     if (format !== 'date-range' && format !== 'regular' && format !== 'specific-dates' && format !== 'batch') {
-      logger.warn('academic/faculty-attendance', 'Unknown timetable format', { format });
+      logger.warn('academic/faculty-attendance', 'Unknown timetable format, falling back to date range check', { format });
+
+      // Fallback: If we have start_date and end_date, validate using date range
+      // This handles null/undefined/unrecognized formats gracefully
+      if (startDate && endDate) {
+        const start = new Date(startDate + 'T00:00:00');
+        const end = new Date(endDate + 'T00:00:00');
+        return target >= start && target <= end;
+      }
     }
 
     return false;
@@ -600,9 +708,10 @@ export class FacultyAttendanceService {
 
                 if (isAssignedToStaff) {
                   // Find the period definition
+                  // FIX: 2026-01-05 - Changed p.period_id to p.id to match actual field name in periods array
                   const periodDef = Array.isArray(periodsDefinition)
                     ? periodsDefinition.find(
-                        (p: any) => p.period_id === periodId
+                        (p: any) => p.id === periodId
                       )
                     : null;
 
