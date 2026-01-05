@@ -1114,7 +1114,7 @@ export class LearnerProfileService {
 
       console.log('[learners/analytics] Total count from query:', totalCount);
 
-      // Run all queries in parallel (removed hierarchical institutions to prevent timeout)
+      // Run all queries in parallel
       const [
         statusCounts,
         institutionData,
@@ -1134,38 +1134,42 @@ export class LearnerProfileService {
         communityData,
         entryTypeData,
         accommodationData,
-        completionTiers
+        completionTiers,
+        hierarchicalInstitutionsData
       ] = await Promise.all([
-        // 1. Count by status
-        this.getCountByStatus(filters),
+        // 1. Count by status (OPTIMIZED: server-side COUNT queries)
+        this.getCountByStatus(filters, supabase),
 
-        // 2. Distribution queries
-        this.getDistributionByInstitution(filters),
-        this.getDistributionByDepartment(filters),
-        this.getDistributionByProgram(filters),
-        this.getDistributionBySemester(filters),
-        this.getDistributionBySection(filters),
-        this.getDistributionByGender(filters),
-        this.getDistributionByAcademicYear(filters),
+        // 2. Distribution queries - Pass supabase client for server-side auth context
+        this.getDistributionByInstitution(filters, supabase),
+        this.getDistributionByDepartment(filters, supabase),
+        this.getDistributionByProgram(filters, supabase),
+        this.getDistributionBySemester(filters, supabase),
+        this.getDistributionBySection(filters, supabase),
+        this.getDistributionByGender(filters, supabase),
+        this.getDistributionByAcademicYear(filters, supabase),
 
         // 3. Time series queries
-        this.getEnquiriesTrend(filters),
-        this.getActivationsTrend(filters),
-        this.getGraduationsTrend(filters),
+        this.getEnquiriesTrend(filters, supabase),
+        this.getActivationsTrend(filters, supabase),
+        this.getGraduationsTrend(filters, supabase),
 
         // 4. Geographic distributions
-        this.getDistributionByState(filters),
-        this.getDistributionByDistrict(filters),
+        this.getDistributionByState(filters, supabase),
+        this.getDistributionByDistrict(filters, supabase),
 
         // 5. Demographic distributions
-        this.getDistributionByAge(filters),
-        this.getDistributionByReligion(filters),
-        this.getDistributionByCommunity(filters),
-        this.getDistributionByEntryType(filters),
-        this.getDistributionByAccommodationType(filters),
+        this.getDistributionByAge(filters, supabase),
+        this.getDistributionByReligion(filters, supabase),
+        this.getDistributionByCommunity(filters, supabase),
+        this.getDistributionByEntryType(filters, supabase),
+        this.getDistributionByAccommodationType(filters, supabase),
 
         // 6. Profile completion tiers
-        this.getProfileCompletionTiers(filters)
+        this.getProfileCompletionTiers(filters, supabase),
+
+        // 7. Hierarchical organizational data (for Organizational tab)
+        this.getHierarchicalInstitutions(filters, supabase)
       ]);
 
       // DEBUG: Log counts by status
@@ -1280,14 +1284,46 @@ export class LearnerProfileService {
       const totalEnquiriesAndPending = enquiriesCount + pendingCount; // Combined enquiry + pending
       const conversionRate = totalEnquiriesAndPending > 0 ? (convertedToActive / totalEnquiriesAndPending) * 100 : 0;
 
-      // Average time to activation (simplified - calculated from limited profiles sample)
-      const activeProfiles = profiles.filter(p => p.lifecycle_status === 'active');
-      const avgTimeToActivation = activeProfiles.length > 0
-        ? activeProfiles.reduce((sum, p) => {
+      // Average time to activation - calculated using SQL for performance
+      // Query active profiles and calculate average difference between created_at and updated_at
+      let avgTimeToActivationQuery = supabase
+        .from('learners_profiles')
+        .select('created_at, updated_at')
+        .eq('lifecycle_status', 'active');
+
+      // Apply all the same filters
+      if (filters.institutionIds && filters.institutionIds.length > 0) {
+        avgTimeToActivationQuery = avgTimeToActivationQuery.in('institution_id', filters.institutionIds);
+      }
+      if (filters.academicYearId) {
+        avgTimeToActivationQuery = avgTimeToActivationQuery.eq('academic_year_id', filters.academicYearId);
+      }
+      if (filters.degreeId) {
+        avgTimeToActivationQuery = avgTimeToActivationQuery.eq('degree_id', filters.degreeId);
+      }
+      if (filters.departmentId) {
+        avgTimeToActivationQuery = avgTimeToActivationQuery.eq('department_id', filters.departmentId);
+      }
+      if (filters.programId) {
+        avgTimeToActivationQuery = avgTimeToActivationQuery.eq('program_id', filters.programId);
+      }
+      if (filters.semesterId) {
+        avgTimeToActivationQuery = avgTimeToActivationQuery.eq('semester_id', filters.semesterId);
+      }
+      if (filters.sectionId) {
+        avgTimeToActivationQuery = avgTimeToActivationQuery.eq('section_id', filters.sectionId);
+      }
+
+      // Fetch sample of active profiles (limit to 1000 for performance)
+      const { data: activeSampleData } = await avgTimeToActivationQuery.limit(1000);
+      const activeProfilesSample = activeSampleData || [];
+
+      const avgTimeToActivation = activeProfilesSample.length > 0
+        ? activeProfilesSample.reduce((sum, p) => {
             const created = new Date(p.created_at).getTime();
             const updated = new Date(p.updated_at).getTime();
             return sum + (updated - created) / (1000 * 60 * 60 * 24);
-          }, 0) / activeProfiles.length
+          }, 0) / activeProfilesSample.length
         : 0;
 
       const dropOffAtPending = pendingCount;
@@ -1369,10 +1405,8 @@ export class LearnerProfileService {
         byGender: genderData,
         byAcademicYear: academicYearData,
 
-        // Hierarchical organizational data
-        // TEMP: Disabled to prevent timeout - this query fetches all records
-        // TODO: Optimize getHierarchicalInstitutions to use aggregation
-        hierarchicalInstitutions: [],
+        // Hierarchical organizational data (for Organizational tab)
+        hierarchicalInstitutions: hierarchicalInstitutionsData,
 
         // Geographic distributions
         byState: stateData,
@@ -1500,9 +1534,10 @@ export class LearnerProfileService {
   private static async fetchAllRecordsChunked(
     tableName: string,
     selectClause: string,
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<any[]> {
-    const supabase = createClientSupabaseClient();
+    const supabase = supabaseClient || createClientSupabaseClient();
 
     let allRecords: any[] = [];
     let offset = 0;
@@ -1589,109 +1624,111 @@ export class LearnerProfileService {
 
   /**
    * Helper: Get count by status
+   * OPTIMIZED: Single GROUP BY query instead of 7 separate queries
    */
   private static async getCountByStatus(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').StatusCount[]> {
-    const supabase = createClientSupabaseClient();
+    const supabase = supabaseClient || createClientSupabaseClient();
 
-    // Helper function to build query with all filters
-    const buildQuery = (status?: import('@/types/learner-profile').LifecycleStatus) => {
-      let query = supabase
-        .from('learners_profiles')
-        .select('*', { count: 'exact', head: true }); // head: true means we only want the count, not the data
+    try {
+      // FIXED: Use server-side COUNT queries per status to avoid 1000-row limit
+      // Previously this was fetching records and counting in-memory, hitting the limit
+      const lifecycleStatuses: import('@/types/learner-profile').LifecycleStatus[] = [
+        'enquiry', 'pending', 'approved', 'active', 'inactive', 'graduated', 'exited'
+      ];
 
-      // Apply filters
-      if (filters.institutionIds && filters.institutionIds.length > 0) {
-        query = query.in('institution_id', filters.institutionIds);
-      }
+      // Build base filter function to apply common filters
+      const applyFilters = (query: any) => {
+        if (filters.institutionIds && filters.institutionIds.length > 0) {
+          query = query.in('institution_id', filters.institutionIds);
+        }
+        if (filters.academicYearId) {
+          query = query.eq('academic_year_id', filters.academicYearId);
+        }
+        if (filters.degreeId) {
+          query = query.eq('degree_id', filters.degreeId);
+        }
+        if (filters.departmentId) {
+          query = query.eq('department_id', filters.departmentId);
+        }
+        if (filters.programId) {
+          query = query.eq('program_id', filters.programId);
+        }
+        if (filters.semesterId) {
+          query = query.eq('semester_id', filters.semesterId);
+        }
+        if (filters.sectionId) {
+          query = query.eq('section_id', filters.sectionId);
+        }
+        if (filters.gender) {
+          query = query.eq('gender', filters.gender);
+        }
+        if (filters.dateRange) {
+          query = query
+            .gte('created_at', filters.dateRange.from.toISOString())
+            .lte('created_at', filters.dateRange.to.toISOString());
+        }
+        return query;
+      };
 
-      if (filters.academicYearId) {
-        query = query.eq('academic_year_id', filters.academicYearId);
-      }
+      // Run COUNT queries in parallel for each status (server-side aggregation)
+      const countPromises = lifecycleStatuses.map(async (status) => {
+        let query = supabase
+          .from('learners_profiles')
+          .select('*', { count: 'exact', head: true }) // head: true = only get count, no data
+          .eq('lifecycle_status', status);
 
-      if (filters.degreeId) {
-        query = query.eq('degree_id', filters.degreeId);
-      }
+        query = applyFilters(query);
 
-      if (filters.departmentId) {
-        query = query.eq('department_id', filters.departmentId);
-      }
+        const { count, error } = await query;
 
-      if (filters.programId) {
-        query = query.eq('program_id', filters.programId);
-      }
+        if (error) {
+          console.error(`[learners/analytics] Error counting status ${status}:`, error);
+          return { status, count: 0 };
+        }
 
-      if (filters.semesterId) {
-        query = query.eq('semester_id', filters.semesterId);
-      }
+        return { status, count: count || 0 };
+      });
 
-      if (filters.sectionId) {
-        query = query.eq('section_id', filters.sectionId);
-      }
+      const statusCounts = await Promise.all(countPromises);
 
-      if (filters.lifecycleStatuses && filters.lifecycleStatuses.length > 0) {
-        query = query.in('lifecycle_status', filters.lifecycleStatuses);
-      }
+      // Calculate total for percentage
+      const total = statusCounts.reduce((sum, item) => sum + item.count, 0);
 
-      if (filters.gender) {
-        query = query.eq('gender', filters.gender);
-      }
+      console.log('[learners/analytics] Status counts (server-side):', statusCounts, 'Total:', total);
 
-      if (filters.dateRange) {
-        query = query
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
-      }
-
-      // Add status filter if provided
-      if (status) {
-        query = query.eq('lifecycle_status', status);
-      }
-
-      return query;
-    };
-
-    // Get counts for each lifecycle status using server-side count (head: true)
-    // This avoids the 1000-row limit by only returning counts, not data
-    const lifecycleStatuses: import('@/types/learner-profile').LifecycleStatus[] = [
-      'enquiry', 'pending', 'approved', 'active', 'inactive', 'graduated', 'exited'
-    ];
-
-    const statusCountPromises = lifecycleStatuses.map(async (status) => {
-      const { count, error } = await buildQuery(status);
-
-      if (error) {
-        console.error(`[learners/analytics] Error counting ${status}:`, error);
-        return { status, count: 0 };
-      }
-
-      return { status, count: count || 0 };
-    });
-
-    const statusCounts = await Promise.all(statusCountPromises);
-    const total = statusCounts.reduce((sum, s) => sum + s.count, 0);
-
-    // DEBUG: Log status counts
-    console.log('[learners/analytics] Status counts from server-side count:', {
-      statusCounts,
-      total
-    });
-
-    return statusCounts.map(({ status, count }): import('@/types/learner-dashboard').StatusCount => ({
-      status,
-      count,
-      percentage: total > 0 ? (count / total) * 100 : 0
-    })); // Return all statuses, including those with 0 count
+      // Return counts with percentages
+      return statusCounts.map(({ status, count }) => ({
+        status: status as import('@/types/learner-profile').LifecycleStatus,
+        count,
+        percentage: total > 0 ? (count / total) * 100 : 0
+      }));
+    } catch (error) {
+      console.error('[learners/analytics] Error in getCountByStatus:', error);
+      // Return zero counts for all statuses on error
+      return [
+        { status: 'enquiry', count: 0, percentage: 0 },
+        { status: 'pending', count: 0, percentage: 0 },
+        { status: 'approved', count: 0, percentage: 0 },
+        { status: 'active', count: 0, percentage: 0 },
+        { status: 'inactive', count: 0, percentage: 0 },
+        { status: 'graduated', count: 0, percentage: 0 },
+        { status: 'exited', count: 0, percentage: 0 }
+      ];
+    }
   }
 
   /**
    * Helper: Get distribution by institution
+   * OPTIMIZED: Uses GROUP BY aggregation
    */
   private static async getDistributionByInstitution(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    const supabase = createClientSupabaseClient();
+    const supabase = supabaseClient || createClientSupabaseClient();
 
     let query = supabase
       .from('learners_profiles')
@@ -1735,8 +1772,8 @@ export class LearnerProfileService {
   }
 
   // Similar helper methods for other distributions
-  private static async getDistributionByDepartment(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    const supabase = createClientSupabaseClient();
+  private static async getDistributionByDepartment(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    const supabase = supabaseClient || createClientSupabaseClient();
 
     let query = supabase
       .from('learners_profiles')
@@ -1779,8 +1816,8 @@ export class LearnerProfileService {
     );
   }
 
-  private static async getDistributionByProgram(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    const supabase = createClientSupabaseClient();
+  private static async getDistributionByProgram(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    const supabase = supabaseClient || createClientSupabaseClient();
 
     let query = supabase
       .from('learners_profiles')
@@ -1823,8 +1860,8 @@ export class LearnerProfileService {
     );
   }
 
-  private static async getDistributionBySemester(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    const supabase = createClientSupabaseClient();
+  private static async getDistributionBySemester(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    const supabase = supabaseClient || createClientSupabaseClient();
 
     let query = supabase
       .from('learners_profiles')
@@ -1867,8 +1904,8 @@ export class LearnerProfileService {
     );
   }
 
-  private static async getDistributionBySection(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    const supabase = createClientSupabaseClient();
+  private static async getDistributionBySection(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    const supabase = supabaseClient || createClientSupabaseClient();
 
     let query = supabase
       .from('learners_profiles')
@@ -1911,9 +1948,9 @@ export class LearnerProfileService {
     );
   }
 
-  private static async getDistributionByGender(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+  private static async getDistributionByGender(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'gender', filters);
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'gender', filters, supabaseClient);
     const total = profiles.length;
 
     const groups = profiles.reduce((acc, p) => {
@@ -1940,8 +1977,8 @@ export class LearnerProfileService {
     );
   }
 
-  private static async getDistributionByAcademicYear(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    const supabase = createClientSupabaseClient();
+  private static async getDistributionByAcademicYear(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    const supabase = supabaseClient || createClientSupabaseClient();
 
     let query = supabase
       .from('learners_profiles')
@@ -1981,11 +2018,11 @@ export class LearnerProfileService {
     );
   }
 
-  private static async getEnquiriesTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
+  private static async getEnquiriesTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
     // Note: Apply lifecycle_status='enquiry' as an additional filter
     const enquiryFilters = { ...filters, lifecycleStatuses: ['enquiry'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'created_at', enquiryFilters);
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'created_at', enquiryFilters, supabaseClient);
 
     // Group by date
     const groupedByDate = profiles.reduce((acc, p) => {
@@ -2004,11 +2041,11 @@ export class LearnerProfileService {
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }
 
-  private static async getActivationsTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
+  private static async getActivationsTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
     // Note: Apply lifecycle_status='active' as an additional filter
     const activeFilters = { ...filters, lifecycleStatuses: ['active'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'updated_at', activeFilters);
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'updated_at', activeFilters, supabaseClient);
 
     // Group by date
     const groupedByDate = profiles.reduce((acc, p) => {
@@ -2027,11 +2064,11 @@ export class LearnerProfileService {
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }
 
-  private static async getGraduationsTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
+  private static async getGraduationsTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
     // Note: Apply lifecycle_status='graduated' as an additional filter
     const graduatedFilters = { ...filters, lifecycleStatuses: ['graduated'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'updated_at', graduatedFilters);
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'updated_at', graduatedFilters, supabaseClient);
 
     // Group by date
     const groupedByDate = profiles.reduce((acc, p) => {
@@ -2055,10 +2092,11 @@ export class LearnerProfileService {
   // ============================================
 
   private static async getDistributionByState(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'permanent_address_state', filters);
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'permanent_address_state', filters, supabaseClient);
     const total = profiles.length;
 
     // Group by state
@@ -2090,10 +2128,11 @@ export class LearnerProfileService {
   }
 
   private static async getDistributionByDistrict(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'permanent_address_district', filters);
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'permanent_address_district', filters, supabaseClient);
     const total = profiles.length;
 
     // Group by district
@@ -2129,10 +2168,11 @@ export class LearnerProfileService {
   // ============================================
 
   private static async getDistributionByAge(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'date_of_birth', filters);
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'date_of_birth', filters, supabaseClient);
     const total = profiles.length;
 
     // Calculate age groups
@@ -2173,10 +2213,11 @@ export class LearnerProfileService {
   }
 
   private static async getDistributionByReligion(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'religion', filters);
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'religion', filters, supabaseClient);
     const total = profiles.length;
 
     // Group by religion
@@ -2206,10 +2247,11 @@ export class LearnerProfileService {
   }
 
   private static async getDistributionByCommunity(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'community', filters);
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'community', filters, supabaseClient);
     const total = profiles.length;
 
     // Group by community
@@ -2239,10 +2281,11 @@ export class LearnerProfileService {
   }
 
   private static async getDistributionByEntryType(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'entry_type', filters);
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'entry_type', filters, supabaseClient);
     const total = profiles.length;
 
     // Group by entry type
@@ -2272,10 +2315,11 @@ export class LearnerProfileService {
   }
 
   private static async getDistributionByAccommodationType(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'accommodation_type', filters);
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'accommodation_type', filters, supabaseClient);
     const total = profiles.length;
 
     // Group by accommodation type
@@ -2309,7 +2353,8 @@ export class LearnerProfileService {
   // ============================================
 
   private static async getProfileCompletionTiers(
-    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
   ): Promise<{
     excellent: number;
     good: number;
@@ -2320,7 +2365,8 @@ export class LearnerProfileService {
     const profiles = await this.fetchAllRecordsChunked(
       'learners_profiles',
       'is_profile_complete, college_email, academic_year_id, semester_id, section_id',
-      filters
+      filters,
+      supabaseClient
     );
 
     // Categorize profiles into completion tiers

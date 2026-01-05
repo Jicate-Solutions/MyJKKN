@@ -2,9 +2,11 @@
 // LEARNERS DASHBOARD STATS API
 // ============================================
 // Created: 2026-01-05
+// Updated: 2026-01-05 - Removed 'use cache' (incompatible with cookies-based auth)
 // Purpose: Server-side API for dashboard statistics
 // Fixes: CORS errors when calling from client components
-// Note: No dynamic/runtime exports (incompatible with Cache Components mode)
+// Note: Caching handled by React Query on client side (staleTime: 0 for real-time)
+// Architecture: This route uses Supabase auth which requires cookies() - cannot use 'use cache'
 // ============================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,6 +18,11 @@ import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
  * GET /api/learners/dashboard/stats
  *
  * Fetch comprehensive dashboard statistics
+ *
+ * Caching Strategy:
+ * - Server-side: No caching (uses cookies for auth - incompatible with 'use cache')
+ * - Client-side: React Query with staleTime: 0 for real-time data
+ * - Database: Optimized queries with indexes (idx_learners_profiles_updated_at)
  *
  * Query Parameters:
  * - institutionIds: comma-separated list of institution IDs
@@ -29,6 +36,9 @@ import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
  * - dateTo: end date for date range filter
  */
 export async function GET(request: NextRequest) {
+  // Note: Cannot use 'use cache' here because createClient() uses cookies() for auth
+  // This is a fundamental limitation of Next.js 16 Cache Components with auth
+
   try {
     // Check authentication
     const supabase = await createClient();
