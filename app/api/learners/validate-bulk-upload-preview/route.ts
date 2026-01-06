@@ -2,8 +2,11 @@
 // BULK UPLOAD PREVIEW VALIDATION API
 // ============================================
 // Created: 2025-12-29
+// Updated: 2026-01-06 - Fixed institution validation to cascade from Excel data
 // Purpose: Validate academic field values BEFORE upload for complete validation
 // Endpoint: POST /api/learners/validate-bulk-upload-preview
+// Security: Super admins can validate any institution, regular users limited to their own
+// Design: Service cascades validation (Institution→Department→Program→Semester→Section)
 // ============================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -71,9 +74,64 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ========================================
+    // 3.5. SECURITY: Institution Access Check
+    // ========================================
+    // Super admins can validate ANY institution (cross-institution uploads)
+    // Regular users can ONLY validate their OWN institution
+    // This prevents unauthorized cross-institution data access
+    if (!profile.is_super_admin && uniqueValues.institutions && uniqueValues.institutions.length > 0) {
+      // Regular user: must have an institution assigned
+      if (!profile.institution_id) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Your profile has no institution assigned. Please contact administrator.'
+          },
+          { status: 403 }
+        );
+      }
+
+      // Get user's institution name from database
+      const { data: userInstitution, error: instError } = await supabase
+        .from('institutions')
+        .select('name')
+        .eq('id', profile.institution_id)
+        .single();
+
+      if (instError || !userInstitution) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Failed to verify institution access'
+          },
+          { status: 500 }
+        );
+      }
+
+      // Check if ALL institutions in Excel match user's institution (case-insensitive)
+      const userInstitutionName = userInstitution.name.trim().toUpperCase();
+      const unauthorizedInstitutions = uniqueValues.institutions.filter(
+        (instName) => instName.trim().toUpperCase() !== userInstitutionName
+      );
+
+      if (unauthorizedInstitutions.length > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Access denied: You can only upload learners for your institution (${userInstitution.name}). The Excel file contains data for: ${unauthorizedInstitutions.join(', ')}. Super admin access is required for cross-institution uploads.`
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     // 4. Validate with batch service
+    // CRITICAL: Do NOT pass profile.institution_id here
+    // The service cascades from Excel institutions for accurate cross-institution validation
+    // Passing user's institution breaks cascade for super admins and causes inconsistent results
     const validationInput: BatchValidationInput = {
-      institutionId: profile.institution_id || undefined,
+      institutionId: undefined, // Let service cascade from Excel institutions (Step 1→2→3→4)
       uniqueValues
     };
 
