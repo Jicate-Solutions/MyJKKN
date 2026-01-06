@@ -151,9 +151,10 @@ export default function LearnersAnalyticsDashboard() {
       return response.json();
     },
     enabled: hasAccess && !authLoading && !permissionsLoading,
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnMount: true
+    staleTime: 5 * 60 * 1000,      // 5 minutes (cache fresh data for 5 min)
+    gcTime: 10 * 60 * 1000,        // 10 minutes (keep in memory for 10 min)
+    refetchOnMount: true,           // Revalidate in background on mount
+    refetchOnWindowFocus: false     // Don't refetch when window regains focus
   });
 
   // Handle manual refresh

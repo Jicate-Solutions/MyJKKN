@@ -1279,10 +1279,13 @@ export class LearnerProfileService {
       const activations7DayChange = this.calculatePercentageChange(activations7Days, activations30Days - activations7Days);
       const activations30DayChange = this.calculatePercentageChange(activations30Days, activations30To60Days);
 
-      // Conversion metrics - use statusCounts instead of limited profiles array
-      const convertedToActive = activeCount; // Use activeCount from statusCounts
-      const totalEnquiriesAndPending = enquiriesCount + pendingCount; // Combined enquiry + pending
-      const conversionRate = totalEnquiriesAndPending > 0 ? (convertedToActive / totalEnquiriesAndPending) * 100 : 0;
+      // Conversion metrics - FUNNEL MODEL
+      // Fixed: 2026-01-06 - Changed from comparing activeCount to current enquiries (which gave 69,933%)
+      // to a proper funnel model where we measure % of ALL learners who reached active/graduated status
+      // This matches the funnel chart logic and gives meaningful business metrics
+      const convertedToActive = activeCount + graduatedCount; // Successful outcomes (active + graduated)
+      const totalLearnersInFunnel = totalCount; // All learners who entered the system
+      const conversionRate = totalLearnersInFunnel > 0 ? (convertedToActive / totalLearnersInFunnel) * 100 : 0;
 
       // Average time to activation - calculated using SQL for performance
       // Query active profiles and calculate average difference between created_at and updated_at
@@ -1387,9 +1390,9 @@ export class LearnerProfileService {
 
         // Conversion
         conversion: {
-          totalEnquiries: totalEnquiriesAndPending, // Combined enquiry + pending count
-          convertedToActive,
-          conversionRate,
+          totalEnquiries: totalLearnersInFunnel, // Total learners in funnel (all statuses)
+          convertedToActive, // Active + Graduated count
+          conversionRate, // (Active + Graduated) / Total * 100
           averageTimeToActivation: avgTimeToActivation,
           dropOffAtPending,
           dropOffAtApproved
