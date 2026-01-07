@@ -42,9 +42,12 @@ import {
   findDuplicateEmails,
   validateDatabaseFields,
   getDatabaseValidationErrors,
+  checkExistingLearners,
   type ValidationResult,
   type DatabaseValidationResult,
-  type DatabaseValidationErrors
+  type DatabaseValidationErrors,
+  type ExistingLearnerCheckResult,
+  type ExistingLearnersCheckSummary
 } from '@/lib/utils/bulk-upload-validation';
 import type {
   ParsedRow,
@@ -79,10 +82,14 @@ import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 // Helper component to display validation issues (errors and warnings)
 function IssuesDisplay({
   validationResult,
-  databaseValidationErrors
+  databaseValidationErrors,
+  isExistingLearner,
+  existingLearnerInfo
 }: {
   validationResult: ValidationResult;
   databaseValidationErrors?: DatabaseValidationErrors;
+  isExistingLearner?: boolean;
+  existingLearnerInfo?: any;
 }) {
   // Filter warnings to only show for required/warning fields
   const relevantWarnings = validationResult.warnings.filter((warning) => {
@@ -135,8 +142,25 @@ function IssuesDisplay({
         </>
       )}
 
+      {/* EXISTING LEARNER WARNING */}
+      {isExistingLearner && existingLearnerInfo && (
+        <div className="space-y-0.5 bg-amber-50 dark:bg-amber-950 p-2 rounded border border-amber-200">
+          <div className="text-xs text-amber-900 dark:text-amber-100 font-bold">
+            ⚠️ Student Already Exists
+          </div>
+          <div className="text-xs text-amber-800 dark:text-amber-200 space-y-0.5">
+            <div><strong>Email:</strong> {existingLearnerInfo.college_email || existingLearnerInfo.student_email}</div>
+            <div><strong>Mobile:</strong> {existingLearnerInfo.student_mobile}</div>
+            <div><strong>Status:</strong> <span className="capitalize">{existingLearnerInfo.lifecycle_status}</span></div>
+            <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+              This student was created on {new Date(existingLearnerInfo.created_at).toLocaleDateString()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Show warnings ONLY for required fields (if no errors) */}
-      {!hasAnyErrors && relevantWarnings.length > 0 && (
+      {!hasAnyErrors && !isExistingLearner && relevantWarnings.length > 0 && (
         <>
           {relevantWarnings.slice(0, 2).map((warning, idx) => (
             <div key={`warning-${idx}`} className="text-xs text-amber-600 break-words">
@@ -152,9 +176,9 @@ function IssuesDisplay({
       )}
 
       {/* Show "All Good" if no issues */}
-      {!hasAnyErrors && relevantWarnings.length === 0 && (
+      {!hasAnyErrors && !isExistingLearner && relevantWarnings.length === 0 && (
         <div className="text-xs text-green-600 font-medium">
-          OK All fields validated
+          ✓ All fields validated
         </div>
       )}
     </div>
@@ -182,6 +206,9 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
     },
     databaseValidationResult: null,
     isValidatingDatabase: false,
+    existingLearnersResults: null,
+    existingLearnersSummary: null,
+    isCheckingDuplicates: false,
     uploadProgress: 0,
     result: null,
     error: null
@@ -591,7 +618,9 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
               validationStatus: validationResult.status,
               validationResult,
               selected: validationResult.status === 'valid' || validationResult.status === 'warning',
-              isDuplicate: false
+              isDuplicate: false,
+              isExistingLearner: false,
+              existingLearnerInfo: undefined
             };
           });
 
@@ -682,42 +711,90 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
         return updatedRow;
       });
 
-      // Recalculate summary with database validation results
+      toast.dismiss('db-validation');
+
+      // ============================================
+      // STEP 2: Check for existing learners
+      // ============================================
+      toast.loading('Checking for existing students...', { id: 'duplicate-check' });
+      setState(prev => ({ ...prev, isCheckingDuplicates: true }));
+
+      const { results: existingResults, summary: existingSummary } = await checkExistingLearners(updatedRows);
+
+      // Merge existing learner results with rows
+      const finalRows = updatedRows.map(row => {
+        const existingCheck = existingResults.find(r => r.rowNumber === row.rowNumber);
+
+        if (existingCheck?.exists) {
+          return {
+            ...row,
+            isExistingLearner: true,
+            existingLearnerInfo: existingCheck.existingLearner,
+            validationStatus: 'warning' as const, // Show as warning, not error
+            selected: false // Auto-deselect existing students
+          };
+        }
+
+        return row;
+      });
+
+      toast.dismiss('duplicate-check');
+
+      // Recalculate summary with database + duplicate validation results
       const summary: ValidationSummary = {
-        totalRows: updatedRows.length,
-        validRows: updatedRows.filter(r => r.validationStatus === 'valid').length,
-        warningRows: updatedRows.filter(r => r.validationStatus === 'warning').length,
-        errorRows: updatedRows.filter(r => r.validationStatus === 'error').length,
+        totalRows: finalRows.length,
+        validRows: finalRows.filter(r => r.validationStatus === 'valid').length,
+        warningRows: finalRows.filter(r => r.validationStatus === 'warning').length,
+        errorRows: finalRows.filter(r => r.validationStatus === 'error').length,
         duplicateEmails: state.validationSummary.duplicateEmails,
-        selectedRows: updatedRows.filter(r => r.selected).length
+        selectedRows: finalRows.filter(r => r.selected).length
       };
 
       setState(prev => ({
         ...prev,
-        parsedRows: updatedRows,
+        parsedRows: finalRows,
         validationSummary: summary,
         databaseValidationResult: dbValidationResult,
+        existingLearnersResults: existingResults,
+        existingLearnersSummary: existingSummary,
         isValidatingDatabase: false,
+        isCheckingDuplicates: false,
         step: 'validate'
       }));
 
-      toast.dismiss('db-validation');
+      // Show appropriate messages
+      if (existingSummary.duplicates > 0) {
+        toast(
+          `⚠️ Found ${existingSummary.duplicates} student(s) that already exist in the database. They have been deselected.`,
+          {
+            duration: 6000,
+            icon: '⚠️',
+            style: {
+              background: '#fef3c7',
+              color: '#92400e',
+              border: '1px solid #fbbf24'
+            }
+          }
+        );
+      }
 
       if (summary.errorRows > 0) {
-        toast.error(`Database validation found ${summary.errorRows} errors. Check suggestions.`);
-      } else {
-        toast.success('Database validation complete! All fields verified.');
+        toast.error(`Found ${summary.errorRows} validation errors. Please review.`);
+      } else if (existingSummary.duplicates === 0) {
+        toast.success('Validation complete! All students are new and ready to upload.');
       }
     } catch (error) {
-      console.error('[bulk-upload-enquiries] Database validation failed:', error);
+      console.error('[bulk-upload-enquiries] Validation failed:', error);
       setState(prev => ({
         ...prev,
         isValidatingDatabase: false,
+        isCheckingDuplicates: false,
         step: 'validate',
-        error: error instanceof Error ? error.message : 'Database validation failed'
+        error: error instanceof Error ? error.message : 'Validation failed'
       }));
       toast.dismiss('db-validation');
-      toast.error('Database validation failed. You can still upload, but some rows may fail.');
+      toast.dismiss('duplicate-check');
+      toast.error('Validation failed. You can still upload, but some rows may fail.');
     }
   };
 
@@ -880,7 +957,9 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
             // Contact Details
             student_mobile: data.student_mobile,
-            college_email: data.college_email,
+            // CRITICAL FIX: Ensure college_email is NULL if empty (not empty string)
+            // Empty strings violate UNIQUE constraint, NULL values are allowed
+            college_email: data.college_email || null,
             student_email: data.student_email,
 
             // Address Information
@@ -1224,6 +1303,25 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                 </Card>
               </div>
 
+              {/* Existing Students Warning */}
+              {state.existingLearnersSummary && state.existingLearnersSummary.duplicates > 0 && (
+                <Alert variant="default" className="border-amber-500 bg-amber-50 dark:bg-amber-950">
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  <AlertTitle className="text-amber-900 dark:text-amber-100">
+                    {state.existingLearnersSummary.duplicates} Student(s) Already Exist
+                  </AlertTitle>
+                  <AlertDescription className="text-amber-800 dark:text-amber-200">
+                    Found {state.existingLearnersSummary.duplicates} student(s) that already exist in the database.
+                    They have been automatically <strong>deselected</strong> to prevent duplicates.
+                    You can review them in the table below (marked with ⚠️).
+                    <div className="mt-2 text-sm">
+                      <strong>New students:</strong> {state.existingLearnersSummary.new} •{' '}
+                      <strong>Already exist:</strong> {state.existingLearnersSummary.duplicates}
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {/* Important Notice */}
               <Alert variant="default" className="border-blue-500 bg-blue-50 dark:bg-blue-950">
                 <AlertCircle className="h-4 w-4 text-blue-600" />
@@ -1393,7 +1491,19 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                           </TableCell>
 
                           {/* SECTION 1: Personal Info */}
-                          <TableCell className="text-xs">{row.sanitizedData.first_name || '-'}</TableCell>
+                          <TableCell className="text-xs">
+                            <div className="flex items-center gap-1">
+                              {row.sanitizedData.first_name || '-'}
+                              {row.isExistingLearner && (
+                                <span
+                                  className="text-amber-600 font-bold cursor-help"
+                                  title={`Already exists: ${row.existingLearnerInfo?.college_email || row.existingLearnerInfo?.student_email || 'In database'} (${row.existingLearnerInfo?.lifecycle_status})`}
+                                >
+                                  ⚠️
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.last_name || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.date_of_birth || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.gender || '-'}</TableCell>
@@ -1486,6 +1596,8 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                               <IssuesDisplay
                                 validationResult={row.validationResult}
                                 databaseValidationErrors={row.databaseValidationErrors}
+                                isExistingLearner={row.isExistingLearner}
+                                existingLearnerInfo={row.existingLearnerInfo}
                               />
                             )}
                           </TableCell>

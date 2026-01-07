@@ -975,3 +975,73 @@ export function getDatabaseValidationErrors(
 
   return errors;
 }
+
+// ============================================
+// EXISTING LEARNER DETECTION
+// ============================================
+
+export interface ExistingLearnerCheckResult {
+  rowNumber: number;
+  exists: boolean;
+  matchedBy: ('student_email' | 'student_mobile' | 'college_email')[];
+  existingLearner?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    student_email: string;
+    student_mobile: string;
+    college_email: string | null;
+    lifecycle_status: string;
+    created_at: string;
+  };
+}
+
+export interface ExistingLearnersCheckSummary {
+  total: number;
+  duplicates: number;
+  new: number;
+}
+
+/**
+ * Check if learners already exist in the database
+ * Prevents duplicate uploads and shows which students are already registered
+ */
+export async function checkExistingLearners(
+  rows: Array<{ rowNumber: number; sanitizedData: Record<string, any> }>
+): Promise<{
+  results: ExistingLearnerCheckResult[];
+  summary: ExistingLearnersCheckSummary;
+}> {
+  // Extract learner identifiers from rows
+  const learners = rows.map(row => ({
+    rowNumber: row.rowNumber,
+    first_name: row.sanitizedData.first_name,
+    last_name: row.sanitizedData.last_name,
+    student_email: row.sanitizedData.student_email,
+    student_mobile: row.sanitizedData.student_mobile,
+    college_email: row.sanitizedData.college_email
+  }));
+
+  const response = await fetch('/api/learners/check-existing-learners', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ learners })
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to check existing learners');
+  }
+
+  const result = await response.json();
+
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to check existing learners');
+  }
+
+  return {
+    results: result.results,
+    summary: result.summary
+  };
+}
