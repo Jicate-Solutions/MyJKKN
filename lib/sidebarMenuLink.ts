@@ -195,7 +195,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/bug-reports': 'system.bugs.view',
   '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
 
-  // Billing Management
+  // Billing Management - Admin/Staff Views
   '/billing/categories/parent-categories': 'billing.parent_categories.view',
   '/billing/categories/parent-categories/new':
     'billing.parent_categories.create',
@@ -235,6 +235,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/invoices/[id]': 'billing.invoices.view',
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
   '/billing/reports': 'billing.reports.view',
+
 
   // Resource Management
   '/resource-management': 'resources.categories.view',
@@ -946,6 +947,8 @@ export function GetRoleBasedPages(
     ];
   }
 
+  const isStudent = userRole.role_key === 'student';
+
   // Filter menus based on permissions
   return allMenus
     .map((group) => {
@@ -992,13 +995,46 @@ export function GetRoleBasedPages(
         })
         .map((menu) => {
           // Filter submenus as well
-          if (menu.submenus.length === 0) return menu;
+          if (menu.submenus.length === 0) {
+            // Change billing menu labels for students
+            if (isStudent) {
+              if (menu.href === '/billing/schedule') {
+                return { ...menu, label: 'My Bills' };
+              }
+              if (menu.href === '/billing/receipts') {
+                return { ...menu, label: 'My Receipts' };
+              }
+              if (menu.href === '/billing/invoices') {
+                return { ...menu, label: 'My Invoices' };
+              }
+            }
+            return menu;
+          }
 
           const filteredSubmenus = menu.submenus.filter((submenu) => {
             const requiredPermission = MENU_PERMISSIONS[submenu.href];
             if (!requiredPermission) return false; // Changed to false to be consistent
 
+            // Hide "Student Search" submenu for students
+            if (isStudent && submenu.href === '/billing/schedule/students') {
+              return false;
+            }
+
             return userRole.permissions[requiredPermission] === true;
+          }).map((submenu) => {
+            // Change submenu labels for students
+            if (isStudent) {
+              if (submenu.href === '/billing/schedule') {
+                return { ...submenu, label: 'My Bills' };
+              }
+              if (submenu.href === '/billing/receipts') {
+                return { ...submenu, label: 'My Receipts' };
+              }
+              if (submenu.href === '/billing/invoices') {
+                return { ...submenu, label: 'My Invoices' };
+              }
+            }
+            return submenu;
           });
 
           return {

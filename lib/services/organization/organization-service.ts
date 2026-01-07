@@ -483,28 +483,57 @@ export class OrganizationService {
         .eq('id', id)
         .single();
 
-      if (institutionError) throw institutionError;
+      if (institutionError) {
+        console.error('[OrganizationService] Error fetching institution:', {
+          institutionId: id,
+          error: institutionError
+        });
+        throw new Error(institutionError.message || 'Failed to fetch institution');
+      }
 
-      // Fetch department contacts
+      if (!institution) {
+        throw new Error('Institution not found');
+      }
+
+      // Fetch departments for this institution
       const { data: departments, error: departmentsError } = await this.supabase
-        .from('institution_departments')
+        .from('departments')
         .select('*')
         .eq('institution_id', id);
 
-      if (departmentsError) throw departmentsError;
+      if (departmentsError) {
+        console.error('[OrganizationService] Error fetching departments:', {
+          institutionId: id,
+          error: departmentsError
+        });
+        // Don't throw for departments error - just return empty departments
+        return {
+          institution,
+          departments: {}
+        };
+      }
 
       // Transform departments into expected format
-      const transformedDepartments = this.transformDepartments(departments);
+      const transformedDepartments = this.transformDepartments(departments || []);
 
       return {
         institution,
         departments: transformedDepartments
       };
     } catch (error) {
-      console.error('Error fetching institution:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to fetch institution'
-      );
+      console.error('[OrganizationService] Error in getInstitution:', {
+        institutionId: id,
+        error: error instanceof Error ? error.message : String(error),
+        errorDetails: error
+      });
+
+      // Only show toast in browser context
+      if (typeof window !== 'undefined') {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to fetch institution'
+        );
+      }
+
       throw error;
     }
   }

@@ -17,6 +17,7 @@ import { InvoicesTableServer } from './_components/invoices-table-server';
 import { InvoicesFiltersClient } from './_components/invoices-filters-client';
 import { InvoicesPaginationClient } from './_components/invoices-pagination-client';
 import { TableSkeleton } from '@/components/Loading';
+import { getEnhancedUserProfile } from '@/lib/supabase/server';
 
 interface SearchParams {
   page?: string;
@@ -40,6 +41,10 @@ export default async function BillingInvoicesPage({
 }: BillingInvoicesPageProps) {
   const params = await searchParams;
 
+  // Get user profile to check role
+  const { profile } = await getEnhancedUserProfile();
+  const isStudent = profile?.role === 'student';
+
   // Build filters from URL params
   const filters = {
     page: params.page ? parseInt(params.page) : 1,
@@ -60,9 +65,6 @@ export default async function BillingInvoicesPage({
   // Fetch data server-side with caching
   const { data: invoices, metadata } = await getInvoices(filters);
 
-  // TODO: Add permission check here using server-side auth
-  // For now, assuming user has access
-
   return (
     <ContentLayout title='Billing Invoices'>
       <PageBreadcrumb
@@ -81,14 +83,17 @@ export default async function BillingInvoicesPage({
               features
             </p>
           </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/billing/invoices/new'>
-                <Plus className='mr-2 h-4 w-4' />
-                Create Invoice
-              </Link>
-            </Button>
-          </div>
+          {/* Hide Create Invoice button for students */}
+          {!isStudent && (
+            <div className='flex flex-col sm:flex-row gap-2'>
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/billing/invoices/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Create Invoice
+                </Link>
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Filters (Client Component) */}
@@ -96,7 +101,7 @@ export default async function BillingInvoicesPage({
 
         {/* Data Table (Server Component with Suspense) */}
         <Suspense fallback={<TableSkeleton rows={10} columns={6} />}>
-          <InvoicesTableServer invoices={invoices} metadata={metadata} />
+          <InvoicesTableServer invoices={invoices} metadata={metadata} isStudentView={isStudent} />
         </Suspense>
 
         {/* Pagination (Client Component) */}

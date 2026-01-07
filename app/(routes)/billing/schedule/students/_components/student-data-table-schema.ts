@@ -23,6 +23,7 @@ export const studentBillingSearchParamsSchema = z.object({
   roll_number: z.string().optional(),
   mobile_number: z.string().optional(),
   is_profile_complete: z.boolean().optional(),
+  student_email: z.string().optional(), // For filtering by student email (used for student role)
 });
 
 export type StudentBillingSearchParams = z.infer<typeof studentBillingSearchParamsSchema>;

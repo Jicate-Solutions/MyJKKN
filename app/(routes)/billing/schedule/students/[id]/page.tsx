@@ -38,6 +38,7 @@ import {
 
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 import { BeatLoader } from 'react-spinners';
 import {
   useStudentForBilling,
@@ -53,6 +54,10 @@ export default function StudentBillingDetailPage() {
   const params = useParams();
   const router = useRouter();
   const studentId = params.id as string;
+  const { profile } = useAuth();
+
+  // Check if user is a student
+  const isStudent = profile?.role === 'student';
 
   const [billStatusFilter, setBillStatusFilter] = useState<string>('all');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -296,8 +301,8 @@ export default function StudentBillingDetailPage() {
             </div>
           </div>
 
-          {/* Schedule Bill Button - Full width on mobile */}
-          {canCreateBills && (
+          {/* Schedule Bill Button - Full width on mobile - Hidden for students */}
+          {!isStudent && canCreateBills && (
             <Button asChild className='w-full sm:w-auto sm:self-start'>
               <Link href={`/billing/schedule/new?student_id=${studentId}`}>
                 <Plus className='mr-2 h-4 w-4' />
@@ -614,16 +619,19 @@ export default function StudentBillingDetailPage() {
                     </Select>
                   </div>
                   <div className='flex gap-2'>
-                    <Button
-                      variant='default'
-                      size='sm'
-                      onClick={() => setShowPaymentModal(true)}
-                      disabled={billingSummary.summary.outstanding_amount <= 0}
-                      className='w-full sm:w-auto'
-                    >
-                      <CreditCard className='h-4 w-4' />
-                      <span className='ml-2'>Pay Online</span>
-                    </Button>
+                    {/* Pay Online Button - Hidden for students */}
+                    {!isStudent && (
+                      <Button
+                        variant='default'
+                        size='sm'
+                        onClick={() => setShowPaymentModal(true)}
+                        disabled={billingSummary.summary.outstanding_amount <= 0}
+                        className='w-full sm:w-auto'
+                      >
+                        <CreditCard className='h-4 w-4' />
+                        <span className='ml-2'>Pay Online</span>
+                      </Button>
+                    )}
                     <Button
                       variant='outline'
                       size='sm'
@@ -661,6 +669,7 @@ export default function StudentBillingDetailPage() {
                     bills={billingSummary.bills}
                     statusFilter={billStatusFilter}
                     onRefresh={refetchSummary}
+                    isStudentView={isStudent}
                   />
                 </TabsContent>
 
