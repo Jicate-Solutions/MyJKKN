@@ -48,16 +48,20 @@ export function TemplatePreviewModal({
   const { isSuperAdmin, canAccess } = usePermissions();
 
   const canCreate = isSuperAdmin || canAccess('academic.timetables', 'create');
-  const canEdit = isSuperAdmin || canAccess('academic.timetables', 'edit');
+  const canEdit = isSuperAdmin || canAccess('academic.timetables.templates', 'edit');
 
   const handleUseTemplate = () => {
-    router.push(`/academic/timetables/new?template_id=${template.id}`);
     onOpenChange(false);
+    setTimeout(() => {
+      router.push(`/academic/timetables/new?template_id=${template.id}`);
+    }, 100);
   };
 
   const handleEditTemplate = () => {
-    router.push(`/academic/timetables/${template.id}/edit?is_template=true`);
     onOpenChange(false);
+    setTimeout(() => {
+      router.push(`/academic/timetables/${template.id}/edit?is_template=true`);
+    }, 100);
   };
 
   const renderTimetableGrid = () => {
