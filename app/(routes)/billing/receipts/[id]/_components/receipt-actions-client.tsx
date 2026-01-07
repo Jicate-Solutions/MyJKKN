@@ -40,9 +40,13 @@ import type { BillingReceipt } from '@/types/billing-schedule';
 
 interface ReceiptActionsClientProps {
   receipt: BillingReceipt;
+  isStudentView?: boolean;
 }
 
-export function ReceiptActionsClient({ receipt }: ReceiptActionsClientProps) {
+export function ReceiptActionsClient({
+  receipt,
+  isStudentView = false
+}: ReceiptActionsClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [sendLoading, setSendLoading] = useState(false);
@@ -136,14 +140,19 @@ export function ReceiptActionsClient({ receipt }: ReceiptActionsClientProps) {
           </Button>
         )}
 
-        <Button variant='outline' size='sm' asChild>
-          <Link href={`/billing/receipts/${receipt.id}/edit`}>
-            <Edit className='mr-2 h-4 w-4' />
-            Edit
-          </Link>
-        </Button>
+        {/* Hide Edit button for students */}
+        {!isStudentView && (
+          <Button variant='outline' size='sm' asChild>
+            <Link href={`/billing/receipts/${receipt.id}/edit`}>
+              <Edit className='mr-2 h-4 w-4' />
+              Edit
+            </Link>
+          </Button>
+        )}
 
-        <AlertDialog>
+        {/* Hide Delete button for students */}
+        {!isStudentView && (
+          <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant='destructive' size='sm' disabled={isPending}>
               <Trash2 className='mr-2 h-4 w-4' />
@@ -171,6 +180,7 @@ export function ReceiptActionsClient({ receipt }: ReceiptActionsClientProps) {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        )}
       </div>
     </div>
   );

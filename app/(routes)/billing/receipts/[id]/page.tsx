@@ -12,6 +12,7 @@ import { PageSkeleton } from '@/components/Loading';
 import { getReceipt } from '../_data/get-receipt';
 import { ReceiptActionsClient } from './_components/receipt-actions-client';
 import { ReceiptDetailsServer } from './_components/receipt-details-server';
+import { getEnhancedUserProfile } from '@/lib/supabase/server';
 
 interface ReceiptDetailsPageProps {
   params: Promise<{
@@ -23,6 +24,10 @@ export default async function ReceiptDetailsPage({
   params
 }: ReceiptDetailsPageProps) {
   const { id } = await params;
+
+  // Get user profile to check role
+  const { profile } = await getEnhancedUserProfile();
+  const isStudent = profile?.role === 'student';
 
   try {
     // Fetch receipt server-side with caching
@@ -44,7 +49,7 @@ export default async function ReceiptDetailsPage({
 
         <div className='space-y-6 mt-4'>
           {/* Client component for interactive actions */}
-          <ReceiptActionsClient receipt={receipt} />
+          <ReceiptActionsClient receipt={receipt} isStudentView={isStudent} />
 
           {/* Server component for display */}
           <Suspense fallback={<PageSkeleton />}>

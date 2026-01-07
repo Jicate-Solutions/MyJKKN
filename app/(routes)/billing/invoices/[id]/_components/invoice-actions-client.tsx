@@ -39,9 +39,13 @@ import type { BillingInvoice } from '@/types/billing-schedule';
 
 interface InvoiceActionsClientProps {
   invoice: BillingInvoice;
+  isStudentView?: boolean;
 }
 
-export function InvoiceActionsClient({ invoice }: InvoiceActionsClientProps) {
+export function InvoiceActionsClient({
+  invoice,
+  isStudentView = false
+}: InvoiceActionsClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [sendLoading, setSendLoading] = useState(false);
@@ -125,14 +129,19 @@ export function InvoiceActionsClient({ invoice }: InvoiceActionsClientProps) {
           </Button>
         )}
 
-        <Button variant='outline' size='sm' asChild>
-          <Link href={`/billing/invoices/${invoice.id}/edit`}>
-            <Edit className='mr-2 h-4 w-4' />
-            Edit
-          </Link>
-        </Button>
+        {/* Hide Edit button for students */}
+        {!isStudentView && (
+          <Button variant='outline' size='sm' asChild>
+            <Link href={`/billing/invoices/${invoice.id}/edit`}>
+              <Edit className='mr-2 h-4 w-4' />
+              Edit
+            </Link>
+          </Button>
+        )}
 
-        <AlertDialog>
+        {/* Hide Delete button for students */}
+        {!isStudentView && (
+          <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant='destructive' size='sm' disabled={isPending}>
               <Trash2 className='mr-2 h-4 w-4' />
@@ -160,6 +169,7 @@ export function InvoiceActionsClient({ invoice }: InvoiceActionsClientProps) {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        )}
       </div>
     </div>
   );

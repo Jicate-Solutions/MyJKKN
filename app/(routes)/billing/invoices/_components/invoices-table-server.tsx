@@ -28,11 +28,13 @@ interface InvoicesTableServerProps {
     limit: number;
     totalPages: number;
   };
+  isStudentView?: boolean;
 }
 
 export function InvoicesTableServer({
   invoices,
-  metadata
+  metadata,
+  isStudentView = false
 }: InvoicesTableServerProps) {
   if (invoices.length === 0) {
     return (
@@ -87,11 +89,14 @@ export function InvoicesTableServer({
                       <Eye className="h-4 w-4" />
                     </Link>
                   </Button>
-                  <Button variant="ghost" size="sm" asChild>
-                    <Link href={`/billing/invoices/${invoice.id}/edit`}>
-                      <PenSquare className="h-4 w-4" />
-                    </Link>
-                  </Button>
+                  {/* Hide Edit button for students */}
+                  {!isStudentView && (
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link href={`/billing/invoices/${invoice.id}/edit`}>
+                        <PenSquare className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                  )}
                 </div>
               </TableCell>
             </TableRow>

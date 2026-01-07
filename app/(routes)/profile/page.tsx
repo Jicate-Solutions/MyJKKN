@@ -60,7 +60,11 @@ export default function ProfilePage() {
         );
         setInstitutionData(result.institution);
       } catch (error) {
-        console.error('Error fetching institution data:', error);
+        console.error('[ProfilePage] Error fetching institution data:', {
+          institutionId: profile.institution_id,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          errorDetails: error
+        });
         setInstitutionData(null);
       } finally {
         setInstitutionLoading(false);

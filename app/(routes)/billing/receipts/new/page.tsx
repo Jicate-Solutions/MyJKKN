@@ -195,6 +195,16 @@ export default function NewReceiptPage() {
       ...prev,
       [field]: value
     }));
+
+    // CRITICAL FIX: When payment_amount changes and there's only ONE bill selected,
+    // also update billPayAmounts to match the new payment amount
+    // This prevents the bug where receipt item gets full bill amount instead of partial payment
+    if (field === 'payment_amount' && selectedBills.length === 1) {
+      const singleBillId = selectedBills[0].id;
+      setBillPayAmounts({
+        [singleBillId]: value
+      });
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

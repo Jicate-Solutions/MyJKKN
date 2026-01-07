@@ -17,6 +17,7 @@ import { getReceipts } from './_data/get-receipts';
 import { ReceiptsTableServer } from './_components/receipts-table-server';
 import { ReceiptsFiltersClient } from './_components/receipts-filters-client';
 import { ReceiptsPaginationClient } from './_components/receipts-pagination-client';
+import { getEnhancedUserProfile } from '@/lib/supabase/server';
 
 interface SearchParams {
   page?: string;
@@ -39,6 +40,10 @@ export default async function BillingReceiptsPage({
   searchParams
 }: BillingReceiptsPageProps) {
   const params = await searchParams;
+
+  // Get user profile to check role
+  const { profile } = await getEnhancedUserProfile();
+  const isStudent = profile?.role === 'student';
 
   // Build filters from URL params
   const filters = {
@@ -81,14 +86,17 @@ export default async function BillingReceiptsPage({
               from student billing details.
             </p>
           </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/billing/receipts/new'>
-                <Plus className='mr-2 h-4 w-4' />
-                Create Receipt
-              </Link>
-            </Button>
-          </div>
+          {/* Hide Create Receipt button for students */}
+          {!isStudent && (
+            <div className='flex flex-col sm:flex-row gap-2'>
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/billing/receipts/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Create Receipt
+                </Link>
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Filters (Client Component) */}
@@ -96,7 +104,7 @@ export default async function BillingReceiptsPage({
 
         {/* Data Table (Server Component with Suspense) */}
         <Suspense fallback={<TableSkeleton rows={10} columns={6} />}>
-          <ReceiptsTableServer receipts={receipts} metadata={metadata} />
+          <ReceiptsTableServer receipts={receipts} metadata={metadata} isStudentView={isStudent} />
         </Suspense>
 
         {/* Pagination (Client Component) */}

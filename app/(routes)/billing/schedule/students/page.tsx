@@ -6,6 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 import { BeatLoader } from 'react-spinners';
 import { StudentSearchFilters } from './_components/student-search-filters';
 import { StudentDataTable } from './_components/student-data-table';
@@ -18,6 +19,11 @@ import type { StudentSearchFilters as StudentSearchFiltersType } from '@/types/b
 function BillingStudentsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { profile, isLoading: authLoading } = useAuth();
+
+  // Check if user is a student
+  const isStudent = profile?.role === 'student';
+  const studentEmail = isStudent ? profile?.email : undefined;
 
   // Memoize search object parsing to prevent recreation on every render
   const search = useMemo(() => {
@@ -41,9 +47,11 @@ function BillingStudentsContent() {
       roll_number: searchParams.get('roll_number') || undefined,
       mobile_number: searchParams.get('mobile_number') || undefined,
       is_profile_complete:
-        searchParams.get('is_profile_complete') === 'true' ? true : undefined
+        searchParams.get('is_profile_complete') === 'true' ? true : undefined,
+      // If student, filter by their email automatically
+      student_email: isStudent ? studentEmail : searchParams.get('student_email') || undefined
     });
-  }, [searchParams]);
+  }, [searchParams, isStudent, studentEmail]);
 
   // Simplified filter state management - derive filters from search params
   const filters = useMemo(() => {
@@ -124,9 +132,9 @@ function BillingStudentsContent() {
     console.log('Export students list with filters:', filters);
   };
 
-  if (permissionsLoading) {
+  if (permissionsLoading || authLoading) {
     return (
-      <ContentLayout title='Student Billing Search'>
+      <ContentLayout title={isStudent ? 'My Bills' : 'Student Billing Search'}>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' />
         </div>
@@ -136,33 +144,37 @@ function BillingStudentsContent() {
 
   if (!canViewStudents) {
     return (
-      <ContentLayout title='Student Billing Search'>
+      <ContentLayout title={isStudent ? 'My Bills' : 'Student Billing Search'}>
         <div className='text-center py-8'>
           <p className='text-destructive'>
-            You don&apos;t have permission to view student billing information.
+            You don&apos;t have permission to view billing information.
           </p>
         </div>
       </ContentLayout>
     );
   }
 
+  const pageTitle = isStudent ? 'My Bills' : 'Student Billing Search';
+  const pageDescription = isStudent
+    ? 'View your billing information and payment history'
+    : 'Search and manage student billing information with advanced filters';
+
   return (
-    <ContentLayout title='Student Billing Search'>
+    <ContentLayout title={pageTitle}>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing/schedule' },
-          { label: 'Students', href: '/billing/schedule/students' }
+          { label: isStudent ? 'My Bills' : 'Students', href: '/billing/schedule/students' }
         ]}
       />
 
       <div className='space-y-6 mt-4'>
         <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
           <div>
-            <h1 className='text-2xl font-bold py-1'>Student Billing Search</h1>
+            <h1 className='text-2xl font-bold py-1'>{pageTitle}</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Search and manage student billing information with advanced
-              filters
+              {pageDescription}
             </p>
           </div>
           {/* Export functionality is now handled by the DataTable component */}
@@ -172,13 +184,16 @@ function BillingStudentsContent() {
 
         <Card>
           <CardContent className='p-6'>
-            <StudentSearchFilters
-              filters={filters}
-              onFilterChange={handleFilterChange}
-            />
+            {/* Hide search filters for students - they only see their own data */}
+            {!isStudent && (
+              <StudentSearchFilters
+                filters={filters}
+                onFilterChange={handleFilterChange}
+              />
+            )}
 
-            <div className='mt-6'>
-              <StudentDataTable search={search} />
+            <div className={isStudent ? '' : 'mt-6'}>
+              <StudentDataTable search={search} isStudentView={isStudent} />
             </div>
           </CardContent>
         </Card>

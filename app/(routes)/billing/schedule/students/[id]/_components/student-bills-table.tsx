@@ -66,26 +66,29 @@ interface StudentBillsTableProps {
   bills: StudentBill[];
   statusFilter: string;
   onRefresh: () => void;
+  isStudentView?: boolean; // New prop to indicate if viewing as student
 }
 
 export function StudentBillsTable({
   bills,
   statusFilter,
-  onRefresh
+  onRefresh,
+  isStudentView = false
 }: StudentBillsTableProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
   const [selectedBills, setSelectedBills] = useState<string[]>([]);
 
-  const canEditBills = isSuperAdmin || canAccess('billing.schedule', 'update');
+  // Students have view-only access - hide all action permissions
+  const canEditBills = !isStudentView && (isSuperAdmin || canAccess('billing.schedule', 'update'));
   const canDeleteBills =
-    isSuperAdmin || canAccess('billing.schedule', 'delete');
+    !isStudentView && (isSuperAdmin || canAccess('billing.schedule', 'delete'));
   const canCreateReceipts =
-    isSuperAdmin || canAccess('billing.receipts', 'create');
+    !isStudentView && (isSuperAdmin || canAccess('billing.receipts', 'create'));
   const canApplyDiscounts =
-    isSuperAdmin || canAccess('billing.discounts', 'create');
+    !isStudentView && (isSuperAdmin || canAccess('billing.discounts', 'create'));
   const canProcessRefunds =
-    isSuperAdmin || canAccess('billing.refunds', 'create');
+    !isStudentView && (isSuperAdmin || canAccess('billing.refunds', 'create'));
 
   // Filter bills based on status
   const filteredBills = useMemo(() => {
@@ -175,6 +178,8 @@ export function StudentBillsTable({
   };
 
   const canSelectBill = (bill: StudentBill) => {
+    // Students cannot select bills (view-only access)
+    if (isStudentView) return false;
     return bill.status === 'unpaid' || bill.status === 'partially_paid';
   };
 

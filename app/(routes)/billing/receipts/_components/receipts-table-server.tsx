@@ -28,11 +28,13 @@ interface ReceiptsTableServerProps {
     limit: number;
     totalPages: number;
   };
+  isStudentView?: boolean;
 }
 
 export function ReceiptsTableServer({
   receipts,
-  metadata
+  metadata,
+  isStudentView = false
 }: ReceiptsTableServerProps) {
   if (receipts.length === 0) {
     return (
@@ -87,11 +89,14 @@ export function ReceiptsTableServer({
                       <Eye className="h-4 w-4" />
                     </Link>
                   </Button>
-                  <Button variant="ghost" size="sm" asChild>
-                    <Link href={`/billing/receipts/${receipt.id}/edit`}>
-                      <PenSquare className="h-4 w-4" />
-                    </Link>
-                  </Button>
+                  {/* Hide Edit button for students */}
+                  {!isStudentView && (
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link href={`/billing/receipts/${receipt.id}/edit`}>
+                        <PenSquare className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                  )}
                 </div>
               </TableCell>
             </TableRow>
