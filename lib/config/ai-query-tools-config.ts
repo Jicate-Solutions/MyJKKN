@@ -7,6 +7,14 @@
  * - staff → learning facilitators (academic) / team members (non-academic)
  * - attendance → learning participation
  * - grades → learning assessments
+ *
+ * RECENT IMPROVEMENTS (2026-01-07):
+ * ✅ All learner/admission query tools now return COMPLETE name mappings:
+ *    - Institution name, Department name, Program name, Semester name, Section name
+ *    - Degree name, Academic year name, Batch name, Regulation details (year + code)
+ * ✅ Statistics functions now group by ACTUAL NAMES instead of IDs
+ *    - Example: "Department of Dentistry (UG)" instead of "Department 1"
+ * ✅ AI can now provide meaningful, human-readable responses for ALL queries
  */
 
 export type ToolCategory =
@@ -191,7 +199,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
   // Learner Tools (JKKN: students → learners)
   {
     name: 'get_students',
-    description: 'Get list of learners with optional filters by department, program, section, status, or search term',
+    description: 'Get list of learners with COMPLETE academic hierarchy names - returns institution name, department name, program name, semester name, section name, degree name, academic year, batch name, and regulation details. Supports filters by department, program, section, status, or search term.',
     category: 'learners',
     permission: 'learners.view',
     tier: 1,
@@ -227,14 +235,14 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
   },
   {
     name: 'search_students',
-    description: 'Advanced learner search - find learners by name, roll number, email, mobile, learning partner name, or other fields',
+    description: 'Advanced learner search - find learners by name, roll number, email, mobile, learning partner name, or other fields. Returns complete academic details including institution name, department name, program name, semester name, section name, degree name, academic year, batch, and regulation information.',
     category: 'learners',
     permission: 'learners.view',
     tier: 1,
     rpcFunction: 'ai_rpc_student_search',
     parameters: [
       { name: 'search_query', type: 'string', description: 'The search term to look for', required: true },
-      { name: 'search_fields', type: 'array', description: 'Fields to search in: name, roll_number, email, mobile, application_id, aadhar, father_name, mother_name' },
+      { name: 'search_fields', type: 'array', description: 'Fields to search in: name, roll_number, email, mobile, application_id, father_name, mother_name' },
       { name: 'status', type: 'string', description: 'Filter by learner status', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'] },
       { name: 'department_id', type: 'string', description: 'Filter by department UUID' },
       { name: 'exact_match', type: 'boolean', description: 'If true, performs exact match instead of partial match' },
@@ -243,6 +251,8 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
       'Find learner named BOOBALAN',
       'Search for learner with email john@example.com',
       'Look up learner by roll number 792604008',
+      'Which program and department is learner AARTHI M in?',
+      'What regulation year does roll number DB23A001 follow?',
     ],
   },
   {
@@ -306,7 +316,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
   },
   {
     name: 'get_learners_comprehensive',
-    description: 'MOST POWERFUL learner search - searches ALL learner data across ALL institutions. Supports filtering by demographics (gender, religion, community, caste), accommodation (hostel, day scholar, bus), academic hierarchy, admission details (quota, category, first graduate), location, and education background. Returns comprehensive statistics breakdown.',
+    description: 'MOST POWERFUL learner search - searches ALL learner data across ALL institutions with COMPLETE name mappings. Returns institution name, department name, program name, semester name, section name, degree name, academic year name, batch name, and regulation details (year + code) for every learner. Supports filtering by demographics (gender, religion, community, caste), accommodation (hostel, day scholar, bus), academic hierarchy, admission details (quota, category), location, and education background. Returns comprehensive statistics breakdown.',
     category: 'learners',
     permission: 'learners.view',
     tier: 1,
@@ -361,7 +371,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
   // Admissions Tools (JKKN: Admission Applications merged with learners)
   {
     name: 'get_admissions',
-    description: 'Comprehensive admission query - search ALL admission fields including demographics, location, quota, counseling, and more. Queries learners in enquiry/admitted/registered status.',
+    description: 'Comprehensive admission query with COMPLETE academic context - search ALL admission fields including demographics, location, quota, counseling, and more. Returns institution name, department name, program name, degree name, academic year, batch name, and regulation details for each admission. Queries learners in enquiry/admitted/registered status.',
     category: 'learners',
     permission: 'learners.admissions.view',
     tier: 1,
@@ -431,7 +441,7 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
   },
   {
     name: 'get_admission_statistics',
-    description: 'Get admission statistics - total applications, status breakdown, demographics, community-wise, etc.',
+    description: 'Get comprehensive admission statistics with ACTUAL NAMES (not IDs) - total applications, status breakdown, demographics by department name, program name, degree name, academic year, batch name, regulation, community, gender, and district. All groupings show human-readable names for easy AI interpretation.',
     category: 'learners',
     permission: 'learners.admissions.dashboard',
     tier: 1,
@@ -446,6 +456,10 @@ export const AI_QUERY_TOOLS_REGISTRY: AIQueryToolConfig[] = [
       'Show admission statistics for this year',
       'Get status-wise admission breakdown',
       'How many admissions per department?',
+      'Which departments have the most admissions?',
+      'Show admissions by degree type',
+      'What are the admission trends by regulation?',
+      'Get batch-wise admission distribution',
     ],
   },
   {

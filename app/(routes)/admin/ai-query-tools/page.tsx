@@ -111,6 +111,45 @@ function AIQueryToolsContent() {
           </Badge>
         </div>
 
+        {/* Recent Improvements Banner */}
+        <Card className="border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-950/20">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                <Bot className="h-5 w-5 text-green-600 dark:text-green-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-green-900 dark:text-green-100 mb-2">
+                  ✨ Enhanced AI Query Responses (Updated: Jan 7, 2026)
+                </h3>
+                <p className="text-sm text-green-800 dark:text-green-200 mb-3">
+                  All learner and admission query tools now return <strong>complete name mappings</strong> instead of IDs, enabling more meaningful AI responses:
+                </p>
+                <div className="grid md:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div className="font-medium text-green-900 dark:text-green-100 mb-1">Now Returns:</div>
+                    <ul className="space-y-1 text-green-700 dark:text-green-300">
+                      <li>✓ Institution name, Department name</li>
+                      <li>✓ Program name, Semester name, Section name</li>
+                      <li>✓ Degree name, Academic year, Batch name</li>
+                      <li>✓ Regulation details (year + code)</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="font-medium text-green-900 dark:text-green-100 mb-1">Benefits:</div>
+                    <ul className="space-y-1 text-green-700 dark:text-green-300">
+                      <li>✓ Statistics show actual names, not "Department 1"</li>
+                      <li>✓ AI provides clear, human-readable answers</li>
+                      <li>✓ Complete academic context for every query</li>
+                      <li>✓ Better insights from admission analytics</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Overview Stats */}
         <ToolsOverview />
 
