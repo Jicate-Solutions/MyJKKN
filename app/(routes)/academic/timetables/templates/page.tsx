@@ -58,8 +58,8 @@ export default function TemplateLibraryPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Permission checks
-  const canCreateTemplate = isSuperAdmin || canAccess('academic.timetables', 'create');
-  const canManageTemplates = isSuperAdmin || canAccess('academic.timetables', 'edit');
+  const canCreateTemplate = isSuperAdmin || canAccess('academic.timetables.templates', 'create');
+  const canManageTemplates = isSuperAdmin || canAccess('academic.timetables.templates', 'edit');
 
   // Parse current search parameters
   const currentSearch = Object.fromEntries(searchParams?.entries() ?? []);
@@ -95,7 +95,7 @@ export default function TemplateLibraryPage() {
   }, [router, searchParams]);
 
   return (
-    <PermissionGuard module='academic.timetables' action='view'>
+    <PermissionGuard module='academic.timetables.templates' action='view'>
       <ContentLayout title='Template Library'>
         <div className='space-y-4 md:space-y-6'>
           {/* Header Section - Improved responsiveness */}

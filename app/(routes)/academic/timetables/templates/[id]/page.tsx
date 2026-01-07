@@ -51,7 +51,7 @@ export default function TemplatePage() {
 
   const { data: template, isLoading, error } = useTemplate(templateId);
 
-  const canEdit = isSuperAdmin || canAccess('academic.timetables', 'edit');
+  const canEdit = isSuperAdmin || canAccess('academic.timetables.templates', 'edit');
   const canCreate = isSuperAdmin || canAccess('academic.timetables', 'create');
 
   const handleUseTemplate = () => {
@@ -102,7 +102,7 @@ export default function TemplatePage() {
 
   return (
     <PermissionGuard
-      module='academic.timetables'
+      module='academic.timetables.templates'
       action='view'
       fallback={
         <ContentLayout title='Access Denied'>

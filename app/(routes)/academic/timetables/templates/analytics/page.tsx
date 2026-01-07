@@ -80,7 +80,7 @@ export default function TemplateAnalyticsPage() {
     .slice(0, 5);
 
   return (
-    <PermissionGuard module='academic.timetables' action='view'>
+    <PermissionGuard module='academic.timetables.templates' action='analytics'>
       <ContentLayout title='Template Analytics'>
         <div className='space-y-6'>
           {/* Breadcrumb */}

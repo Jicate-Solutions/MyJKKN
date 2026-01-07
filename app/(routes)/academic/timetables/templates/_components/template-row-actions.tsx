@@ -46,28 +46,35 @@ export function TemplateRowActions({ template }: TemplateRowActionsProps) {
   const { isSuperAdmin, canAccess } = usePermissions();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const deleteTemplate = useDeleteTemplate();
 
   // Permission checks
-  const canEdit = isSuperAdmin || canAccess('academic.timetables', 'edit');
-  const canDelete = isSuperAdmin || canAccess('academic.timetables', 'delete');
-  const canCreate = isSuperAdmin || canAccess('academic.timetables', 'create');
+  const canEdit = isSuperAdmin || canAccess('academic.timetables.templates', 'edit');
+  const canDelete = isSuperAdmin || canAccess('academic.timetables.templates', 'delete');
+  const canCreate = isSuperAdmin || canAccess('academic.timetables.templates', 'create');
 
   const handlePreview = () => {
-    setShowPreviewModal(true);
+    setDropdownOpen(false);
+    setTimeout(() => {
+      setShowPreviewModal(true);
+    }, 100);
   };
 
   const handleEdit = () => {
+    setDropdownOpen(false);
     router.push(`/academic/timetables/${template.id}/edit?is_template=true`);
   };
 
   const handleDuplicate = () => {
+    setDropdownOpen(false);
     router.push(
       `/academic/timetables/new?template_id=${template.id}&action=duplicate`
     );
   };
 
   const handleUseTemplate = () => {
+    setDropdownOpen(false);
     router.push(`/academic/timetables/new?template_id=${template.id}`);
   };
 
@@ -83,19 +90,20 @@ export function TemplateRowActions({ template }: TemplateRowActionsProps) {
   };
 
   const handleShare = () => {
+    setDropdownOpen(false);
     const shareUrl = `${window.location.origin}/academic/timetables/templates/${template.id}`;
     navigator.clipboard.writeText(shareUrl);
     toast.success('Template link copied to clipboard');
   };
 
   const handleExport = () => {
-    // TODO: Implement template export functionality
+    setDropdownOpen(false);
     toast.success('Export functionality coming soon');
   };
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
         <DropdownMenuTrigger asChild>
           <Button
             variant='ghost'
@@ -149,7 +157,12 @@ export function TemplateRowActions({ template }: TemplateRowActionsProps) {
 
           {canDelete && (
             <DropdownMenuItem
-              onClick={() => setShowDeleteDialog(true)}
+              onClick={() => {
+                setDropdownOpen(false);
+                setTimeout(() => {
+                  setShowDeleteDialog(true);
+                }, 100);
+              }}
               className='text-destructive focus:text-destructive'
             >
               <Trash2 className='mr-2 h-4 w-4' />
