@@ -193,7 +193,7 @@ function BillingStudentsContent() {
             )}
 
             <div className={isStudent ? '' : 'mt-6'}>
-              <StudentDataTable search={search} isStudentView={isStudent} />
+              <StudentDataTable search={search} />
             </div>
           </CardContent>
         </Card>
