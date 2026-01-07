@@ -1085,6 +1085,9 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
       },
       databaseValidationResult: null,
       isValidatingDatabase: false,
+      existingLearnersResults: null,
+      existingLearnersSummary: null,
+      isCheckingDuplicates: false,
       uploadProgress: 0,
       result: null,
       error: null
