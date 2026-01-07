@@ -35,6 +35,8 @@ export interface ParsedRow {
   databaseValidationErrors?: DatabaseValidationErrors; // Database validation errors
   selected: boolean; // Whether to include in upload
   isDuplicate: boolean; // Duplicate email in this batch
+  isExistingLearner: boolean; // Already exists in database
+  existingLearnerInfo?: any; // Details about existing learner
 }
 
 export interface ValidationSummary {
@@ -70,6 +72,9 @@ export interface UploadState {
   validationSummary: ValidationSummary;
   databaseValidationResult: DatabaseValidationResult | null; // Database validation results
   isValidatingDatabase: boolean; // Loading state for database validation
+  existingLearnersResults: any[] | null; // Results from duplicate learner check
+  existingLearnersSummary: { total: number; duplicates: number; new: number } | null;
+  isCheckingDuplicates: boolean; // Loading state for duplicate check
   uploadProgress: number;
   result: EnquiryUploadResult | null;
   error: string | null;
