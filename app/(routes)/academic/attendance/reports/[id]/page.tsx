@@ -180,7 +180,7 @@ export default function AttendanceReportDetailPage() {
     }
 
     try {
-      toast.info(`Exporting as ${format.toUpperCase()}...`);
+      toast.loading(`Exporting as ${format.toUpperCase()}...`);
       let result;
       if (format === 'excel') {
         result = await AttendanceExportService.exportDetailedToExcel(
