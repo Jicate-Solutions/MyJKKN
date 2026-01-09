@@ -185,11 +185,8 @@ export default function LearnersAnalyticsDashboard() {
     setFilters({
       institutionIds: canAccessAllInstitutions
         ? undefined
-        : userInstitutionId ? [userInstitutionId] : [],
-      dateRange: {
-        from: subDays(new Date(), 30),
-        to: new Date()
-      }
+        : userInstitutionId ? [userInstitutionId] : []
+      // No default date range - truly reset to "All Time"
     });
   };
 
@@ -249,8 +246,8 @@ export default function LearnersAnalyticsDashboard() {
     );
   }
 
-  // Error state
-  if (error) {
+  // Error state - Also check if data is undefined
+  if (error || !dashboardStats) {
     return (
       <ContentLayout title="Learners Analytics">
         <PageBreadcrumb items={breadcrumbItems} />
@@ -258,6 +255,11 @@ export default function LearnersAnalyticsDashboard() {
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             Failed to load dashboard data. Please try again.
+            {error && (
+              <div className="mt-2 text-xs opacity-80">
+                Error: {error instanceof Error ? error.message : 'Unknown error'}
+              </div>
+            )}
           </AlertDescription>
         </Alert>
         <Button onClick={handleRefresh} className="mt-4">
@@ -268,7 +270,7 @@ export default function LearnersAnalyticsDashboard() {
     );
   }
 
-  const stats = dashboardStats!;
+  const stats = dashboardStats;
 
   return (
     <ContentLayout title="Learners Analytics Dashboard">

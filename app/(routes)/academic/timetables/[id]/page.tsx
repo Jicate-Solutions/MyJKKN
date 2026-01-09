@@ -1224,6 +1224,7 @@ export default function TimetableDetailPage({
               }}
               lockedPeriods={markedPeriods}
               isSuperAdmin={isSuperAdmin}
+              canEdit={canEditTimetable}
             />
           ) : (
             <BatchTimetableGrid
@@ -1239,6 +1240,8 @@ export default function TimetableDetailPage({
               onRemoveDate={removeDateRange}
               onEditDate={editDateRange}
               lockedPeriods={markedPeriods}
+              canEdit={canEditTimetable}
+              isSuperAdmin={isSuperAdmin}
             />
           )}
         </div>

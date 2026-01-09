@@ -14,6 +14,7 @@ interface TimetableGridProps {
   onSlotDelete?: (day: DayOfWeek, period: Period, existingSlot: any) => void;
   lockedPeriods: string[];
   isSuperAdmin?: boolean;
+  canEdit?: boolean;
 }
 
 export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
@@ -25,7 +26,8 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
       onSlotClick,
       onSlotDelete,
       lockedPeriods,
-      isSuperAdmin = false
+      isSuperAdmin = false,
+      canEdit = false
     },
     ref
   ) => {
@@ -447,8 +449,9 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                                   <Lock className='h-3 w-3' />
                                 </div>
                               )}
-                            {/* Delete button - show for super admin even if locked, hide for others if locked */}
-                            {onSlotDelete &&
+                            {/* Delete button - only show if user has edit permission */}
+                            {canEdit &&
+                              onSlotDelete &&
                               (isSuperAdmin ||
                                 !lockedPeriods.includes(period.id)) && (
                                 <button
@@ -481,7 +484,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                               Locked
                             </span>
                           </div>
-                        ) : (
+                        ) : canEdit ? (
                           <Button
                             variant='ghost'
                             size='sm'
@@ -493,6 +496,10 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                               <span className='text-xs text-gray-500'>Add</span>
                             </div>
                           </Button>
+                        ) : (
+                          <div className='w-full h-14 border-2 border-dashed border-gray-200 bg-gray-50 rounded flex items-center justify-center'>
+                            <span className='text-xs text-gray-400'>-</span>
+                          </div>
                         )}
                       </td>
                     );

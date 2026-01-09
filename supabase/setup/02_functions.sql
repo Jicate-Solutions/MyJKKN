@@ -450,6 +450,373 @@ END;
 $$;
 
 -- ================================================================================
+-- BILLING TRIGGER FUNCTIONS
+-- Added: 2025-01-08 - Missing trigger functions for automatic bill status updates
+-- ================================================================================
+
+-- Function 1: Update bill status after receipt item insert
+-- Triggered: AFTER INSERT ON billing_receipt_items
+-- Purpose: Automatically update bill status and balance when payment is received
+CREATE OR REPLACE FUNCTION public.update_bill_status()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_bill_amount numeric;
+    v_total_paid numeric;
+    v_new_status text;
+    v_new_balance numeric;
+BEGIN
+    -- Get bill amount (use final_amount which includes taxes and discounts)
+    SELECT final_amount INTO v_bill_amount
+    FROM billing_student_bills
+    WHERE id = NEW.bill_id;
+
+    -- Calculate total paid for this bill from all receipt items
+    SELECT COALESCE(SUM(amount_paid), 0) INTO v_total_paid
+    FROM billing_receipt_items
+    WHERE bill_id = NEW.bill_id;
+
+    -- Determine new status and balance
+    IF v_total_paid >= v_bill_amount THEN
+        v_new_status := 'paid';
+        v_new_balance := 0;
+
+        -- Update bill with paid status and payment date
+        UPDATE billing_student_bills
+        SET
+            status = v_new_status,
+            balance_amount = v_new_balance,
+            payment_date = NOW(),
+            updated_at = NOW()
+        WHERE id = NEW.bill_id;
+
+    ELSIF v_total_paid > 0 THEN
+        v_new_status := 'partially_paid';
+        v_new_balance := v_bill_amount - v_total_paid;
+
+        -- Update bill with partially paid status
+        UPDATE billing_student_bills
+        SET
+            status = v_new_status,
+            balance_amount = v_new_balance,
+            updated_at = NOW()
+        WHERE id = NEW.bill_id;
+
+    ELSE
+        v_new_status := 'unpaid';
+        v_new_balance := v_bill_amount;
+
+        -- Update bill back to unpaid
+        UPDATE billing_student_bills
+        SET
+            status = v_new_status,
+            balance_amount = v_new_balance,
+            payment_date = NULL,
+            updated_at = NOW()
+        WHERE id = NEW.bill_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION update_bill_status IS
+'Automatically updates bill status (unpaid/partially_paid/paid) and balance when receipt items are inserted';
+
+-- Function 2: Update bill status after receipt item delete
+-- Triggered: AFTER DELETE ON billing_receipt_items
+-- Purpose: Recalculate bill status when payment is deleted/reversed
+CREATE OR REPLACE FUNCTION public.update_bill_status_on_delete()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_bill_amount numeric;
+    v_total_paid numeric;
+    v_new_status text;
+    v_new_balance numeric;
+BEGIN
+    -- Get bill amount
+    SELECT final_amount INTO v_bill_amount
+    FROM billing_student_bills
+    WHERE id = OLD.bill_id;
+
+    -- Recalculate total paid after deletion
+    SELECT COALESCE(SUM(amount_paid), 0) INTO v_total_paid
+    FROM billing_receipt_items
+    WHERE bill_id = OLD.bill_id;
+
+    -- Determine new status and balance
+    IF v_total_paid >= v_bill_amount THEN
+        v_new_status := 'paid';
+        v_new_balance := 0;
+
+        UPDATE billing_student_bills
+        SET
+            status = v_new_status,
+            balance_amount = v_new_balance,
+            payment_date = NOW(),
+            updated_at = NOW()
+        WHERE id = OLD.bill_id;
+
+    ELSIF v_total_paid > 0 THEN
+        v_new_status := 'partially_paid';
+        v_new_balance := v_bill_amount - v_total_paid;
+
+        UPDATE billing_student_bills
+        SET
+            status = v_new_status,
+            balance_amount = v_new_balance,
+            payment_date = NULL,
+            updated_at = NOW()
+        WHERE id = OLD.bill_id;
+
+    ELSE
+        v_new_status := 'unpaid';
+        v_new_balance := v_bill_amount;
+
+        UPDATE billing_student_bills
+        SET
+            status = v_new_status,
+            balance_amount = v_new_balance,
+            payment_date = NULL,
+            updated_at = NOW()
+        WHERE id = OLD.bill_id;
+    END IF;
+
+    RETURN OLD;
+END;
+$$;
+
+COMMENT ON FUNCTION update_bill_status_on_delete IS
+'Recalculates bill status and balance when receipt items are deleted';
+
+-- Function 3: Update bill balance when bill amount changes
+-- Triggered: AFTER UPDATE OF bill_amount ON billing_student_bills
+-- Purpose: Recalculate balance when bill amount is modified
+CREATE OR REPLACE FUNCTION public.update_bill_balance_on_amount_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_total_paid numeric;
+    v_new_balance numeric;
+    v_new_status text;
+BEGIN
+    -- Only proceed if final_amount actually changed
+    IF NEW.final_amount IS DISTINCT FROM OLD.final_amount THEN
+
+        -- Get total paid for this bill
+        SELECT COALESCE(SUM(amount_paid), 0) INTO v_total_paid
+        FROM billing_receipt_items
+        WHERE bill_id = NEW.id;
+
+        -- Calculate new balance
+        v_new_balance := NEW.final_amount - v_total_paid;
+
+        -- Determine new status
+        IF v_total_paid >= NEW.final_amount THEN
+            v_new_status := 'paid';
+            v_new_balance := 0;
+            NEW.payment_date := COALESCE(NEW.payment_date, NOW());
+        ELSIF v_total_paid > 0 THEN
+            v_new_status := 'partially_paid';
+            NEW.payment_date := NULL;
+        ELSE
+            v_new_status := 'unpaid';
+            NEW.payment_date := NULL;
+        END IF;
+
+        -- Update the NEW record (before it's saved)
+        NEW.status := v_new_status;
+        NEW.balance_amount := v_new_balance;
+        NEW.updated_at := NOW();
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION update_bill_balance_on_amount_change IS
+'Recalculates bill balance and status when bill amount is changed';
+
+-- Function 4: Update bill when refund status changes
+-- Triggered: AFTER UPDATE OF approval_status ON billing_refunds
+-- Purpose: Recalculate bill status when refunds are processed
+CREATE OR REPLACE FUNCTION public.update_bill_on_refund_status_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_receipt_id uuid;
+    v_bill_ids uuid[];
+    v_bill_id uuid;
+BEGIN
+    -- Only process when refund is approved/processed
+    IF NEW.approval_status = 'processed' AND OLD.approval_status != 'processed' THEN
+
+        -- Get receipt ID from the refund
+        v_receipt_id := NEW.receipt_id;
+
+        -- Get all bill IDs associated with this receipt
+        SELECT ARRAY_AGG(DISTINCT bill_id) INTO v_bill_ids
+        FROM billing_receipt_items
+        WHERE receipt_id = v_receipt_id;
+
+        -- Recalculate status for each affected bill
+        IF v_bill_ids IS NOT NULL THEN
+            FOREACH v_bill_id IN ARRAY v_bill_ids
+            LOOP
+                -- Use existing recalculate function that handles refunds
+                PERFORM recalculate_bill_status_with_refunds(v_bill_id);
+            END LOOP;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION update_bill_on_refund_status_change IS
+'Updates bill status when refunds are approved/processed';
+
+-- Function 5: Auto-generate invoice when bill is fully paid
+-- Called: From receipt service after successful payment
+-- Purpose: Automatically create invoice when bill reaches 'paid' status
+CREATE OR REPLACE FUNCTION public.generate_auto_invoice_for_bill(p_bill_id uuid)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+    v_bill record;
+    v_invoice_id uuid;
+    v_invoice_number text;
+    v_receipt_items record;
+    v_total_amount numeric := 0;
+    v_existing_invoice_id uuid;
+BEGIN
+    -- Step 1: Get bill details and verify it's fully paid
+    SELECT
+        id,
+        student_id,
+        institution_id,
+        bill_description,
+        final_amount,
+        status,
+        balance_amount
+    INTO v_bill
+    FROM billing_student_bills
+    WHERE id = p_bill_id;
+
+    -- Check if bill exists and is fully paid
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Bill not found: %', p_bill_id;
+    END IF;
+
+    IF v_bill.status != 'paid' OR v_bill.balance_amount != 0 THEN
+        RAISE NOTICE 'Bill % is not fully paid (status: %, balance: %)',
+            p_bill_id, v_bill.status, v_bill.balance_amount;
+        RETURN NULL;
+    END IF;
+
+    -- Step 2: Check if invoice already exists for this bill
+    -- Check by finding invoices with receipt items that paid this bill
+    SELECT DISTINCT i.id INTO v_existing_invoice_id
+    FROM billing_invoices i
+    INNER JOIN billing_invoice_items ii ON i.id = ii.invoice_id
+    INNER JOIN billing_receipt_items ri ON ii.receipt_id = ri.receipt_id
+    WHERE ri.bill_id = p_bill_id
+    LIMIT 1;
+
+    IF v_existing_invoice_id IS NOT NULL THEN
+        RAISE NOTICE 'Invoice already exists for bill %: %', p_bill_id, v_existing_invoice_id;
+        RETURN v_existing_invoice_id;
+    END IF;
+
+    -- Step 3: Generate invoice number
+    SELECT generate_invoice_number() INTO v_invoice_number;
+
+    -- Step 4: Create invoice record
+    INSERT INTO billing_invoices (
+        invoice_number,
+        invoice_type,
+        invoice_date,
+        student_id,
+        institution_id,
+        invoice_description,
+        payment_terms,
+        due_date,
+        additional_charges,
+        discount_applied,
+        grand_total
+    ) VALUES (
+        v_invoice_number,
+        'individual',
+        CURRENT_DATE,
+        v_bill.student_id,
+        v_bill.institution_id,
+        'Payment Invoice for: ' || v_bill.bill_description,
+        'Payment completed',
+        CURRENT_DATE,
+        0,
+        0,
+        v_bill.final_amount
+    )
+    RETURNING id INTO v_invoice_id;
+
+    -- Step 5: Create invoice items linking to receipts that paid this bill
+    FOR v_receipt_items IN
+        SELECT DISTINCT
+            ri.receipt_id,
+            ri.amount_paid
+        FROM billing_receipt_items ri
+        WHERE ri.bill_id = p_bill_id
+    LOOP
+        INSERT INTO billing_invoice_items (
+            invoice_id,
+            receipt_id,
+            amount
+        ) VALUES (
+            v_invoice_id,
+            v_receipt_items.receipt_id,
+            v_receipt_items.amount_paid
+        );
+
+        v_total_amount := v_total_amount + v_receipt_items.amount_paid;
+    END LOOP;
+
+    -- Step 6: Verify total matches bill amount
+    IF ABS(v_total_amount - v_bill.final_amount) > 0.01 THEN
+        RAISE WARNING 'Invoice total (%) does not match bill amount (%) for bill %',
+            v_total_amount, v_bill.final_amount, p_bill_id;
+    END IF;
+
+    RAISE NOTICE 'Auto-generated invoice % for bill % (total: %)',
+        v_invoice_number, p_bill_id, v_total_amount;
+
+    RETURN v_invoice_id;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE WARNING 'Failed to auto-generate invoice for bill %: %', p_bill_id, SQLERRM;
+        RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION generate_auto_invoice_for_bill IS
+'Automatically generates an invoice when a bill is fully paid. Returns invoice ID or NULL if skipped/failed.';
+
+-- ================================================================================
 -- SECTION 4: ATTENDANCE MODULE FUNCTIONS
 -- ================================================================================
 
@@ -2102,13 +2469,351 @@ SECURITY INVOKER
 AS $$
 BEGIN
     RETURN QUERY
-    SELECT 
+    SELECT
         d.degree_name::text,
         COUNT(p.id)
     FROM degrees d
     LEFT JOIN programs p ON d.id = p.degree_id
     WHERE d.institution_id = ANY(inst_ids)
     GROUP BY d.degree_name;
+END;
+$$;
+
+-- ================================================================================
+-- LEARNERS DASHBOARD OPTIMIZED FUNCTIONS
+-- Created: 2026-01-08
+-- Purpose: High-performance aggregation functions for learners analytics dashboard
+-- Performance: Replaces client-side aggregation of 150,000+ rows with SQL GROUP BY
+-- ================================================================================
+
+-- Get learners distribution by institution (OPTIMIZED with GROUP BY)
+CREATE OR REPLACE FUNCTION public.get_learners_distribution_by_institution(
+    filter_institution_ids uuid[] DEFAULT NULL,
+    filter_academic_year_id uuid DEFAULT NULL,
+    filter_degree_id uuid DEFAULT NULL,
+    filter_department_id uuid DEFAULT NULL,
+    filter_program_id uuid DEFAULT NULL,
+    filter_semester_id uuid DEFAULT NULL,
+    filter_section_id uuid DEFAULT NULL,
+    filter_lifecycle_statuses text[] DEFAULT NULL,
+    filter_gender text DEFAULT NULL,
+    filter_is_profile_complete boolean DEFAULT NULL,
+    filter_date_from timestamptz DEFAULT NULL,
+    filter_date_to timestamptz DEFAULT NULL
+)
+RETURNS TABLE(id uuid, name text, count bigint, percentage numeric)
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+    total_count bigint;
+BEGIN
+    -- Get total count for percentage calculation
+    SELECT COUNT(*)::bigint INTO total_count
+    FROM learners_profiles lp
+    WHERE (filter_institution_ids IS NULL OR lp.institution_id = ANY(filter_institution_ids))
+      AND (filter_academic_year_id IS NULL OR lp.academic_year_id = filter_academic_year_id)
+      AND (filter_degree_id IS NULL OR lp.degree_id = filter_degree_id)
+      AND (filter_department_id IS NULL OR lp.department_id = filter_department_id)
+      AND (filter_program_id IS NULL OR lp.program_id = filter_program_id)
+      AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
+      AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
+      AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
+      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
+      AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to);
+
+    RETURN QUERY
+    SELECT
+        lp.institution_id as id,
+        COALESCE(i.name, 'Unknown')::text as name,
+        COUNT(*)::bigint as count,
+        CASE
+            WHEN total_count > 0 THEN ROUND((COUNT(*)::numeric / total_count::numeric) * 100, 2)
+            ELSE 0
+        END as percentage
+    FROM learners_profiles lp
+    LEFT JOIN institutions i ON i.id = lp.institution_id
+    WHERE (filter_institution_ids IS NULL OR lp.institution_id = ANY(filter_institution_ids))
+      AND (filter_academic_year_id IS NULL OR lp.academic_year_id = filter_academic_year_id)
+      AND (filter_degree_id IS NULL OR lp.degree_id = filter_degree_id)
+      AND (filter_department_id IS NULL OR lp.department_id = filter_department_id)
+      AND (filter_program_id IS NULL OR lp.program_id = filter_program_id)
+      AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
+      AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
+      AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
+      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
+      AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND lp.institution_id IS NOT NULL
+    GROUP BY lp.institution_id, i.name
+    ORDER BY count DESC;
+END;
+$$;
+
+-- Get learners distribution by department (OPTIMIZED with GROUP BY)
+CREATE OR REPLACE FUNCTION public.get_learners_distribution_by_department(
+    filter_institution_ids uuid[] DEFAULT NULL,
+    filter_academic_year_id uuid DEFAULT NULL,
+    filter_degree_id uuid DEFAULT NULL,
+    filter_department_id uuid DEFAULT NULL,
+    filter_program_id uuid DEFAULT NULL,
+    filter_semester_id uuid DEFAULT NULL,
+    filter_section_id uuid DEFAULT NULL,
+    filter_lifecycle_statuses text[] DEFAULT NULL,
+    filter_gender text DEFAULT NULL,
+    filter_is_profile_complete boolean DEFAULT NULL,
+    filter_date_from timestamptz DEFAULT NULL,
+    filter_date_to timestamptz DEFAULT NULL
+)
+RETURNS TABLE(id uuid, name text, count bigint, percentage numeric)
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+    total_count bigint;
+BEGIN
+    -- Get total count
+    SELECT COUNT(*)::bigint INTO total_count
+    FROM learners_profiles lp
+    WHERE (filter_institution_ids IS NULL OR lp.institution_id = ANY(filter_institution_ids))
+      AND (filter_academic_year_id IS NULL OR lp.academic_year_id = filter_academic_year_id)
+      AND (filter_degree_id IS NULL OR lp.degree_id = filter_degree_id)
+      AND (filter_department_id IS NULL OR lp.department_id = filter_department_id)
+      AND (filter_program_id IS NULL OR lp.program_id = filter_program_id)
+      AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
+      AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
+      AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
+      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
+      AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to);
+
+    RETURN QUERY
+    SELECT
+        lp.department_id as id,
+        COALESCE(d.department_name, 'Unknown')::text as name,
+        COUNT(*)::bigint as count,
+        CASE
+            WHEN total_count > 0 THEN ROUND((COUNT(*)::numeric / total_count::numeric) * 100, 2)
+            ELSE 0
+        END as percentage
+    FROM learners_profiles lp
+    LEFT JOIN departments d ON d.id = lp.department_id
+    WHERE (filter_institution_ids IS NULL OR lp.institution_id = ANY(filter_institution_ids))
+      AND (filter_academic_year_id IS NULL OR lp.academic_year_id = filter_academic_year_id)
+      AND (filter_degree_id IS NULL OR lp.degree_id = filter_degree_id)
+      AND (filter_department_id IS NULL OR lp.department_id = filter_department_id)
+      AND (filter_program_id IS NULL OR lp.program_id = filter_program_id)
+      AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
+      AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
+      AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
+      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
+      AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND lp.department_id IS NOT NULL
+    GROUP BY lp.department_id, d.department_name
+    ORDER BY count DESC;
+END;
+$$;
+
+-- Get learners distribution by program (OPTIMIZED with GROUP BY)
+CREATE OR REPLACE FUNCTION public.get_learners_distribution_by_program(
+    filter_institution_ids uuid[] DEFAULT NULL,
+    filter_academic_year_id uuid DEFAULT NULL,
+    filter_degree_id uuid DEFAULT NULL,
+    filter_department_id uuid DEFAULT NULL,
+    filter_program_id uuid DEFAULT NULL,
+    filter_semester_id uuid DEFAULT NULL,
+    filter_section_id uuid DEFAULT NULL,
+    filter_lifecycle_statuses text[] DEFAULT NULL,
+    filter_gender text DEFAULT NULL,
+    filter_is_profile_complete boolean DEFAULT NULL,
+    filter_date_from timestamptz DEFAULT NULL,
+    filter_date_to timestamptz DEFAULT NULL
+)
+RETURNS TABLE(id uuid, name text, count bigint, percentage numeric)
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+    total_count bigint;
+BEGIN
+    -- Get total count
+    SELECT COUNT(*)::bigint INTO total_count
+    FROM learners_profiles lp
+    WHERE (filter_institution_ids IS NULL OR lp.institution_id = ANY(filter_institution_ids))
+      AND (filter_academic_year_id IS NULL OR lp.academic_year_id = filter_academic_year_id)
+      AND (filter_degree_id IS NULL OR lp.degree_id = filter_degree_id)
+      AND (filter_department_id IS NULL OR lp.department_id = filter_department_id)
+      AND (filter_program_id IS NULL OR lp.program_id = filter_program_id)
+      AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
+      AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
+      AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
+      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
+      AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to);
+
+    RETURN QUERY
+    SELECT
+        lp.program_id as id,
+        COALESCE(p.program_name, 'Unknown')::text as name,
+        COUNT(*)::bigint as count,
+        CASE
+            WHEN total_count > 0 THEN ROUND((COUNT(*)::numeric / total_count::numeric) * 100, 2)
+            ELSE 0
+        END as percentage
+    FROM learners_profiles lp
+    LEFT JOIN programs p ON p.id = lp.program_id
+    WHERE (filter_institution_ids IS NULL OR lp.institution_id = ANY(filter_institution_ids))
+      AND (filter_academic_year_id IS NULL OR lp.academic_year_id = filter_academic_year_id)
+      AND (filter_degree_id IS NULL OR lp.degree_id = filter_degree_id)
+      AND (filter_department_id IS NULL OR lp.department_id = filter_department_id)
+      AND (filter_program_id IS NULL OR lp.program_id = filter_program_id)
+      AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
+      AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
+      AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
+      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
+      AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND lp.program_id IS NOT NULL
+    GROUP BY lp.program_id, p.program_name
+    ORDER BY count DESC;
+END;
+$$;
+
+-- Get learners distribution by gender (OPTIMIZED with GROUP BY)
+CREATE OR REPLACE FUNCTION public.get_learners_distribution_by_gender(
+    filter_institution_ids uuid[] DEFAULT NULL,
+    filter_academic_year_id uuid DEFAULT NULL,
+    filter_degree_id uuid DEFAULT NULL,
+    filter_department_id uuid DEFAULT NULL,
+    filter_program_id uuid DEFAULT NULL,
+    filter_semester_id uuid DEFAULT NULL,
+    filter_section_id uuid DEFAULT NULL,
+    filter_lifecycle_statuses text[] DEFAULT NULL,
+    filter_gender text DEFAULT NULL,
+    filter_is_profile_complete boolean DEFAULT NULL,
+    filter_date_from timestamptz DEFAULT NULL,
+    filter_date_to timestamptz DEFAULT NULL
+)
+RETURNS TABLE(id text, name text, count bigint, percentage numeric)
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+    total_count bigint;
+BEGIN
+    -- Get total count
+    SELECT COUNT(*)::bigint INTO total_count
+    FROM learners_profiles lp
+    WHERE (filter_institution_ids IS NULL OR lp.institution_id = ANY(filter_institution_ids))
+      AND (filter_academic_year_id IS NULL OR lp.academic_year_id = filter_academic_year_id)
+      AND (filter_degree_id IS NULL OR lp.degree_id = filter_degree_id)
+      AND (filter_department_id IS NULL OR lp.department_id = filter_department_id)
+      AND (filter_program_id IS NULL OR lp.program_id = filter_program_id)
+      AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
+      AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
+      AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
+      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
+      AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to);
+
+    RETURN QUERY
+    SELECT
+        lp.gender::text as id,
+        COALESCE(INITCAP(lp.gender), 'Unknown')::text as name,
+        COUNT(*)::bigint as count,
+        CASE
+            WHEN total_count > 0 THEN ROUND((COUNT(*)::numeric / total_count::numeric) * 100, 2)
+            ELSE 0
+        END as percentage
+    FROM learners_profiles lp
+    WHERE (filter_institution_ids IS NULL OR lp.institution_id = ANY(filter_institution_ids))
+      AND (filter_academic_year_id IS NULL OR lp.academic_year_id = filter_academic_year_id)
+      AND (filter_degree_id IS NULL OR lp.degree_id = filter_degree_id)
+      AND (filter_department_id IS NULL OR lp.department_id = filter_department_id)
+      AND (filter_program_id IS NULL OR lp.program_id = filter_program_id)
+      AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
+      AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
+      AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
+      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
+      AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND lp.gender IS NOT NULL
+    GROUP BY lp.gender
+    ORDER BY count DESC;
+END;
+$$;
+
+-- Get learners count by lifecycle status (OPTIMIZED with GROUP BY)
+CREATE OR REPLACE FUNCTION public.get_learners_count_by_status(
+    filter_institution_ids uuid[] DEFAULT NULL,
+    filter_academic_year_id uuid DEFAULT NULL,
+    filter_degree_id uuid DEFAULT NULL,
+    filter_department_id uuid DEFAULT NULL,
+    filter_program_id uuid DEFAULT NULL,
+    filter_semester_id uuid DEFAULT NULL,
+    filter_section_id uuid DEFAULT NULL,
+    filter_lifecycle_statuses text[] DEFAULT NULL,
+    filter_gender text DEFAULT NULL,
+    filter_is_profile_complete boolean DEFAULT NULL,
+    filter_date_from timestamptz DEFAULT NULL,
+    filter_date_to timestamptz DEFAULT NULL
+)
+RETURNS TABLE(status text, count bigint, percentage numeric)
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+    total_count bigint;
+BEGIN
+    -- Get total count
+    SELECT COUNT(*)::bigint INTO total_count
+    FROM learners_profiles lp
+    WHERE (filter_institution_ids IS NULL OR lp.institution_id = ANY(filter_institution_ids))
+      AND (filter_academic_year_id IS NULL OR lp.academic_year_id = filter_academic_year_id)
+      AND (filter_degree_id IS NULL OR lp.degree_id = filter_degree_id)
+      AND (filter_department_id IS NULL OR lp.department_id = filter_department_id)
+      AND (filter_program_id IS NULL OR lp.program_id = filter_program_id)
+      AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
+      AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
+      AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
+      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
+      AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to);
+
+    RETURN QUERY
+    SELECT
+        lp.lifecycle_status::text as status,
+        COUNT(*)::bigint as count,
+        CASE
+            WHEN total_count > 0 THEN ROUND((COUNT(*)::numeric / total_count::numeric) * 100, 2)
+            ELSE 0
+        END as percentage
+    FROM learners_profiles lp
+    WHERE (filter_institution_ids IS NULL OR lp.institution_id = ANY(filter_institution_ids))
+      AND (filter_academic_year_id IS NULL OR lp.academic_year_id = filter_academic_year_id)
+      AND (filter_degree_id IS NULL OR lp.degree_id = filter_degree_id)
+      AND (filter_department_id IS NULL OR lp.department_id = filter_department_id)
+      AND (filter_program_id IS NULL OR lp.program_id = filter_program_id)
+      AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
+      AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
+      AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
+      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
+      AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+    GROUP BY lp.lifecycle_status
+    ORDER BY count DESC;
 END;
 $$;
 

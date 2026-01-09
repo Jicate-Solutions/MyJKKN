@@ -207,7 +207,7 @@ export async function GET(request: NextRequest) {
 
       // SECTION 6: Entry Type
       'Entry Type': learner.entry_type || '',
-      'First Graduate': learner.scholarship_type ? 'TRUE' : 'FALSE',
+      'Scholarship Type': learner.scholarship_type || '',
 
       // SECTION 7: Previous Education
       'Last School': learner.last_school || '',
@@ -265,10 +265,11 @@ export async function GET(request: NextRequest) {
       { 'A': '' },
       { 'A': '⚠️ IMPORTANT NOTES' },
       { 'A': '1. Do NOT modify the ID* column - it is used to match records' },
-      { 'A': '2. Fill in ONLY the empty or missing fields you want to update' },
-      { 'A': '3. Leave cells blank to keep existing values unchanged' },
-      { 'A': '4. You can update partial data - not all fields are required' },
-      { 'A': '5. Only learners in "Active" status can be updated via this feature' },
+      { 'A': '2. Do NOT rename the "Active Learners" sheet - it must keep this exact name' },
+      { 'A': '3. Fill in ONLY the empty or missing fields you want to update' },
+      { 'A': '4. Leave cells blank to keep existing values unchanged' },
+      { 'A': '5. You can update partial data - not all fields are required' },
+      { 'A': '6. Only learners in "Active" status can be updated via this feature' },
       { 'A': '' },
       { 'A': '📝 ALL EDITABLE FIELDS (11 SECTIONS)' },
       { 'A': '' },
@@ -294,8 +295,8 @@ export async function GET(request: NextRequest) {
       { 'A': 'SECTION 5: Address Information' },
       { 'A': '• Street, Taluk, District, Pin Code, State' },
       { 'A': '' },
-      { 'A': 'SECTION 6: Entry Type' },
-      { 'A': '• Entry Type, First Graduate' },
+      { 'A': 'SECTION 6: Entry Type & Scholarship' },
+      { 'A': '• Entry Type, Scholarship Type (First Graduate / PMS / 7.5% / Not Applicable)' },
       { 'A': '' },
       { 'A': 'SECTIONS 7-11: Optional Fields' },
       { 'A': '• Previous Education (School, Board, 10th & 12th Marks)' },

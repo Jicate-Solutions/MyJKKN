@@ -114,7 +114,7 @@ const FIELD_LABELS: Record<string, string> = {
   permanent_address_pin_code: 'Address Pin Code',
   permanent_address_state: 'Address State',
   entry_type: 'Entry Type',
-  first_graduate: 'First Graduate',
+  scholarship_type: 'Scholarship Type',
   last_school: 'Last School',
   board_of_study: 'Board of Study',
   roll_number: 'Roll Number',
@@ -396,6 +396,7 @@ export class BulkLearnerEditService {
   /**
    * Export active learners for bulk edit
    * Returns current data with empty/missing fields highlighted
+   * Uses pagination to fetch ALL records (no limit)
    */
   static async exportActiveForEdit(
     institutionId?: string,
@@ -416,66 +417,99 @@ export class BulkLearnerEditService {
       sectionId
     });
 
-    let query = supabaseAdmin
-      .from('learners_profiles')
-      .select(`
-        *,
-        institution:institutions(id, name),
-        degree:degrees(id, degree_name),
-        department:departments(id, department_name),
-        program:programs(id, program_name),
-        semester:semesters(id, semester_name),
-        section:sections(id, section_name),
-        academic_year:academic_years(id, academic_year_name),
-        regulation:regulations(id, regulation_year, regulation_code),
-        batch:batches(id, batch_name)
-      `)
-      .eq('lifecycle_status', 'active');
+    // Build base query
+    const buildQuery = () => {
+      let query = supabaseAdmin
+        .from('learners_profiles')
+        .select(`
+          *,
+          institution:institutions(id, name),
+          degree:degrees(id, degree_name),
+          department:departments(id, department_name),
+          program:programs(id, program_name),
+          semester:semesters(id, semester_name),
+          section:sections(id, section_name),
+          academic_year:academic_years(id, academic_year_name),
+          regulation:regulations(id, regulation_year, regulation_code),
+          batch:batches(id, batch_name)
+        `)
+        .eq('lifecycle_status', 'active');
 
-    // Filter by institution if specified
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
+      // Filter by institution if specified
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      // Filter by degree if specified
+      if (degreeId) {
+        query = query.eq('degree_id', degreeId);
+      }
+
+      // Filter by department if specified
+      if (departmentId) {
+        query = query.eq('department_id', departmentId);
+      }
+
+      // Filter by program if specified
+      if (programId) {
+        query = query.eq('program_id', programId);
+      }
+
+      // Filter by semester if specified
+      if (semesterId) {
+        query = query.eq('semester_id', semesterId);
+      }
+
+      // Filter by section if specified
+      if (sectionId) {
+        query = query.eq('section_id', sectionId);
+      }
+
+      // Filter by profile completeness if requested
+      if (!includeComplete) {
+        query = query.eq('is_profile_complete', false);
+      }
+
+      return query;
+    };
+
+    // Fetch ALL records using pagination (no limit)
+    const BATCH_SIZE = 1000;
+    let allLearners: any[] = [];
+    let offset = 0;
+    let hasMore = true;
+
+    console.log('[bulk-edit] Starting paginated fetch with batch size:', BATCH_SIZE);
+
+    while (hasMore) {
+      const query = buildQuery()
+        .range(offset, offset + BATCH_SIZE - 1)
+        .order('created_at', { ascending: false });
+
+      const { data: batch, error } = await query;
+
+      if (error) {
+        console.error('[bulk-edit] Error fetching learners batch:', error);
+        throw new Error(`Failed to fetch learners: ${error.message}`);
+      }
+
+      if (batch && batch.length > 0) {
+        allLearners = allLearners.concat(batch);
+        console.log(`[bulk-edit] Fetched batch: ${batch.length} records (total so far: ${allLearners.length})`);
+
+        // Check if there are more records
+        if (batch.length < BATCH_SIZE) {
+          hasMore = false;
+        } else {
+          offset += BATCH_SIZE;
+        }
+      } else {
+        hasMore = false;
+      }
     }
 
-    // Filter by degree if specified
-    if (degreeId) {
-      query = query.eq('degree_id', degreeId);
-    }
+    console.log('[bulk-edit] Export complete. Total learners fetched:', allLearners.length);
 
-    // Filter by department if specified
-    if (departmentId) {
-      query = query.eq('department_id', departmentId);
-    }
-
-    // Filter by program if specified
-    if (programId) {
-      query = query.eq('program_id', programId);
-    }
-
-    // Filter by semester if specified
-    if (semesterId) {
-      query = query.eq('semester_id', semesterId);
-    }
-
-    // Filter by section if specified
-    if (sectionId) {
-      query = query.eq('section_id', sectionId);
-    }
-
-    // Filter by profile completeness if requested
-    if (!includeComplete) {
-      query = query.eq('is_profile_complete', false);
-    }
-
-    const { data: learners, error } = await query;
-
-    if (error) {
-      console.error('[bulk-edit] Error fetching exited learners:', error);
-      throw new Error(`Failed to fetch exited learners: ${error.message}`);
-    }
-
-    console.log('[bulk-edit] Found learners:', learners?.length || 0);
-
-    return learners || [];
+    return allLearners;
   }
 }

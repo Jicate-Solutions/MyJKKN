@@ -86,14 +86,32 @@ export function DashboardFilters({
     filters.dateRange || {}
   );
 
+  // Sync filters prop changes to local state (fixes reset button and external filter updates)
+  useEffect(() => {
+    setSelectedInstitutionIds(filters.institutionIds || []);
+    setSelectedAcademicYearId(filters.academicYearId);
+    setSelectedDegreeId(filters.degreeId);
+    setSelectedDepartmentId(filters.departmentId);
+    setSelectedProgramId(filters.programId);
+    setSelectedSemesterId(filters.semesterId);
+    setSelectedSectionId(filters.sectionId);
+    setSelectedStatuses(filters.lifecycleStatuses || []);
+    setSelectedProfileComplete(
+      filters.isProfileComplete === undefined ? 'all' :
+      filters.isProfileComplete ? 'complete' : 'incomplete'
+    );
+    setSelectedGender(filters.gender || 'all');
+    setDateRange(filters.dateRange || {});
+  }, [filters]);
+
   // Fetch institutions
-  const { data: institutions = [] } = useQuery<{ id: string; institution_name: string }[]>({
+  const { data: institutions = [] } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['institutions', accessibleInstitutionIds],
     queryFn: async () => {
       let query = supabase
         .from('institutions')
-        .select('id, institution_name')
-        .order('institution_name');
+        .select('id, name')
+        .order('name');
 
       if (!canAccessAllInstitutions) {
         query = query.in('id', accessibleInstitutionIds);
@@ -102,7 +120,8 @@ export function DashboardFilters({
       const { data, error } = await query;
       if (error) throw error;
       return data || [];
-    }
+    },
+    enabled: canAccessAllInstitutions || accessibleInstitutionIds.length > 0
   });
 
   // Fetch academic years
@@ -118,7 +137,7 @@ export function DashboardFilters({
     }
   });
 
-  // Fetch degrees (filtered by institutions if selected)
+  // Fetch degrees (STRICT CASCADE: Only load when specific institution is selected)
   const { data: degrees = [] } = useQuery<{ id: string; degree_name: string; institution_id: string }[]>({
     queryKey: ['degrees', selectedInstitutionIds],
     queryFn: async () => {
@@ -127,6 +146,7 @@ export function DashboardFilters({
         .select('id, degree_name, institution_id')
         .order('degree_name');
 
+      // STRICT HIERARCHY: Only show degrees for selected institutions
       if (selectedInstitutionIds.length > 0) {
         query = query.in('institution_id', selectedInstitutionIds);
       }
@@ -135,7 +155,9 @@ export function DashboardFilters({
       if (error) throw error;
       return data || [];
     },
-    enabled: selectedInstitutionIds.length > 0 || canAccessAllInstitutions
+    // STRICT: Degrees only load when a specific institution is selected
+    // Even super admins must select institution first to see degrees
+    enabled: selectedInstitutionIds.length > 0
   });
 
   // Fetch departments (filtered by degree if selected)
@@ -402,30 +424,31 @@ export function DashboardFilters({
           </div>
         </div>
 
-        {/* Institution Filter (Super Admin Only) */}
-        {canAccessAllInstitutions && (
-          <div className="space-y-2">
-            <Label>Institution</Label>
-            <Select
-              value={selectedInstitutionIds[0] || 'all'}
-              onValueChange={(value) =>
-                setSelectedInstitutionIds(value === 'all' ? [] : [value])
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="All Institutions" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Institutions</SelectItem>
-                {institutions.map((inst) => (
-                  <SelectItem key={inst.id} value={inst.id}>
-                    {inst.institution_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        {/* Institution Filter - Show for all users */}
+        <div className="space-y-2">
+          <Label>Institution</Label>
+          <Select
+            value={selectedInstitutionIds[0] || 'all'}
+            onValueChange={(value) =>
+              setSelectedInstitutionIds(value === 'all' ? [] : [value])
+            }
+            disabled={institutions.length === 0}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={
+                canAccessAllInstitutions ? "All Institutions" : "Select Institution"
+              } />
+            </SelectTrigger>
+            <SelectContent>
+              {canAccessAllInstitutions && <SelectItem value="all">All Institutions</SelectItem>}
+              {institutions.map((inst) => (
+                <SelectItem key={inst.id} value={inst.id}>
+                  {inst.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* Academic Year */}
         <div className="space-y-2">

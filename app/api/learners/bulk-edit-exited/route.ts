@@ -78,7 +78,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 6: Entry Type
   'entry_type': ['Entry Type', 'entry_type'],
-  'scholarship_type': ['First Graduate', 'scholarship_type'],
+  'scholarship_type': ['Scholarship Type', 'scholarship_type'],
 
   // SECTION 7: Previous Education
   'last_school': ['Last School', 'last_school'],
@@ -478,9 +478,11 @@ export async function POST(request: NextRequest) {
       if (mappedData.entry_type) {
         sanitizedData.entry_type = sanitizeValue(mappedData.entry_type, 'text');
       }
-      if (mappedData.scholarship_type !== undefined) {
-        const val = String(mappedData.scholarship_type).toUpperCase();
-        sanitizedData.scholarship_type = val === 'TRUE' || val === '1' || val === 'YES';
+      if (mappedData.scholarship_type) {
+        // Keep as string, validate against allowed values
+        const val = String(mappedData.scholarship_type).toUpperCase().trim();
+        const validTypes = ['FIRST GRADUATE', 'PMS SCHOLARSHIP', '7.5% SCHOLARSHIP', 'NOT APPLICABLE'];
+        sanitizedData.scholarship_type = validTypes.includes(val) ? val : null;
       }
 
       // SECTION 7: Previous Education

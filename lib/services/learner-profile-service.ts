@@ -1088,9 +1088,9 @@ export class LearnerProfileService {
         baseQuery = baseQuery.eq('section_id', filters.sectionId);
       }
 
-      if (filters.lifecycleStatuses && filters.lifecycleStatuses.length > 0) {
-        baseQuery = baseQuery.in('lifecycle_status', filters.lifecycleStatuses);
-      }
+      // REMOVED: lifecycle_status filter from base COUNT query
+      // This is now handled by the optimized RPC function get_learners_count_by_status
+      // Keeping this here was causing enum type errors
 
       if (filters.isProfileComplete !== undefined) {
         baseQuery = baseQuery.eq('is_profile_complete', filters.isProfileComplete);
@@ -1114,7 +1114,17 @@ export class LearnerProfileService {
 
       console.log('[learners/analytics] Total count from query:', totalCount);
 
-      // Run all queries in parallel
+      // Run all queries in parallel with error resilience
+      // Each query wrapped in try-catch so one failure doesn't break the entire dashboard
+      const safeQuery = async (fn: Promise<any>, defaultValue: any, name: string) => {
+        try {
+          return await fn;
+        } catch (error) {
+          console.error(`[learners/analytics] Error in ${name}:`, error);
+          return defaultValue;
+        }
+      };
+
       const [
         statusCounts,
         institutionData,
@@ -1137,39 +1147,39 @@ export class LearnerProfileService {
         completionTiers,
         hierarchicalInstitutionsData
       ] = await Promise.all([
-        // 1. Count by status (OPTIMIZED: server-side COUNT queries)
-        this.getCountByStatus(filters, supabase),
+        // 1. Count by status (OPTIMIZED: RPC function)
+        safeQuery(this.getCountByStatus(filters, supabase), [], 'getCountByStatus'),
 
-        // 2. Distribution queries - Pass supabase client for server-side auth context
-        this.getDistributionByInstitution(filters, supabase),
-        this.getDistributionByDepartment(filters, supabase),
-        this.getDistributionByProgram(filters, supabase),
-        this.getDistributionBySemester(filters, supabase),
-        this.getDistributionBySection(filters, supabase),
-        this.getDistributionByGender(filters, supabase),
-        this.getDistributionByAcademicYear(filters, supabase),
+        // 2. Distribution queries (OPTIMIZED: RPC functions)
+        safeQuery(this.getDistributionByInstitution(filters, supabase), [], 'getDistributionByInstitution'),
+        safeQuery(this.getDistributionByDepartment(filters, supabase), [], 'getDistributionByDepartment'),
+        safeQuery(this.getDistributionByProgram(filters, supabase), [], 'getDistributionByProgram'),
+        safeQuery(this.getDistributionBySemester(filters, supabase), [], 'getDistributionBySemester'),
+        safeQuery(this.getDistributionBySection(filters, supabase), [], 'getDistributionBySection'),
+        safeQuery(this.getDistributionByGender(filters, supabase), [], 'getDistributionByGender'),
+        safeQuery(this.getDistributionByAcademicYear(filters, supabase), [], 'getDistributionByAcademicYear'),
 
         // 3. Time series queries
-        this.getEnquiriesTrend(filters, supabase),
-        this.getActivationsTrend(filters, supabase),
-        this.getGraduationsTrend(filters, supabase),
+        safeQuery(this.getEnquiriesTrend(filters, supabase), [], 'getEnquiriesTrend'),
+        safeQuery(this.getActivationsTrend(filters, supabase), [], 'getActivationsTrend'),
+        safeQuery(this.getGraduationsTrend(filters, supabase), [], 'getGraduationsTrend'),
 
         // 4. Geographic distributions
-        this.getDistributionByState(filters, supabase),
-        this.getDistributionByDistrict(filters, supabase),
+        safeQuery(this.getDistributionByState(filters, supabase), [], 'getDistributionByState'),
+        safeQuery(this.getDistributionByDistrict(filters, supabase), [], 'getDistributionByDistrict'),
 
         // 5. Demographic distributions
-        this.getDistributionByAge(filters, supabase),
-        this.getDistributionByReligion(filters, supabase),
-        this.getDistributionByCommunity(filters, supabase),
-        this.getDistributionByEntryType(filters, supabase),
-        this.getDistributionByAccommodationType(filters, supabase),
+        safeQuery(this.getDistributionByAge(filters, supabase), [], 'getDistributionByAge'),
+        safeQuery(this.getDistributionByReligion(filters, supabase), [], 'getDistributionByReligion'),
+        safeQuery(this.getDistributionByCommunity(filters, supabase), [], 'getDistributionByCommunity'),
+        safeQuery(this.getDistributionByEntryType(filters, supabase), [], 'getDistributionByEntryType'),
+        safeQuery(this.getDistributionByAccommodationType(filters, supabase), [], 'getDistributionByAccommodationType'),
 
         // 6. Profile completion tiers
-        this.getProfileCompletionTiers(filters, supabase),
+        safeQuery(this.getProfileCompletionTiers(filters, supabase), { excellent: 0, good: 0, needsWork: 0, critical: 0 }, 'getProfileCompletionTiers'),
 
         // 7. Hierarchical organizational data (for Organizational tab)
-        this.getHierarchicalInstitutions(filters, supabase)
+        safeQuery(this.getHierarchicalInstitutions(filters, supabase), [], 'getHierarchicalInstitutions')
       ]);
 
       // DEBUG: Log counts by status
@@ -1581,9 +1591,9 @@ export class LearnerProfileService {
         query = query.eq('section_id', filters.sectionId);
       }
 
-      if (filters.lifecycleStatuses && filters.lifecycleStatuses.length > 0) {
-        query = query.in('lifecycle_status', filters.lifecycleStatuses);
-      }
+      // REMOVED: lifecycle_status filter from chunked queries
+      // Methods that need status filtering should use optimized RPC functions instead
+      // Keeping this here was causing enum type errors with text array comparison
 
       if (filters.isProfileComplete !== undefined) {
         query = query.eq('is_profile_complete', filters.isProfileComplete);
@@ -1636,78 +1646,44 @@ export class LearnerProfileService {
     const supabase = supabaseClient || createClientSupabaseClient();
 
     try {
-      // FIXED: Use server-side COUNT queries per status to avoid 1000-row limit
-      // Previously this was fetching records and counting in-memory, hitting the limit
+      // OPTIMIZED: Use single RPC call with GROUP BY instead of 7 parallel COUNT queries
+      const { data, error } = await supabase.rpc('get_learners_count_by_status', {
+        filter_institution_ids: filters.institutionIds || null,
+        filter_academic_year_id: filters.academicYearId || null,
+        filter_degree_id: filters.degreeId || null,
+        filter_department_id: filters.departmentId || null,
+        filter_program_id: filters.programId || null,
+        filter_semester_id: filters.semesterId || null,
+        filter_section_id: filters.sectionId || null,
+        filter_lifecycle_statuses: filters.lifecycleStatuses || null,
+        filter_gender: filters.gender || null,
+        filter_is_profile_complete: filters.isProfileComplete ?? null,
+        filter_date_from: filters.dateRange?.from?.toISOString() || null,
+        filter_date_to: filters.dateRange?.to?.toISOString() || null
+      });
+
+      if (error) {
+        console.error('[learners/analytics] Error in getCountByStatus:', error);
+        throw error;
+      }
+
+      // Ensure all lifecycle statuses are represented (even with 0 count)
       const lifecycleStatuses: import('@/types/learner-profile').LifecycleStatus[] = [
         'enquiry', 'pending', 'approved', 'active', 'inactive', 'graduated', 'exited'
       ];
 
-      // Build base filter function to apply common filters
-      const applyFilters = (query: any) => {
-        if (filters.institutionIds && filters.institutionIds.length > 0) {
-          query = query.in('institution_id', filters.institutionIds);
-        }
-        if (filters.academicYearId) {
-          query = query.eq('academic_year_id', filters.academicYearId);
-        }
-        if (filters.degreeId) {
-          query = query.eq('degree_id', filters.degreeId);
-        }
-        if (filters.departmentId) {
-          query = query.eq('department_id', filters.departmentId);
-        }
-        if (filters.programId) {
-          query = query.eq('program_id', filters.programId);
-        }
-        if (filters.semesterId) {
-          query = query.eq('semester_id', filters.semesterId);
-        }
-        if (filters.sectionId) {
-          query = query.eq('section_id', filters.sectionId);
-        }
-        if (filters.gender) {
-          query = query.eq('gender', filters.gender);
-        }
-        if (filters.dateRange) {
-          query = query
-            .gte('created_at', filters.dateRange.from.toISOString())
-            .lte('created_at', filters.dateRange.to.toISOString());
-        }
-        return query;
-      };
-
-      // Run COUNT queries in parallel for each status (server-side aggregation)
-      const countPromises = lifecycleStatuses.map(async (status) => {
-        let query = supabase
-          .from('learners_profiles')
-          .select('*', { count: 'exact', head: true }) // head: true = only get count, no data
-          .eq('lifecycle_status', status);
-
-        query = applyFilters(query);
-
-        const { count, error } = await query;
-
-        if (error) {
-          console.error(`[learners/analytics] Error counting status ${status}:`, error);
-          return { status, count: 0 };
-        }
-
-        return { status, count: count || 0 };
+      const statusCounts = lifecycleStatuses.map((status) => {
+        const found = (data || []).find((item: any) => item.status === status);
+        return {
+          status: status as import('@/types/learner-profile').LifecycleStatus,
+          count: found ? Number(found.count) : 0,
+          percentage: found ? Number(found.percentage) : 0
+        };
       });
 
-      const statusCounts = await Promise.all(countPromises);
+      console.log('[learners/analytics] Status counts (RPC optimized):', statusCounts);
 
-      // Calculate total for percentage
-      const total = statusCounts.reduce((sum, item) => sum + item.count, 0);
-
-      console.log('[learners/analytics] Status counts (server-side):', statusCounts, 'Total:', total);
-
-      // Return counts with percentages
-      return statusCounts.map(({ status, count }) => ({
-        status: status as import('@/types/learner-profile').LifecycleStatus,
-        count,
-        percentage: total > 0 ? (count / total) * 100 : 0
-      }));
+      return statusCounts;
     } catch (error) {
       console.error('[learners/analytics] Error in getCountByStatus:', error);
       // Return zero counts for all statuses on error
@@ -1733,134 +1709,98 @@ export class LearnerProfileService {
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     const supabase = supabaseClient || createClientSupabaseClient();
 
-    let query = supabase
-      .from('learners_profiles')
-      .select('institution_id, institutions(name)');
+    // OPTIMIZED: Use database RPC function instead of fetching 10,000 rows
+    const { data, error } = await supabase.rpc('get_learners_distribution_by_institution', {
+      filter_institution_ids: filters.institutionIds || null,
+      filter_academic_year_id: filters.academicYearId || null,
+      filter_degree_id: filters.degreeId || null,
+      filter_department_id: filters.departmentId || null,
+      filter_program_id: filters.programId || null,
+      filter_semester_id: filters.semesterId || null,
+      filter_section_id: filters.sectionId || null,
+      filter_lifecycle_statuses: filters.lifecycleStatuses || null,
+      filter_gender: filters.gender || null,
+      filter_is_profile_complete: filters.isProfileComplete ?? null,
+      filter_date_from: filters.dateRange?.from?.toISOString() || null,
+      filter_date_to: filters.dateRange?.to?.toISOString() || null
+    });
 
-    if (filters.institutionIds && filters.institutionIds.length > 0) {
-      query = query.in('institution_id', filters.institutionIds);
+    if (error) {
+      console.error('[learners/analytics] Error in getDistributionByInstitution:', error);
+      throw error;
     }
 
-    // Apply range to fetch up to 10,000 records
-    query = query.range(0, 9999);
-
-    const { data, error } = await query;
-    if (error) throw error;
-
-    const profiles = (data as LearnerStatsRow[]) || [];
-    const total = profiles.length;
-
-    const groups = profiles.reduce((acc, p) => {
-      if (p.institution_id) {
-        if (!acc[p.institution_id]) {
-          acc[p.institution_id] = {
-            id: p.institution_id,
-            name: (p.institutions as any)?.name || 'Unknown',
-            count: 0
-          };
-        }
-        acc[p.institution_id].count++;
-      }
-      return acc;
-    }, {} as Record<string, { id: string; name: string; count: number }>);
-
-    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>).map(
-      (item): import('@/types/learner-dashboard').DistributionItem => ({
-        id: item.id,
-        name: item.name,
-        count: item.count,
-        percentage: total > 0 ? (item.count / total) * 100 : 0
-      })
-    );
+    return (data || []).map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      count: Number(item.count),
+      percentage: Number(item.percentage)
+    }));
   }
 
   // Similar helper methods for other distributions
   private static async getDistributionByDepartment(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     const supabase = supabaseClient || createClientSupabaseClient();
 
-    let query = supabase
-      .from('learners_profiles')
-      .select('department_id, departments(department_name)');
+    // OPTIMIZED: Use database RPC function instead of fetching 10,000 rows
+    const { data, error } = await supabase.rpc('get_learners_distribution_by_department', {
+      filter_institution_ids: filters.institutionIds || null,
+      filter_academic_year_id: filters.academicYearId || null,
+      filter_degree_id: filters.degreeId || null,
+      filter_department_id: filters.departmentId || null,
+      filter_program_id: filters.programId || null,
+      filter_semester_id: filters.semesterId || null,
+      filter_section_id: filters.sectionId || null,
+      filter_lifecycle_statuses: filters.lifecycleStatuses || null,
+      filter_gender: filters.gender || null,
+      filter_is_profile_complete: filters.isProfileComplete ?? null,
+      filter_date_from: filters.dateRange?.from?.toISOString() || null,
+      filter_date_to: filters.dateRange?.to?.toISOString() || null
+    });
 
-    if (filters.departmentId) {
-      query = query.eq('department_id', filters.departmentId);
+    if (error) {
+      console.error('[learners/analytics] Error in getDistributionByDepartment:', error);
+      throw error;
     }
 
-    // Apply range to fetch up to 10,000 records
-    query = query.range(0, 9999);
-
-    const { data, error } = await query;
-    if (error) throw error;
-
-    const profiles = (data as LearnerStatsRow[]) || [];
-    const total = profiles.length;
-
-    const groups = profiles.reduce((acc, p) => {
-      if (p.department_id) {
-        if (!acc[p.department_id]) {
-          acc[p.department_id] = {
-            id: p.department_id,
-            name: (p.departments as any)?.department_name || 'Unknown',
-            count: 0
-          };
-        }
-        acc[p.department_id].count++;
-      }
-      return acc;
-    }, {} as Record<string, { id: string; name: string; count: number }>);
-
-    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>).map(
-      (item): import('@/types/learner-dashboard').DistributionItem => ({
-        id: item.id,
-        name: item.name,
-        count: item.count,
-        percentage: total > 0 ? (item.count / total) * 100 : 0
-      })
-    );
+    return (data || []).map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      count: Number(item.count),
+      percentage: Number(item.percentage)
+    }));
   }
 
   private static async getDistributionByProgram(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     const supabase = supabaseClient || createClientSupabaseClient();
 
-    let query = supabase
-      .from('learners_profiles')
-      .select('program_id, programs(program_name)');
+    // OPTIMIZED: Use database RPC function instead of fetching 10,000 rows
+    const { data, error } = await supabase.rpc('get_learners_distribution_by_program', {
+      filter_institution_ids: filters.institutionIds || null,
+      filter_academic_year_id: filters.academicYearId || null,
+      filter_degree_id: filters.degreeId || null,
+      filter_department_id: filters.departmentId || null,
+      filter_program_id: filters.programId || null,
+      filter_semester_id: filters.semesterId || null,
+      filter_section_id: filters.sectionId || null,
+      filter_lifecycle_statuses: filters.lifecycleStatuses || null,
+      filter_gender: filters.gender || null,
+      filter_is_profile_complete: filters.isProfileComplete ?? null,
+      filter_date_from: filters.dateRange?.from?.toISOString() || null,
+      filter_date_to: filters.dateRange?.to?.toISOString() || null
+    });
 
-    if (filters.programId) {
-      query = query.eq('program_id', filters.programId);
+    if (error) {
+      console.error('[learners/analytics] Error in getDistributionByProgram:', error);
+      throw error;
     }
 
-    // Apply range to fetch up to 10,000 records
-    query = query.range(0, 9999);
-
-    const { data, error } = await query;
-    if (error) throw error;
-
-    const profiles = (data as LearnerStatsRow[]) || [];
-    const total = profiles.length;
-
-    const groups = profiles.reduce((acc, p) => {
-      if (p.program_id) {
-        if (!acc[p.program_id]) {
-          acc[p.program_id] = {
-            id: p.program_id,
-            name: (p.programs as any)?.program_name || 'Unknown',
-            count: 0
-          };
-        }
-        acc[p.program_id].count++;
-      }
-      return acc;
-    }, {} as Record<string, { id: string; name: string; count: number }>);
-
-    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>).map(
-      (item): import('@/types/learner-dashboard').DistributionItem => ({
-        id: item.id,
-        name: item.name,
-        count: item.count,
-        percentage: total > 0 ? (item.count / total) * 100 : 0
-      })
-    );
+    return (data || []).map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      count: Number(item.count),
+      percentage: Number(item.percentage)
+    }));
   }
 
   private static async getDistributionBySemester(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
@@ -1952,32 +1892,35 @@ export class LearnerProfileService {
   }
 
   private static async getDistributionByGender(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'gender', filters, supabaseClient);
-    const total = profiles.length;
+    const supabase = supabaseClient || createClientSupabaseClient();
 
-    const groups = profiles.reduce((acc, p) => {
-      if (p.gender) {
-        if (!acc[p.gender]) {
-          acc[p.gender] = {
-            id: p.gender,
-            name: p.gender.charAt(0).toUpperCase() + p.gender.slice(1),
-            count: 0
-          };
-        }
-        acc[p.gender].count++;
-      }
-      return acc;
-    }, {} as Record<string, { id: string; name: string; count: number }>);
+    // OPTIMIZED: Use database RPC function instead of fetching and chunking records
+    const { data, error } = await supabase.rpc('get_learners_distribution_by_gender', {
+      filter_institution_ids: filters.institutionIds || null,
+      filter_academic_year_id: filters.academicYearId || null,
+      filter_degree_id: filters.degreeId || null,
+      filter_department_id: filters.departmentId || null,
+      filter_program_id: filters.programId || null,
+      filter_semester_id: filters.semesterId || null,
+      filter_section_id: filters.sectionId || null,
+      filter_lifecycle_statuses: filters.lifecycleStatuses || null,
+      filter_gender: filters.gender || null,
+      filter_is_profile_complete: filters.isProfileComplete ?? null,
+      filter_date_from: filters.dateRange?.from?.toISOString() || null,
+      filter_date_to: filters.dateRange?.to?.toISOString() || null
+    });
 
-    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>).map(
-      (item): import('@/types/learner-dashboard').DistributionItem => ({
-        id: item.id,
-        name: item.name,
-        count: item.count,
-        percentage: total > 0 ? (item.count / total) * 100 : 0
-      })
-    );
+    if (error) {
+      console.error('[learners/analytics] Error in getDistributionByGender:', error);
+      throw error;
+    }
+
+    return (data || []).map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      count: Number(item.count),
+      percentage: Number(item.percentage)
+    }));
   }
 
   private static async getDistributionByAcademicYear(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
