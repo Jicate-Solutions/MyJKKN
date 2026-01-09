@@ -107,7 +107,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query/query-keys';
 import { EntityService } from '@/lib/services/entity-service';
 import type { CreateEntityDto, Entity } from '@/types/entity';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 export function useCreateEntity() {
   const queryClient = useQueryClient();

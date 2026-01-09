@@ -184,7 +184,9 @@
       "Bash(timeout 10 echo:*)",
       "Bash(timeout 15 echo:*)",
       "Bash(vercel --version:*)",
-      "Bash(vercel whoami:*)"
+      "Bash(vercel whoami:*)",
+      "Skill(excel-import-export)",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []

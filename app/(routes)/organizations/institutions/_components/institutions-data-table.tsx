@@ -4,7 +4,7 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { InstitutionsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Loader2 } from 'lucide-react';
+import { Plus, TrashIcon, Loader2, Upload, Download, FileSpreadsheet } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { Institution } from '@/types/organizations';
@@ -21,7 +21,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
+import { ImportDialog } from './import-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 
 interface InstitutionsDataTableProps {
   search: InstitutionsSearchParams;
@@ -42,6 +49,9 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
     staff: number;
     bills: number;
   } | null>(null);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [refetchKey, setRefetchKey] = useState(0);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.institutions', 'create');
@@ -138,6 +148,60 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
     setShowDeleteDialog(true);
   };
 
+  const handleExport = async (format: 'csv' | 'xlsx' | 'json' = 'xlsx') => {
+    try {
+      setIsExporting(true);
+      const url = `/api/organizations/institutions/export?format=${format}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `institutions-export-${new Date().toISOString().split('T')[0]}.${format === 'xlsx' ? 'xlsx' : format === 'json' ? 'json' : 'csv'}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(downloadUrl);
+      document.body.removeChild(a);
+
+      toast.success('Export completed successfully');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export institutions');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch('/api/organizations/institutions/template');
+
+      if (!response.ok) {
+        throw new Error('Template download failed');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `institutions-template-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast.success('Template downloaded successfully');
+    } catch (error) {
+      console.error('Template download error:', error);
+      toast.error('Failed to download template');
+    }
+  };
+
   const confirmDelete = async () => {
     if (selectedForDelete.length === 0) return;
 
@@ -170,8 +234,8 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
         deleteResetFn();
       }
 
-      // Refresh the table
-      router.refresh();
+      // Trigger table refetch by incrementing refetchKey
+      setRefetchKey((prev) => prev + 1);
 
       setShowDeleteDialog(false);
       setSelectedForDelete([]);
@@ -202,6 +266,54 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
           Add Institution
         </Button>
       )}
+
+      {canCreate && (
+        <Button
+          onClick={() => setShowImportDialog(true)}
+          variant='outline'
+          size='sm'
+          className='h-8'
+        >
+          <Upload className='mr-2 h-4 w-4' />
+          Import
+        </Button>
+      )}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-8'
+            disabled={isExporting}
+          >
+            {isExporting ? (
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+            ) : (
+              <Download className='mr-2 h-4 w-4' />
+            )}
+            Export
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end'>
+          <DropdownMenuItem onClick={() => handleExport('xlsx')}>
+            <FileSpreadsheet className='mr-2 h-4 w-4' />
+            Export as Excel (.xlsx)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleExport('csv')}>
+            <FileSpreadsheet className='mr-2 h-4 w-4' />
+            Export as CSV
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleExport('json')}>
+            <FileSpreadsheet className='mr-2 h-4 w-4' />
+            Export as JSON
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleDownloadTemplate}>
+            <Download className='mr-2 h-4 w-4' />
+            Download Template
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {props.selectedRows.length > 0 && (
         <Button
@@ -241,6 +353,7 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
           enableRowSelection: true
         }}
         renderToolbarContent={renderCustomToolbar}
+        refetchKey={refetchKey}
       />
 
       {/* Delete Confirmation Dialog */}
@@ -350,6 +463,12 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Import Dialog */}
+      <ImportDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
+      />
     </>
   );
 }

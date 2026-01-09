@@ -14,10 +14,6 @@ import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreesSearchParams } from './data-table-schema';
-import ExportDegrees from './export-degrees';
-import BulkUploadDegrees from './bulk-upload-degrees';
-import DownloadDegreeTemplateButton from './download-degree-template';
-import { usePermissions } from '@/hooks/use-permissions';
 
 interface DegreeFiltersProps {
   searchParams: DegreesSearchParams;
@@ -34,12 +30,6 @@ export function DegreeFilters({
     Array<{ id: string; name: string }>
   >([]);
   const [loading, setLoading] = useState(false);
-  const { canAccess, isSuperAdmin } = usePermissions();
-
-  const canEditDegrees =
-    isSuperAdmin || canAccess('organizations.degrees', 'edit');
-  const canExportDegrees =
-    isSuperAdmin || canAccess('organizations.degrees', 'export');
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -65,8 +55,7 @@ export function DegreeFilters({
   return (
     <div className='space-y-4'>
       {/* Filters Row */}
-      <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
+      <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
           {/* Institution Filter */}
           <div className='min-w-[200px]'>
             <Select
@@ -148,14 +137,6 @@ export function DegreeFilters({
               Clear Filters
             </Button>
           )}
-        </div>
-
-        {/* Action Buttons */}
-        <div className='flex flex-wrap items-center gap-2'>
-          {canEditDegrees && <DownloadDegreeTemplateButton />}
-          {canExportDegrees && <ExportDegrees />}
-          {canEditDegrees && <BulkUploadDegrees />}
-        </div>
       </div>
     </div>
   );

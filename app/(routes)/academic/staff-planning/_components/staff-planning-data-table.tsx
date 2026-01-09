@@ -11,7 +11,7 @@ import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { StaffPlan } from '@/types/staff-planning';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertDialog,

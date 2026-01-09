@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { CheckCircle2, Home, Receipt, Loader2, Download, ArrowRight, CheckCheck, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePaymentStatus } from '@/hooks/billing/use-payment-gateway';
 
@@ -154,14 +154,13 @@ export default function PaymentSuccessPage() {
 
       if (hdfcStatus === 'CHARGED' || hdfcStatus === 'SUCCESS' || hdfcStatus === 'COMPLETED') {
         toast.success('Payment Successful!', {
-          description: receiptId
-            ? 'Your payment has been confirmed and receipt has been generated.'
-            : 'Your payment has been confirmed. Receipt will be available shortly.',
+         
           duration: 5000,
+         
         });
       } else {
-        toast.info('Payment Initiated!', {
-          description: 'Your payment has been sent to HDFC gateway. Please wait for confirmation.',
+        toast.error('Payment Initiated!', {
+          icon: <CheckCircle2 className="h-4 w-4" />,
           duration: 5000,
         });
       }

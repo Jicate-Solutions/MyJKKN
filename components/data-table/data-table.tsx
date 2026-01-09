@@ -141,6 +141,9 @@ interface DataTableProps<TData extends ExportableData, TValue> {
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => React.ReactNode;
+
+  // Optional refetch trigger - increment this value to force a data refetch
+  refetchKey?: number;
 }
 
 export function DataTable<TData extends ExportableData, TValue>({
@@ -151,7 +154,8 @@ export function DataTable<TData extends ExportableData, TValue>({
   exportConfig,
   idField = 'id' as keyof TData,
   pageSizeOptions,
-  renderToolbarContent
+  renderToolbarContent,
+  refetchKey = 0
 }: DataTableProps<TData, TValue>) {
   // Load table configuration with any overrides
   const tableConfig = useTableConfig(config);
@@ -408,7 +412,7 @@ export function DataTable<TData extends ExportableData, TValue>({
 
       fetchData();
     }
-  }, [page, pageSize, search, dateRange, sortBy, sortOrder, fetchDataFn]);
+  }, [page, pageSize, search, dateRange, sortBy, sortOrder, fetchDataFn, refetchKey]);
 
   // If fetchDataFn is a React Query hook, call it directly with parameters
   const queryResult =

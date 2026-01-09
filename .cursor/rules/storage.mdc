@@ -188,7 +188,7 @@ import { useDropzone } from 'react-dropzone';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { StorageService } from '@/lib/storage/storage-service';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 interface FileUploadProps {
   bucket: string;

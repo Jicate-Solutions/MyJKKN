@@ -31,7 +31,7 @@ import type {
   AttendanceSearchContext,
   AttendancePeriodOption
 } from '@/types/attendance';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 interface AttendanceViewSelectorProps {
   searchContext: AttendanceSearchContext;
@@ -129,8 +129,8 @@ export function AttendanceViewSelector({
       toast.error(
         'Section is required for this semester. Please select a specific section.',
         {
-          description:
-            'This semester uses section-level timetables. Each section has its own timetable.'
+          icon: <Info className='h-4 w-4' />,
+          duration: 5000
         }
       );
       return false;

@@ -17,7 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { maintenanceService } from '@/lib/services/resource-management/maintenance-service';
 
 interface MaintenanceDataTableProps {
