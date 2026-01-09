@@ -2,7 +2,7 @@
 
 import { DotsHorizontalIcon } from '@radix-ui/react-icons';
 import type { Row } from '@tanstack/react-table';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -62,9 +62,9 @@ export function DataTableRowActions<TData>({
     },
     onError: (error) => {
       toast.error('Failed to delete academic year', {
-        description:
-          error instanceof Error ? error.message : 'Please try again.'
-      });
+        duration: 5000
+      });  
+      console.error('Failed to delete academic year', error);
     }
   });
 

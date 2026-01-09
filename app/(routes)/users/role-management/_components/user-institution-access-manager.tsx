@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { BeatLoader } from 'react-spinners';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import {
   UserInstitutionAccessService,
   AccessibleInstitution

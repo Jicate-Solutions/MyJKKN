@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/data-table/data-table';
@@ -118,10 +118,10 @@ export function PendingAttendanceDataTable({
         if (attendanceRecord?.attendance_data) {
           const attendanceData = attendanceRecord.attendance_data;
           if (attendanceData && typeof attendanceData === 'object' && attendanceData[period.period_id]) {
-            toast.info(
+            toast.error(
               `Attendance for ${period.period_name} on ${format(new Date(period.attendance_date), 'MMM dd, yyyy')} has already been marked`,
               {
-                description: 'Please refresh the dashboard to see updated data',
+
                 duration: 5000
               }
             );
@@ -182,7 +182,7 @@ export function PendingAttendanceDataTable({
           size='sm'
           disabled={props.selectedRows.length === 0}
           className='gap-2'
-          onClick={() => toast.info('Bulk reminder feature coming soon!')}
+          onClick={() => toast.error('Bulk reminder feature coming soon!')}
         >
           <Bell className='h-4 w-4' />
           Send Reminders ({props.selectedRows.length})

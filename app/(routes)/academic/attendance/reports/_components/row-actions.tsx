@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import type { AttendanceReport } from '@/lib/services/academic/attendance-report-service';
 import { AttendanceExportService } from '@/lib/services/academic/attendance-export-service';
 

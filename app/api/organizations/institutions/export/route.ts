@@ -3,6 +3,12 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import { parse } from 'json2csv';
+import {
+  EXCEL_INSTITUTION_TYPES,
+  EXCEL_CATEGORIES,
+  EXCEL_TIMETABLE_TYPES,
+  mapValueToLabel
+} from '@/lib/utils/institution-excel-mappings';
 
 
 export async function GET(request: NextRequest) {
@@ -79,8 +85,9 @@ export async function GET(request: NextRequest) {
       name: institution.name,
       code: institution.code || '',
       counselling_code: institution.counselling_code || '',
-      institution_type: institution.institution_type || '',
-      category: institution.category || '',
+      institution_type: mapValueToLabel(institution.institution_type || '', 'institutionType'),
+      category: mapValueToLabel(institution.category || '', 'category'),
+      timetable_type: mapValueToLabel(institution.timetable_type || '', 'timetableType'),
       accredited_by: institution.accredited_by || '',
       address_line1: institution.address_line1 || '',
       address_line2: institution.address_line2 || '',
@@ -109,8 +116,12 @@ export async function GET(request: NextRequest) {
     // Format and return the data according to the requested format
     switch (format) {
       case 'xlsx': {
-        // Create and format Excel workbook
+        // Create and format Excel workbook with dropdown validation
         const workbook = new ExcelJS.Workbook();
+
+        // ============================================================
+        // SHEET 1: Institutions (Main Data Sheet)
+        // ============================================================
         const worksheet = workbook.addWorksheet('Institutions');
 
         // Define columns
@@ -121,6 +132,7 @@ export async function GET(request: NextRequest) {
           { header: 'Counselling Code', key: 'counselling_code', width: 20 },
           { header: 'Institution Type', key: 'institution_type', width: 20 },
           { header: 'Category', key: 'category', width: 15 },
+          { header: 'Timetable Type', key: 'timetable_type', width: 20 },
           { header: 'Accredited By', key: 'accredited_by', width: 15 },
           { header: 'Address Line 1', key: 'address_line1', width: 30 },
           { header: 'Address Line 2', key: 'address_line2', width: 30 },
@@ -162,10 +174,99 @@ export async function GET(request: NextRequest) {
           fgColor: { argb: 'FFE0E0E0' }
         };
 
+        // Freeze first row
+        worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+
         // Add data rows
         exportableData.forEach((institution) => {
           worksheet.addRow(institution);
         });
+
+        // ============================================================
+        // SHEET 2: Lists (Reference Data for Dropdowns)
+        // ============================================================
+        const listsSheet = workbook.addWorksheet('Lists');
+
+        // Add headers
+        listsSheet.addRow(['Institution Type', 'Category', 'Timetable Type']);
+        listsSheet.getRow(1).font = { bold: true };
+
+        // Add dropdown values
+        const maxRows = Math.max(
+          EXCEL_INSTITUTION_TYPES.length,
+          EXCEL_CATEGORIES.length,
+          EXCEL_TIMETABLE_TYPES.length
+        );
+
+        for (let i = 0; i < maxRows; i++) {
+          listsSheet.addRow([
+            EXCEL_INSTITUTION_TYPES[i] || '',
+            EXCEL_CATEGORIES[i] || '',
+            EXCEL_TIMETABLE_TYPES[i] || ''
+          ]);
+        }
+
+        // Auto-fit columns in Lists sheet
+        listsSheet.columns = [
+          { width: 20 },
+          { width: 15 },
+          { width: 20 }
+        ];
+
+        // ============================================================
+        // DATA VALIDATION (Dropdowns) - Using inline lists
+        // ExcelJS requires: formulae: ['"Value1,Value2,Value3"']
+        // with double quotes inside the array for inline list validation
+        // ============================================================
+
+        // Define validation end row (data + 50 extra rows, capped at 100)
+        const validationEndRow = Math.min(exportableData.length + 50, 100);
+
+        // Create inline list formulas - ExcelJS format requires double-quoted string
+        const institutionTypeList = `"${EXCEL_INSTITUTION_TYPES.join(',')}"`;
+        const categoryList = `"${EXCEL_CATEGORIES.join(',')}"`;
+        const timetableTypeList = `"${EXCEL_TIMETABLE_TYPES.join(',')}"`;
+
+        // Apply validation cell-by-cell (ExcelJS requires this approach)
+        for (let row = 2; row <= validationEndRow; row++) {
+          // Column E: Institution Type dropdown
+          worksheet.getCell(`E${row}`).dataValidation = {
+            type: 'list',
+            allowBlank: true,
+            formulae: [institutionTypeList],
+            showErrorMessage: true,
+            errorStyle: 'warning',
+            errorTitle: 'Invalid Input',
+            error: `Please select: ${EXCEL_INSTITUTION_TYPES.join(', ')}`
+          };
+
+          // Column F: Category dropdown
+          worksheet.getCell(`F${row}`).dataValidation = {
+            type: 'list',
+            allowBlank: true,
+            formulae: [categoryList],
+            showErrorMessage: true,
+            errorStyle: 'warning',
+            errorTitle: 'Invalid Input',
+            error: `Please select: ${EXCEL_CATEGORIES.join(', ')}`
+          };
+
+          // Column G: Timetable Type dropdown
+          worksheet.getCell(`G${row}`).dataValidation = {
+            type: 'list',
+            allowBlank: true,
+            formulae: [timetableTypeList],
+            showErrorMessage: true,
+            errorStyle: 'warning',
+            errorTitle: 'Invalid Input',
+            error: `Please select: ${EXCEL_TIMETABLE_TYPES.join(', ')}`
+          };
+        }
+
+        // ============================================================
+        // OPTIONAL: Hide Lists Sheet (Recommended)
+        // ============================================================
+        listsSheet.state = 'hidden';
 
         // Generate Excel file
         const buffer = await workbook.xlsx.writeBuffer();
@@ -204,6 +305,7 @@ export async function GET(request: NextRequest) {
           'counselling_code',
           'institution_type',
           'category',
+          'timetable_type',
           'accredited_by',
           'address_line1',
           'address_line2',

@@ -2,7 +2,7 @@
 // Purpose: Client-side payment gateway integration
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import type {
   CreatePaymentSessionDto,
   PaymentSessionResponse,
@@ -68,7 +68,7 @@ export function useInitiatePayment() {
     },
     onError: (error: Error) => {
       toast.error('Payment Initiation Failed', {
-        description: error.message,
+        
       });
     },
   });

@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { TrashIcon, ArrowRight } from 'lucide-react';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import Link from 'next/link';
 import {
   AlertDialog,
@@ -106,7 +106,7 @@ export function ProfilesDataTable({ search, statusFilter }: ProfilesDataTablePro
     } catch (error) {
       console.error('[learners/profiles] Error fetching data:', error);
       toast.error('Failed to load data', {
-        description: error instanceof Error ? error.message : 'Please try again.',
+        duration: 5000
       });
       throw error;
     }

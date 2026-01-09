@@ -12,10 +12,6 @@ import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { CoursesSearchParams } from './data-table-schema';
-import DownloadCourseTemplateButton from './download-course-template';
-import { ExportCourses } from './export-courses';
-import BulkUploadCourses from './bulk-upload-courses';
-import { usePermissions } from '@/hooks/use-permissions';
 
 interface CourseFiltersProps {
   searchParams: CoursesSearchParams;
@@ -32,10 +28,6 @@ export function CourseFilters({
     Array<{ id: string; name: string }>
   >([]);
   const [loading, setLoading] = useState(false);
-  const { canAccess, isSuperAdmin } = usePermissions();
-  
-  const canEditCourses =
-    isSuperAdmin || canAccess('organizations.courses', 'edit');
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -111,42 +103,17 @@ export function CourseFilters({
           <div className='hidden lg:block'></div>
         </div>
 
-        {/* Second Row - Clear Filters and Action Buttons */}
-        <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
-          <div className='flex items-center gap-2'>
-            {/* Clear Filters Button */}
-            {hasActiveFilters && (
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={onClearFilters}
-                className='w-full sm:w-auto'
-              >
-                <RotateCcw className='mr-2 h-4 w-4' />
-                Clear Filters
-              </Button>
-            )}
-          </div>
-
-          {/* Action Buttons */}
-          <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2'>
-            {canEditCourses && (
-              <div className='w-full sm:w-auto'>
-                <DownloadCourseTemplateButton />
-              </div>
-            )}
-            {canEditCourses && (
-              <div className='w-full sm:w-auto'>
-                <ExportCourses />
-              </div>
-            )}
-            {canEditCourses && (
-              <div className='w-full sm:w-auto'>
-                <BulkUploadCourses />
-              </div>
-            )}
-          </div>
-        </div>
+        {/* Clear Filters Button */}
+        {hasActiveFilters && (
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={onClearFilters}
+          >
+            <RotateCcw className='mr-2 h-4 w-4' />
+            Clear Filters
+          </Button>
+        )}
       </div>
     </div>
   );

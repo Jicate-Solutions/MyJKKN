@@ -12,7 +12,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { AttendanceFacultySync } from '@/lib/services/academic/attendance-faculty-sync';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 interface FacultySyncIndicatorProps {
@@ -81,7 +81,7 @@ export function FacultySyncIndicator({
             onSync(newFaculty);
           }
         } else {
-          toast.info('No changes needed');
+          toast.error('No changes needed');
         }
       } else {
         toast.error('Failed to sync faculty assignments');

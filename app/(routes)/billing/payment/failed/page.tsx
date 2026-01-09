@@ -29,7 +29,7 @@ import { usePaymentStatus } from '@/hooks/billing/use-payment-gateway';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // Failure Animation Component
@@ -127,7 +127,7 @@ export default function PaymentFailedPage() {
       // Delay to show animation first
       setTimeout(() => {
         toast.error('Payment Not Completed', {
-          description: statusMessages[paymentStatus.status],
+         
           duration: 5000
         });
       }, 1500);

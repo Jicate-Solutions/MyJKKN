@@ -29,7 +29,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger
 } from '@/components/ui/alert-dialog';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import {
   sendInvoice,
   downloadInvoicePDF,

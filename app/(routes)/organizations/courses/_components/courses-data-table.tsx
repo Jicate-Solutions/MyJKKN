@@ -4,12 +4,20 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { CoursesSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Loader2 } from 'lucide-react';
+import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { Course } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useState } from 'react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import { ImportDialog } from './import-dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 interface CoursesDataTableProps {
   search: CoursesSearchParams;
@@ -33,6 +41,8 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
   const [selectedForDelete, setSelectedForDelete] = useState<Course[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Fixed: 2025-12-27 - Use correct permission for courses
   const canCreate =
@@ -127,7 +137,8 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
         deleteResetFn();
       }
 
-      // Refresh the table
+      // Refresh the table - trigger re-fetch
+      setRefreshTrigger(prev => prev + 1);
       router.refresh();
 
       setShowDeleteDialog(false);
@@ -141,6 +152,86 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
     }
   };
 
+  const handleImportComplete = () => {
+    setRefreshTrigger(prev => prev + 1);
+    router.refresh();
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch('/api/organizations/courses/template');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `courses-template-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Template download error:', error);
+      toast.error('Failed to download template');
+    }
+  };
+
+  const handleExportExcel = async () => {
+    try {
+      const response = await fetch('/api/organizations/courses/export?format=xlsx');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `courses-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Courses exported successfully');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export courses');
+    }
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      const response = await fetch('/api/organizations/courses/export?format=csv');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `courses-export-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Courses exported successfully');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export courses');
+    }
+  };
+
+  const handleExportJSON = async () => {
+    try {
+      const response = await fetch('/api/organizations/courses/export?format=json');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `courses-export-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Courses exported successfully');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export courses');
+    }
+  };
+
   const renderCustomToolbar = (props: {
     selectedRows: any[];
     allSelectedIds: (string | number)[];
@@ -149,14 +240,55 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
   }) => (
     <div className='flex items-center gap-2'>
       {canCreate && (
-        <Button
-          onClick={() => router.push('/organizations/courses/new')}
-          size='sm'
-          className='h-8'
-        >
-          <Plus className='mr-2 h-4 w-4' />
-          Add Course
-        </Button>
+        <>
+          <Button
+            onClick={() => router.push('/organizations/courses/new')}
+            size='sm'
+            className='h-8'
+          >
+            <Plus className='mr-2 h-4 w-4' />
+            Add Course
+          </Button>
+
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-8'
+            onClick={() => setImportOpen(true)}
+          >
+            <Upload className='mr-2 h-4 w-4' />
+            Import
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant='outline' size='sm' className='h-8'>
+                <Download className='mr-2 h-4 w-4' />
+                Export
+                <ChevronDown className='ml-2 h-4 w-4' />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end'>
+              <DropdownMenuItem onClick={handleExportExcel}>
+                <FileSpreadsheet className='mr-2 h-4 w-4' />
+                Export as Excel (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportCSV}>
+                <FileText className='mr-2 h-4 w-4' />
+                Export as CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportJSON}>
+                <FileJson className='mr-2 h-4 w-4' />
+                Export as JSON
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleDownloadTemplate}>
+                <Download className='mr-2 h-4 w-4' />
+                Download Template
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
       )}
 
       {/* Fixed: 2025-12-27 - Only show bulk delete if user has delete permission */}
@@ -182,6 +314,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
   return (
     <>
       <DataTable
+        key={refreshTrigger}
         fetchDataFn={fetchData}
         getColumns={() => columns as any}
         exportConfig={{
@@ -255,6 +388,13 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Import Dialog */}
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImportComplete={handleImportComplete}
+      />
     </>
   );
 }

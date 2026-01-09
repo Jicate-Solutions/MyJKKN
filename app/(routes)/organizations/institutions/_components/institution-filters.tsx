@@ -11,10 +11,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
 import { InstitutionsSearchParams } from './data-table-schema';
-import ExportInstitutions from './export-institutions';
-import BulkUploadInstitutions from './bulk-upload-institutions';
-import DownloadTemplateButton from './download-template-button';
-import { usePermissions } from '@/hooks/use-permissions';
 
 interface InstitutionFiltersProps {
   searchParams: InstitutionsSearchParams;
@@ -27,8 +23,6 @@ export function InstitutionFilter({
   onFilterChange,
   onClearFilters
 }: InstitutionFiltersProps) {
-  const { isSuperAdmin } = usePermissions();
-
   const hasActiveFilters = !!searchParams.status;
 
   return (
@@ -64,12 +58,6 @@ export function InstitutionFilter({
               Clear Filters
             </Button>
           )}
-        </div>
-
-        <div className='flex flex-wrap items-center gap-2'>
-          {isSuperAdmin && <DownloadTemplateButton />}
-          {isSuperAdmin && <ExportInstitutions />}
-          {isSuperAdmin && <BulkUploadInstitutions />}
         </div>
       </div>
     </div>

@@ -53,7 +53,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { AttendanceReportService } from '@/lib/services/academic/attendance-report-service';
 import { AttendanceExportService } from '@/lib/services/academic/attendance-export-service';
 import { format } from 'date-fns';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import type { DetailedAttendanceReport } from '@/types/attendance-reports';
 
 // Color scheme constants - Using primary (blue), success (green), danger (red)

@@ -25,7 +25,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 interface TimetablesTableServerProps {
   timetables: Timetable[];

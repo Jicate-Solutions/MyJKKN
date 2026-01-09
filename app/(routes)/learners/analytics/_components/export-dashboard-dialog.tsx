@@ -22,7 +22,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Download, FileSpreadsheet, FileText, Image, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import type { LearnerDashboardStats, LearnerDashboardFilters } from '@/types/learner-dashboard';
 
 interface ExportDashboardDialogProps {

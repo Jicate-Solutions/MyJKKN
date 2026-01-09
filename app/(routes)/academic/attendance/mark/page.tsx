@@ -36,7 +36,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -617,11 +617,11 @@ export default function AttendanceMarkPage() {
 
         if (filteredStudents.length === 0) {
           if (isSubdividedFromUrl) {
-            toast.info(
+            toast.error(
               `No students assigned to ${subdivisionGroupName || 'this group'}`
             );
           } else {
-            toast.info('No students found for this section');
+            toast.error('No students found for this section');
           }
         } else {
           const groupInfo =
@@ -684,11 +684,11 @@ export default function AttendanceMarkPage() {
 
           // Show appropriate toast based on user permissions
           if (isSuperAdmin) {
-            toast.info(
+            toast.error(
               'Attendance was already marked for this class. You can review and update it if needed.'
             );
           } else {
-            toast.warning(
+            toast.error(
               'Attendance was already marked for this class. This record is read-only.'
             );
           }

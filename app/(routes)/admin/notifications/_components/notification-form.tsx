@@ -35,7 +35,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Bell, Send, Users } from 'lucide-react';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';

@@ -36,7 +36,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 // Tab components (will be created in subsequent phases)
 import { OverviewTab } from './_components/overview-tab';
