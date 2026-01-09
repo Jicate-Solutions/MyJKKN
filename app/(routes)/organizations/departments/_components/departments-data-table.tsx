@@ -4,12 +4,20 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { DepartmentsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Loader2 } from 'lucide-react';
+import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { Department } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useState, useCallback } from 'react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import { ImportDialog } from './import-dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +41,8 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
   const [selectedForDelete, setSelectedForDelete] = useState<Department[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.institutions', 'create');
@@ -132,7 +142,8 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
         deleteResetFn();
       }
 
-      // Refresh the table
+      // Refresh the table - trigger re-fetch
+      setRefreshTrigger(prev => prev + 1);
       router.refresh();
 
       setShowDeleteDialog(false);
@@ -146,6 +157,86 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
     }
   };
 
+  const handleImportComplete = () => {
+    setRefreshTrigger(prev => prev + 1);
+    router.refresh();
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch('/api/organizations/departments/template');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `departments-template-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Template download error:', error);
+      toast.error('Failed to download template');
+    }
+  };
+
+  const handleExportExcel = async () => {
+    try {
+      const response = await fetch('/api/organizations/departments/export?format=xlsx');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `departments-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Departments exported successfully');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export departments');
+    }
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      const response = await fetch('/api/organizations/departments/export?format=csv');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `departments-export-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Departments exported successfully');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export departments');
+    }
+  };
+
+  const handleExportJSON = async () => {
+    try {
+      const response = await fetch('/api/organizations/departments/export?format=json');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `departments-export-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Departments exported successfully');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export departments');
+    }
+  };
+
   const renderCustomToolbar = (props: {
     selectedRows: any[];
     allSelectedIds: (string | number)[];
@@ -154,14 +245,55 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
   }) => (
     <div className='flex items-center gap-2'>
       {canCreate && (
-        <Button
-          onClick={() => router.push('/organizations/departments/new')}
-          size='sm'
-          className='h-8'
-        >
-          <Plus className='mr-2 h-4 w-4' />
-          Add Department
-        </Button>
+        <>
+          <Button
+            onClick={() => router.push('/organizations/departments/new')}
+            size='sm'
+            className='h-8'
+          >
+            <Plus className='mr-2 h-4 w-4' />
+            Add Department
+          </Button>
+
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-8'
+            onClick={() => setImportOpen(true)}
+          >
+            <Upload className='mr-2 h-4 w-4' />
+            Import
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant='outline' size='sm' className='h-8'>
+                <Download className='mr-2 h-4 w-4' />
+                Export
+                <ChevronDown className='ml-2 h-4 w-4' />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end'>
+              <DropdownMenuItem onClick={handleExportExcel}>
+                <FileSpreadsheet className='mr-2 h-4 w-4' />
+                Export as Excel (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportCSV}>
+                <FileText className='mr-2 h-4 w-4' />
+                Export as CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportJSON}>
+                <FileJson className='mr-2 h-4 w-4' />
+                Export as JSON
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleDownloadTemplate}>
+                <Download className='mr-2 h-4 w-4' />
+                Download Template
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
       )}
 
       {props.selectedRows.length > 0 && (
@@ -186,6 +318,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
   return (
     <>
       <DataTable
+        key={refreshTrigger}
         fetchDataFn={fetchData}
         getColumns={() => columns as any}
         exportConfig={{
@@ -261,6 +394,13 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Import Dialog */}
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImportComplete={handleImportComplete}
+      />
     </>
   );
 }

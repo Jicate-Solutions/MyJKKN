@@ -14,10 +14,6 @@ import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramsSearchParams } from './data-table-schema';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import DownloadProgramTemplateButton from './download-program-template';
-import { ExportPrograms } from './export-programs';
-import BulkUploadPrograms from './bulk-upload-programs';
-import { usePermissions } from '@/hooks/use-permissions';
 
 interface ProgramFiltersProps {
   searchParams: ProgramsSearchParams;
@@ -40,29 +36,41 @@ export function ProgramFilters({
     Array<{ id: string; department_name: string }>
   >([]);
   const [loading, setLoading] = useState(false);
-  const { canAccess, isSuperAdmin } = usePermissions();
-  
-  const canEditPrograms =
-    isSuperAdmin || canAccess('organizations.programs', 'edit');
-  const canExportPrograms =
-    isSuperAdmin || canAccess('organizations.programs', 'export');
 
+  // FIXED: Add AbortController to prevent race conditions and memory leaks
   useEffect(() => {
+    const abortController = new AbortController();
+
     async function loadInstitutions() {
       try {
         setLoading(true);
         const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
+
+        // Only update state if not aborted
+        if (!abortController.signal.aborted) {
+          setInstitutions(data);
+        }
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        if (!abortController.signal.aborted) {
+          console.error('Error loading institutions:', error);
+        }
       } finally {
-        setLoading(false);
+        if (!abortController.signal.aborted) {
+          setLoading(false);
+        }
       }
     }
+
     loadInstitutions();
+
+    // Cleanup: abort fetch on unmount
+    return () => abortController.abort();
   }, []);
 
+  // FIXED: Add AbortController to prevent race conditions and memory leaks
   useEffect(() => {
+    const abortController = new AbortController();
+
     async function loadDegrees() {
       if (searchParams.institution_id) {
         try {
@@ -70,20 +78,37 @@ export function ProgramFilters({
           const data = await DegreeService.getDegreesByInstitution(
             searchParams.institution_id
           );
-          setDegrees(data);
+
+          // Only update state if not aborted
+          if (!abortController.signal.aborted) {
+            setDegrees(data);
+          }
         } catch (error) {
-          console.error('Error loading degrees:', error);
+          if (!abortController.signal.aborted) {
+            console.error('Error loading degrees:', error);
+          }
         } finally {
-          setLoading(false);
+          if (!abortController.signal.aborted) {
+            setLoading(false);
+          }
         }
       } else {
-        setDegrees([]);
+        if (!abortController.signal.aborted) {
+          setDegrees([]);
+        }
       }
     }
+
     loadDegrees();
+
+    // Cleanup: abort fetch on unmount or when institution changes
+    return () => abortController.abort();
   }, [searchParams.institution_id]);
 
+  // FIXED: Add AbortController to prevent race conditions and memory leaks
   useEffect(() => {
+    const abortController = new AbortController();
+
     async function loadDepartments() {
       if (searchParams.degree_id) {
         try {
@@ -91,17 +116,31 @@ export function ProgramFilters({
           const data = await DepartmentService.getDepartmentsByDegree(
             searchParams.degree_id
           );
-          setDepartments(data);
+
+          // Only update state if not aborted
+          if (!abortController.signal.aborted) {
+            setDepartments(data);
+          }
         } catch (error) {
-          console.error('Error loading departments:', error);
+          if (!abortController.signal.aborted) {
+            console.error('Error loading departments:', error);
+          }
         } finally {
-          setLoading(false);
+          if (!abortController.signal.aborted) {
+            setLoading(false);
+          }
         }
       } else {
-        setDepartments([]);
+        if (!abortController.signal.aborted) {
+          setDepartments([]);
+        }
       }
     }
+
     loadDepartments();
+
+    // Cleanup: abort fetch on unmount or when degree changes
+    return () => abortController.abort();
   }, [searchParams.degree_id]);
 
   const handleInstitutionChange = (value: string) => {
@@ -223,42 +262,21 @@ export function ProgramFilters({
           </div>
         </div>
 
-        {/* Second Row - Clear Filters and Action Buttons */}
-        <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
+        {/* Second Row - Clear Filters */}
+        {hasActiveFilters && (
           <div className='flex items-center gap-2'>
             {/* Clear Filters Button */}
-            {hasActiveFilters && (
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={onClearFilters}
-                className='w-full sm:w-auto'
-              >
-                <RotateCcw className='mr-2 h-4 w-4' />
-                Clear Filters
-              </Button>
-            )}
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={onClearFilters}
+              className='w-full sm:w-auto'
+            >
+              <RotateCcw className='mr-2 h-4 w-4' />
+              Clear Filters
+            </Button>
           </div>
-
-          {/* Action Buttons */}
-          <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2'>
-            {canEditPrograms && (
-              <div className='w-full sm:w-auto'>
-                <DownloadProgramTemplateButton />
-              </div>
-            )}
-            {canExportPrograms && (
-              <div className='w-full sm:w-auto'>
-                <ExportPrograms />
-              </div>
-            )}
-            {canEditPrograms && (
-              <div className='w-full sm:w-auto'>
-                <BulkUploadPrograms />
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

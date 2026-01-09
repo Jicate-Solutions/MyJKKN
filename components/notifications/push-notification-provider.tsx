@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
 import toast from 'react-hot-toast';
-import { AlertCircle, Bell } from 'lucide-react';
+
 
 interface PushNotificationProviderProps {
   children: React.ReactNode;
@@ -29,8 +29,7 @@ export function PushNotificationProvider({
       // If permission is default, show a toast to ask user
       if (permission === 'default') {
         toast('Enable Notifications', {
-          icon: <Bell className="h-4 w-4" />,
-          duration: 10000
+          
         });
       }
       // If permission is granted but not subscribed, auto-subscribe

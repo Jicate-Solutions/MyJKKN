@@ -15,10 +15,6 @@ import { RotateCcw } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentsSearchParams } from './data-table-schema';
-import DownloadDepartmentTemplateButton from './download-department-template';
-import { ExportDepartments } from './export-departments';
-import BulkUploadDepartments from './bulk-upload-departments';
-import { usePermissions } from '@/hooks/use-permissions';
 
 interface DepartmentFiltersProps {
   searchParams: DepartmentsSearchParams;
@@ -38,7 +34,6 @@ export function DepartmentFilters({
     Array<{ id: string; degree_name: string }>
   >([]);
   const [loading, setLoading] = useState(false);
-  const { canAccess, isSuperAdmin } = usePermissions();
 
   // FIXED: Add AbortController to prevent race conditions and memory leaks
   useEffect(() => {
@@ -194,42 +189,21 @@ export function DepartmentFilters({
           </div>
         </div>
 
-        {/* Second Row - Clear Filters and Action Buttons */}
-        <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
+        {/* Second Row - Clear Filters */}
+        {hasActiveFilters && (
           <div className='flex items-center gap-2'>
             {/* Clear Filters Button */}
-            {hasActiveFilters && (
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={onClearFilters}
-                className='w-full sm:w-auto'
-              >
-                <RotateCcw className='mr-2 h-4 w-4' />
-                Clear Filters
-              </Button>
-            )}
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={onClearFilters}
+              className='w-full sm:w-auto'
+            >
+              <RotateCcw className='mr-2 h-4 w-4' />
+              Clear Filters
+            </Button>
           </div>
-
-          {/* Action Buttons */}
-          <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2'>
-            {isSuperAdmin && canAccess('organizations.departments', 'create') && (
-              <div className='w-full sm:w-auto'>
-                <DownloadDepartmentTemplateButton />
-              </div>
-            )}
-            {isSuperAdmin && (
-              <div className='w-full sm:w-auto'>
-                <ExportDepartments />
-              </div>
-            )}
-            {isSuperAdmin && canAccess('organizations.departments', 'create') && (
-              <div className='w-full sm:w-auto'>
-                <BulkUploadDepartments />
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
