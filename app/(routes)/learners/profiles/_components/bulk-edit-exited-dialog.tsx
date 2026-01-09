@@ -70,6 +70,7 @@ interface PreviewResult {
   no_changes: number;
   errors: number;
   preview: PreviewRow[];
+  error?: string; // Added for error responses from server
 }
 
 interface EditResult {
@@ -233,7 +234,9 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
       const data: PreviewResult = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error('Failed to preview changes');
+        // Show actual server error message instead of generic error
+        const errorMessage = data.error || 'Failed to preview changes';
+        throw new Error(errorMessage);
       }
 
       setPreviewData(data);
@@ -243,7 +246,16 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
 
     } catch (error) {
       console.error('[bulk-edit-active] Preview error:', error);
-      toast.error(error instanceof Error ? error.message : 'Preview failed');
+      const errorMessage = error instanceof Error ? error.message : 'Preview failed';
+
+      // Show specific error with helpful message
+      if (errorMessage.includes('Unauthorized') || errorMessage.includes('Authentication')) {
+        toast.error('Session expired. Please refresh the page and try again.');
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('Network')) {
+        toast.error('Connection timeout. Please check your internet and try again.');
+      } else {
+        toast.error(errorMessage);
+      }
     } finally {
       setPreviewing(false);
     }

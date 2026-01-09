@@ -14,6 +14,8 @@ interface BatchTimetableGridProps {
   onRemoveDate?: (dateStr: string) => void;
   onEditDate?: (dateStr: string) => void;
   lockedPeriods: string[];
+  canEdit?: boolean;
+  isSuperAdmin?: boolean;
 }
 
 export const BatchTimetableGrid = React.forwardRef<
@@ -29,7 +31,9 @@ export const BatchTimetableGrid = React.forwardRef<
       onSlotDelete,
       onRemoveDate,
       onEditDate,
-      lockedPeriods
+      lockedPeriods,
+      canEdit = false,
+      isSuperAdmin = false
     },
     ref
   ) => {
@@ -301,32 +305,35 @@ export const BatchTimetableGrid = React.forwardRef<
                           </>
                         )}
                       </div>
-                      <div className='flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity'>
-                        {onEditDate && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEditDate(dateRange.rangeMarker);
-                            }}
-                            className='p-1 hover:bg-green-500 rounded'
-                            title='Edit this date range'
-                          >
-                            <Edit2 className='h-3 w-3 text-white' />
-                          </button>
-                        )}
-                        {onRemoveDate && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onRemoveDate(dateRange.rangeMarker);
-                            }}
-                            className='p-1 hover:bg-red-500 rounded'
-                            title='Remove this date range'
-                          >
-                            <X className='h-3 w-3 text-white' />
-                          </button>
-                        )}
-                      </div>
+                      {/* Only show edit/remove buttons if user has edit permission */}
+                      {canEdit && (
+                        <div className='flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity'>
+                          {onEditDate && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEditDate(dateRange.rangeMarker);
+                              }}
+                              className='p-1 hover:bg-green-500 rounded'
+                              title='Edit this date range'
+                            >
+                              <Edit2 className='h-3 w-3 text-white' />
+                            </button>
+                          )}
+                          {onRemoveDate && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onRemoveDate(dateRange.rangeMarker);
+                              }}
+                              className='p-1 hover:bg-red-500 rounded'
+                              title='Remove this date range'
+                            >
+                              <X className='h-3 w-3 text-white' />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </td>
 
@@ -383,23 +390,26 @@ export const BatchTimetableGrid = React.forwardRef<
                               );
                             }}
                           >
-                            {/* Delete button */}
-                            {onSlotDelete && (
-                              <button
-                                className='absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-red-500 hover:bg-red-600 text-white z-10'
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onSlotDelete(
-                                    dateRange.rangeMarker, // Pass range identifier
-                                    period,
-                                    existingSlot
-                                  );
-                                }}
-                                title='Delete slot from entire range'
-                              >
-                                <X className='h-3 w-3' />
-                              </button>
-                            )}
+                            {/* Delete button - only show if user has edit permission */}
+                            {canEdit &&
+                              onSlotDelete &&
+                              (isSuperAdmin ||
+                                !lockedPeriods.includes(period.id)) && (
+                                <button
+                                  className='absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-red-500 hover:bg-red-600 text-white z-10'
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSlotDelete(
+                                      dateRange.rangeMarker, // Pass range identifier
+                                      period,
+                                      existingSlot
+                                    );
+                                  }}
+                                  title='Delete slot from entire range'
+                                >
+                                  <X className='h-3 w-3' />
+                                </button>
+                              )}
                             {existingSlot.is_break_slot ? (
                               <div className='text-orange-600 font-semibold text-xs min-h-[40px] flex items-center justify-center text-center'>
                                 {existingSlot.break_description || 'Break'}
@@ -553,7 +563,7 @@ export const BatchTimetableGrid = React.forwardRef<
                               </div>
                             )}
                           </div>
-                        ) : (
+                        ) : canEdit ? (
                           <button
                             className='w-full h-14 border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition-all duration-200 rounded group'
                             onClick={(e) => {
@@ -575,6 +585,10 @@ export const BatchTimetableGrid = React.forwardRef<
                               </span>
                             </div>
                           </button>
+                        ) : (
+                          <div className='w-full h-14 border-2 border-dashed border-gray-200 bg-gray-50 rounded flex items-center justify-center'>
+                            <span className='text-xs text-gray-400'>-</span>
+                          </div>
                         )}
                       </td>
                     );

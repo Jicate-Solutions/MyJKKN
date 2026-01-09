@@ -34,17 +34,37 @@ export async function parseExcelFile(
 
     // Find the sheet to use
     let worksheet: XLSX.WorkSheet;
+    let selectedSheetName: string;
 
     if (sheetName) {
-      // Use specified sheet
-      if (!workbook.SheetNames.includes(sheetName)) {
-        return {
-          rows: [],
-          totalRows: 0,
-          errors: [`Sheet "${sheetName}" not found in file`]
-        };
+      // Try exact match first
+      if (workbook.SheetNames.includes(sheetName)) {
+        selectedSheetName = sheetName;
+        worksheet = workbook.Sheets[sheetName];
+      } else {
+        // Try case-insensitive match
+        const sheetNameLower = sheetName.toLowerCase();
+        const matchingSheet = workbook.SheetNames.find(
+          name => name.toLowerCase() === sheetNameLower
+        );
+
+        if (matchingSheet) {
+          selectedSheetName = matchingSheet;
+          worksheet = workbook.Sheets[matchingSheet];
+          console.log(`[excel-parser] Using sheet "${matchingSheet}" (case-insensitive match for "${sheetName}")`);
+        } else {
+          // Sheet not found - provide helpful error with available sheets
+          const availableSheets = workbook.SheetNames.join(', ');
+          return {
+            rows: [],
+            totalRows: 0,
+            errors: [
+              `Sheet "${sheetName}" not found in file. Available sheets: ${availableSheets}. ` +
+              `Please ensure you're uploading the correct file with the "Active Learners" sheet.`
+            ]
+          };
+        }
       }
-      worksheet = workbook.Sheets[sheetName];
     } else {
       // Use first non-reference sheet (skip sheets like "Instructions", "Reference", etc.)
       const mainSheetName = workbook.SheetNames.find(name =>
@@ -53,6 +73,7 @@ export async function parseExcelFile(
         !name.toLowerCase().includes('info')
       ) || workbook.SheetNames[0];
 
+      selectedSheetName = mainSheetName;
       worksheet = workbook.Sheets[mainSheetName];
     }
 

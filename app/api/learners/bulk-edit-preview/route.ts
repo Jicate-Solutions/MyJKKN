@@ -65,7 +65,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 6: Entry Type
   'entry_type': ['Entry Type', 'entry_type'],
-  'scholarship_type': ['First Graduate', 'scholarship_type'],
+  'scholarship_type': ['Scholarship Type', 'scholarship_type'],
 
   // SECTION 7: Previous Education
   'last_school': ['Last School', 'last_school'],
@@ -109,6 +109,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
 
 interface FieldChange {
   field: string;
+  fieldLabel: string; // Added to match BulkLearnerEditService response
   oldValue: any;
   newValue: any;
 }
@@ -129,38 +130,84 @@ interface PreviewRow {
 export async function POST(request: NextRequest) {
   try {
     // 1. Authenticate user
-    const supabase = await createServerSupabaseClient();
-    const {
-      data: { user },
-      error: authError
-    } = await supabase.auth.getUser();
+    console.log('[bulk-edit-preview] Starting authentication...');
+    let supabase;
+    let user;
 
-    if (authError || !user) {
+    try {
+      supabase = await createServerSupabaseClient();
+      console.log('[bulk-edit-preview] Supabase client created');
+
+      console.log('[bulk-edit-preview] Getting user...');
+      const authResponse = await supabase.auth.getUser();
+      user = authResponse.data.user;
+      const authError = authResponse.error;
+
+      if (authError) {
+        console.error('[bulk-edit-preview] Auth error:', authError.message, authError);
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Authentication failed: ${authError.message}`
+          },
+          { status: 401 }
+        );
+      }
+
+      if (!user) {
+        console.error('[bulk-edit-preview] No user found in session');
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'No user session found. Please log in again.'
+          },
+          { status: 401 }
+        );
+      }
+
+      console.log('[bulk-edit-preview] User authenticated:', user.id);
+    } catch (authException) {
+      console.error('[bulk-edit-preview] Auth exception:', authException);
       return NextResponse.json(
         {
           success: false,
-          error: 'Unauthorized'
+          error: `Authentication error: ${authException instanceof Error ? authException.message : 'Network timeout or connection error. Please try again.'}`
         },
         { status: 401 }
       );
     }
 
     // 2. Check permissions
+    console.log('[bulk-edit-preview] Fetching user profile...');
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
       .select('id, role, is_super_admin, institution_id')
       .eq('id', user.id)
       .single();
 
-    if (profileError || !profileData) {
+    if (profileError) {
+      console.error('[bulk-edit-preview] Profile fetch error:', profileError.message);
       return NextResponse.json(
         {
           success: false,
-          error: 'Failed to fetch user profile'
+          error: `Failed to fetch user profile: ${profileError.message}`
         },
         { status: 500 }
       );
     }
+
+    if (!profileData) {
+      console.error('[bulk-edit-preview] No profile data found for user:', user.id);
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'User profile not found'
+        },
+        { status: 500 }
+      );
+    }
+
+    console.log('[bulk-edit-preview] Profile fetched:', profileData.id, 'Role:', profileData.role);
 
     const profile = profileData as {
       id: string;
@@ -223,9 +270,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Parse Excel file
+    console.log('[bulk-edit-preview] Parsing file:', file.name, 'Size:', file.size);
     const parseResult = await parseExcelFile(file, 'Active Learners');
 
     if (parseResult.errors.length > 0) {
+      console.error('[bulk-edit-preview] Parse errors:', parseResult.errors);
       return NextResponse.json(
         {
           success: false,
@@ -234,6 +283,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    console.log('[bulk-edit-preview] Parsed successfully:', parseResult.totalRows, 'rows');
 
     if (parseResult.totalRows === 0) {
       return NextResponse.json(
@@ -301,9 +352,11 @@ export async function POST(request: NextRequest) {
 
       // SECTION 6: Entry Type
       if (mappedData.entry_type) sanitizedData.entry_type = sanitizeValue(mappedData.entry_type, 'text');
-      if (mappedData.scholarship_type !== undefined) {
-        const val = String(mappedData.scholarship_type).toUpperCase();
-        sanitizedData.scholarship_type = val === 'TRUE' || val === '1' || val === 'YES';
+      if (mappedData.scholarship_type) {
+        // Keep as string, validate against allowed values
+        const val = String(mappedData.scholarship_type).toUpperCase().trim();
+        const validTypes = ['FIRST GRADUATE', 'PMS SCHOLARSHIP', '7.5% SCHOLARSHIP', 'NOT APPLICABLE'];
+        sanitizedData.scholarship_type = validTypes.includes(val) ? val : null;
       }
 
       // SECTION 7: Previous Education
