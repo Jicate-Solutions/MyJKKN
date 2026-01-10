@@ -15,9 +15,6 @@ import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemestersSearchParams } from './data-table-schema';
-import DownloadSemesterTemplateButton from './download-semester-template';
-import { ExportSemesters } from './export-semesters';
-import BulkUploadSemesters from './bulk-upload-semesters';
 import { usePermissions } from '@/hooks/use-permissions';
 
 interface SemesterFiltersProps {
@@ -55,8 +52,6 @@ export function SemesterFilters({
 
   const canEditSemesters =
     isSuperAdmin || canAccess('organizations.semesters', 'edit');
-  const canExportSemesters =
-    isSuperAdmin || canAccess('organizations.semesters', 'export');
 
   // Load institutions on mount
   useEffect(() => {
@@ -375,24 +370,6 @@ export function SemesterFilters({
           </div>
         </div>
 
-        {/* Third Row - Action Buttons */}
-        <div className='flex flex-col sm:flex-row items-stretch sm:items-center sm:justify-end gap-2'>
-          {canEditSemesters && (
-            <div className='w-full sm:w-auto'>
-              <DownloadSemesterTemplateButton />
-            </div>
-          )}
-          {canExportSemesters && (
-            <div className='w-full sm:w-auto'>
-              <ExportSemesters />
-            </div>
-          )}
-          {canEditSemesters && (
-            <div className='w-full sm:w-auto'>
-              <BulkUploadSemesters />
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );

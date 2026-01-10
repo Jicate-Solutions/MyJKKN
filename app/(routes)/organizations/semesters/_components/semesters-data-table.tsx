@@ -4,7 +4,17 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { SemestersSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Loader2 } from 'lucide-react';
+import {
+  Plus,
+  TrashIcon,
+  Loader2,
+  Upload,
+  Download,
+  ChevronDown,
+  FileSpreadsheet,
+  FileText,
+  FileJson
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { Semester } from '@/types/organizations';
@@ -20,6 +30,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import { ImportDialog } from './import-dialog';
 import toast from 'react-hot-toast';
 
 interface SemestersDataTableProps {
@@ -33,6 +51,8 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
   const [selectedForDelete, setSelectedForDelete] = useState<Semester[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.institutions', 'create');
@@ -140,6 +160,54 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
     }
   };
 
+  // Export handlers
+  const handleExport = async (format: 'xlsx' | 'csv' | 'json') => {
+    try {
+      const response = await fetch(
+        `/api/organizations/semesters/export?format=${format}&includeAll=true`
+      );
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `semesters-export-${new Date().toISOString().split('T')[0]}.${
+        format === 'xlsx' ? 'xlsx' : format === 'csv' ? 'csv' : 'json'
+      }`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Export completed successfully');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export semesters');
+    }
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch('/api/organizations/semesters/template');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `semesters-template-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Template downloaded successfully');
+    } catch (error) {
+      console.error('Template download error:', error);
+      toast.error('Failed to download template');
+    }
+  };
+
+  const handleImportComplete = () => {
+    setRefreshTrigger((prev) => prev + 1);
+    router.refresh();
+  };
+
   const renderCustomToolbar = (props: {
     selectedRows: any[];
     allSelectedIds: (string | number)[];
@@ -157,6 +225,47 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
           Add Semester
         </Button>
       )}
+
+      {canCreate && (
+        <Button
+          onClick={() => setImportOpen(true)}
+          variant='outline'
+          size='sm'
+          className='h-8'
+        >
+          <Upload className='mr-2 h-4 w-4' />
+          Import
+        </Button>
+      )}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant='outline' size='sm' className='h-8'>
+            <Download className='mr-2 h-4 w-4' />
+            Export
+            <ChevronDown className='ml-2 h-4 w-4' />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end'>
+          <DropdownMenuItem onClick={() => handleExport('xlsx')}>
+            <FileSpreadsheet className='mr-2 h-4 w-4' />
+            Export as Excel
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleExport('csv')}>
+            <FileText className='mr-2 h-4 w-4' />
+            Export as CSV
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleExport('json')}>
+            <FileJson className='mr-2 h-4 w-4' />
+            Export as JSON
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleDownloadTemplate}>
+            <Download className='mr-2 h-4 w-4' />
+            Download Template
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {props.selectedRows.length > 0 && (
         <Button
@@ -254,6 +363,13 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Import Dialog */}
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImportComplete={handleImportComplete}
+      />
     </>
   );
 }

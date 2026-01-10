@@ -126,7 +126,35 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 4. Validate with batch service
+    // 4. Check for duplicate emails in database
+    const duplicateEmailsMap = new Map<string, { found: boolean; error?: string; suggestions?: string[] }>();
+
+    if (uniqueValues.emails && uniqueValues.emails.length > 0) {
+      const { data: existingLearners } = await supabase
+        .from('learners_profiles')
+        .select('college_email')
+        .in('college_email', uniqueValues.emails);
+
+      const existingEmailsSet = new Set(
+        existingLearners?.map(l => l.college_email.toLowerCase()) || []
+      );
+
+      uniqueValues.emails.forEach((email: string) => {
+        const emailLower = email.toLowerCase();
+        if (existingEmailsSet.has(emailLower)) {
+          duplicateEmailsMap.set(emailLower, {
+            found: true,
+            error: 'Email already exists in database'
+          });
+        } else {
+          duplicateEmailsMap.set(emailLower, {
+            found: false
+          });
+        }
+      });
+    }
+
+    // 5. Validate with batch service
     // CRITICAL: Do NOT pass profile.institution_id here
     // The service cascades from Excel institutions for accurate cross-institution validation
     // Passing user's institution breaks cascade for super admins and causes inconsistent results
@@ -137,7 +165,7 @@ export async function POST(request: NextRequest) {
 
     const validationResult = await BulkValidationBatchService.validateBatch(validationInput);
 
-    // 5. Convert Maps to plain objects for JSON serialization
+    // 6. Convert Maps to plain objects for JSON serialization
     const serializedResult = {
       institutions: Object.fromEntries(validationResult.institutions),
       programs: Object.fromEntries(validationResult.programs),
@@ -147,7 +175,8 @@ export async function POST(request: NextRequest) {
       departments: Object.fromEntries(validationResult.departments),
       academicYears: Object.fromEntries(validationResult.academicYears),
       regulations: Object.fromEntries(validationResult.regulations),
-      batches: Object.fromEntries(validationResult.batches)
+      batches: Object.fromEntries(validationResult.batches),
+      duplicateEmails: Object.fromEntries(duplicateEmailsMap)
     };
 
     return NextResponse.json({

@@ -51,12 +51,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Fetch institutions for dropdown
+
+    // Fetch institutions for cascading dropdown
     const { data: institutions, error: instError } = await supabase
       .from('institutions')
-      .select('counselling_code, name')
+      .select('id, counselling_code, name')
       .eq('is_active', true)
-      .order('counselling_code');
+      .order('name');
 
     if (instError) {
       console.error('[departments/template] Error fetching institutions:', instError);
@@ -66,14 +67,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const institutionCodes = institutions?.map((i) => i.counselling_code).filter(Boolean) || [];
+    const institutionNames = institutions?.map((i) => i.name).filter(Boolean) || [];
 
-    // Fetch degrees for dropdown
+    // Fetch degrees for cascading dropdown - using degree names with institution info
     const { data: degrees, error: degreeError } = await supabase
       .from('degrees')
-      .select('degree_id, degree_name, institution_id, institutions!inner(counselling_code)')
+      .select('degree_id, degree_name, institution_id, institutions!inner(name)')
       .eq('is_active', true)
-      .order('degree_id');
+      .order('degree_name');
 
     if (degreeError) {
       console.error('[departments/template] Error fetching degrees:', degreeError);
@@ -83,15 +84,24 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Group degrees by institution for cascading dropdown
-    const degreesByInstitution = new Map<string, string[]>();
-    degrees?.forEach((d: any) => {
-      const instCode = d.institutions.counselling_code;
-      if (!degreesByInstitution.has(instCode)) {
-        degreesByInstitution.set(instCode, []);
+    // Group degrees by institution name for cascading dropdown (deduplicated)
+    const institutionDegreeMap = new Map<string, string[]>();
+    degrees?.forEach((deg: any) => {
+      const instName = deg.institutions?.name;
+      const degreeName = deg.degree_name;
+      if (instName && degreeName) {
+        if (!institutionDegreeMap.has(instName)) {
+          institutionDegreeMap.set(instName, []);
+        }
+        // Deduplicate: only add if not already present
+        const existingDegrees = institutionDegreeMap.get(instName)!;
+        if (!existingDegrees.includes(degreeName)) {
+          existingDegrees.push(degreeName);
+        }
       }
-      degreesByInstitution.get(instCode)!.push(d.degree_id);
     });
+
+    const degreeNames = degrees?.map((d) => d.degree_name).filter(Boolean) || [];
 
     // Create Excel workbook
     const workbook = new ExcelJS.Workbook();
@@ -101,10 +111,10 @@ export async function GET(request: NextRequest) {
     // ============================================================
     const worksheet = workbook.addWorksheet('Departments');
 
-    // Define columns
+    // Define columns - Full hierarchy: Institution → Degree → Department
     worksheet.columns = [
-      { header: 'Counselling Code', key: 'counselling_code', width: 20 },
-      { header: 'Degree ID', key: 'degree_id', width: 25 },
+      { header: 'Institution Name', key: 'institution_name', width: 40 },
+      { header: 'Degree Name', key: 'degree_name', width: 40 },
       { header: 'Department Code', key: 'department_code', width: 20 },
       { header: 'Department Name', key: 'department_name', width: 40 },
       { header: 'Display Name', key: 'display_name', width: 30 },
@@ -131,14 +141,12 @@ export async function GET(request: NextRequest) {
     worksheet.views = [{ state: 'frozen', ySplit: 1 }];
 
     // Add sample row with placeholder data for guidance
-    // Use first institution and its first degree for consistency
-    const sampleInstCode = institutionCodes[0] || 'COUNS001';
-    const sampleDegrees = degreesByInstitution.get(sampleInstCode) || [];
-    const sampleDegree = sampleDegrees[0] || degrees?.[0]?.degree_id || 'BTECH';
+    const sampleInstitution = institutionNames[0] || institutions?.[0]?.name || 'JKKN College of Engineering and Technology';
+    const sampleDegreeName = degreeNames[0] || degrees?.[0]?.degree_name || 'Bachelor of Technology';
 
     worksheet.addRow({
-      counselling_code: sampleInstCode,
-      degree_id: sampleDegree,
+      institution_name: sampleInstitution,
+      degree_name: sampleDegreeName,
       department_code: 'CSE',
       department_name: 'Computer Science and Engineering',
       display_name: 'CSE',
@@ -178,22 +186,31 @@ export async function GET(request: NextRequest) {
     }
 
     // ============================================================
-    // SHEET 2: Lists (Reference Data for Dropdowns)
-    // Structure for cascading dropdown:
-    // Row 1: Institution codes as headers
-    // Row 2+: Degrees for each institution in their column
-    // Last columns: Status values
+    // SHEET 2: Lists (Reference Data for Cascading Dropdowns)
+    // Structure: Section 1 (Institution → Degree cascade) + Reference columns
     // ============================================================
     const listsSheet = workbook.addWorksheet('Lists');
 
-    // Get sorted institution codes that have degrees
-    const institutionsWithDegrees = institutionCodes.filter(code =>
-      degreesByInstitution.has(code) && degreesByInstitution.get(code)!.length > 0
+    // Section 1: Institution names as headers with their degrees below (for cascading)
+    const institutionsWithDegrees = Array.from(institutionDegreeMap.keys()).filter(
+      (instName) => institutionDegreeMap.get(instName)!.length > 0
     );
 
-    // Build header row: Institution codes + Status column
-    const headerRow = [...institutionsWithDegrees, 'Status'];
+    // Calculate section boundaries
+    const section1EndCol = institutionsWithDegrees.length;
+    const refStartCol = section1EndCol + 2; // +2 for separator column
+
+    // Build header row: [Inst1, Inst2, Inst3, '', AllInstitutions, IsActive]
+    const headerRow: string[] = [
+      ...institutionsWithDegrees, // Institution NAMES as headers
+      '', // Separator
+      'AllInstitutions', // Reference column for Institution dropdown
+      'IsActive' // Reference column for Status dropdown
+    ];
+
     listsSheet.addRow(headerRow);
+
+    // Style header row
     listsSheet.getRow(1).font = { bold: true, name: 'Arial', size: 10 };
     listsSheet.getRow(1).fill = {
       type: 'pattern',
@@ -201,98 +218,104 @@ export async function GET(request: NextRequest) {
       fgColor: { argb: 'FFE5E7EB' }
     };
 
-    // Find max degrees count for any institution
-    const maxDegrees = Math.max(
-      ...Array.from(degreesByInstitution.values()).map(arr => arr.length),
+    // Add data rows: degrees under their institutions + reference columns
+    const maxDataRows = Math.max(
+      ...Array.from(institutionDegreeMap.values()).map((degs) => degs.length),
+      institutionNames.length,
       EXCEL_IS_ACTIVE.length
     );
 
-    // Add data rows: degrees for each institution + status values
-    for (let i = 0; i < maxDegrees; i++) {
-      const rowData: string[] = [];
+    for (let i = 0; i < maxDataRows; i++) {
+      const row: (string | null)[] = [];
 
-      // Add degree for each institution
-      institutionsWithDegrees.forEach(instCode => {
-        const instDegrees = degreesByInstitution.get(instCode) || [];
-        rowData.push(instDegrees[i] || '');
+      // Section 1: Degrees grouped by institution (for cascading)
+      institutionsWithDegrees.forEach((instName) => {
+        const degrees = institutionDegreeMap.get(instName) || [];
+        row.push(degrees[i] || null);
       });
 
-      // Add status value
-      rowData.push(EXCEL_IS_ACTIVE[i] || '');
+      // Separator
+      row.push(null);
 
-      listsSheet.addRow(rowData);
+      // Reference columns
+      row.push(institutionNames[i] || null); // AllInstitutions
+      row.push(EXCEL_IS_ACTIVE[i] || null); // IsActive
+
+      listsSheet.addRow(row);
     }
 
-    // Set column widths
-    const columnWidths: { width: number }[] = [];
-    institutionsWithDegrees.forEach(() => columnWidths.push({ width: 15 }));
-    columnWidths.push({ width: 12 }); // Status column
+    // Auto-fit columns in Lists sheet
+    const columnWidths = [
+      ...institutionsWithDegrees.map(() => ({ width: 40 })),
+      { width: 5 }, // Separator
+      { width: 40 }, // AllInstitutions
+      { width: 12 } // IsActive
+    ];
     listsSheet.columns = columnWidths;
 
-    // Also add a separate column for ALL institution codes (for Column A dropdown)
-    // This goes in a new column after the status column
-    const allInstCodesColIndex = institutionsWithDegrees.length + 2; // +2 for 1-based and status column
-    listsSheet.getCell(1, allInstCodesColIndex).value = 'AllInstitutions';
-    listsSheet.getCell(1, allInstCodesColIndex).font = { bold: true, name: 'Arial', size: 10 };
-    for (let i = 0; i < institutionCodes.length; i++) {
-      listsSheet.getCell(i + 2, allInstCodesColIndex).value = institutionCodes[i];
-    }
-    listsSheet.getColumn(allInstCodesColIndex).width = 20;
+    // ============================================================
+    // DATA VALIDATION (Dropdowns) - Cascading dropdowns with Lists sheet references
+    // Column A: Institution Name dropdown (references AllInstitutions column)
+    // Column B: Degree Name dropdown (OFFSET formula cascading from Column A)
+    // Column G: Is Active dropdown (references IsActive column)
+    // ============================================================
 
-    // ============================================================
-    // DATA VALIDATION (Dropdowns) - Cascading with OFFSET formula
-    // Column A: Institution Code dropdown
-    // Column B: Degree ID dropdown (cascades based on Column A selection)
-    // Column G: Status dropdown
-    // ============================================================
+    // Helper function to convert column number to letter (A, B, C, ..., Z, AA, AB, ...)
+    const getColLetter = (colNum: number): string => {
+      let letter = '';
+      while (colNum > 0) {
+        const rem = (colNum - 1) % 26;
+        letter = String.fromCharCode(65 + rem) + letter;
+        colNum = Math.floor((colNum - 1) / 26);
+      }
+      return letter;
+    };
 
     // Define validation end row (limited to 100 to prevent XML bloat)
     const validationEndRow = 100;
 
-    // Get column letter for AllInstitutions column in Lists sheet
-    const allInstColLetter = String.fromCharCode(64 + allInstCodesColIndex); // A=65, so +64 for 1-based
+    // Calculate column letters for Lists sheet
+    const section1EndColLetter = getColLetter(section1EndCol);
+    const allInstColNum = refStartCol; // AllInstitutions column number
+    const isActiveColNum = refStartCol + 1; // IsActive column number
+    const allInstColLetter = getColLetter(allInstColNum);
+    const isActiveColLetter = getColLetter(isActiveColNum);
 
-    // Get column letter for Status column in Lists sheet
-    const statusColIndex = institutionsWithDegrees.length + 1;
-    const statusColLetter = String.fromCharCode(64 + statusColIndex);
-
-    // Apply validation cell-by-cell (ExcelJS requires this approach)
+    // Apply validation cell-by-cell using Lists sheet references and OFFSET formulas
     for (let row = 2; row <= validationEndRow; row++) {
-      // Column A: Counselling Code dropdown (uses AllInstitutions column)
-      if (institutionCodes.length > 0) {
+      // Column A: Institution Name dropdown - references AllInstitutions column (Lists!refStartCol)
+      if (institutionNames.length > 0) {
         worksheet.getCell(`A${row}`).dataValidation = {
           type: 'list',
           allowBlank: true,
-          formulae: [`Lists!$${allInstColLetter}$2:$${allInstColLetter}$${institutionCodes.length + 1}`],
+          formulae: [`Lists!$${allInstColLetter}$2:$${allInstColLetter}$${institutionNames.length + 1}`],
           showErrorMessage: true,
           errorStyle: 'warning',
           errorTitle: 'Invalid Input',
-          error: 'Please select an institution from the dropdown'
+          error: 'Please select an Institution Name from the dropdown'
         };
       }
 
-      // Column B: Degree ID dropdown (OFFSET formula for cascading)
-      // Formula: =OFFSET(Lists!$A$1,1,MATCH(A2,Lists!$1:$1,0)-1,COUNTA(OFFSET(Lists!$A$1,1,MATCH(A2,Lists!$1:$1,0)-1,100,1)),1)
-      // This finds the column matching the institution code and returns all degrees in that column
+      // Column B: Degree Name dropdown - OFFSET formula cascading from Column A (Institution Name)
       if (institutionsWithDegrees.length > 0) {
-        const offsetFormula = `OFFSET(Lists!$A$1,1,MATCH(A${row},Lists!$1:$1,0)-1,COUNTA(OFFSET(Lists!$A$1,1,MATCH(A${row},Lists!$1:$1,0)-1,100,1)),1)`;
+        const degreeOffsetFormula = `OFFSET(Lists!$A$1,1,MATCH(A${row},Lists!$A$1:$${section1EndColLetter}$1,0)-1,COUNTA(OFFSET(Lists!$A$1,1,MATCH(A${row},Lists!$A$1:$${section1EndColLetter}$1,0)-1,100,1)),1)`;
 
         worksheet.getCell(`B${row}`).dataValidation = {
           type: 'list',
           allowBlank: true,
-          formulae: [offsetFormula],
+          formulae: [degreeOffsetFormula],
           showErrorMessage: true,
           errorStyle: 'warning',
           errorTitle: 'Invalid Input',
-          error: 'Please select an Institution Code first, then choose a Degree from the dropdown'
+          error: 'Please select an Institution Name first, then choose a Degree Name from the dropdown'
         };
       }
 
-      // Column G: Is Active dropdown (uses Status column)
+      // Column G: Is Active dropdown - references IsActive column
       worksheet.getCell(`G${row}`).dataValidation = {
         type: 'list',
         allowBlank: true,
-        formulae: [`Lists!$${statusColLetter}$2:$${statusColLetter}$${EXCEL_IS_ACTIVE.length + 1}`],
+        formulae: [`Lists!$${isActiveColLetter}$2:$${isActiveColLetter}$${EXCEL_IS_ACTIVE.length + 1}`],
         showErrorMessage: true,
         errorStyle: 'warning',
         errorTitle: 'Invalid Input',
@@ -311,8 +334,8 @@ export async function GET(request: NextRequest) {
       'INSTRUCTIONS FOR BULK DEPARTMENT IMPORT',
       '',
       '1. REQUIRED FIELDS:',
-      '   - Counselling Code: Select from dropdown (existing institution)',
-      '   - Degree ID: Select from CASCADING dropdown (filters based on Institution)',
+      '   - Institution Name: Select from dropdown (existing institution)',
+      '   - Degree Name: Select from cascading dropdown (filtered by institution)',
       '   - Department Code: Unique department identifier (uppercase letters, numbers)',
       '   - Department Name: Full department name (e.g., "Computer Science and Engineering")',
       '',
@@ -321,44 +344,45 @@ export async function GET(request: NextRequest) {
       '   - Department Order: Numeric order for sorting (optional)',
       '   - Is Active: Active/Inactive (defaults to Active if blank)',
       '',
-      '3. CASCADING DROPDOWN BEHAVIOR (IMPORTANT):',
-      '   - Step 1: Select Counselling Code (Column A) FIRST',
-      '   - Step 2: Click on Degree ID (Column B) - dropdown shows ONLY degrees for that institution',
-      '   - If you change Counselling Code, you MUST re-select Degree ID',
-      '   - Degree dropdown will show error until you select a valid Counselling Code',
+      '3. CASCADING DROPDOWNS:',
+      '   - STEP 1: Select Institution Name (Column A) from the dropdown',
+      '   - STEP 2: Select Degree Name (Column B) - dropdown will show degrees for selected institution',
+      '   - The Degree dropdown automatically filters based on your Institution selection',
+      '   - You MUST select Institution Name first before selecting Degree Name',
       '',
       '4. DATA VALIDATION:',
-      '   - Counselling Code has dropdown: ALWAYS use dropdown to select',
-      '   - Degree ID has CASCADING dropdown: Shows only degrees for selected institution',
+      '   - Institution Name has dropdown: ALWAYS use dropdown to select',
+      '   - Degree Name has cascading dropdown: Select Institution first, then Degree',
       '   - Is Active has dropdown: Use dropdown to select Active or Inactive',
       '   - NEVER type values manually - always use dropdowns',
       '',
       '5. FORMATTING:',
-      '   - Counselling Code: Select from dropdown (no manual typing)',
-      '   - Degree ID: Select from dropdown (only shows degrees for your institution)',
+      '   - Institution Name: Select from dropdown (no manual typing)',
+      '   - Degree Name: Select from cascading dropdown (filters by institution)',
       '   - Department Code: Uppercase with no spaces (e.g., CSE, ECE, MECH)',
       '   - Department Order: Numeric value (e.g., 1, 2, 3)',
       '',
       '6. IMPORTANT NOTES:',
-      '   - ALWAYS select Counselling Code before Degree ID',
       '   - Department codes must be unique within each degree',
-      '   - The cascading dropdown ensures valid degree-institution combinations',
+      '   - The hierarchy is: Institution → Degree → Department',
+      '   - Select dropdowns in order: Institution first, then Degree',
       '',
       '7. SAMPLE DATA:',
       '   - Row 2 contains sample data for reference',
       '   - Delete or replace the sample row with your actual data',
       '',
       '8. IMPORT PROCESS:',
-      '   - Select Counselling Code (Column A) first',
-      '   - Select Degree ID (Column B) from the filtered dropdown',
+      '   - Select Institution Name (Column A) from the dropdown',
+      '   - Select Degree Name (Column B) from the cascading dropdown',
       '   - Fill in Department Code, Name, and other fields',
       '   - Save the file',
       '   - Upload via the Import button in the Departments page',
       '',
       '9. TIPS:',
       '   - Department codes must be unique within each degree',
-      '   - If Degree dropdown shows error, verify you selected a Counselling Code first',
+      '   - Use meaningful department codes for easy identification',
       '   - Department order helps sort departments in lists',
+      '   - If Degree dropdown is empty, check that you selected an Institution first',
       '',
       'For support, contact your system administrator.'
     ];

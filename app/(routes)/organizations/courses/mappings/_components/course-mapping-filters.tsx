@@ -16,8 +16,6 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { CourseMappingsSearchParams } from './data-table-schema';
-import BulkUploadCourseMappings from './bulk-upload-course-mappings';
-import DownloadCourseMappingTemplateButton from './download-course-mapping-template';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserDepartmentAccess } from '@/hooks/use-user-department-access';
@@ -50,11 +48,8 @@ export function CourseMappingFilters({
   >([]);
   const [loading, setLoading] = useState(false);
   const { profile } = useAuth();
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const { isSuperAdmin } = usePermissions();
   const { departmentId, hasDepartmentRestriction } = useUserDepartmentAccess();
-
-  const canEditCourses =
-    isSuperAdmin || canAccess('organizations.courses', 'edit');
 
   // Auto-select user's institution if they have one and no filter is set
   useEffect(() => {
@@ -392,37 +387,20 @@ export function CourseMappingFilters({
           </div>
         </div>
 
-        {/* Second Row - Clear Filters and Action Buttons */}
-        <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
-          <div className='flex items-center gap-2'>
-            {/* Clear Filters Button */}
-            {hasActiveFilters && (
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={onClearFilters}
-                className='w-full sm:w-auto'
-              >
-                <RotateCcw className='mr-2 h-4 w-4' />
-                Clear Filters
-              </Button>
-            )}
+        {/* Second Row - Clear Filters */}
+        {hasActiveFilters && (
+          <div className='flex items-center'>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={onClearFilters}
+              className='w-full sm:w-auto'
+            >
+              <RotateCcw className='mr-2 h-4 w-4' />
+              Clear Filters
+            </Button>
           </div>
-
-          {/* Action Buttons */}
-          <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2'>
-            {canEditCourses && (
-              <div className='w-full sm:w-auto'>
-                <DownloadCourseMappingTemplateButton />
-              </div>
-            )}
-            {canEditCourses && (
-              <div className='w-full sm:w-auto'>
-                <BulkUploadCourseMappings />
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -16,9 +16,6 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionsSearchParams } from './data-table-schema';
-import DownloadSectionTemplateButton from './download-section-template';
-import BulkUploadSections from './bulk-upload-sections';
-import { usePermissions } from '@/hooks/use-permissions';
 
 interface SectionFiltersProps {
   searchParams: SectionsSearchParams;
@@ -44,121 +41,200 @@ export function SectionFilters({
     Array<{ id: string; program_name: string }>
   >([]);
   const [semesters, setSemesters] = useState<
-    Array<{ id: string; semester_name: string }>
+    Array<{ id: string; semester_name: string; program_id: string }>
   >([]);
   const [loading, setLoading] = useState(false);
-  const { canAccess, isSuperAdmin } = usePermissions();
-  
-  const canEditSections =
-    isSuperAdmin || canAccess('organizations.sections', 'edit');
 
-  // Load institutions on component mount
+  // Store ALL data (unfiltered) from database
+  const [allDegrees, setAllDegrees] = useState<
+    Array<{ id: string; degree_name: string; institution_id: string }>
+  >([]);
+  const [allDepartments, setAllDepartments] = useState<
+    Array<{ id: string; department_name: string; degree_id: string }>
+  >([]);
+  const [allPrograms, setAllPrograms] = useState<
+    Array<{ id: string; program_name: string; department_id: string }>
+  >([]);
+  const [allSemesters, setAllSemesters] = useState<
+    Array<{ id: string; semester_name: string; program_id: string }>
+  >([]);
+
+  // Load ALL data on component mount
   useEffect(() => {
-    async function loadInstitutions() {
+    async function loadAllData() {
       try {
         setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
+
+        // Load institutions
+        const institutionsData = await OrganizationService.getInstitutionNames(true);
+        setInstitutions(institutionsData);
+
+        // Load ALL degrees (no filter)
+        const { data: degreesData } = await DegreeService.getDegrees({
+          isActive: true,
+          limit: 10000 // Large limit to get all
+        });
+        setAllDegrees(degreesData);
+
+        // Load ALL departments (no filter)
+        const { data: departmentsData } = await DepartmentService.getDepartments({
+          isActive: true,
+          limit: 10000
+        });
+        setAllDepartments(departmentsData);
+
+        // Load ALL programs (no filter)
+        const { data: programsData } = await ProgramService.getPrograms({
+          isActive: true,
+          limit: 10000
+        });
+        setAllPrograms(programsData);
+
+        // Load ALL semesters (no filter)
+        const { data: semestersData } = await SemesterService.getSemesters({
+          isActive: true,
+          limit: 10000
+        });
+        setAllSemesters(semestersData);
+
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        console.error('Error loading filter data:', error);
       } finally {
         setLoading(false);
       }
     }
-    loadInstitutions();
+    loadAllData();
   }, []);
 
-  // Load degrees when institution changes
+  // Filter degrees based on selected institution (client-side filtering)
   useEffect(() => {
-    async function loadDegrees() {
-      if (searchParams.institution_id) {
-        try {
-          setLoading(true);
-          const { data } = await DegreeService.getDegrees({
-            institution_id: searchParams.institution_id,
-            isActive: true
-          });
-          setDegrees(data);
-        } catch (error) {
-          console.error('Error loading degrees:', error);
-        } finally {
-          setLoading(false);
-        }
-      } else {
-        setDegrees([]);
-      }
+    if (searchParams.institution_id) {
+      const filtered = allDegrees.filter(
+        (d) => d.institution_id === searchParams.institution_id
+      );
+      setDegrees(filtered);
+    } else {
+      setDegrees(allDegrees);
     }
-    loadDegrees();
-  }, [searchParams.institution_id]);
+  }, [searchParams.institution_id, allDegrees]);
 
-  // Load departments when degree changes
+  // Filter departments based on selected degree (client-side filtering)
   useEffect(() => {
-    async function loadDepartments() {
-      if (searchParams.degree_id) {
-        try {
-          setLoading(true);
-          const { data } = await DepartmentService.getDepartments({
-            degree_id: searchParams.degree_id,
-            isActive: true
-          });
-          setDepartments(data);
-        } catch (error) {
-          console.error('Error loading departments:', error);
-        } finally {
-          setLoading(false);
-        }
-      } else {
-        setDepartments([]);
-      }
+    if (searchParams.degree_id) {
+      const filtered = allDepartments.filter(
+        (d) => d.degree_id === searchParams.degree_id
+      );
+      setDepartments(filtered);
+    } else if (searchParams.institution_id) {
+      // If institution is selected but not degree, show departments for all degrees in that institution
+      const institutionDegreeIds = allDegrees
+        .filter((d) => d.institution_id === searchParams.institution_id)
+        .map((d) => d.id);
+      const filtered = allDepartments.filter((dept) =>
+        institutionDegreeIds.includes(dept.degree_id)
+      );
+      setDepartments(filtered);
+    } else {
+      setDepartments(allDepartments);
     }
-    loadDepartments();
-  }, [searchParams.degree_id]);
+  }, [searchParams.degree_id, searchParams.institution_id, allDepartments, allDegrees]);
 
-  // Load programs when department changes
+  // Filter programs based on selected department (client-side filtering)
   useEffect(() => {
-    async function loadPrograms() {
-      if (searchParams.department_id) {
-        try {
-          setLoading(true);
-          const { data } = await ProgramService.getPrograms({
-            department_id: searchParams.department_id,
-            isActive: true
-          });
-          setPrograms(data);
-        } catch (error) {
-          console.error('Error loading programs:', error);
-        } finally {
-          setLoading(false);
-        }
-      } else {
-        setPrograms([]);
-      }
+    if (searchParams.department_id) {
+      const filtered = allPrograms.filter(
+        (p) => p.department_id === searchParams.department_id
+      );
+      setPrograms(filtered);
+    } else if (searchParams.degree_id) {
+      // If degree is selected but not department, show programs for all departments in that degree
+      const degreeDepartmentIds = allDepartments
+        .filter((d) => d.degree_id === searchParams.degree_id)
+        .map((d) => d.id);
+      const filtered = allPrograms.filter((prog) =>
+        degreeDepartmentIds.includes(prog.department_id)
+      );
+      setPrograms(filtered);
+    } else if (searchParams.institution_id) {
+      // If only institution is selected, show programs for all departments in that institution
+      const institutionDegreeIds = allDegrees
+        .filter((d) => d.institution_id === searchParams.institution_id)
+        .map((d) => d.id);
+      const institutionDepartmentIds = allDepartments
+        .filter((dept) => institutionDegreeIds.includes(dept.degree_id))
+        .map((dept) => dept.id);
+      const filtered = allPrograms.filter((prog) =>
+        institutionDepartmentIds.includes(prog.department_id)
+      );
+      setPrograms(filtered);
+    } else {
+      setPrograms(allPrograms);
     }
-    loadPrograms();
-  }, [searchParams.department_id]);
+  }, [
+    searchParams.department_id,
+    searchParams.degree_id,
+    searchParams.institution_id,
+    allPrograms,
+    allDepartments,
+    allDegrees
+  ]);
 
-  // Load semesters when program changes
+  // Filter semesters based on selected program (client-side filtering)
   useEffect(() => {
-    async function loadSemesters() {
-      if (searchParams.program_id) {
-        try {
-          setLoading(true);
-          const { data } = await SemesterService.getSemesters({
-            program_id: searchParams.program_id,
-            isActive: true
-          });
-          setSemesters(data);
-        } catch (error) {
-          console.error('Error loading semesters:', error);
-        } finally {
-          setLoading(false);
-        }
-      } else {
-        setSemesters([]);
-      }
+    if (searchParams.program_id) {
+      const filtered = allSemesters.filter(
+        (s) => s.program_id === searchParams.program_id
+      );
+      setSemesters(filtered);
+    } else if (searchParams.department_id) {
+      // If department is selected but not program, show semesters for all programs in that department
+      const departmentProgramIds = allPrograms
+        .filter((p) => p.department_id === searchParams.department_id)
+        .map((p) => p.id);
+      const filtered = allSemesters.filter((sem) =>
+        departmentProgramIds.includes(sem.program_id)
+      );
+      setSemesters(filtered);
+    } else if (searchParams.degree_id) {
+      // If only degree is selected, show semesters for all programs in that degree's departments
+      const degreeDepartmentIds = allDepartments
+        .filter((d) => d.degree_id === searchParams.degree_id)
+        .map((d) => d.id);
+      const degreeProgramIds = allPrograms
+        .filter((prog) => degreeDepartmentIds.includes(prog.department_id))
+        .map((prog) => prog.id);
+      const filtered = allSemesters.filter((sem) =>
+        degreeProgramIds.includes(sem.program_id)
+      );
+      setSemesters(filtered);
+    } else if (searchParams.institution_id) {
+      // If only institution is selected, show semesters for all programs in that institution
+      const institutionDegreeIds = allDegrees
+        .filter((d) => d.institution_id === searchParams.institution_id)
+        .map((d) => d.id);
+      const institutionDepartmentIds = allDepartments
+        .filter((dept) => institutionDegreeIds.includes(dept.degree_id))
+        .map((dept) => dept.id);
+      const institutionProgramIds = allPrograms
+        .filter((prog) => institutionDepartmentIds.includes(prog.department_id))
+        .map((prog) => prog.id);
+      const filtered = allSemesters.filter((sem) =>
+        institutionProgramIds.includes(sem.program_id)
+      );
+      setSemesters(filtered);
+    } else {
+      setSemesters(allSemesters);
     }
-    loadSemesters();
-  }, [searchParams.program_id]);
+  }, [
+    searchParams.program_id,
+    searchParams.department_id,
+    searchParams.degree_id,
+    searchParams.institution_id,
+    allSemesters,
+    allPrograms,
+    allDepartments,
+    allDegrees
+  ]);
 
   const handleInstitutionChange = (value: string) => {
     onFilterChange('institution_id', value === 'all' ? undefined : value);
@@ -354,37 +430,20 @@ export function SectionFilters({
           </div>
         </div>
 
-        {/* Second Row - Clear Filters and Action Buttons */}
-        <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
+        {/* Clear Filters Button */}
+        {hasActiveFilters && (
           <div className='flex items-center gap-2'>
-            {/* Clear Filters Button */}
-            {hasActiveFilters && (
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={onClearFilters}
-                className='w-full sm:w-auto'
-              >
-                <RotateCcw className='mr-2 h-4 w-4' />
-                Clear Filters
-              </Button>
-            )}
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={onClearFilters}
+              className='w-full sm:w-auto'
+            >
+              <RotateCcw className='mr-2 h-4 w-4' />
+              Clear Filters
+            </Button>
           </div>
-
-          {/* Action Buttons */}
-          <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2'>
-            {canEditSections && (
-              <div className='w-full sm:w-auto'>
-                <DownloadSectionTemplateButton />
-              </div>
-            )}
-            {canEditSections && (
-              <div className='w-full sm:w-auto'>
-                <BulkUploadSections />
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
