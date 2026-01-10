@@ -186,7 +186,8 @@
       "Bash(vercel --version:*)",
       "Bash(vercel whoami:*)",
       "Skill(excel-import-export)",
-      "Bash(done)"
+      "Bash(done)",
+      "Skill(import-export-advanced)"
     ],
     "deny": [],
     "ask": []

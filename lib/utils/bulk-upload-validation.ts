@@ -721,6 +721,7 @@ export interface DatabaseValidationResult {
   academicYears: Record<string, FieldValidationResult>;
   regulations: Record<string, FieldValidationResult>;
   batches: Record<string, FieldValidationResult>;
+  duplicateEmails: Record<string, FieldValidationResult>;
 }
 
 export interface DatabaseValidationErrors {
@@ -733,6 +734,7 @@ export interface DatabaseValidationErrors {
   academicYear?: { error: string; suggestions?: string[] };
   regulation?: { error: string; suggestions?: string[] };
   batch?: { error: string; suggestions?: string[] };
+  college_email?: { error: string; suggestions?: string[] };
 }
 
 /**
@@ -750,7 +752,8 @@ export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, 
     departments: new Set<string>(),
     academicYears: new Set<string>(),
     regulations: new Set<string>(),
-    batches: new Set<string>()
+    batches: new Set<string>(),
+    emails: new Set<string>()
   };
 
   // For departments, we need to track (institution_name, department_name) pairs for accurate matching
@@ -773,6 +776,7 @@ export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, 
     if (data.academic_year_name) uniqueValues.academicYears.add(data.academic_year_name);
     if (data.regulation_name) uniqueValues.regulations.add(data.regulation_name);
     if (data.batch_name) uniqueValues.batches.add(data.batch_name);
+    if (data.college_email) uniqueValues.emails.add(data.college_email.toLowerCase());
 
     // Track department with its institution context for accurate matching
     // This ensures "Mathematics" matches correctly with its linked institution
@@ -832,6 +836,7 @@ export function extractUniqueValues(rows: Array<{ sanitizedData: Record<string, 
     academicYears: Array.from(uniqueValues.academicYears),
     regulations: Array.from(uniqueValues.regulations),
     batches: Array.from(uniqueValues.batches),
+    emails: Array.from(uniqueValues.emails),
     // Parse back to objects for API - WITH CONTEXT for cascading validation
     departmentsWithContext: Array.from(departmentPairs).map(str => JSON.parse(str)) as Array<{ institution: string; department: string }>,
     programsWithContext: Array.from(programPairs).map(str => JSON.parse(str)) as Array<{ institution: string; department: string; program: string }>,
@@ -969,6 +974,18 @@ export function getDatabaseValidationErrors(
       errors.academicYear = {
         error: yearResult.error || 'Academic Year not found in database',
         suggestions: yearResult.suggestions
+      };
+    }
+  }
+
+  // Check for duplicate college email in database
+  if (data.college_email) {
+    const emailLower = data.college_email.toLowerCase();
+    const emailResult = validationResult.duplicateEmails?.[emailLower];
+    if (emailResult && emailResult.found) {
+      errors.college_email = {
+        error: 'Email already exists in database',
+        suggestions: []
       };
     }
   }

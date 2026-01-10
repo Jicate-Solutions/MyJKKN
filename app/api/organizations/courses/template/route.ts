@@ -53,9 +53,9 @@ export async function GET(request: NextRequest) {
     // Fetch institutions for dropdown
     const { data: institutions, error: instError } = await supabase
       .from('institutions')
-      .select('counselling_code, name')
+      .select('id, counselling_code, name')
       .eq('is_active', true)
-      .order('counselling_code');
+      .order('name');
 
     if (instError) {
       console.error('[courses/template] Error fetching institutions:', instError);
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const institutionCodes = institutions?.map((i) => i.counselling_code).filter(Boolean) || [];
+    const institutionNames = institutions?.map((i) => i.name).filter(Boolean) || [];
 
     // Create Excel workbook
     const workbook = new ExcelJS.Workbook();
@@ -75,12 +75,12 @@ export async function GET(request: NextRequest) {
     // ============================================================
     const worksheet = workbook.addWorksheet('Courses');
 
-    // Define columns
+    // Define columns - Using Institution Name for user-friendliness
     worksheet.columns = [
-      { header: 'Counselling Code', key: 'counselling_code', width: 20 },
+      { header: 'Institution Name', key: 'institution_name', width: 40 },
       { header: 'Course Code', key: 'course_code', width: 20 },
       { header: 'Course Name', key: 'course_name', width: 40 },
-      { header: 'Status', key: 'is_active', width: 12 }
+      { header: 'Is Active', key: 'is_active', width: 12 }
     ];
 
     // Add formatting to headers - Professional blue header with white text
@@ -102,8 +102,9 @@ export async function GET(request: NextRequest) {
     worksheet.views = [{ state: 'frozen', ySplit: 1 }];
 
     // Add sample row with placeholder data for guidance
+    const sampleInstitution = institutionNames[0] || institutions?.[0]?.name || 'Sample Institution';
     worksheet.addRow({
-      counselling_code: institutionCodes[0] || 'COUNS001',
+      institution_name: sampleInstitution,
       course_code: 'CS101',
       course_name: 'Introduction to Computer Science',
       is_active: 'Active'
@@ -151,8 +152,11 @@ export async function GET(request: NextRequest) {
     // ============================================================
     const listsSheet = workbook.addWorksheet('Lists');
 
+    // Status values
+    const statusValues = ['Active', 'Inactive'];
+
     // Add headers
-    listsSheet.addRow(['Institution Code', 'Status']);
+    listsSheet.addRow(['Institution Name', 'Status']);
     listsSheet.getRow(1).font = { bold: true, name: 'Arial', size: 10 };
     listsSheet.getRow(1).fill = {
       type: 'pattern',
@@ -160,50 +164,46 @@ export async function GET(request: NextRequest) {
       fgColor: { argb: 'FFE5E7EB' }
     };
 
-    // Add dropdown values
-    const maxRows = Math.max(institutionCodes.length, 2);
+    // Add dropdown values - use null instead of empty strings
+    const maxRows = Math.max(institutionNames.length, statusValues.length);
 
     for (let i = 0; i < maxRows; i++) {
       listsSheet.addRow([
-        institutionCodes[i] || '',
-        i === 0 ? 'Active' : i === 1 ? 'Inactive' : ''
+        institutionNames[i] || null,
+        statusValues[i] || null
       ]);
     }
 
     // Auto-fit columns in Lists sheet
-    listsSheet.columns = [{ width: 20 }, { width: 12 }];
+    listsSheet.columns = [{ width: 40 }, { width: 12 }];
 
     // ============================================================
-    // DATA VALIDATION (Dropdowns) - Using inline lists
+    // DATA VALIDATION (Dropdowns) - Using Lists sheet references
     // ============================================================
 
     // Define validation end row (limited to 100 to prevent XML bloat)
     const validationEndRow = 100;
 
-    // Create inline list formulas
-    const institutionCodeList = `"${institutionCodes.join(',')}"`;
-    const statusList = '"Active,Inactive"';
-
-    // Apply validation cell-by-cell
+    // Apply validation cell-by-cell using Lists sheet references
     for (let row = 2; row <= validationEndRow; row++) {
-      // Column A: Institution Code dropdown
-      if (institutionCodes.length > 0) {
+      // Column A: Institution Name dropdown - references Lists!A2:A[n]
+      if (institutionNames.length > 0) {
         worksheet.getCell(`A${row}`).dataValidation = {
           type: 'list',
           allowBlank: true,
-          formulae: [institutionCodeList],
+          formulae: [`Lists!$A$2:$A$${institutionNames.length + 1}`],
           showErrorMessage: true,
           errorStyle: 'warning',
           errorTitle: 'Invalid Input',
-          error: `Please select from: ${institutionCodes.slice(0, 5).join(', ')}${institutionCodes.length > 5 ? '...' : ''}`
+          error: 'Please select an Institution Name from the dropdown'
         };
       }
 
-      // Column D: Status dropdown
+      // Column D: Status dropdown - references Lists!B2:B3
       worksheet.getCell(`D${row}`).dataValidation = {
         type: 'list',
         allowBlank: true,
-        formulae: [statusList],
+        formulae: [`Lists!$B$2:$B$${statusValues.length + 1}`],
         showErrorMessage: true,
         errorStyle: 'warning',
         errorTitle: 'Invalid Input',
@@ -222,20 +222,22 @@ export async function GET(request: NextRequest) {
       'INSTRUCTIONS FOR BULK COURSE IMPORT',
       '',
       '1. REQUIRED FIELDS:',
-      '   - Institution Code: Select from dropdown (existing institution)',
+      '   - Institution Name: Select from dropdown (existing institution)',
       '   - Course Code: Unique course code (e.g., CS101, MATH201)',
       '   - Course Name: Full course name',
-      '   - Status: Active or Inactive',
+      '   - Is Active: Active or Inactive',
       '',
       '2. DATA VALIDATION:',
-      '   - Institution Code has dropdown validation',
+      '   - Institution Name has dropdown validation',
       '   - ALWAYS use the dropdown to select values',
       '   - Course Code must be unique within the institution',
+      '   - NEVER type values manually - always use dropdowns',
       '',
       '3. FORMATTING:',
+      '   - Institution Name: Select from dropdown (no manual typing)',
       '   - Course Code: Alphanumeric (e.g., CS101, MATH-201)',
       '   - Course Name: Descriptive name (2-255 characters)',
-      '   - Status: Active or Inactive',
+      '   - Is Active: Active or Inactive',
       '',
       '4. SAMPLE DATA:',
       '   - Row 2 contains sample data for reference',
@@ -250,7 +252,7 @@ export async function GET(request: NextRequest) {
       '6. TIPS:',
       '   - Course Codes must be unique within each institution',
       '   - Use consistent naming conventions',
-      '   - Verify institution code exists before importing',
+      '   - Verify institution exists before importing',
       '',
       'For support, contact your system administrator.'
     ];

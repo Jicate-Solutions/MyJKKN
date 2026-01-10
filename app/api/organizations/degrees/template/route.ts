@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
       .from('institutions')
       .select('counselling_code, name')
       .eq('is_active', true)
-      .order('counselling_code');
+      .order('name');
 
     if (instError) {
       console.error('[degrees/template] Error fetching institutions:', instError);
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const institutionCodes = institutions?.map((i) => i.counselling_code).filter(Boolean) || [];
+    const institutionNames = institutions?.map((i) => i.name).filter(Boolean) || [];
 
     // Create Excel workbook
     const workbook = new ExcelJS.Workbook();
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
 
     // Define columns
     worksheet.columns = [
-      { header: 'Counselling Code', key: 'counselling_code', width: 20 },
+      { header: 'Institution Name', key: 'institution_name', width: 40 },
       { header: 'Degree ID', key: 'degree_id', width: 20 },
       { header: 'Degree Name', key: 'degree_name', width: 40 },
       { header: 'Degree Type', key: 'degree_type', width: 15 },
@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
 
     // Add sample row with placeholder data for guidance
     worksheet.addRow({
-      counselling_code: institutionCodes[0] || 'COUNS001',
+      institution_name: institutionNames[0] || institutions?.[0]?.name || 'Sample Institution',
       degree_id: 'BTECH',
       degree_name: 'Bachelor of Technology',
       degree_type: 'UG',
@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
     const listsSheet = workbook.addWorksheet('Lists');
 
     // Add headers
-    listsSheet.addRow(['Counselling Code', 'Degree Type', 'Is Active']);
+    listsSheet.addRow(['Institution Name', 'Degree Type', 'Is Active']);
     listsSheet.getRow(1).font = { bold: true, name: 'Arial', size: 10 };
     listsSheet.getRow(1).fill = {
       type: 'pattern',
@@ -166,16 +166,16 @@ export async function GET(request: NextRequest) {
 
     // Add dropdown values
     const maxRows = Math.max(
-      institutionCodes.length,
+      institutionNames.length,
       EXCEL_DEGREE_TYPES.length,
       EXCEL_IS_ACTIVE.length
     );
 
     for (let i = 0; i < maxRows; i++) {
       listsSheet.addRow([
-        institutionCodes[i] || '',
-        EXCEL_DEGREE_TYPES[i] || '',
-        EXCEL_IS_ACTIVE[i] || ''
+        institutionNames[i] || null,
+        EXCEL_DEGREE_TYPES[i] || null,
+        EXCEL_IS_ACTIVE[i] || null
       ]);
     }
 
@@ -183,51 +183,60 @@ export async function GET(request: NextRequest) {
     listsSheet.columns = [{ width: 20 }, { width: 15 }, { width: 12 }];
 
     // ============================================================
-    // DATA VALIDATION (Dropdowns) - Using inline lists
-    // ExcelJS requires: formulae: ['"Value1,Value2,Value3"']
-    // with double quotes inside the array for inline list validation
+    // DATA VALIDATION (Dropdowns) - Using Lists sheet references
+    // This approach prevents Excel from removing validation on file open
     // ============================================================
+
+    // Helper function to convert column number to letter (A, B, C, ..., Z, AA, AB, ...)
+    const getColLetter = (colNum: number): string => {
+      let letter = '';
+      while (colNum > 0) {
+        const rem = (colNum - 1) % 26;
+        letter = String.fromCharCode(65 + rem) + letter;
+        colNum = Math.floor((colNum - 1) / 26);
+      }
+      return letter;
+    };
 
     // Define validation end row (limited to 100 to prevent XML bloat)
     const validationEndRow = 100;
 
-    // Create inline list formulas - ExcelJS format requires double-quoted string
-    // Format: '"Option1,Option2,Option3"' (double quotes inside single quotes)
-    const counsellingCodeList = `"${institutionCodes.join(',')}"`;
-    const degreeTypeList = `"${EXCEL_DEGREE_TYPES.join(',')}"`;
-    const isActiveList = `"${EXCEL_IS_ACTIVE.join(',')}"`;
+    // Calculate column letters for Lists sheet references
+    const institutionNameColLetter = getColLetter(1); // Column A in Lists sheet
+    const degreeTypeColLetter = getColLetter(2); // Column B in Lists sheet
+    const isActiveColLetter = getColLetter(3); // Column C in Lists sheet
 
-    // Apply validation cell-by-cell (ExcelJS requires this approach)
+    // Apply validation cell-by-cell using Lists sheet references
     for (let row = 2; row <= validationEndRow; row++) {
-      // Column A: Counselling Code dropdown
-      if (institutionCodes.length > 0) {
+      // Column A: Institution Name dropdown - references Lists!A2:A[n]
+      if (institutionNames.length > 0) {
         worksheet.getCell(`A${row}`).dataValidation = {
           type: 'list',
           allowBlank: true,
-          formulae: [counsellingCodeList],
+          formulae: [`Lists!$${institutionNameColLetter}$2:$${institutionNameColLetter}$${institutionNames.length + 1}`],
           showErrorMessage: true,
           errorStyle: 'warning',
           errorTitle: 'Invalid Input',
-          error: `Please select from: ${institutionCodes.slice(0, 5).join(', ')}${institutionCodes.length > 5 ? '...' : ''}`
+          error: `Please select an Institution Name from the dropdown`
         };
       }
 
-      // Column D: Degree Type dropdown
+      // Column D: Degree Type dropdown - references Lists!B2:B[n]
       worksheet.getCell(`D${row}`).dataValidation = {
         type: 'list',
         allowBlank: true,
-        formulae: [degreeTypeList],
+        formulae: [`Lists!$${degreeTypeColLetter}$2:$${degreeTypeColLetter}$${EXCEL_DEGREE_TYPES.length + 1}`],
         showErrorMessage: true,
         errorStyle: 'warning',
         errorTitle: 'Invalid Input',
         error: `Please select: ${EXCEL_DEGREE_TYPES.join(', ')}`
       };
 
-      // Column G: Is Active dropdown
+      // Column G: Is Active dropdown - references Lists!C2:C[n]
       worksheet.getCell(`G${row}`).dataValidation = {
         type: 'list',
         allowBlank: true,
-        formulae: [isActiveList],
+        formulae: [`Lists!$${isActiveColLetter}$2:$${isActiveColLetter}$${EXCEL_IS_ACTIVE.length + 1}`],
         showErrorMessage: true,
         errorStyle: 'warning',
         errorTitle: 'Invalid Input',
@@ -246,7 +255,7 @@ export async function GET(request: NextRequest) {
       'INSTRUCTIONS FOR BULK DEGREE IMPORT',
       '',
       '1. REQUIRED FIELDS:',
-      '   - Counselling Code: Select from dropdown (existing institution)',
+      '   - Institution Name: Select from dropdown (existing institution)',
       '   - Degree ID: Unique degree identifier (uppercase letters, numbers, underscores, hyphens)',
       '   - Degree Name: Full degree name (e.g., "Bachelor of Technology")',
       '   - Degree Type: Select from dropdown (UG or PG)',

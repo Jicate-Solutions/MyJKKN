@@ -30,9 +30,18 @@ import { z } from 'zod';
 // ============================================================================
 
 const programRowSchema = z.object({
-  counselling_code: z.string().min(2, 'Counselling code is required'),
-  degree_id: z.string().min(2, 'Degree ID is required'),
-  department_code: z.string().min(2, 'Department code is required'),
+  institution_name: z
+    .string()
+    .min(2, 'Institution name must be at least 2 characters')
+    .max(255, 'Institution name must be at most 255 characters'),
+  degree_name: z
+    .string()
+    .min(2, 'Degree name must be at least 2 characters')
+    .max(255, 'Degree name must be at most 255 characters'),
+  department_name: z
+    .string()
+    .min(2, 'Department name must be at least 2 characters')
+    .max(255, 'Department name must be at most 255 characters'),
   program_id: z
     .string()
     .min(2, 'Program ID must be at least 2 characters')
@@ -50,7 +59,15 @@ const programRowSchema = z.object({
   is_active: z.boolean().default(true)
 });
 
-type ProgramRow = z.infer<typeof programRowSchema>;
+interface ParsedProgramRow extends z.infer<typeof programRowSchema> {
+  // Resolved fields (filled during validation)
+  department_code?: string;
+  department_uuid?: string;
+  degree_uuid?: string;
+  institution_uuid?: string;
+}
+
+type ProgramRow = ParsedProgramRow;
 
 interface ImportError {
   row: number;
@@ -115,22 +132,22 @@ function parseExcelRow(
   const errors: ImportError[] = [];
 
   try {
-    // Extract values from Excel row (columns A-L)
-    const institutionCode = getCellValue(row.getCell(1).value).toUpperCase();
-    const degreeId = getCellValue(row.getCell(2).value).toUpperCase();
-    const departmentCode = getCellValue(row.getCell(3).value).toUpperCase();
-    const programId = getCellValue(row.getCell(4).value);
-    const programName = getCellValue(row.getCell(5).value);
-    const programTypeValue = getCellValue(row.getCell(6).value);
-    const displayName = getCellValue(row.getCell(7).value);
-    const programOrderValue = getCellValue(row.getCell(8).value);
-    const durationValue = getCellValue(row.getCell(9).value);
-    const patternTypeValue = getCellValue(row.getCell(10).value);
-    const partTimeValue = getCellValue(row.getCell(11).value);
-    const isActiveValue = getCellValue(row.getCell(12).value);
+    // Extract values from Excel row (columns A-L) - NEW: Institution Name and Degree Name added
+    const institutionName = getCellValue(row.getCell(1).value); // Column A: Institution Name
+    const degreeName = getCellValue(row.getCell(2).value); // Column B: Degree Name
+    const departmentName = getCellValue(row.getCell(3).value); // Column C: Department Name
+    const programId = getCellValue(row.getCell(4).value); // Column D
+    const programName = getCellValue(row.getCell(5).value); // Column E
+    const programTypeValue = getCellValue(row.getCell(6).value); // Column F
+    const displayName = getCellValue(row.getCell(7).value); // Column G
+    const programOrderValue = getCellValue(row.getCell(8).value); // Column H
+    const durationValue = getCellValue(row.getCell(9).value); // Column I
+    const patternTypeValue = getCellValue(row.getCell(10).value); // Column J
+    const partTimeValue = getCellValue(row.getCell(11).value); // Column K
+    const isActiveValue = getCellValue(row.getCell(12).value); // Column L
 
     // Skip empty rows
-    if (!institutionCode && !degreeId && !departmentCode && !programId) {
+    if (!institutionName && !degreeName && !departmentName && !programId && !programName) {
       return { data: null, errors: [] };
     }
 
@@ -201,9 +218,9 @@ function parseExcelRow(
     }
 
     const rowData: Partial<ProgramRow> = {
-      counselling_code: institutionCode,
-      degree_id: degreeId,
-      department_code: departmentCode,
+      institution_name: institutionName.trim(),
+      degree_name: degreeName.trim(),
+      department_name: departmentName.trim(),
       program_id: programId,
       program_name: programName,
       program_type: programType,
@@ -391,166 +408,18 @@ export async function POST(request: NextRequest) {
     }
 
     // ============================================================
-    // VALIDATE INSTITUTIONS EXIST
+    // VALIDATE DEPARTMENT NAMES EXIST AND MAP TO IDs/UUIDs
     // ============================================================
 
-    const counsellingCodes = [
-      ...new Set(validPrograms.map((p) => p.counselling_code))
+    const uniqueDepartmentNames = [
+      ...new Set(validPrograms.map((p) => p.department_name))
     ];
 
-    const { data: existingInstitutions, error: instCheckError } = await supabase
-      .from('institutions')
-      .select('counselling_code, id')
-      .in('counselling_code', counsellingCodes);
-
-    if (instCheckError) {
-      console.error(
-        '[programs/import] Error checking institutions:',
-        instCheckError
-      );
-      return NextResponse.json(
-        {
-          error: 'Failed to validate institutions',
-          message: instCheckError.message
-        },
-        { status: 500 }
-      );
-    }
-
-    const validCounsellingCodes = new Set(
-      existingInstitutions?.map((i) => i.counselling_code) || []
-    );
-
-    const counsellingCodeToIdMap = new Map(
-      existingInstitutions?.map((i) => [i.counselling_code, i.id]) || []
-    );
-
-    // Filter out programs with invalid counselling codes
-    const institutionErrors: ImportError[] = [];
-    const programsWithValidInstitutions = validPrograms.filter(
-      (prog, index) => {
-        const rowNumber = index + 2;
-
-        if (!validCounsellingCodes.has(prog.counselling_code)) {
-          institutionErrors.push({
-            row: rowNumber,
-            field: 'counselling_code',
-            message: `Row ${rowNumber}: Counselling code "${prog.counselling_code}" not found`
-          });
-          return false;
-        }
-
-        return true;
-      }
-    );
-
-    allErrors.push(...institutionErrors);
-
-    if (programsWithValidInstitutions.length === 0) {
-      return NextResponse.json<ImportResult>(
-        {
-          success: false,
-          successCount: 0,
-          errorCount: allErrors.length,
-          totalRows,
-          errors: allErrors
-        },
-        { status: 400 }
-      );
-    }
-
-    // ============================================================
-    // VALIDATE DEGREES EXIST AND BELONG TO INSTITUTION
-    // ============================================================
-
-    const degreeIds = [
-      ...new Set(programsWithValidInstitutions.map((p) => p.degree_id))
-    ];
-
-    const { data: existingDegrees, error: degreeCheckError } = await supabase
-      .from('degrees')
-      .select('degree_id, id, institution_id')
-      .in('degree_id', degreeIds);
-
-    if (degreeCheckError) {
-      console.error('[programs/import] Error checking degrees:', degreeCheckError);
-      return NextResponse.json(
-        {
-          error: 'Failed to validate degrees',
-          message: degreeCheckError.message
-        },
-        { status: 500 }
-      );
-    }
-
-    const degreeToIdMap = new Map(
-      existingDegrees?.map((d) => [d.degree_id, d.id]) || []
-    );
-
-    const degreeToInstitutionMap = new Map(
-      existingDegrees?.map((d) => [d.degree_id, d.institution_id]) || []
-    );
-
-    // Filter out programs with invalid degree IDs
-    const degreeErrors: ImportError[] = [];
-    const programsWithValidDegrees = programsWithValidInstitutions.filter(
-      (prog, index) => {
-        const rowNumber = index + 2;
-
-        if (!degreeToIdMap.has(prog.degree_id)) {
-          degreeErrors.push({
-            row: rowNumber,
-            field: 'degree_id',
-            message: `Row ${rowNumber}: Degree ID "${prog.degree_id}" not found`
-          });
-          return false;
-        }
-
-        // Verify degree belongs to the specified institution
-        const degreeInstitutionId = degreeToInstitutionMap.get(prog.degree_id);
-        const progInstitutionId = counsellingCodeToIdMap.get(prog.counselling_code);
-
-        if (degreeInstitutionId !== progInstitutionId) {
-          degreeErrors.push({
-            row: rowNumber,
-            field: 'degree_id',
-            message: `Row ${rowNumber}: Degree "${prog.degree_id}" does not belong to institution "${prog.counselling_code}"`
-          });
-          return false;
-        }
-
-        return true;
-      }
-    );
-
-    allErrors.push(...degreeErrors);
-
-    if (programsWithValidDegrees.length === 0) {
-      return NextResponse.json<ImportResult>(
-        {
-          success: false,
-          successCount: 0,
-          errorCount: allErrors.length,
-          totalRows,
-          errors: allErrors
-        },
-        { status: 400 }
-      );
-    }
-
-    // ============================================================
-    // VALIDATE DEPARTMENTS EXIST AND BELONG TO DEGREE
-    // ============================================================
-
-    const departmentCodes = [
-      ...new Set(programsWithValidDegrees.map((p) => p.department_code))
-    ];
-
-    // Get departments with their degree_id
+    // Fetch departments by name with related info
     const { data: existingDepartments, error: deptCheckError } = await supabase
       .from('departments')
-      .select('department_code, id, degree_id')
-      .in('department_code', departmentCodes);
+      .select('department_code, department_name, id, degree_id, institution_id')
+      .in('department_name', uniqueDepartmentNames);
 
     if (deptCheckError) {
       console.error('[programs/import] Error checking departments:', deptCheckError);
@@ -563,31 +432,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create maps for department validation (key: degree_id:department_code)
-    const departmentKeyToIdMap = new Map(
-      existingDepartments?.map((d) => {
-        // Find the degree_id string from our map
-        const degreeIdString = Array.from(degreeToIdMap.entries())
-          .find(([, uuid]) => uuid === d.degree_id)?.[0];
-        return [`${degreeIdString}:${d.department_code}`, d.id];
-      }).filter((entry): entry is [string, string] => entry[0] !== 'undefined:' + entry[0].split(':')[1]) || []
+    // Create mappings from department_name to code/UUIDs
+    const departmentNameToCodeMap = new Map<string, string>();
+    const departmentNameToUuidMap = new Map<string, string>();
+    const departmentNameToDegreeUuidMap = new Map<string, string>();
+    const departmentNameToInstitutionUuidMap = new Map<string, string>();
+
+    existingDepartments?.forEach((d) => {
+      departmentNameToCodeMap.set(d.department_name, d.department_code);
+      departmentNameToUuidMap.set(d.department_name, d.id);
+      departmentNameToDegreeUuidMap.set(d.department_name, d.degree_id);
+      departmentNameToInstitutionUuidMap.set(d.department_name, d.institution_id);
+    });
+
+    const validDepartmentNames = new Set(
+      existingDepartments?.map((d) => d.department_name) || []
     );
 
-    // Filter out programs with invalid departments
+    // Validate and resolve department names to codes/UUIDs
     const departmentErrors: ImportError[] = [];
-    const programsWithValidDepartments = programsWithValidDegrees.filter(
+    const programsWithValidDepartments = validPrograms.filter(
       (prog, index) => {
         const rowNumber = index + 2;
-        const key = `${prog.degree_id}:${prog.department_code}`;
 
-        if (!departmentKeyToIdMap.has(key)) {
+        if (!validDepartmentNames.has(prog.department_name)) {
           departmentErrors.push({
             row: rowNumber,
-            field: 'department_code',
-            message: `Row ${rowNumber}: Department "${prog.department_code}" not found for degree "${prog.degree_id}"`
+            field: 'department_name',
+            message: `Row ${rowNumber}: Department "${prog.department_name}" not found`
           });
           return false;
         }
+
+        // Resolve department name to code and UUIDs
+        prog.department_code = departmentNameToCodeMap.get(prog.department_name);
+        prog.department_uuid = departmentNameToUuidMap.get(prog.department_name);
+        prog.degree_uuid = departmentNameToDegreeUuidMap.get(prog.department_name);
+        prog.institution_uuid = departmentNameToInstitutionUuidMap.get(prog.department_name);
 
         return true;
       }
@@ -616,14 +497,14 @@ export async function POST(request: NextRequest) {
     const programIdMap = new Map<string, number>();
 
     programsWithValidDepartments.forEach((prog, index) => {
-      const key = `${prog.degree_id}:${prog.department_code}:${prog.program_id}`;
+      const key = `${prog.department_uuid}:${prog.program_id}`;
       if (programIdMap.has(key)) {
         const firstRow = programIdMap.get(key)! + 2;
         const currentRow = index + 2;
         allErrors.push({
           row: currentRow,
           field: 'program_id',
-          message: `Row ${currentRow}: Program ID "${prog.program_id}" for department "${prog.department_code}" already exists in row ${firstRow}`
+          message: `Row ${currentRow}: Program ID "${prog.program_id}" for department "${prog.department_name}" already exists in row ${firstRow}`
         });
       } else {
         programIdMap.set(key, index);
@@ -631,11 +512,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Check for existing program IDs in database
-    const departmentUUIDs = [...new Set(
-      programsWithValidDepartments.map((p) =>
-        departmentKeyToIdMap.get(`${p.degree_id}:${p.department_code}`)!
-      )
-    )];
+    const departmentUUIDs = [...new Set(programsWithValidDepartments.map((p) => p.department_uuid!))];
 
     const { data: existingPrograms, error: checkError } = await supabase
       .from('programs')
@@ -653,16 +530,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create reverse map from department UUID to degree:dept key
-    const deptUuidToKeyMap = new Map(
-      Array.from(departmentKeyToIdMap.entries()).map(([key, uuid]) => [uuid, key])
-    );
-
     const existingProgramSet = new Set(
-      existingPrograms?.map((p) => {
-        const deptKey = deptUuidToKeyMap.get(p.department_id);
-        return `${deptKey}:${p.program_id}`;
-      }).filter(Boolean) || []
+      existingPrograms?.map((p) => `${p.department_id}:${p.program_id}`) || []
     );
 
     // Filter out programs with duplicate IDs
@@ -670,13 +539,13 @@ export async function POST(request: NextRequest) {
     const programsToInsert = programsWithValidDepartments.filter(
       (prog, index) => {
         const rowNumber = index + 2;
-        const key = `${prog.degree_id}:${prog.department_code}:${prog.program_id}`;
+        const key = `${prog.department_uuid}:${prog.program_id}`;
 
         if (existingProgramSet.has(key)) {
           duplicateErrors.push({
             row: rowNumber,
             field: 'program_id',
-            message: `Row ${rowNumber}: Program ID "${prog.program_id}" already exists for department "${prog.department_code}"`
+            message: `Row ${rowNumber}: Program ID "${prog.program_id}" already exists for department "${prog.department_name}"`
           });
           return false;
         }
@@ -706,9 +575,9 @@ export async function POST(request: NextRequest) {
     // ============================================================
 
     const programsWithUUIDs = programsToInsert.map((prog) => ({
-      institution_id: counsellingCodeToIdMap.get(prog.counselling_code)!,
-      degree_id: degreeToIdMap.get(prog.degree_id)!,
-      department_id: departmentKeyToIdMap.get(`${prog.degree_id}:${prog.department_code}`)!,
+      institution_id: prog.institution_uuid!,
+      degree_id: prog.degree_uuid!,
+      department_id: prog.department_uuid!,
       program_id: prog.program_id,
       program_name: prog.program_name,
       program_type: prog.program_type,

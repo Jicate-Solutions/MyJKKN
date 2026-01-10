@@ -4,7 +4,17 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { CourseMappingsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Loader2 } from 'lucide-react';
+import {
+  Plus,
+  TrashIcon,
+  Loader2,
+  Upload,
+  Download,
+  ChevronDown,
+  FileSpreadsheet,
+  FileText,
+  FileJson
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
 import { CourseMapping } from '@/types/organizations';
@@ -21,6 +31,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import { ImportDialog } from './import-dialog';
 import toast from 'react-hot-toast';
 
 interface CourseMappingsDataTableProps {
@@ -37,6 +55,8 @@ export function CourseMappingsDataTable({
   const [selectedForDelete, setSelectedForDelete] = useState<CourseMapping[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.course.mappings', 'create');
@@ -145,6 +165,54 @@ export function CourseMappingsDataTable({
     }
   };
 
+  // Export handlers
+  const handleExport = async (format: 'xlsx' | 'csv' | 'json') => {
+    try {
+      const response = await fetch(
+        `/api/organizations/course-mappings/export?format=${format}&includeAll=true`
+      );
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `course-mappings-export-${new Date().toISOString().split('T')[0]}.${
+        format === 'xlsx' ? 'xlsx' : format === 'csv' ? 'csv' : 'json'
+      }`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Export completed successfully');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export course mappings');
+    }
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch('/api/organizations/course-mappings/template');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `course-mappings-template-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Template downloaded successfully');
+    } catch (error) {
+      console.error('Template download error:', error);
+      toast.error('Failed to download template');
+    }
+  };
+
+  const handleImportComplete = () => {
+    setRefreshTrigger((prev) => prev + 1);
+    router.refresh();
+  };
+
   const renderCustomToolbar = (props: {
     selectedRows: any[];
     allSelectedIds: (string | number)[];
@@ -162,6 +230,47 @@ export function CourseMappingsDataTable({
           Map Course
         </Button>
       )}
+
+      {canCreate && (
+        <Button
+          onClick={() => setImportOpen(true)}
+          variant='outline'
+          size='sm'
+          className='h-8'
+        >
+          <Upload className='mr-2 h-4 w-4' />
+          Import
+        </Button>
+      )}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant='outline' size='sm' className='h-8'>
+            <Download className='mr-2 h-4 w-4' />
+            Export
+            <ChevronDown className='ml-2 h-4 w-4' />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end'>
+          <DropdownMenuItem onClick={() => handleExport('xlsx')}>
+            <FileSpreadsheet className='mr-2 h-4 w-4' />
+            Export as Excel
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleExport('csv')}>
+            <FileText className='mr-2 h-4 w-4' />
+            Export as CSV
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleExport('json')}>
+            <FileJson className='mr-2 h-4 w-4' />
+            Export as JSON
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleDownloadTemplate}>
+            <Download className='mr-2 h-4 w-4' />
+            Download Template
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Fixed: 2025-12-27 - Only show bulk delete if user has delete permission */}
       {props.selectedRows.length > 0 && canDelete && (
@@ -253,6 +362,13 @@ export function CourseMappingsDataTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Import Dialog */}
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImportComplete={handleImportComplete}
+      />
     </>
   );
 }

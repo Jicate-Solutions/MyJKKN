@@ -4,12 +4,20 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { SectionsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Loader2 } from 'lucide-react';
+import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { Section } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useState } from 'react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import { ImportDialog } from './import-dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +41,8 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
   const [selectedForDelete, setSelectedForDelete] = useState<Section[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.institutions', 'create');
@@ -135,6 +145,90 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
     }
   };
 
+  // Handle import complete
+  const handleImportComplete = () => {
+    setRefreshTrigger((prev) => prev + 1);
+    router.refresh();
+  };
+
+  // Download template
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch('/api/organizations/sections/template');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sections-template-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Template downloaded successfully');
+    } catch (error) {
+      console.error('[SectionsDataTable] Template download error:', error);
+      toast.error('Failed to download template');
+    }
+  };
+
+  // Export handlers
+  const handleExportExcel = async () => {
+    try {
+      const response = await fetch('/api/organizations/sections/export?format=excel');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sections-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Sections exported successfully');
+    } catch (error) {
+      console.error('[SectionsDataTable] Excel export error:', error);
+      toast.error('Failed to export sections');
+    }
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      const response = await fetch('/api/organizations/sections/export?format=csv');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sections-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Sections exported successfully');
+    } catch (error) {
+      console.error('[SectionsDataTable] CSV export error:', error);
+      toast.error('Failed to export sections');
+    }
+  };
+
+  const handleExportJSON = async () => {
+    try {
+      const response = await fetch('/api/organizations/sections/export?format=json');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sections-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Sections exported successfully');
+    } catch (error) {
+      console.error('[SectionsDataTable] JSON export error:', error);
+      toast.error('Failed to export sections');
+    }
+  };
+
   const renderCustomToolbar = (props: {
     selectedRows: any[];
     allSelectedIds: (string | number)[];
@@ -152,6 +246,47 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
           Add Section
         </Button>
       )}
+
+      {canCreate && (
+        <Button
+          variant='outline'
+          size='sm'
+          className='h-8'
+          onClick={() => setImportOpen(true)}
+        >
+          <Upload className='mr-2 h-4 w-4' />
+          Import
+        </Button>
+      )}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant='outline' size='sm' className='h-8'>
+            <Download className='mr-2 h-4 w-4' />
+            Export
+            <ChevronDown className='ml-2 h-4 w-4' />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end'>
+          <DropdownMenuItem onClick={handleExportExcel}>
+            <FileSpreadsheet className='mr-2 h-4 w-4' />
+            Export as Excel
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleExportCSV}>
+            <FileText className='mr-2 h-4 w-4' />
+            Export as CSV
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleExportJSON}>
+            <FileJson className='mr-2 h-4 w-4' />
+            Export as JSON
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleDownloadTemplate}>
+            <Download className='mr-2 h-4 w-4' />
+            Download Template
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {props.selectedRows.length > 0 && (
         <Button
@@ -175,6 +310,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
   return (
     <>
       <DataTable
+        key={refreshTrigger}
         fetchDataFn={fetchData}
         getColumns={() => columns as any}
         exportConfig={{
@@ -248,6 +384,13 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Import Dialog */}
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImportComplete={handleImportComplete}
+      />
     </>
   );
 }

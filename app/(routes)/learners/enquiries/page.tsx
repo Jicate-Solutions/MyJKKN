@@ -7,16 +7,13 @@
 // ============================================
 
 import { Suspense } from 'react';
-import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EnquiriesTableServer } from './_components/enquiries-table-server';
 import { EnquiriesFilters } from './_components/enquiries-filters';
 import { enquiriesSearchParamsSchema } from './_components/data-table-schema';
-import BulkUploadEnquiries from './_components/bulk-upload-enquiries';
+import { EnquiriesHeader } from './_components/enquiries-header';
 import { getEnquiries } from './_data/get-enquiries';
 import { TableSkeleton } from '@/components/Loading';
 import type { LifecycleStatus } from '@/types/learner-profile';
@@ -109,25 +106,8 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
       />
 
       <div className="space-y-6 mt-4">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-          <div>
-            <h1 className="text-2xl font-bold py-1">Admission Management</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
-              Manage admission lifecycle: enquiries, pending applications, rejections, and waitlist
-            </p>
-          </div>
-
-          <div className="flex gap-2">
-            <BulkUploadEnquiries />
-            <Button asChild>
-              <Link href="/learners/enquiries/new">
-                <Plus className="mr-2 h-4 w-4" />
-                New Enquiry
-              </Link>
-            </Button>
-          </div>
-        </div>
+        {/* Header with Import/Export functionality */}
+        <EnquiriesHeader />
 
         {/* Tabs with DataTables */}
         <Tabs defaultValue="enquiries" className="w-full">

@@ -43,13 +43,16 @@ interface ImportResult {
 }
 
 interface ParsedDegreeRow {
-  counselling_code: string;
+  institution_name: string;
   degree_id: string;
   degree_name: string;
   degree_type: string;
   display_name?: string;
   degree_order?: number;
   is_active: boolean;
+  // Resolved fields (filled during validation)
+  counselling_code?: string;
+  institution_id?: string;
 }
 
 // ============================================================================
@@ -57,14 +60,10 @@ interface ParsedDegreeRow {
 // ============================================================================
 
 const degreeRowSchema = z.object({
-  counselling_code: z
+  institution_name: z
     .string()
-    .min(2, 'Counselling code must be at least 2 characters')
-    .max(50, 'Counselling code must be 50 characters or less')
-    .regex(
-      /^[A-Z0-9_-]+$/,
-      'Counselling code must be uppercase letters, numbers, underscores, or hyphens'
-    ),
+    .min(2, 'Institution name must be at least 2 characters')
+    .max(255, 'Institution name must be 255 characters or less'),
   degree_id: z
     .string()
     .min(2, 'Degree ID must be at least 2 characters')
@@ -130,8 +129,8 @@ function parseExcelRow(
 ): { data: ParsedDegreeRow | null; errors: ImportError[] } {
   const errors: ImportError[] = [];
 
-  // Extract cell values (columns A-G)
-  const institutionCode = getCellValue(row.getCell(1));
+  // Extract cell values (columns A-G) - Now using Institution Name
+  const institutionName = getCellValue(row.getCell(1));
   const degreeId = getCellValue(row.getCell(2));
   const degreeName = getCellValue(row.getCell(3));
   const degreeTypeLabel = getCellValue(row.getCell(4));
@@ -141,7 +140,7 @@ function parseExcelRow(
 
   // Skip completely empty rows
   if (
-    !institutionCode &&
+    !institutionName &&
     !degreeId &&
     !degreeName &&
     !degreeTypeLabel &&
@@ -196,10 +195,10 @@ function parseExcelRow(
     }
   }
 
-  // Construct degree object
+  // Construct degree object - using Institution Name
   const degreeData: ParsedDegreeRow = {
-    counselling_code: institutionCode,
-    degree_id: degreeId,
+    institution_name: institutionName.trim(),
+    degree_id: degreeId.toUpperCase(),
     degree_name: degreeName,
     degree_type: degreeType || '',
     display_name: displayName || undefined,
@@ -380,41 +379,43 @@ export async function POST(request: NextRequest) {
 
     const validationErrors: ImportError[] = [];
 
-    // Get all unique counselling codes from parsed rows
-    const uniqueCounsellingCodes = [
-      ...new Set(parsedRows.map((r) => r.counselling_code))
+    // Get all unique institution names from parsed rows
+    const uniqueInstitutionNames = [
+      ...new Set(parsedRows.map((r) => r.institution_name))
     ];
 
-    // Fetch all institutions with both counselling_code and id
+    // Fetch all institutions by name (with counselling_code for mapping)
     const { data: institutions, error: instError } = await supabase
       .from('institutions')
-      .select('id, counselling_code')
-      .in('counselling_code', uniqueCounsellingCodes);
+      .select('id, counselling_code, name')
+      .in('name', uniqueInstitutionNames);
 
     if (instError) {
       console.error('[degrees/import] Institution lookup error:', instError);
       return NextResponse.json(
         {
           error: 'Database error',
-          message: 'Failed to validate counselling codes'
+          message: 'Failed to validate institution names'
         },
         { status: 500 }
       );
     }
 
-    // Create mapping from counselling_code to institution_id
-    const counsellingCodeToIdMap = new Map<string, string>();
+    // Create mappings from institution_name to counselling_code and institution_id
+    const institutionNameToCodeMap = new Map<string, string>();
+    const institutionNameToIdMap = new Map<string, string>();
     institutions?.forEach((inst) => {
-      counsellingCodeToIdMap.set(inst.counselling_code, inst.id);
+      institutionNameToCodeMap.set(inst.name, inst.counselling_code);
+      institutionNameToIdMap.set(inst.name, inst.id);
     });
 
-    const validCounsellingCodes = new Set(
-      institutions?.map((i) => i.counselling_code) || []
+    const validInstitutionNames = new Set(
+      institutions?.map((i) => i.name) || []
     );
 
     // Fetch existing degrees for duplicate checking (with institution lookup)
-    const institutionIds = Array.from(counsellingCodeToIdMap.values());
-    const { data: existingDegrees, error: degreeError } = await supabase
+    const institutionIds = Array.from(institutionNameToIdMap.values());
+    const { data: existingDegrees, error: degreeError} = await supabase
       .from('degrees')
       .select('institution_id, degree_id')
       .in('institution_id', institutionIds);
@@ -434,22 +435,27 @@ export async function POST(request: NextRequest) {
       existingDegrees?.map((d) => `${d.institution_id}|${d.degree_id}`) || []
     );
 
-    // Validate each row
+    // Validate each row (map institution_name → counselling_code + institution_id)
     parsedRows.forEach((row, index) => {
       const rowNumber = index + 2; // +2 for header
 
-      // Check institution exists
-      if (!validCounsellingCodes.has(row.counselling_code)) {
+      // Check institution name exists and map to code + ID
+      if (!validInstitutionNames.has(row.institution_name)) {
         validationErrors.push({
           row: rowNumber,
-          field: 'counselling_code',
-          message: `Counselling code "${row.counselling_code}" not found`
+          field: 'institution_name',
+          message: `Institution "${row.institution_name}" not found`
         });
         return; // Skip further validation if institution doesn't exist
       }
 
-      // Get institution_id for this counselling_code
-      const institutionId = counsellingCodeToIdMap.get(row.counselling_code);
+      // Get counselling_code and institution_id for this institution_name
+      const counsellingCode = institutionNameToCodeMap.get(row.institution_name);
+      const institutionId = institutionNameToIdMap.get(row.institution_name);
+
+      // Store resolved values for database insertion
+      row.counselling_code = counsellingCode;
+      row.institution_id = institutionId;
 
       // Check degree doesn't already exist in database
       const degreeKey = `${institutionId}|${row.degree_id}`;
@@ -457,7 +463,7 @@ export async function POST(request: NextRequest) {
         validationErrors.push({
           row: rowNumber,
           field: 'degree_id',
-          message: `Degree "${row.degree_id}" already exists in institution "${row.counselling_code}"`
+          message: `Degree "${row.degree_id}" already exists in institution "${row.institution_name}"`
         });
       }
     });
@@ -478,7 +484,7 @@ export async function POST(request: NextRequest) {
     // ========================================================================
 
     const degreesToInsert = parsedRows.map((row) => ({
-      institution_id: counsellingCodeToIdMap.get(row.counselling_code)!, // Map counselling_code to institution_id
+      institution_id: row.institution_id!, // Resolved during validation
       degree_id: row.degree_id,
       degree_name: row.degree_name,
       degree_type: row.degree_type,
