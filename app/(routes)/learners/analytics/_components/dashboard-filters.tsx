@@ -124,14 +124,21 @@ export function DashboardFilters({
     enabled: canAccessAllInstitutions || accessibleInstitutionIds.length > 0
   });
 
-  // Fetch academic years
+  // Fetch academic years (filtered by institution)
   const { data: academicYears = [] } = useQuery<{ id: string; academic_year_name: string; is_active: boolean }[]>({
-    queryKey: ['academic_years'],
+    queryKey: ['academic_years', selectedInstitutionIds],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('academic_years')
         .select('id, academic_year_name, is_active')
         .order('academic_year_name', { ascending: false });
+
+      // Filter by selected institutions
+      if (selectedInstitutionIds.length > 0) {
+        query = query.in('institution_id', selectedInstitutionIds);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return data || [];
     }
@@ -200,17 +207,26 @@ export function DashboardFilters({
     enabled: !!selectedDepartmentId
   });
 
-  // Fetch semesters
+  // Fetch semesters (filtered by program for cascade hierarchy)
   const { data: semesters = [] } = useQuery<{ id: string; semester_name: string; semester_code: string }[]>({
-    queryKey: ['semesters'],
+    queryKey: ['semesters', selectedProgramId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('semesters')
         .select('id, semester_name, semester_code')
         .order('semester_code');
+
+      // STRICT CASCADE: Filter by selected program
+      if (selectedProgramId) {
+        query = query.eq('program_id', selectedProgramId);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return data || [];
-    }
+    },
+    // Only load semesters when program is selected
+    enabled: !!selectedProgramId
   });
 
   // Fetch sections (filtered by semester if selected)
@@ -296,9 +312,12 @@ export function DashboardFilters({
   useEffect(() => {
     // When institutions change, reset downstream filters
     if (selectedInstitutionIds.length === 0) {
+      setSelectedAcademicYearId(undefined);
       setSelectedDegreeId(undefined);
       setSelectedDepartmentId(undefined);
       setSelectedProgramId(undefined);
+      setSelectedSemesterId(undefined);
+      setSelectedSectionId(undefined);
     }
   }, [selectedInstitutionIds]);
 
@@ -307,6 +326,8 @@ export function DashboardFilters({
     if (!selectedDegreeId) {
       setSelectedDepartmentId(undefined);
       setSelectedProgramId(undefined);
+      setSelectedSemesterId(undefined);
+      setSelectedSectionId(undefined);
     }
   }, [selectedDegreeId]);
 
@@ -314,8 +335,18 @@ export function DashboardFilters({
     // When department changes, reset downstream filters
     if (!selectedDepartmentId) {
       setSelectedProgramId(undefined);
+      setSelectedSemesterId(undefined);
+      setSelectedSectionId(undefined);
     }
   }, [selectedDepartmentId]);
+
+  useEffect(() => {
+    // When program changes, reset downstream filters (semester and section)
+    if (!selectedProgramId) {
+      setSelectedSemesterId(undefined);
+      setSelectedSectionId(undefined);
+    }
+  }, [selectedProgramId]);
 
   useEffect(() => {
     // When semester changes, reset downstream filters
@@ -458,9 +489,12 @@ export function DashboardFilters({
             onValueChange={(value) =>
               setSelectedAcademicYearId(value === 'all' ? undefined : value)
             }
+            disabled={selectedInstitutionIds.length === 0}
           >
             <SelectTrigger>
-              <SelectValue placeholder="All Years" />
+              <SelectValue placeholder={
+                selectedInstitutionIds.length > 0 ? "All Years" : "Select Institution First"
+              } />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Years</SelectItem>
@@ -554,9 +588,12 @@ export function DashboardFilters({
             onValueChange={(value) =>
               setSelectedSemesterId(value === 'all' ? undefined : value)
             }
+            disabled={semesters.length === 0}
           >
             <SelectTrigger>
-              <SelectValue placeholder="All Semesters" />
+              <SelectValue placeholder={
+                selectedProgramId ? "Select Semester" : "Select Program First"
+              } />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Semesters</SelectItem>
@@ -580,7 +617,9 @@ export function DashboardFilters({
             disabled={sections.length === 0}
           >
             <SelectTrigger>
-              <SelectValue placeholder="All Sections" />
+              <SelectValue placeholder={
+                selectedSemesterId ? "Select Section" : "Select Semester First"
+              } />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Sections</SelectItem>
