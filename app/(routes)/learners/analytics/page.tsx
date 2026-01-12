@@ -136,6 +136,15 @@ export default function LearnersAnalyticsDashboard() {
       if (filters.sectionId) {
         searchParams.set('sectionId', filters.sectionId);
       }
+      if (filters.lifecycleStatuses && filters.lifecycleStatuses.length > 0) {
+        searchParams.set('lifecycleStatuses', filters.lifecycleStatuses.join(','));
+      }
+      if (filters.isProfileComplete !== undefined) {
+        searchParams.set('isProfileComplete', filters.isProfileComplete.toString());
+      }
+      if (filters.gender) {
+        searchParams.set('gender', filters.gender);
+      }
       if (filters.dateRange?.from && filters.dateRange?.to) {
         searchParams.set('dateFrom', filters.dateRange.from.toISOString());
         searchParams.set('dateTo', filters.dateRange.to.toISOString());

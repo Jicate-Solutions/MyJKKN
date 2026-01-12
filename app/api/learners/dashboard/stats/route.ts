@@ -32,6 +32,9 @@ import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
  * - programId: filter by program
  * - semesterId: filter by semester
  * - sectionId: filter by section
+ * - lifecycleStatuses: comma-separated list of lifecycle statuses (enquiry, pending, approved, active, etc.)
+ * - isProfileComplete: filter by profile completion (true/false)
+ * - gender: filter by gender (male/female/other)
  * - dateFrom: start date for date range filter
  * - dateTo: end date for date range filter
  */
@@ -113,6 +116,24 @@ export async function GET(request: NextRequest) {
     const sectionId = searchParams.get('sectionId');
     if (sectionId) {
       filters.sectionId = sectionId;
+    }
+
+    // Lifecycle Statuses
+    const lifecycleStatusesParam = searchParams.get('lifecycleStatuses');
+    if (lifecycleStatusesParam) {
+      filters.lifecycleStatuses = lifecycleStatusesParam.split(',').filter(Boolean) as any;
+    }
+
+    // Profile Completion
+    const isProfileCompleteParam = searchParams.get('isProfileComplete');
+    if (isProfileCompleteParam !== null) {
+      filters.isProfileComplete = isProfileCompleteParam === 'true';
+    }
+
+    // Gender
+    const gender = searchParams.get('gender');
+    if (gender && (gender === 'male' || gender === 'female' || gender === 'other')) {
+      filters.gender = gender;
     }
 
     // Date Range
