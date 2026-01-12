@@ -93,6 +93,9 @@ export function DataTableRowActions<TData>({
       await deleteMutation.mutateAsync(learner.id);
       toast.success('Enquiry deleted successfully');
       setShowDeleteDialog(false);
+
+      // Refresh server component data for real-time update
+      router.refresh();
     } catch (error) {
       console.error('[row-actions] Error deleting enquiry:', error);
       toast.error('Failed to delete enquiry. Please try again.');
