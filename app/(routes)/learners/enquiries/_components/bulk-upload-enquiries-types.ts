@@ -48,7 +48,7 @@ export interface ValidationSummary {
   selectedRows: number;
 }
 
-// Enquiry-specific upload result (no user creation)
+// Enquiry-specific upload result (with created enquiry details)
 export interface EnquiryUploadResult {
   success: boolean;
   upload_summary: {
@@ -58,6 +58,15 @@ export interface EnquiryUploadResult {
     enquiries_created: number;
     enquiries_failed: number;
   };
+  created_enquiries: Array<{
+    name: string;
+    email: string;
+    mobile: string;
+    institution: string;
+    program: string;
+    semester: string;
+    section: string;
+  }>;
   errors: Array<{
     row: number;
     name?: string;

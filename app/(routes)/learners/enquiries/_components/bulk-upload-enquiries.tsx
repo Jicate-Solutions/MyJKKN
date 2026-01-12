@@ -214,224 +214,33 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
     error: null
   });
 
-  // Download template function
-  const downloadTemplate = () => {
+  // Download template function - calls API to get advanced template with cascading dropdowns
+  const downloadTemplate = async () => {
     try {
-      // Create sample data with REQUIRED fields first, then OPTIONAL fields
-      const sampleData = [{
-        // ============================================
-        // REQUIRED FIELDS (marked with *)
-        // ============================================
+      toast.loading('Generating template with cascading dropdowns...', { id: 'template-download' });
 
-        // Basic Details
-        '* First Name': 'JOHN',
-        '* Last Name': 'DOE',
-        '* Date of Birth': '2005-01-15',
-        '* Gender': 'MALE',
-        '* Religion': 'HINDU',
-        '* Community': 'BC',
-        '* Caste': 'OBC',
+      const response = await fetch('/api/learners/enquiries/template');
 
-        // Parent/Guardian Information (Mobile is REQUIRED)
-        '* Father Name': 'ROBERT DOE',
-        '* Father Mobile': '9876543211',
-        '* Mother Name': 'MARY DOE',
-        '* Mother Mobile': '9876543212',
+      if (!response.ok) {
+        throw new Error('Failed to download template');
+      }
 
-        // Academic Assignment
-        '* Institution': 'JKKN College of Engineering and Technology',
-        '* Degree': 'Undergraduate',
-        '* Department': 'Computer Science and Engineering',
-        '* Program': '(BE) CSE',
-        '* Semester': 'Semester 1',
-        '* Section': 'A',
-        '* Academic Year': '2024-2025',
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `enquiry-import-template-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
 
-        // Contact Details (Student Email is REQUIRED)
-        '* Student Mobile': '9876543210',
-        '* Student Email': 'john@gmail.com',
-
-        // Address Information
-        '* Permanent Address Street': '123 Main Street',
-        '* Permanent Address District': 'Namakkal',
-        '* Permanent Address Pin Code': '637001',
-        '* Permanent Address State': 'Tamil Nadu',
-
-        // Entry Type & Scholarship Type
-        '* Entry Type': 'FIRST YEAR',
-        '* Scholarship Type': 'FIRST GRADUATE',
-
-        // Accommodation
-        '* Accommodation Type': 'HOSTEL',
-
-        // Previous Education (REQUIRED)
-        '* Last School': 'St. Mary\'s High School',
-        '* Board of Study': 'STATE BOARD',
-        '* 10th Max Marks': '500',
-        '* 10th Obtained Marks': '450',
-        '* 10th Percentage': '90',
-        '* 12th Group': 'SCIENCE',
-        '* 12th Max Marks': '600',
-        '* 12th Obtained Marks': '540',
-        '* 12th Percentage': '90',
-
-        // ============================================
-        // OPTIONAL FIELDS
-        // ============================================
-
-        // Contact (Optional)
-        'College Email': 'john.doe@jkkn.ac.in',
-        'Permanent Address Taluk': 'Namakkal',
-
-        // ============================================
-        // OPTIONAL FIELDS
-        // ============================================
-
-        // Basic Details (Optional)
-        'Aadhar Number': '123456789012',
-        'Blood Group': 'O+',
-
-        // Parent/Guardian (Optional)
-        'Father Occupation': 'Business',
-        'Mother Occupation': 'Teacher',
-        'Annual Income': '500000',
-
-        // Academic (Optional)
-        'Admission Year': '2024',
-        'Regulation': 'R2021',
-        'Batch': '2024-2028',
-
-        // Accommodation (Optional)
-        'Hostel Type': 'AC HOSTEL',
-        'Food Type': 'VEG',
-
-        // Counseling (Optional)
-        'Counseling Applied': 'TRUE',
-        'Quota': 'MANAGEMENT',
-        'Category': 'General',
-
-        // Transport (Optional)
-        'Bus Required': 'TRUE',
-        'Bus Route': 'Route 5',
-        'Bus Pickup Location': 'Central Bus Stand',
-
-        // Reference (Optional)
-        'Reference Type': 'Alumni',
-        'Reference Name': 'Dr. Kumar',
-        'Reference Contact': '9876543299',
-
-        // Entrance Exam Details (Optional)
-        'Medical Cutoff Marks': '',
-        'Engineering Cutoff Marks': '',
-        'NEET Roll Number': '',
-        'NEET Score': '',
-
-        // Enquiry specific
-        'Enquiry Date': new Date().toISOString().split('T')[0],
-      }];
-
-      // Create Instructions sheet with concise information
-      const instructionsData = [
-        { '': '' },
-        { 'BULK UPLOAD ENQUIRIES - QUICK REFERENCE GUIDE': '' },
-        { '': '' },
-
-        { 'HOW TO USE THIS TEMPLATE': '' },
-        { '1': 'Switch to the "Template" sheet (tab at the bottom of this file)' },
-        { '2': 'Fill in all REQUIRED fields (marked with * asterisk)' },
-        { '3': 'Fill OPTIONAL fields only if data is available' },
-        { '4': 'Save the file and upload it to the system' },
-        { '5': 'Fix any validation errors shown and re-upload if needed' },
-        { '': '' },
-
-        { 'FIELD REQUIREMENTS': '' },
-        { 'Required Fields (23)': 'Must be filled for every enquiry - marked with * in template' },
-        { 'Optional Fields (20+)': 'Can be left blank - no asterisk in template' },
-        { '': '' },
-
-        { 'IMPORTANT NOTES FOR ENQUIRIES': '' },
-        { '1. College Email is OPTIONAL': 'Unlike profiles, enquiries do not require college email' },
-        { '2. No user accounts created': 'User accounts are created only after approval' },
-        { '3. Status is "Enquiry"': 'All uploaded records will have enquiry status' },
-        { '': '' },
-
-        { 'DROPDOWN FIELDS - VALID VALUES ONLY': '' },
-        { 'Field Name': 'Valid Options (use these exact values)' },
-        { '': '' },
-        { '* Gender (Required)': 'MALE  |  FEMALE  |  OTHER' },
-        { '* Religion (Required)': 'HINDU  |  CHRISTIAN  |  MUSLIM  |  SIKH  |  BUDDHIST  |  JAIN  |  OTHERS' },
-        { '* Community (Required)': 'OC  |  BC  |  BCM  |  MBC  |  DNC  |  BC-CC  |  SC  |  ST  |  SBC  |  SC (A)' },
-        { '* Entry Type (Required)': 'FIRST YEAR  |  LATERAL ENTRY  |  RE-ADMISSION  |  COLLEGE TRANSFER' },
-        { '* Accommodation Type (Required)': 'HOSTEL  |  DAY SCHOLAR  |  HOME' },
-        { '* Scholarship Type (Required)': 'FIRST GRADUATE  |  PMS SCHOLARSHIP  |  7.5% SCHOLARSHIP  |  NOT APPLICABLE' },
-        { '': '' },
-        { 'Blood Group (Optional)': 'A+  |  A-  |  B+  |  B-  |  AB+  |  AB-  |  O+  |  O-' },
-        { 'Hostel Type (Optional)': 'AC HOSTEL  |  NON-AC HOSTEL' },
-        { 'Food Type (Optional)': 'VEG  |  NON-VEG  |  VEGAN' },
-        { '': '' },
-
-        { 'ENTRANCE EXAM DETAILS (Optional)': '' },
-        { 'Medical Cutoff Marks': 'Numeric value (Example: 195.5)' },
-        { 'Engineering Cutoff Marks': 'Numeric value (Example: 180.25)' },
-        { 'NEET Roll Number': 'Alphanumeric (Example: 123456789012)' },
-        { 'NEET Score': 'Numeric value (Example: 650)' },
-        { '': '' },
-
-        { 'FORMAT GUIDELINES': '' },
-        { 'Date of Birth': 'YYYY-MM-DD  (Example: 2005-01-15)' },
-        { 'Mobile Numbers': '10 digits, no spaces/dashes  (Example: 9876543210)' },
-        { 'Pin Code': '6 digits  (Example: 637001)' },
-        { 'College Email': 'Must end with @jkkn.ac.in if provided' },
-        { 'Academic Year': 'YYYY-YYYY  (Example: 2024-2025)' },
-        { 'Admission Year': 'YYYY  (Example: 2024) - Year of admission' },
-        { '': '' },
-
-        { 'COMMON MISTAKES': '' },
-        { 'Wrong': 'Correct' },
-        { 'Gender: "M" or "F"': 'Use: MALE or FEMALE' },
-        { 'Date: 15/01/2005': 'Use: 2005-01-15 (YYYY-MM-DD)' },
-        { 'Mobile: 98765-43210': 'Use: 9876543210 (no dashes)' },
-        { 'Pin Code: 63701 (5 digits)': 'Use: 637001 (6 digits)' },
-        { '': '' },
-
-        { 'TIPS FOR SUCCESS': '' },
-        { 'TIP 1': 'All dropdown values are case-insensitive (MALE = male = Male)' },
-        { 'TIP 2': 'Required fields marked with * must be filled' },
-        { 'TIP 3': 'Delete the example row before uploading your actual data' },
-        { 'TIP 4': 'Institution, Department, Program names must match exactly as in database' },
-        { 'TIP 5': 'Validation errors will show clearly with suggestions - fix and re-upload' },
-        { '': '' },
-
-        { 'SUPPORT': '' },
-        { 'Need Help?': 'Contact your system administrator' },
-        { 'Last Updated': new Date().toISOString().split('T')[0] },
-        { 'Version': '2.0.0 - Enhanced with Preview & Validation' }
-      ];
-
-      // Create workbook
-      const wb = XLSX.utils.book_new();
-
-      // Add Instructions sheet first
-      const wsInstructions = XLSX.utils.json_to_sheet(instructionsData);
-
-      // Set column widths for instructions sheet
-      wsInstructions['!cols'] = [
-        { wch: 35 }, // Column A (Field names)
-        { wch: 50 }, // Column B (Descriptions)
-      ];
-
-      XLSX.utils.book_append_sheet(wb, wsInstructions, 'Instructions');
-
-      // Add Template sheet
-      const wsTemplate = XLSX.utils.json_to_sheet(sampleData);
-      XLSX.utils.book_append_sheet(wb, wsTemplate, 'Template');
-
-      // Write file
-      XLSX.writeFile(wb, 'bulk-upload-enquiries-template.xlsx');
-      toast.success('Template with instructions downloaded successfully!');
+      toast.dismiss('template-download');
+      toast.success('Template with cascading dropdowns downloaded successfully!');
     } catch (error) {
-      console.error('[bulk-upload-enquiries-enhanced] Error generating template:', error);
-      toast.error('Failed to generate template');
+      console.error('[bulk-upload-enquiries-enhanced] Error downloading template:', error);
+      toast.dismiss('template-download');
+      toast.error('Failed to download template');
     }
   };
 
@@ -865,14 +674,28 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
         enquiries_created: 0,
         enquiries_failed: 0
       },
+      created_enquiries: [],
       errors: []
     };
+
+    // Batch-based progress estimation for smoother progress bar
+    const BATCH_SIZE = 50; // Process 50 rows per batch (faster for enquiries than profiles)
+    const estimatedBatches = Math.ceil(selectedRows.length / BATCH_SIZE);
+    const timePerBatch = 1500; // 1.5 seconds per batch
+    let currentProgress = 0;
+
+    // Start progress interval for smooth progress bar updates
+    const progressInterval = setInterval(() => {
+      currentProgress += (100 / estimatedBatches);
+      setState(prev => ({
+        ...prev,
+        uploadProgress: Math.min(Math.round(currentProgress), 95) // Cap at 95% until complete
+      }));
+    }, timePerBatch);
 
     try {
       for (let i = 0; i < selectedRows.length; i++) {
         const row = selectedRows[i];
-        const progress = ((i + 1) / selectedRows.length) * 100;
-        setState(prev => ({ ...prev, uploadProgress: Math.round(progress) }));
 
         try {
           const data = row.sanitizedData;
@@ -1025,6 +848,17 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
           await LearnerProfileService.createLearnerProfile(enquiryData as any);
 
           results.upload_summary.enquiries_created++;
+
+          // Store created enquiry details for results display
+          results.created_enquiries.push({
+            name: `${data.first_name} ${data.last_name}`,
+            email: data.college_email || data.student_email || '-',
+            mobile: data.student_mobile,
+            institution: data.institution_name || '-',
+            program: data.program_name || '-',
+            semester: data.semester_name || '-',
+            section: data.section_name || '-',
+          });
         } catch (error: any) {
           console.error(`[bulk-upload-enquiries] Error creating enquiry for row ${row.rowNumber}:`, error);
           results.upload_summary.enquiries_failed++;
@@ -1041,6 +875,8 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
         }
       }
 
+      // Clear progress interval and set to 100%
+      clearInterval(progressInterval);
       setState(prev => ({ ...prev, result: results, step: 'results', uploadProgress: 100 }));
 
       // Show success message
@@ -1061,11 +897,81 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
     } catch (error) {
       console.error('[bulk-upload-enquiries-enhanced] Upload error:', error);
       toast.error(error instanceof Error ? error.message : 'Upload failed');
+
+      // Clear progress interval on error
+      clearInterval(progressInterval);
+
       setState(prev => ({
         ...prev,
         step: 'validate',
         error: error instanceof Error ? error.message : 'Upload failed'
       }));
+    }
+  };
+
+  // Export created enquiries summary to Excel
+  const exportCreatedEnquiries = () => {
+    if (!state.parsedRows || state.parsedRows.length === 0) return;
+
+    try {
+      // Get successfully created enquiries (selected rows without errors)
+      const createdEnquiries = state.parsedRows
+        .filter(row => row.selected && row.validationResult.isValid)
+        .map(row => ({
+          'Row Number': row.rowNumber,
+          'First Name': row.sanitizedData.first_name,
+          'Last Name': row.sanitizedData.last_name,
+          'Student Email': row.sanitizedData.student_email || '',
+          'College Email': row.sanitizedData.college_email || '',
+          'Mobile': row.sanitizedData.student_mobile,
+          'Institution': row.sanitizedData.institution_name,
+          'Degree': row.sanitizedData.degree_name,
+          'Department': row.sanitizedData.department_name,
+          'Program': row.sanitizedData.program_name,
+          'Semester': row.sanitizedData.semester_name,
+          'Section': row.sanitizedData.section_name,
+          'Academic Year': row.sanitizedData.academic_year_name,
+          'Status': 'Enquiry',
+          'Uploaded': new Date().toLocaleDateString()
+        }));
+
+      if (createdEnquiries.length === 0) {
+        toast.error('No enquiries to export');
+        return;
+      }
+
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(createdEnquiries);
+
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 5 },   // Row Number
+        { wch: 15 },  // First Name
+        { wch: 15 },  // Last Name
+        { wch: 30 },  // Student Email
+        { wch: 30 },  // College Email
+        { wch: 12 },  // Mobile
+        { wch: 40 },  // Institution
+        { wch: 20 },  // Degree
+        { wch: 35 },  // Department
+        { wch: 20 },  // Program
+        { wch: 15 },  // Semester
+        { wch: 10 },  // Section
+        { wch: 15 },  // Academic Year
+        { wch: 10 },  // Status
+        { wch: 12 }   // Uploaded
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Created Enquiries');
+
+      const date = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(wb, `created-enquiries-${date}.xlsx`);
+
+      toast.success(`Exported ${createdEnquiries.length} enquiries to Excel`);
+    } catch (error) {
+      console.error('[bulk-upload-enquiries] Export error:', error);
+      toast.error('Failed to export enquiries');
     }
   };
 
@@ -1325,15 +1231,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                 </Alert>
               )}
 
-              {/* Important Notice */}
-              <Alert variant="default" className="border-blue-500 bg-blue-50 dark:bg-blue-950">
-                <AlertCircle className="h-4 w-4 text-blue-600" />
-                <AlertTitle className="text-blue-900 dark:text-blue-100">Enquiry Upload Info</AlertTitle>
-                <AlertDescription className="text-sm text-blue-800 dark:text-blue-200">
-                  <p><strong>All uploaded records will have status &quot;Enquiry&quot;</strong></p>
-                  <p>User accounts will NOT be created during upload - only after manual approval via bulk status update.</p>
-                </AlertDescription>
-              </Alert>
+             
 
               {/* Filter and Actions */}
               <div className="flex items-center justify-between">
@@ -1721,16 +1619,83 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                 </Card>
               </div>
 
-              {/* Success Message */}
-              {state.result.upload_summary.enquiries_created > 0 && (
-                <Alert className="border-green-500 bg-green-50">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <AlertTitle className="text-green-900">Upload Complete!</AlertTitle>
-                  <AlertDescription className="text-green-800">
-                    {state.result.upload_summary.enquiries_created} enquiries have been created successfully.
-                    You can now review them in the Enquiries list and use bulk status update to approve them.
-                  </AlertDescription>
-                </Alert>
+              {/* Created Enquiries Table */}
+              {state.result.created_enquiries.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold text-lg flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      Created Enquiries ({state.result.created_enquiries.length})
+                    </h4>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={exportCreatedEnquiries}
+                      className="gap-2"
+                    >
+                      <Download className="h-4 w-4" />
+                      Export to Excel
+                    </Button>
+                  </div>
+
+                  <Alert className="border-green-200 bg-green-50">
+                    <AlertCircle className="h-4 w-4 text-green-600" />
+                    <AlertTitle className="text-green-900">Important Next Steps</AlertTitle>
+                    <AlertDescription className="text-green-800">
+                      {state.result.upload_summary.enquiries_created} enquiries have been created with status "Enquiry".
+                      Review them in the Enquiries list and use bulk status update to approve them.
+                    </AlertDescription>
+                  </Alert>
+
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="max-h-[400px] overflow-y-auto">
+                      <Table>
+                        <TableHeader className="sticky top-0 bg-muted z-10">
+                          <TableRow>
+                            <TableHead className="w-[50px]">#</TableHead>
+                            <TableHead className="min-w-[180px]">Name</TableHead>
+                            <TableHead className="min-w-[200px]">Email</TableHead>
+                            <TableHead className="min-w-[120px]">Mobile</TableHead>
+                            <TableHead className="min-w-[200px]">Institution</TableHead>
+                            <TableHead className="min-w-[180px]">Program</TableHead>
+                            <TableHead className="min-w-[120px]">Semester</TableHead>
+                            <TableHead className="min-w-[100px]">Section</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {state.result.created_enquiries.map((enquiry, index) => (
+                            <TableRow key={index} className="hover:bg-green-50/50">
+                              <TableCell className="font-mono text-xs text-muted-foreground">
+                                {index + 1}
+                              </TableCell>
+                              <TableCell className="font-medium">
+                                {enquiry.name}
+                              </TableCell>
+                              <TableCell className="text-sm font-mono">
+                                {enquiry.email}
+                              </TableCell>
+                              <TableCell className="text-sm font-mono">
+                                {enquiry.mobile}
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                {enquiry.institution}
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                {enquiry.program}
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                {enquiry.semester}
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                {enquiry.section}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                </div>
               )}
 
               {/* Errors */}
