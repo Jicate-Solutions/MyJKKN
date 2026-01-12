@@ -18,6 +18,7 @@ export interface BatchValidationInput {
     academicYears?: string[];
     regulations?: string[];
     batches?: string[];
+    emails?: string[];
     // Enhanced: Hierarchical validation with context (follows cascading order)
     departmentsWithContext?: Array<{ institution: string; department: string }>;
     programsWithContext?: Array<{ institution: string; department: string; program: string }>;
