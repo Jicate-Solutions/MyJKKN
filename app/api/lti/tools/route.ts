@@ -32,18 +32,29 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Check if user has admin role
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role')
+    // Check if user has permission to view LTI tools
+    const { data: userRole } = await supabase
+      .from('user_roles')
+      .select('custom_roles(role_key, permissions)')
       .eq('user_id', user.id)
       .single();
 
-    if (!profile || !['super_admin', 'administrator'].includes(profile.role)) {
-      return NextResponse.json(
-        { error: 'Forbidden', message: 'You do not have permission to access this resource' },
-        { status: 403 }
-      );
+    // Extract custom_roles from array (Supabase joins return arrays)
+    const customRole = Array.isArray(userRole?.custom_roles)
+      ? userRole?.custom_roles[0]
+      : userRole?.custom_roles;
+
+    const roleKey = customRole?.role_key;
+    const permissions = customRole?.permissions || {};
+
+    // Super admin has full access, otherwise check specific permissions
+    if (roleKey !== 'super_admin') {
+      if (!permissions['lti.tools.view']) {
+        return NextResponse.json(
+          { error: 'Forbidden', message: 'You do not have permission to view LTI tools' },
+          { status: 403 }
+        );
+      }
     }
 
     // Get query parameters
@@ -96,18 +107,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if user has admin role
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role')
+    // Check if user has permission to create LTI tools
+    const { data: userRole } = await supabase
+      .from('user_roles')
+      .select('custom_roles(role_key, permissions)')
       .eq('user_id', user.id)
       .single();
 
-    if (!profile || !['super_admin', 'administrator'].includes(profile.role)) {
-      return NextResponse.json(
-        { error: 'Forbidden', message: 'You do not have permission to access this resource' },
-        { status: 403 }
-      );
+    // Extract custom_roles from array (Supabase joins return arrays)
+    const customRole = Array.isArray(userRole?.custom_roles)
+      ? userRole?.custom_roles[0]
+      : userRole?.custom_roles;
+
+    const roleKey = customRole?.role_key;
+    const permissions = customRole?.permissions || {};
+
+    // Super admin has full access, otherwise check specific permissions
+    if (roleKey !== 'super_admin') {
+      if (!permissions['lti.tools.create']) {
+        return NextResponse.json(
+          { error: 'Forbidden', message: 'You do not have permission to create LTI tools' },
+          { status: 403 }
+        );
+      }
     }
 
     // Parse request body
