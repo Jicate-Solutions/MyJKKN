@@ -150,6 +150,7 @@ export default function LtiToolsPage() {
           </div>
         </div>
       </div>
+      </div>
     </ContentLayout>
   );
 }

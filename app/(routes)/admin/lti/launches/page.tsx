@@ -266,8 +266,13 @@ export default async function LaunchDebugPage({ searchParams }: PageProps) {
   console.log('[LTI Launches] User role data:', userRole);
   console.log('[LTI Launches] Role error:', roleError);
 
-  const roleKey = userRole?.custom_roles?.role_key;
-  const permissions = userRole?.custom_roles?.permissions || {};
+  // Extract custom_roles from array (Supabase joins return arrays)
+  const customRole = Array.isArray(userRole?.custom_roles)
+    ? userRole?.custom_roles[0]
+    : userRole?.custom_roles;
+
+  const roleKey = customRole?.role_key;
+  const permissions = customRole?.permissions || {};
 
   console.log('[LTI Launches] Role key:', roleKey);
   console.log('[LTI Launches] Permissions:', permissions);
