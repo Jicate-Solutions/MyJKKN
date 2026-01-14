@@ -126,6 +126,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/profiles/bulk-edit': 'learners.bulk_edit',
   '/learners/profiles/promotion': 'learners.promotion.view',
   '/learners/attendance': 'learners.attendance.view',
+  '/learners/my-timetable': 'learners.timetable.view',
   '/learners/alumni': 'learners.alumni.view',
   '/learners/alumni/[id]': 'learners.alumni.view',
   '/learners/analytics': 'learners.dashboard.view',
@@ -646,6 +647,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Attendance',
           active: pathname.startsWith('/learners/attendance'),
           icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          href: '/learners/my-timetable',
+          label: 'My Timetable',
+          active: pathname.startsWith('/learners/my-timetable'),
+          icon: CalendarClock,
           submenus: []
         },
         {

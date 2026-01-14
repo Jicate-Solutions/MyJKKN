@@ -243,6 +243,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.profiles.view', label: 'View Learner Profiles' },
       { key: 'learners.alumni.view', label: 'View Alumni & Graduates' },
       { key: 'learners.attendance.view', label: 'View Own Attendance (Students)' },
+      { key: 'learners.timetable.view', label: 'View Own Timetable (Students)' },
 
       // Learner Onboarding
       { key: 'learners.onboarding.view', label: 'View Learner Onboarding' },

@@ -3511,12 +3511,11 @@ BEGIN
 
         -- Self-View Modules (RLS enforced to own records)
         'learners.attendance.view', true,
+        'learners.timetable.view', true,
         'billing.view', true,
         'billing.receipts.view', true,
         'billing.invoices.view', true,
         'academic.view', true,
-        'academic.timetables.view', true,
-        'academic.attendance.view', true,
 
         -- Resources (read-only)
         'resources.digital.view', true,
