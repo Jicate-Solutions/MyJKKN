@@ -189,7 +189,7 @@ export async function POST(request: NextRequest) {
     );
 
     const now = Math.floor(Date.now() / 1000);
-    const issuer = process.env.LTI_ISSUER || 'https://myjkkn.jkkn.ac.in';
+    const issuer = process.env.LTI_ISSUER || 'https://jkkn.ai';
     const keyId = process.env.LTI_KEY_ID || 'myjkkn-2026-key-001';
 
     const accessToken = await new SignJWT({

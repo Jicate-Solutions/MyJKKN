@@ -54,14 +54,6 @@ export default function LtiToolsPage() {
         <AlertDescription>
           LTI 1.3 tools allow external applications like MATLAB to integrate with MyJKKN.
           Students get single sign-on access and grades sync automatically.
-          <a
-            href="/docs/admin/lti-tools-admin-guide.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-2 font-medium text-primary hover:underline"
-          >
-            Learn more →
-          </a>
         </AlertDescription>
       </Alert>
 
@@ -79,42 +71,6 @@ export default function LtiToolsPage() {
         <LtiToolsTable />
       </Suspense>
 
-      {/* Documentation Links */}
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-        <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-3">
-          Documentation & Guides
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <a
-            href="/docs/features/mathswork/RSA-Key-Generation-Guide.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-sm text-primary hover:underline"
-          >
-            <span>📝</span>
-            RSA Key Generation Guide
-          </a>
-          <a
-            href="/docs/admin/lti-tools-admin-guide.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-sm text-primary hover:underline"
-          >
-            <span>📘</span>
-            Admin Guide
-          </a>
-          <a
-            href="/docs/developers/lti-integration-architecture.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-sm text-primary hover:underline"
-          >
-            <span>🏗️</span>
-            Architecture Documentation
-          </a>
-        </div>
-      </div>
-
       {/* Endpoints Reference */}
       <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4">
         <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-3">
@@ -126,7 +82,7 @@ export default function LtiToolsPage() {
               GET
             </span>
             <code className="text-primary">
-              https://myjkkn.jkkn.ac.in/api/lti/jwks
+              https://jkkn.ai/api/lti/jwks
             </code>
             <span className="text-gray-500">- Public key (JWKS)</span>
           </div>
@@ -135,7 +91,7 @@ export default function LtiToolsPage() {
               POST
             </span>
             <code className="text-primary">
-              https://myjkkn.jkkn.ac.in/api/lti/auth
+              https://jkkn.ai/api/lti/auth
             </code>
             <span className="text-gray-500">- OIDC login init</span>
           </div>
@@ -144,7 +100,7 @@ export default function LtiToolsPage() {
               POST
             </span>
             <code className="text-primary">
-              https://myjkkn.jkkn.ac.in/api/lti/launch
+              https://jkkn.ai/api/lti/launch
             </code>
             <span className="text-gray-500">- Launch endpoint</span>
           </div>

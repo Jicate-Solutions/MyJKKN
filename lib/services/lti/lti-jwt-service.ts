@@ -83,7 +83,7 @@ export class LtiJwtService {
     const now = Math.floor(Date.now() / 1000);
 
     // Get configuration from environment
-    const issuer = process.env.LTI_ISSUER || 'https://myjkkn.jkkn.ac.in';
+    const issuer = process.env.LTI_ISSUER || 'https://jkkn.ai';
     const keyId = process.env.LTI_KEY_ID || 'myjkkn-2026-key-001';
 
     // Build LTI 1.3 claims
@@ -129,15 +129,15 @@ export class LtiJwtService {
 
     // Add custom MyJKKN claims if provided
     if (params.customClaims?.institution) {
-      payload['https://myjkkn.jkkn.ac.in/claims/institution'] = params.customClaims.institution;
+      payload['https://jkkn.ai/claims/institution'] = params.customClaims.institution;
     }
 
     if (params.customClaims?.learner) {
-      payload['https://myjkkn.jkkn.ac.in/claims/learner'] = params.customClaims.learner;
+      payload['https://jkkn.ai/claims/learner'] = params.customClaims.learner;
     }
 
     if (params.customClaims?.academic) {
-      payload['https://myjkkn.jkkn.ac.in/claims/academic'] = params.customClaims.academic;
+      payload['https://jkkn.ai/claims/academic'] = params.customClaims.academic;
     }
 
     try {

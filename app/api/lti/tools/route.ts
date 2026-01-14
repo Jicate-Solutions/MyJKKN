@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
       tool_type: body.tool_type,
       client_id: body.client_id,
       deployment_id: body.deployment_id,
-      platform_id: body.platform_id || 'https://myjkkn.jkkn.ac.in',
+      platform_id: body.platform_id || 'https://jkkn.ai',
       launch_url: body.launch_url,
       public_keyset_url: body.public_keyset_url,
       oidc_auth_url: body.oidc_auth_url,
