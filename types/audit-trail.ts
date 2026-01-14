@@ -31,7 +31,12 @@ export enum AuditModule {
   MAINTENANCE = 'maintenance',
   NOTIFICATION = 'notification',
   USER = 'user',
-  SYSTEM = 'system'
+  SYSTEM = 'system',
+  LTI = 'lti',
+  LTI_TOOLS = 'lti_tools',
+  LTI_LAUNCHES = 'lti_launches',
+  LTI_GRADES = 'lti_grades',
+  LTI_ROSTER = 'lti_roster'
 }
 
 export enum AuditSeverity {
