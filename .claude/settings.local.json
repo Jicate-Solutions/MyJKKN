@@ -187,7 +187,9 @@
       "Bash(vercel whoami:*)",
       "Skill(excel-import-export)",
       "Bash(done)",
-      "Skill(import-export-advanced)"
+      "Skill(import-export-advanced)",
+      "Bash(git push:*)",
+      "Bash(git restore:*)"
     ],
     "deny": [],
     "ask": []

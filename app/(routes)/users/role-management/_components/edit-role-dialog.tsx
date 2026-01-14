@@ -27,7 +27,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 import { toast } from 'react-hot-toast';
 import {
@@ -444,7 +443,7 @@ export function EditRoleDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-[700px] max-h-[90vh] overflow-y-auto'>
+      <DialogContent className='sm:max-w-[900px] max-h-[95vh]'>
         <DialogHeader>
           <DialogTitle>
             {isSuperAdmin
@@ -561,7 +560,7 @@ export function EditRoleDialog({
                   </CardContent>
                 </Card>
 
-                <ScrollArea className='h-[500px] pr-4'>
+                <div className='max-h-[55vh] overflow-y-auto pr-4'>
                   <Accordion type='multiple' className='space-y-4'>
                     {filteredCategories.map((category) => {
                       const { active, total } = getCategoryActiveCount(
@@ -836,7 +835,7 @@ export function EditRoleDialog({
                       </Button>
                     </div>
                   )}
-                </ScrollArea>
+                </div>
               </TabsContent>
             </Tabs>
 
