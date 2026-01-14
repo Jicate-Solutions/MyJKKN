@@ -50,59 +50,49 @@ export default function ApplicationHubPage() {
     filters,
     updateFilters,
     fetchApplications
-  } = useApplications({ limit: 1000 }); // Fetch all applications without pagination for hub
+  } = useApplications({ limit: 1000, isActive: true }); // Fetch only active applications for hub
 
-  // Filter applications based on user role
+  // Filter applications based on user role and active status
   useEffect(() => {
     if (loading || isLoadingUser) return; // Don't filter while still loading
 
-    console.log('Filtering applications based on user:', profile);
-    console.log('Applications available:', applications.length);
+    console.log('[application-hub] Filtering applications based on user:', profile);
+    console.log('[application-hub] Applications available:', applications.length);
 
-    // If no user, but we have applications, show them all for troubleshooting
+    // If no user, don't show any applications
     if (!profile) {
-      console.warn('No user found, showing all applications for debugging');
-      setFilteredApplications(applications);
-      return;
-    }
-
-    if (!applications.length) {
-      console.log('No applications to filter');
+      console.warn('[application-hub] No user found, showing no applications');
       setFilteredApplications([]);
       return;
     }
 
-    // If user role is in application's roles_access array, or user is admin/super_admin, show the app
-    const userRole = profile.role;
-    const isAdmin = userRole === 'administrator' || userRole === 'super_admin';
-
-    console.log('User role:', userRole);
-    console.log('Is admin:', isAdmin);
-    console.log(
-      'Number of applications before filtering:',
-      applications.length
-    );
-
-    // Show all applications if debugging or user is admin
-    if (isAdmin) {
-      console.log('User is admin, showing all applications');
-      setFilteredApplications(applications);
+    if (!applications.length) {
+      console.log('[application-hub] No applications to filter');
+      setFilteredApplications([]);
       return;
     }
 
-    // Print all application roles for debugging
-    applications.forEach((app) => {
-      console.log(
-        `Application "${app.name}" accessible by roles:`,
-        app.roles_access || []
-      );
-    });
+    const userRole = profile.role;
+    console.log('[application-hub] User role:', userRole);
+    console.log('[application-hub] Is super admin:', isSuperAdmin);
 
+    // Filter for active applications with role-based access
     const filtered = applications.filter((app) => {
+      // Safety check: Ensure application is active (should already be filtered by API)
+      if (!app.is_active) {
+        console.log(`[application-hub] Skipping inactive app: ${app.name}`);
+        return false;
+      }
+
+      // Super admin can see all active applications
+      if (isSuperAdmin) {
+        return true;
+      }
+
       // Make sure roles_access exists and is an array
       if (!app.roles_access || !Array.isArray(app.roles_access)) {
         console.warn(
-          `Application ${app.name} has invalid roles_access:`,
+          `[application-hub] Application ${app.name} has invalid roles_access:`,
           app.roles_access
         );
         return false;
@@ -111,7 +101,7 @@ export default function ApplicationHubPage() {
       // Empty roles_access array means application is public for all authenticated users
       if (app.roles_access.length === 0) {
         console.log(
-          `Application ${app.name} has public access (empty roles_access)`
+          `[application-hub] Application ${app.name} has public access (empty roles_access)`
         );
         return true;
       }
@@ -119,15 +109,14 @@ export default function ApplicationHubPage() {
       // Check if user's role is in the roles_access array
       const hasAccess = app.roles_access.includes(userRole);
       console.log(
-        `Checking if user with role ${userRole} has access to ${app.name}:`,
-        hasAccess
+        `[application-hub] User role ${userRole} access to ${app.name}: ${hasAccess}`
       );
       return hasAccess;
     });
 
-    console.log('Number of applications after filtering:', filtered.length);
+    console.log('[application-hub] Filtered applications count:', filtered.length);
     setFilteredApplications(filtered);
-  }, [applications, profile, loading, isLoadingUser]);
+  }, [applications, profile, loading, isLoadingUser, isSuperAdmin]);
 
   // Load categories and applications on initial render
   useEffect(() => {
@@ -279,11 +268,10 @@ export default function ApplicationHubPage() {
           {applications.length > 0 && filteredApplications.length === 0 && (
             <div className='py-8 text-center'>
               <p className='text-muted-foreground'>
-                You don&apos;t have access to any applications with your current
-                role ({profile?.role || 'unknown'}).
+                No active applications available for your role ({profile?.role || 'unknown'}).
               </p>
               <p className='text-sm text-muted-foreground mt-1'>
-                Please contact an administrator if you believe this is an error.
+                Contact your administrator to request access to applications.
               </p>
             </div>
           )}

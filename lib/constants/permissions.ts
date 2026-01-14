@@ -516,6 +516,27 @@ export const PERMISSION_CATEGORIES = [
       { key: 'notifications.send', label: 'Send Notifications' },
       { key: 'notifications.view.all', label: 'View All Notifications' }
     ]
+  },
+  {
+    name: 'LTI Management',
+    key: 'lti',
+    permissions: [
+      // LTI Tool Configuration
+      { key: 'lti.tools.view', label: 'View LTI Tools' },
+      { key: 'lti.tools.create', label: 'Create LTI Tools' },
+      { key: 'lti.tools.edit', label: 'Edit LTI Tools' },
+      { key: 'lti.tools.delete', label: 'Delete LTI Tools' },
+
+      // LTI Monitoring & Analytics
+      { key: 'lti.monitor', label: 'Access LTI Monitoring Dashboards' },
+      { key: 'lti.analytics.view', label: 'View LTI Analytics' },
+      { key: 'lti.grade_sync.view', label: 'View Grade Sync Status' },
+      { key: 'lti.launches.view', label: 'View Launch Debug Logs' },
+
+      // LTI Launches
+      { key: 'lti.launches.create', label: 'Launch LTI Tools' },
+      { key: 'lti.launches.debug', label: 'Debug LTI Launches' }
+    ]
   }
 ];
 

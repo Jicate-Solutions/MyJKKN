@@ -192,8 +192,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // System Management
   '/system/api-management': 'system.api.view',
+  '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
   '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
+
+  // LTI Monitoring
+  '/admin/lti/analytics': 'lti.analytics.view',
+  '/admin/lti/grade-sync': 'lti.grade_sync.view',
+  '/admin/lti/launches': 'lti.launches.view',
 
   // Billing Management - Admin/Staff Views
   '/billing/categories/parent-categories': 'billing.parent_categories.view',
@@ -847,6 +853,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          href: '/admin/lti',
+          label: 'LTI Monitoring',
+          active: pathname.startsWith('/admin/lti'),
+          icon: Gauge,
+          submenus: [
+            {
+              href: '/admin/lti/analytics',
+              label: 'Analytics Dashboard',
+              active: pathname === '/admin/lti/analytics'
+            },
+            {
+              href: '/admin/lti/grade-sync',
+              label: 'Grade Sync',
+              active: pathname === '/admin/lti/grade-sync'
+            },
+            {
+              href: '/admin/lti/launches',
+              label: 'Launch Debug',
+              active: pathname === '/admin/lti/launches'
+            }
+          ]
+        },
+        {
           href: '/audit-trail',
           label: 'Audit Trail',
           active: pathname.startsWith('/audit-trail'),
@@ -863,6 +892,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'API Management',
           active: pathname === '/system/api-management',
           icon: Key,
+          submenus: []
+        },
+        {
+          href: '/system/lti-tools',
+          label: 'LTI Tools',
+          active: pathname.startsWith('/system/lti-tools'),
+          icon: Link2,
           submenus: []
         },
         {

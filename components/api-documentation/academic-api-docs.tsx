@@ -16,6 +16,58 @@ import { toast } from 'react-hot-toast';
 const endpoints = [
   {
     method: 'GET',
+    path: '/api/api-management/academic/academic-years',
+    description: 'Get list of academic years with optional filters',
+    queryParams: [
+      {
+        name: 'academic_year_name',
+        type: 'string',
+        description: 'Filter by academic year name (e.g., 2024-2025)'
+      },
+      {
+        name: 'institution_id',
+        type: 'uuid',
+        description: 'Filter by institution ID'
+      },
+      {
+        name: 'is_active',
+        type: 'boolean',
+        description: 'Filter by active status (true/false)'
+      },
+      {
+        name: 'page',
+        type: 'number',
+        description: 'Page number (default: 1)'
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        description: 'Items per page (default: 50, max: 200)'
+      }
+    ],
+    example: `fetch('https://www.jkkn.ai/api/api-management/academic/academic-years?is_active=true&limit=10', {
+  headers: {
+    'Authorization': 'Bearer YOUR_API_KEY'
+  }
+})
+.then(response => response.json())
+.then(data => console.log(data));`
+  },
+  {
+    method: 'GET',
+    path: '/api/api-management/academic/academic-years/:id',
+    description: 'Get detailed information for a specific academic year',
+    queryParams: [],
+    example: `fetch('https://www.jkkn.ai/api/api-management/academic/academic-years/{id}', {
+  headers: {
+    'Authorization': 'Bearer YOUR_API_KEY'
+  }
+})
+.then(response => response.json())
+.then(data => console.log(data));`
+  },
+  {
+    method: 'GET',
     path: '/api/api-management/academic/regulations',
     description: 'Get list of academic regulations with optional filters',
     queryParams: [
@@ -123,7 +175,7 @@ export default function AcademicApiDocs() {
           Academic API Endpoints
         </h2>
         <p className='text-xs sm:text-sm text-muted-foreground'>
-          Access academic regulations and batch data using these endpoints
+          Access academic years, regulations, and batch data using these endpoints
         </p>
       </div>
 
@@ -152,7 +204,7 @@ export default function AcademicApiDocs() {
                 Data Privacy Notice
               </h4>
               <p className='text-xs sm:text-sm text-blue-800 dark:text-blue-200'>
-                This API exposes academic regulation and batch data for authorized
+                This API exposes academic year, regulation, and batch data for authorized
                 integrations. Ensure your API key is kept secure and only used
                 by authorized systems. All data access is logged and restricted
                 to your institution's records.
@@ -231,7 +283,7 @@ export default function AcademicApiDocs() {
             Response Format - List Endpoints
           </CardTitle>
           <CardDescription className='text-xs sm:text-sm'>
-            Example response structure for regulations and batches list endpoints
+            Example response structure for academic years, regulations, and batches list endpoints
           </CardDescription>
         </CardHeader>
         <CardContent className='p-3 sm:p-6'>
@@ -266,7 +318,7 @@ export default function AcademicApiDocs() {
             Response Format - Single Record
           </CardTitle>
           <CardDescription className='text-xs sm:text-sm'>
-            Example response structure for single regulation/batch endpoints
+            Example response structure for single academic year/regulation/batch endpoints
           </CardDescription>
         </CardHeader>
         <CardContent className='p-3 sm:p-6'>

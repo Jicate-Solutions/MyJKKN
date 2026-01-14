@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/server';
 import { AIQueryService } from '@/lib/services/ai-query-service';
 import Anthropic from '@anthropic-ai/sdk';
 import type {
+
   AIQueryRequest,
   AIUserContext,
   ToolResponse,

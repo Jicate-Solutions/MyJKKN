@@ -56,6 +56,8 @@ const API_ENDPOINTS = {
     { value: '/api/api-management/organizations/sections/[id]', label: 'Organizations - Section by ID' }
   ],
   academic: [
+    { value: '/api/api-management/academic/academic-years', label: 'Academic - Academic Years' },
+    { value: '/api/api-management/academic/academic-years/[id]', label: 'Academic - Academic Year by ID' },
     { value: '/api/api-management/academic/regulations', label: 'Academic - Regulations' },
     { value: '/api/api-management/academic/regulations/[id]', label: 'Academic - Regulation by ID' },
     { value: '/api/api-management/academic/batches', label: 'Academic - Batches' },
@@ -178,6 +180,16 @@ const QUERY_PARAMETERS: Record<string, Array<{ value: string; label: string; des
   ],
   '/api/api-management/applications/[id]': [
     { value: 'id', label: 'id', description: 'Application ID (UUID) - replace [id] in URL' }
+  ],
+  '/api/api-management/academic/academic-years': [
+    { value: 'academic_year_name', label: 'academic_year_name', description: 'Filter by academic year name (e.g., 2024-2025)' },
+    { value: 'institution_id', label: 'institution_id', description: 'Filter by institution ID (UUID)' },
+    { value: 'is_active', label: 'is_active', description: 'Filter by active status (true/false)' },
+    { value: 'page', label: 'page', description: 'Page number (default: 1)' },
+    { value: 'limit', label: 'limit', description: 'Items per page (default: 50, max: 200)' }
+  ],
+  '/api/api-management/academic/academic-years/[id]': [
+    { value: 'id', label: 'id', description: 'Academic Year ID (UUID) - replace [id] in URL' }
   ],
   '/api/api-management/academic/regulations': [
     { value: 'regulation_year', label: 'regulation_year', description: 'Filter by regulation year (e.g., 2024)' },

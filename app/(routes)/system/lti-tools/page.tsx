@@ -7,7 +7,9 @@
 
 import { Suspense } from 'react';
 import { Metadata } from 'next';
-import { Layers, Plus, AlertCircle } from 'lucide-react';
+import { Plus, AlertCircle } from 'lucide-react';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LtiToolsTable } from './_components/lti-tools-table';
@@ -20,30 +22,31 @@ export const metadata: Metadata = {
 
 export default function LtiToolsPage() {
   return (
-    <div className="flex flex-col gap-6 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-            <Layers className="h-5 w-5 text-primary" />
-          </div>
+    <ContentLayout title="LTI Tools">
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'System' },
+          { label: 'LTI Tools' }
+        ]}
+      />
+      <div className="space-y-6 mt-4">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
-              LTI Tools Management
-            </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <h1 className="text-2xl font-bold">LTI Tools Management</h1>
+            <p className="text-sm sm:text-base text-muted-foreground">
               Manage Learning Tools Interoperability (LTI) 1.3 integrations
             </p>
           </div>
-        </div>
 
-        <LtiToolDialog mode="create">
-          <Button className="gap-2">
-            <Plus className="h-4 w-4" />
-            Register New Tool
-          </Button>
-        </LtiToolDialog>
-      </div>
+          <LtiToolDialog mode="create">
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" />
+              Register New Tool
+            </Button>
+          </LtiToolDialog>
+        </div>
 
       {/* Info Alert */}
       <Alert>
@@ -147,6 +150,6 @@ export default function LtiToolsPage() {
           </div>
         </div>
       </div>
-    </div>
+    </ContentLayout>
   );
 }

@@ -62,7 +62,6 @@ type LaunchRecord = {
   institutions: {
     id: string;
     name: string;
-    short_name: string;
   };
   learners_profiles: {
     first_name: string;
@@ -209,7 +208,7 @@ export function LaunchDebugTable({ launches }: LaunchDebugTableProps) {
                   <div className="flex items-center gap-1">
                     <Building2 className="h-3 w-3 text-muted-foreground" />
                     <span className="text-sm">
-                      {launch.institutions.short_name}
+                      {launch.institutions.name}
                     </span>
                   </div>
                 </TableCell>
