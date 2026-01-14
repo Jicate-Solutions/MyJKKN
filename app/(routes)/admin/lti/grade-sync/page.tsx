@@ -208,8 +208,13 @@ export default async function GradeSyncMonitoringPage({
   console.log('[LTI Grade Sync] User role data:', userRole);
   console.log('[LTI Grade Sync] Role error:', roleError);
 
-  const roleKey = userRole?.custom_roles?.role_key;
-  const permissions = userRole?.custom_roles?.permissions || {};
+  // Extract custom_roles from array (Supabase joins return arrays)
+  const customRole = Array.isArray(userRole?.custom_roles)
+    ? userRole?.custom_roles[0]
+    : userRole?.custom_roles;
+
+  const roleKey = customRole?.role_key;
+  const permissions = customRole?.permissions || {};
 
   console.log('[LTI Grade Sync] Role key:', roleKey);
   console.log('[LTI Grade Sync] Permissions:', permissions);
