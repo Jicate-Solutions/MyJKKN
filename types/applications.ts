@@ -1,6 +1,6 @@
 // types/applications.ts
 
-export type IntegrationType = 'direct_link' | 'embedded' | 'api';
+export type IntegrationType = 'direct_link' | 'embedded' | 'api' | 'lti_1.3';
 export type AuthMethod = 'sso' | 'separate_login' | 'none';
 export type PlatformType = 'web' | 'mobile' | 'both';
 export type AppType = 'internal' | 'external';
@@ -44,6 +44,7 @@ export interface Application {
   is_active: boolean;
   integration_type: IntegrationType;
   auth_method: AuthMethod;
+  lti_tool_id?: string | null; // Reference to LTI tool for LTI 1.3 integrations
   tags: string[];
   support_contact: SupportContact | null; // Changed to use SupportContact interface
   supported_platforms: PlatformType;

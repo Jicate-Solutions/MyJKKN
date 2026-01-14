@@ -70,7 +70,8 @@ When updating any SQL file:
 | User Management | profiles, users, user_institution_access, custom_roles                                                                                                                                                                  | 4     | ✅                          |
 | Dashboard       | dashboard_configurations, dashboard_widgets, dashboard_widget_types                                                                                                                                                     | 3     | ✅                          |
 | Child App Auth  | ~~child_app_analytics, child_app_auth_codes_bucket, child_app_unified_sessions~~ (REMOVED 2025-01-20)                                                                                                     | 0     | ❌ Dropped - moved to auth server                          |
-| Other           | applications (with parent auth), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth        |
+| LTI Integration | lti_tools, lti_launches, lti_grades                                                                                                                                                                                         | 3     | ✅ Complete - MATLAB integration |
+| Other           | applications (with parent auth + LTI), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth + LTI  |
 
 ### Functions (236 total - Updated 2025-01-20)
 
@@ -277,6 +278,65 @@ When updating any SQL file:
   - Dashboard shows combined view of admissions pipeline + student onboarding
   - Onboarded count now tracks students with `status = 'active'`
   - Direct students (added without admission) are now visible in analytics
+
+### 2026-01-12: LTI 1.3 Integration for MATLAB
+
+- **Files**:
+  - `migrations/20260112100000_create_lti_tables.sql` ✅ **APPLIED**
+  - `migrations/20260112100001_add_lti_fields_to_applications.sql` ✅ **APPLIED**
+
+  **Purpose**: Enable LTI 1.3 (Learning Tools Interoperability) integration with MathWorks MATLAB suite (Grader, Online, Academy)
+
+  **Changes**:
+  - **Created 3 new tables**:
+    - `lti_tools` - Registry of LTI 1.3 tools with configurations
+    - `lti_launches` - Tracks every tool launch with academic context
+    - `lti_grades` - Stores grade passback from MATLAB to MyJKKN
+  - **Created 17 indexes** for performance:
+    - 2 on lti_tools (active status, tool type)
+    - 8 on lti_launches (user, learner, institution, context, resource, created, tool, nonce)
+    - 7 on lti_grades (user, learner, institution, resource, launch, unsynced, received)
+    - 1 composite on learners_profiles (roster queries)
+  - **Created 6 RLS policies** for multi-tenant security
+  - **Created 2 database functions**:
+    - `get_lti_roster()` - Returns active students for Names & Roles service
+    - `get_lti_launch_stats()` - Analytics for launch tracking
+  - **Created 1 trigger function**:
+    - `populate_lti_grade_fields()` - Auto-calculates score percentage and idempotency key
+  - **Updated applications table**:
+    - Added `lti_tool_id` column (foreign key to lti_tools)
+    - Created index `idx_applications_lti_tool`
+
+  **LTI 1.3 Features Supported**:
+  - ✅ JWT-based authentication with RS256 signing
+  - ✅ Single Sign-On (SSO) - no separate login for MATLAB
+  - ✅ Grade passback (Assignment & Grade Services)
+  - ✅ Roster sync (Names & Roles Service)
+  - ✅ Context claims (program, semester, section)
+  - ✅ Multi-tenancy with institution isolation
+  - ✅ Learner lifecycle integration (only 'active' students can launch)
+  - ✅ Security: JWT nonce, idempotency keys, rate limiting ready
+
+  **Integration Architecture**:
+  - Student clicks MATLAB Grader in Application Hub
+  - MyJKKN generates LTI 1.3 JWT with user/academic context
+  - MATLAB validates JWT and creates session (no separate login)
+  - Student completes assignment in MATLAB
+  - MATLAB passes grade back to MyJKKN automatically
+  - Grade appears in student's grades view
+
+  **Next Steps (Phase 1)**:
+  - Register 3 MATLAB applications in Application Hub
+  - Implement simple link integration (MATLAB Online, MATLAB Academy)
+  - Phase 2: LTI core implementation (JWT generation, launch flow)
+  - Phase 3: MathWorks registration & end-to-end testing
+  - Phase 4: Grade passback implementation
+  - Phase 5: Roster sync implementation
+  - Phase 6: Analytics & monitoring
+
+  **Files Updated**:
+  - `types/lti.ts` - Complete TypeScript types for LTI integration
+  - `supabase/SQL_FILE_INDEX.md` - Documentation updated
 
 ### 2025-01-20
 

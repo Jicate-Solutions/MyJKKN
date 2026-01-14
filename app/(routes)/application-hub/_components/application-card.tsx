@@ -60,6 +60,7 @@ function getPlatformIcon(platform: string) {
 
 export function ApplicationCard({ application }: ApplicationCardProps) {
   const [screenshotIndex, setScreenshotIndex] = useState(0);
+  const [isLaunching, setIsLaunching] = useState(false);
   const hasScreenshots = application.screenshots && application.screenshots.length > 0;
   const PlatformIcon = getPlatformIcon(application.supported_platforms);
 
@@ -76,6 +77,67 @@ export function ApplicationCard({ application }: ApplicationCardProps) {
       setScreenshotIndex((prev) =>
         prev === application.screenshots!.length - 1 ? 0 : prev + 1
       );
+    }
+  };
+
+  // Handle application launch based on integration type
+  const handleLaunch = async () => {
+    if (!application.is_active) return;
+
+    if (application.integration_type === 'lti_1.3') {
+      // LTI 1.3 integration - Phase 3 implementation
+      setIsLaunching(true);
+      try {
+        if (!application.lti_tool_id) {
+          throw new Error('LTI tool not configured for this application');
+        }
+
+        // Call LTI launch API endpoint
+        const response = await fetch('/api/lti/launch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            toolId: application.lti_tool_id,
+            launchType: 'resource'
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.message || 'Launch failed');
+        }
+
+        // Get HTML form from response
+        const formHtml = await response.text();
+
+        // Open in new window and write the form HTML
+        const launchWindow = window.open('', '_blank', 'noopener,noreferrer');
+        if (launchWindow) {
+          launchWindow.document.write(formHtml);
+          launchWindow.document.close();
+        } else {
+          throw new Error('Popup blocked. Please allow popups for this site.');
+        }
+      } catch (error) {
+        console.error('[ApplicationCard] LTI launch failed:', error);
+
+        // Show error to user (you can replace this with a toast notification)
+        alert(
+          error instanceof Error
+            ? error.message
+            : 'Failed to launch application. Please try again.'
+        );
+      } finally {
+        setIsLaunching(false);
+      }
+    } else if (application.integration_type === 'direct_link') {
+      // Direct link - open in new tab
+      window.open(application.url, '_blank', 'noopener,noreferrer');
+    } else {
+      // Fallback - open in new tab
+      window.open(application.url, '_blank', 'noopener,noreferrer');
     }
   };
 
@@ -168,6 +230,30 @@ export function ApplicationCard({ application }: ApplicationCardProps) {
                     </TooltipTrigger>
                     <TooltipContent>
                       <p className="text-xs">Uses MyJKKN Single Sign-On</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
+              {application.integration_type === 'lti_1.3' && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'text-[10px] px-1.5 py-0 h-5',
+                          'border-blue-500/30 dark:border-blue-500/40',
+                          'text-blue-600 dark:text-blue-400',
+                          'bg-blue-500/5 dark:bg-blue-500/10'
+                        )}
+                      >
+                        <Layers className="h-2.5 w-2.5 mr-1" />
+                        <span className="hidden xs:inline">LTI</span>
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">LTI 1.3 Integration - Auto-grade sync</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -265,7 +351,8 @@ export function ApplicationCard({ application }: ApplicationCardProps) {
       <CardFooter className="p-4 sm:p-5 pt-3 flex gap-2 border-t border-gray-100 dark:border-gray-700/50">
         {/* Open Application Button */}
         <Button
-          asChild
+          onClick={handleLaunch}
+          disabled={!application.is_active || isLaunching}
           size="sm"
           className={cn(
             'flex-1 gap-2',
@@ -273,19 +360,17 @@ export function ApplicationCard({ application }: ApplicationCardProps) {
             'text-white font-medium',
             'transition-all duration-200',
             'focus:ring-2 focus:ring-primary focus:ring-offset-2',
-            'active:scale-[0.98]'
+            'active:scale-[0.98]',
+            'disabled:opacity-50 disabled:cursor-not-allowed'
           )}
         >
-          <Link
-            href={application.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center"
-          >
-            <Eye className="h-4 w-4" />
-            <span className="text-xs sm:text-sm">Open</span>
+          <Eye className="h-4 w-4" />
+          <span className="text-xs sm:text-sm">
+            {isLaunching ? 'Launching...' : 'Open'}
+          </span>
+          {application.integration_type === 'direct_link' && (
             <ExternalLink className="h-3 w-3 opacity-70" />
-          </Link>
+          )}
         </Button>
 
         {/* Screenshots Button */}

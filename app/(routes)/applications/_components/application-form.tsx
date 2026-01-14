@@ -75,7 +75,7 @@ const applicationSchema = z.object({
     .min(1, 'At least one role must be selected'),
   display_order: z.number().int().min(0),
   is_active: z.boolean(),
-  integration_type: z.enum(['direct_link', 'embedded', 'api']),
+  integration_type: z.enum(['direct_link', 'embedded', 'api', 'lti_1.3']),
   auth_method: z.enum(['sso', 'separate_login', 'none']),
   tags: z.array(z.string()),
   support_contact: z
