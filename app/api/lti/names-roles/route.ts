@@ -56,7 +56,7 @@ async function verifyOAuthToken(authHeader: string | null): Promise<{
 
     // Verify JWT signature
     const { payload } = await jwtVerify(token, publicKey, {
-      issuer: process.env.LTI_ISSUER || 'https://myjkkn.jkkn.ac.in',
+      issuer: process.env.LTI_ISSUER || 'https://jkkn.ai',
       algorithms: ['RS256']
     });
 
