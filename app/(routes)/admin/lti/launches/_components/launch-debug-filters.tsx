@@ -29,7 +29,6 @@ interface Tool {
 interface Institution {
   id: string;
   name: string;
-  short_name: string;
 }
 
 interface LaunchDebugFiltersProps {
@@ -158,7 +157,7 @@ export function LaunchDebugFilters({
               <SelectItem value="all">All Institutions</SelectItem>
               {institutions.map((inst) => (
                 <SelectItem key={inst.id} value={inst.id}>
-                  {inst.short_name}
+                  {inst.name}
                 </SelectItem>
               ))}
             </SelectContent>

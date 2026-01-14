@@ -16,6 +16,8 @@
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { GradeSyncTable } from './_components/grade-sync-table';
 import { GradeSyncStats } from './_components/grade-sync-stats';
@@ -28,12 +30,12 @@ export const metadata = {
 };
 
 interface PageProps {
-  searchParams: {
+  searchParams: Promise<{
     startDate?: string;
     endDate?: string;
     toolId?: string;
     syncStatus?: 'all' | 'synced' | 'pending' | 'failed';
-  };
+  }>;
 }
 
 // Type for the grade sync data returned from Supabase
@@ -196,25 +198,42 @@ export default async function GradeSyncMonitoringPage({
     redirect('/auth/login');
   }
 
-  // Check admin role
-  const { data: userProfile } = await supabase
-    .from('user_profiles')
-    .select('role')
+  // Check permission for grade sync monitoring
+  const { data: userRole, error: roleError } = await supabase
+    .from('user_roles')
+    .select('custom_roles(role_key, permissions)')
     .eq('user_id', user.id)
     .single();
 
-  const allowedRoles = ['administrator', 'super_admin'];
-  if (!userProfile || !allowedRoles.includes(userProfile.role)) {
-    redirect('/dashboard');
+  console.log('[LTI Grade Sync] User role data:', userRole);
+  console.log('[LTI Grade Sync] Role error:', roleError);
+
+  const roleKey = userRole?.custom_roles?.role_key;
+  const permissions = userRole?.custom_roles?.permissions || {};
+
+  console.log('[LTI Grade Sync] Role key:', roleKey);
+  console.log('[LTI Grade Sync] Permissions:', permissions);
+
+  // Super admin has full access, otherwise check specific permissions
+  if (roleKey !== 'super_admin') {
+    if (!permissions['lti.grade_sync.view'] && !permissions['lti.monitor']) {
+      console.log('[LTI Grade Sync] Access denied - redirecting to dashboard');
+      redirect('/dashboard');
+    }
   }
 
+  console.log('[LTI Grade Sync] Access granted');
+
+  // Await searchParams (Next.js 16 requirement)
+  const params = await searchParams;
+
   // Parse date range
-  const endDate = searchParams.endDate
-    ? new Date(searchParams.endDate)
+  const endDate = params.endDate
+    ? new Date(params.endDate)
     : endOfDay(new Date());
 
-  const startDate = searchParams.startDate
-    ? new Date(searchParams.startDate)
+  const startDate = params.startDate
+    ? new Date(params.startDate)
     : startOfDay(subDays(endDate, 7)); // Default: last 7 days
 
   // Fetch data
@@ -222,24 +241,31 @@ export default async function GradeSyncMonitoringPage({
     getGradeSyncData(
       startDate,
       endDate,
-      searchParams.toolId,
-      searchParams.syncStatus
+      params.toolId,
+      params.syncStatus
     ),
     getGradeSyncStats(startDate, endDate),
     getFilterOptions()
   ]);
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">
-          Grade Sync Monitoring
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Monitor grade passback from LTI tools and troubleshoot sync issues
-        </p>
-      </div>
+    <ContentLayout title="Grade Sync Monitoring">
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Administration' },
+          { label: 'LTI Monitoring' },
+          { label: 'Grade Sync' }
+        ]}
+      />
+      <div className="space-y-6 mt-4">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold">Grade Sync Monitoring</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
+            Monitor grade passback from LTI tools and troubleshoot sync issues
+          </p>
+        </div>
 
       {/* Statistics Cards */}
       <Suspense fallback={<div>Loading statistics...</div>}>
@@ -260,23 +286,24 @@ export default async function GradeSyncMonitoringPage({
           <Suspense fallback={<div>Loading filters...</div>}>
             <GradeSyncFilters
               tools={filterOptions.tools}
-              currentFilters={searchParams}
+              currentFilters={params}
             />
           </Suspense>
         </CardContent>
       </Card>
 
-      {/* Grade Sync Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Grade Sync Records ({grades.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Suspense fallback={<div>Loading grades...</div>}>
-            <GradeSyncTable grades={grades} />
-          </Suspense>
-        </CardContent>
-      </Card>
-    </div>
+        {/* Grade Sync Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Grade Sync Records ({grades.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Suspense fallback={<div>Loading grades...</div>}>
+              <GradeSyncTable grades={grades} />
+            </Suspense>
+          </CardContent>
+        </Card>
+      </div>
+    </ContentLayout>
   );
 }

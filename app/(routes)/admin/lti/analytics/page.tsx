@@ -17,6 +17,8 @@
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LaunchStatsCards } from './_components/launch-stats-cards';
 import { LaunchesOverTimeChart } from './_components/launches-over-time-chart';
@@ -32,12 +34,12 @@ export const metadata = {
 };
 
 interface PageProps {
-  searchParams: {
+  searchParams: Promise<{
     startDate?: string;
     endDate?: string;
     institutionId?: string;
     toolId?: string;
-  };
+  }>;
 }
 
 async function getLaunchStats(
@@ -224,25 +226,42 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
     redirect('/auth/login');
   }
 
-  // Check admin role
-  const { data: userProfile } = await supabase
-    .from('user_profiles')
-    .select('role')
+  // Check permission for LTI analytics
+  const { data: userRole, error: roleError } = await supabase
+    .from('user_roles')
+    .select('custom_roles(role_key, permissions)')
     .eq('user_id', user.id)
     .single();
 
-  const allowedRoles = ['administrator', 'super_admin'];
-  if (!userProfile || !allowedRoles.includes(userProfile.role)) {
-    redirect('/dashboard');
+  console.log('[LTI Analytics] User role data:', userRole);
+  console.log('[LTI Analytics] Role error:', roleError);
+
+  const roleKey = userRole?.custom_roles?.role_key;
+  const permissions = userRole?.custom_roles?.permissions || {};
+
+  console.log('[LTI Analytics] Role key:', roleKey);
+  console.log('[LTI Analytics] Permissions:', permissions);
+
+  // Super admin has full access, otherwise check specific permissions
+  if (roleKey !== 'super_admin') {
+    if (!permissions['lti.analytics.view'] && !permissions['lti.monitor']) {
+      console.log('[LTI Analytics] Access denied - redirecting to dashboard');
+      redirect('/dashboard');
+    }
   }
 
+  console.log('[LTI Analytics] Access granted');
+
+  // Await searchParams (Next.js 16 requirement)
+  const params = await searchParams;
+
   // Parse date range
-  const endDate = searchParams.endDate
-    ? new Date(searchParams.endDate)
+  const endDate = params.endDate
+    ? new Date(params.endDate)
     : endOfDay(new Date());
 
-  const startDate = searchParams.startDate
-    ? new Date(searchParams.startDate)
+  const startDate = params.startDate
+    ? new Date(params.startDate)
     : startOfDay(subDays(endDate, 30)); // Default: last 30 days
 
   // Fetch analytics data
@@ -251,23 +270,32 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
       getLaunchStats(
         startDate,
         endDate,
-        searchParams.institutionId,
-        searchParams.toolId
+        params.institutionId,
+        params.toolId
       ),
-      getToolStats(startDate, endDate, searchParams.institutionId),
+      getToolStats(startDate, endDate, params.institutionId),
       getInstitutionStats(startDate, endDate),
       getFilterOptions()
     ]);
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">LTI Analytics</h1>
-        <p className="text-muted-foreground mt-1">
-          Monitor and analyze LTI tool usage across your institution
-        </p>
-      </div>
+    <ContentLayout title="LTI Analytics">
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Administration' },
+          { label: 'LTI Monitoring' },
+          { label: 'Analytics' }
+        ]}
+      />
+      <div className="space-y-6 mt-4">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold">LTI Analytics</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
+            Monitor and analyze LTI tool usage across your institution
+          </p>
+        </div>
 
       {/* Filters */}
       <Card>
@@ -279,7 +307,7 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
             <AnalyticsFilters
               institutions={filterOptions.institutions}
               tools={filterOptions.tools}
-              currentFilters={searchParams}
+              currentFilters={params}
             />
           </Suspense>
         </CardContent>
@@ -341,17 +369,18 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
         </Card>
       </div>
 
-      {/* Top Institutions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Top Institutions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Suspense fallback={<div>Loading chart...</div>}>
-            <TopInstitutionsChart institutions={institutionStats} />
-          </Suspense>
-        </CardContent>
-      </Card>
-    </div>
+        {/* Top Institutions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Top Institutions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Suspense fallback={<div>Loading chart...</div>}>
+              <TopInstitutionsChart institutions={institutionStats} />
+            </Suspense>
+          </CardContent>
+        </Card>
+      </div>
+    </ContentLayout>
   );
 }

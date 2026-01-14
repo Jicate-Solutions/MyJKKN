@@ -2,9 +2,8 @@
 
 import { DotsHorizontalIcon } from '@radix-ui/react-icons';
 import type { Row } from '@tanstack/react-table';
-import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Eye } from 'lucide-react';
 
@@ -41,7 +40,6 @@ export function DataTableRowActions<TData>({
 }: DataTableRowActionsProps<TData>) {
   const application = row.original as Application;
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
 
@@ -58,13 +56,13 @@ export function DataTableRowActions<TData>({
       await ApplicationService.deleteApplication(id);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['applications'] });
-      toast.success('Application deleted successfully');
       setShowDeleteAlert(false);
+      // Refresh the page to update the DataTable
+      router.refresh();
     },
     onError: (error) => {
       console.error('Delete application error:', error);
-      toast.error('Failed to delete application');
+      // Error toast is already shown by ApplicationService
     }
   });
 
