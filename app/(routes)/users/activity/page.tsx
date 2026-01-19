@@ -1,7 +1,8 @@
 // app/(routes)/users/activity/page.tsx
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import {
@@ -26,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Calendar,
   Download,
@@ -47,7 +49,8 @@ import {
   Edit,
   Trash2,
   Upload,
-  Clipboard
+  Clipboard,
+  BarChart3
 } from 'lucide-react';
 import {
   BarChart,
@@ -69,6 +72,18 @@ import {
   UserActivityLogWithUser
 } from '@/types/activity';
 import { cn } from '@/lib/utils';
+
+// Engagement Analytics imports
+import { EngagementFilters } from '@/components/analytics/engagement-filters';
+import { StudentEngagementTable } from '@/components/analytics/student-engagement-table';
+import { AtRiskModal } from '@/components/analytics/at-risk-modal';
+import { StudentDetailModal } from '@/components/analytics/student-detail-modal';
+import { SectionComparisonTable } from '@/components/analytics/section-comparison-table';
+import { LoginTrendChart } from '@/components/analytics/charts/login-trend-chart';
+import { EngagementDistributionChart } from '@/components/analytics/charts/engagement-distribution-chart';
+import { useEngagementMetrics } from '@/hooks/analytics/use-engagement-metrics';
+import { useAtRiskStudents } from '@/hooks/analytics/use-at-risk-students';
+import type { OrganizationalLevel, EngagementLevel } from '@/types/analytics';
 
 const SEVERITY_COLORS = {
   [ACTIVITY_SEVERITY.LOW]: 'bg-green-100 text-green-800',
@@ -102,6 +117,10 @@ const ACTION_ICON_COLORS = {
 };
 
 export default function ActivityPage() {
+  // React Query client for cache invalidation
+  const queryClient = useQueryClient();
+
+  // Activity Logs state
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [sortBy, setSortBy] = useState('created_at');
@@ -109,6 +128,21 @@ export default function ActivityPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPeriod, setSelectedPeriod] = useState('week');
   const [showFilters, setShowFilters] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState('activity');
+
+  // Engagement Analytics state
+  const [engagementFilters, setEngagementFilters] = useState<{
+    level: OrganizationalLevel;
+    id: string;
+    dateFrom: string;
+    dateTo: string;
+  } | null>(null);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [showAtRiskModal, setShowAtRiskModal] = useState(false);
+  const [showStudentDetailModal, setShowStudentDetailModal] = useState(false);
 
   // All hooks must be called before any early returns
   const {
@@ -150,6 +184,30 @@ export default function ActivityPage() {
     period: selectedPeriod as 'day' | 'week' | 'month' | 'year'
   });
 
+  // Engagement Analytics hooks
+  const {
+    data: engagementMetrics,
+    isLoading: engagementLoading,
+    error: engagementError,
+    refetch: refetchEngagementMetrics
+  } = useEngagementMetrics({
+    level: engagementFilters?.level || 'institution',
+    id: engagementFilters?.id || '',
+    dateFrom: engagementFilters?.dateFrom,
+    dateTo: engagementFilters?.dateTo,
+    enabled: activeTab === 'engagement' && !!engagementFilters?.id
+  });
+
+  const {
+    data: atRiskStudents,
+    isLoading: atRiskLoading,
+    refetch: refetchAtRiskStudents
+  } = useAtRiskStudents({
+    level: engagementFilters?.level || 'institution',
+    id: engagementFilters?.id || '',
+    enabled: activeTab === 'engagement' && !!engagementFilters?.id
+  });
+
   // Permission checking - temporarily allow all users to test data
   const hasViewPermission = true; // For testing - remove this later
   const hasExportPermission = true; // For testing - remove this later
@@ -167,6 +225,67 @@ export default function ActivityPage() {
     refreshActivity();
     refreshMetrics();
   };
+
+  // Engagement Analytics handlers
+  const handleRefreshEngagement = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      // Invalidate all engagement-related queries to force fresh data
+      await queryClient.invalidateQueries({ queryKey: ['engagement-metrics'] });
+      await queryClient.invalidateQueries({ queryKey: ['at-risk-students'] });
+
+      // Now refetch
+      await Promise.all([
+        refetchEngagementMetrics(),
+        refetchAtRiskStudents()
+      ]);
+    } catch (error) {
+      console.error('[ActivityPage] Error refreshing engagement data:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [queryClient, refetchEngagementMetrics, refetchAtRiskStudents]);
+
+  const handleStudentClick = (studentId: string) => {
+    setSelectedStudentId(studentId);
+    setShowStudentDetailModal(true);
+  };
+
+  const handleAtRiskClick = () => {
+    setShowAtRiskModal(true);
+  };
+
+  // Prepare chart data for engagement analytics
+  const loginTrendData = useMemo(() => {
+    if (!engagementMetrics?.trends) return [];
+    return engagementMetrics.trends.map((trend) => ({
+      date: trend.date,
+      logins: trend.total_logins,
+      uniqueUsers: trend.unique_users
+    }));
+  }, [engagementMetrics]);
+
+  const engagementDistributionData = useMemo(() => {
+    if (!engagementMetrics) return [];
+    const levels: EngagementLevel[] = ['high', 'medium', 'low', 'at_risk'];
+    const total =
+      (engagementMetrics.high_engagement_count || 0) +
+      (engagementMetrics.medium_engagement_count || 0) +
+      (engagementMetrics.low_engagement_count || 0) +
+      (engagementMetrics.at_risk_count || 0);
+
+    return levels
+      .map((level) => {
+        const countKey = `${level === 'at_risk' ? 'at_risk' : level + '_engagement'}_count` as keyof typeof engagementMetrics;
+        const count = (engagementMetrics[countKey] as number) || 0;
+        return {
+          level,
+          count,
+          percentage: total > 0 ? (count / total) * 100 : 0
+        };
+      })
+      .filter((item) => item.count > 0);
+  }, [engagementMetrics]);
 
   const handleExport = async () => {
     try {
@@ -476,19 +595,35 @@ export default function ActivityPage() {
   );
 
   return (
-    <ContentLayout title='Activity Audit Logs'>
+    <ContentLayout title='Activity & Engagement Analytics'>
       <div className='space-y-6'>
-        {/* Header Controls */}
+        {/* Header */}
         <div className='flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4'>
           <div>
             <h1 className='text-2xl font-bold text-gray-900'>
-              Activity Audit Logs
+              Activity & Engagement Analytics
             </h1>
             <p className='text-gray-600'>
-              Comprehensive user activity monitoring and analytics
+              Comprehensive user activity monitoring and student engagement insights
             </p>
           </div>
         </div>
+
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
+          <TabsList className='grid w-full max-w-md grid-cols-2'>
+            <TabsTrigger value='activity' className='flex items-center gap-2'>
+              <Activity className='h-4 w-4' />
+              Activity Logs
+            </TabsTrigger>
+            <TabsTrigger value='engagement' className='flex items-center gap-2'>
+              <BarChart3 className='h-4 w-4' />
+              Engagement Analytics
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Activity Logs Tab */}
+          <TabsContent value='activity' className='space-y-6 mt-6'>
 
         {/* Metrics Dashboard */}
         {!metricsLoading && metrics && (
@@ -771,60 +906,278 @@ export default function ActivityPage() {
           </CardContent>
         </Card>
 
-        {/* Activity Table using DataTable */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Activity Logs</CardTitle>
-            <CardDescription>
-              {activityData
-                ? `Showing ${activityData.data.length} of ${activityData.count} activities`
-                : 'Loading activities...'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {activityError ? (
-              <div className='text-center py-8'>
-                <AlertTriangle className='h-12 w-12 text-red-500 mx-auto mb-4' />
-                <h3 className='text-lg font-semibold text-gray-900 mb-2'>
-                  Error Loading Activities
-                </h3>
-                <p className='text-gray-600 mb-4'>{activityError}</p>
-                <Button onClick={handleRefresh}>Try Again</Button>
+            {/* Activity Table using DataTable */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Activity Logs</CardTitle>
+                <CardDescription>
+                  {activityData
+                    ? `Showing ${activityData.data.length} of ${activityData.count} activities`
+                    : 'Loading activities...'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {activityError ? (
+                  <div className='text-center py-8'>
+                    <AlertTriangle className='h-12 w-12 text-red-500 mx-auto mb-4' />
+                    <h3 className='text-lg font-semibold text-gray-900 mb-2'>
+                      Error Loading Activities
+                    </h3>
+                    <p className='text-gray-600 mb-4'>{activityError}</p>
+                    <Button onClick={handleRefresh}>Try Again</Button>
+                  </div>
+                ) : !activityData?.data.length && !activityLoading ? (
+                  <div className='text-center py-8'>
+                    <Activity className='h-12 w-12 text-gray-400 mx-auto mb-4' />
+                    <h3 className='text-lg font-semibold text-gray-900 mb-2'>
+                      No Activities Found
+                    </h3>
+                    <p className='text-gray-600'>
+                      No activity logs match your current filters.
+                    </p>
+                  </div>
+                ) : (
+                  <DataTable
+                    columns={columns}
+                    data={activityData?.data || []}
+                    searchPlaceholder='Search by action, description, resource...'
+                    filterColumn=''
+                    permissions={{
+                      module: 'users',
+                      actions: {
+                        view: true,
+                        create: false,
+                        edit: false,
+                        delete: false
+                      },
+                      showPermissionError: true
+                    }}
+                    tableTools={tableTools}
+                    serverSidePagination={serverSidePagination}
+                    onRefresh={handleRefresh}
+                    showRefresh={true}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Engagement Analytics Tab */}
+          <TabsContent value='engagement' className='space-y-6 mt-6'>
+            {/* Filters and Refresh Button */}
+            <div className='flex flex-col gap-4'>
+              <div className='flex items-center justify-between'>
+                <h3 className='text-lg font-semibold'>Engagement Analytics</h3>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={handleRefreshEngagement}
+                  disabled={isRefreshing || engagementLoading || !engagementFilters?.id}
+                  className='flex items-center gap-2'
+                >
+                  <RefreshCw className={cn('h-4 w-4', (isRefreshing || engagementLoading) && 'animate-spin')} />
+                  {isRefreshing ? 'Refreshing...' : 'Refresh'}
+                </Button>
               </div>
-            ) : !activityData?.data.length && !activityLoading ? (
-              <div className='text-center py-8'>
-                <Activity className='h-12 w-12 text-gray-400 mx-auto mb-4' />
-                <h3 className='text-lg font-semibold text-gray-900 mb-2'>
-                  No Activities Found
-                </h3>
-                <p className='text-gray-600'>
-                  No activity logs match your current filters.
-                </p>
-              </div>
-            ) : (
-              <DataTable
-                columns={columns}
-                data={activityData?.data || []}
-                searchPlaceholder='Search by action, description, resource...'
-                filterColumn=''
-                permissions={{
-                  module: 'users',
-                  actions: {
-                    view: true,
-                    create: false,
-                    edit: false,
-                    delete: false
-                  },
-                  showPermissionError: true
+              <EngagementFilters
+                onFilterChange={(filters) => setEngagementFilters(filters)}
+                onExport={() => {
+                  // TODO: Implement export functionality
+                  console.log('Export engagement data');
                 }}
-                tableTools={tableTools}
-                serverSidePagination={serverSidePagination}
-                onRefresh={handleRefresh}
-                showRefresh={true}
               />
+            </div>
+
+            {engagementFilters && engagementFilters.id && (
+              <>
+                {/* Overview Cards */}
+                {!engagementLoading && engagementMetrics && (
+                  <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+                    <Card>
+                      <CardContent className='pt-6'>
+                        <div className='flex items-center justify-between'>
+                          <div>
+                            <p className='text-sm font-medium text-gray-600'>
+                              Active Students (7d)
+                            </p>
+                            <p className='text-2xl font-bold'>
+                              {engagementMetrics.active_students_7d || 0}
+                            </p>
+                          </div>
+                          <Users className='h-8 w-8 text-green-600' />
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card
+                      className='cursor-pointer hover:shadow-lg transition-shadow'
+                      onClick={handleAtRiskClick}
+                    >
+                      <CardContent className='pt-6'>
+                        <div className='flex items-center justify-between'>
+                          <div>
+                            <p className='text-sm font-medium text-gray-600'>
+                              At-Risk Students
+                            </p>
+                            <p className='text-2xl font-bold text-red-600'>
+                              {engagementMetrics.at_risk_count || 0}
+                            </p>
+                          </div>
+                          <AlertTriangle className='h-8 w-8 text-red-600' />
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardContent className='pt-6'>
+                        <div className='flex items-center justify-between'>
+                          <div>
+                            <p className='text-sm font-medium text-gray-600'>
+                              Avg Session Duration
+                            </p>
+                            <p className='text-2xl font-bold'>
+                              {Math.round(engagementMetrics.avg_session_duration_minutes || 0)}m
+                            </p>
+                          </div>
+                          <Clock className='h-8 w-8 text-blue-600' />
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardContent className='pt-6'>
+                        <div className='flex items-center justify-between'>
+                          <div>
+                            <p className='text-sm font-medium text-gray-600'>
+                              Avg Logins/Week
+                            </p>
+                            <p className='text-2xl font-bold'>
+                              {(engagementMetrics.avg_logins_7d || 0).toFixed(1)}
+                            </p>
+                          </div>
+                          <TrendingUp className='h-8 w-8 text-purple-600' />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
+                {/* Charts */}
+                {!engagementLoading && engagementMetrics && (
+                  <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Login Trend (30 days)</CardTitle>
+                        <CardDescription>Daily login activity over time</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <LoginTrendChart data={loginTrendData} height={300} />
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Engagement Distribution</CardTitle>
+                        <CardDescription>Students by engagement level</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <EngagementDistributionChart
+                          data={engagementDistributionData}
+                          height={300}
+                        />
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
+                {/* Section Comparison (if semester selected) */}
+                {engagementFilters.level === 'semester' && (
+                  <SectionComparisonTable
+                    semesterId={engagementFilters.id}
+                    onSectionClick={(sectionId) => {
+                      setEngagementFilters({
+                        ...engagementFilters,
+                        level: 'section',
+                        id: sectionId
+                      });
+                    }}
+                  />
+                )}
+
+                {/* Student Engagement Table */}
+                {engagementMetrics?.students && (
+                  <StudentEngagementTable
+                    students={engagementMetrics.students}
+                    onStudentClick={handleStudentClick}
+                    isLoading={engagementLoading}
+                  />
+                )}
+
+                {/* Loading State */}
+                {engagementLoading && (
+                  <div className='flex items-center justify-center py-12'>
+                    <div className='animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600'></div>
+                    <span className='ml-4 text-gray-600'>Loading engagement data...</span>
+                  </div>
+                )}
+
+                {/* Error State */}
+                {engagementError && (
+                  <Card>
+                    <CardContent className='pt-6'>
+                      <div className='text-center py-8'>
+                        <AlertTriangle className='h-12 w-12 text-red-500 mx-auto mb-4' />
+                        <h3 className='text-lg font-semibold text-gray-900 mb-2'>
+                          Error Loading Engagement Data
+                        </h3>
+                        <p className='text-gray-600 mb-4'>{engagementError.message}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
             )}
-          </CardContent>
-        </Card>
+
+            {/* No Filters Selected State */}
+            {(!engagementFilters || !engagementFilters.id) && (
+              <Card>
+                <CardContent className='pt-6'>
+                  <div className='text-center py-12'>
+                    <BarChart3 className='h-16 w-16 text-gray-400 mx-auto mb-4' />
+                    <h3 className='text-lg font-semibold text-gray-900 mb-2'>
+                      Select Filters to View Analytics
+                    </h3>
+                    <p className='text-gray-600'>
+                      Use the filters above to select an institution, department, program,
+                      semester, or section to view engagement analytics.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
+
+        {/* Modals */}
+        {showAtRiskModal && atRiskStudents && (
+          <AtRiskModal
+            isOpen={showAtRiskModal}
+            onClose={() => setShowAtRiskModal(false)}
+            students={atRiskStudents}
+            isLoading={atRiskLoading}
+          />
+        )}
+
+        {showStudentDetailModal && selectedStudentId && (
+          <StudentDetailModal
+            isOpen={showStudentDetailModal}
+            onClose={() => {
+              setShowStudentDetailModal(false);
+              setSelectedStudentId(null);
+            }}
+            studentId={selectedStudentId}
+          />
+        )}
       </div>
     </ContentLayout>
   );

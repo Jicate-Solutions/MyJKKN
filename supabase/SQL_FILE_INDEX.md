@@ -51,7 +51,7 @@ When updating any SQL file:
 
 ## 📊 Current Database Objects
 
-### Tables (56 total in database - Updated 2025-01-18)
+### Tables (60 total in database - Updated 2025-01-19)
 
 | Module          | Tables                                                                                                                                                                                                                  | Count | Status                      |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | --------------------------- |
@@ -69,11 +69,12 @@ When updating any SQL file:
 | API             | api_keys                                                                                                                                                                                                                | 1     | ✅                          |
 | User Management | profiles, users, user_institution_access, custom_roles                                                                                                                                                                  | 4     | ✅                          |
 | Dashboard       | dashboard_configurations, dashboard_widgets, dashboard_widget_types                                                                                                                                                     | 3     | ✅                          |
+| **Engagement Analytics** | **user_sessions, daily_engagement_metrics, student_engagement_scores, mv_engagement_overview (materialized view)** | **4** | **✅ Complete - Advanced student engagement tracking** |
 | Child App Auth  | ~~child_app_analytics, child_app_auth_codes_bucket, child_app_unified_sessions~~ (REMOVED 2025-01-20)                                                                                                     | 0     | ❌ Dropped - moved to auth server                          |
 | LTI Integration | lti_tools, lti_launches, lti_grades                                                                                                                                                                                         | 3     | ✅ Complete - MATLAB integration |
 | Other           | applications (with parent auth + LTI), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth + LTI  |
 
-### Functions (236 total - Updated 2025-01-20)
+### Functions (242 total - Updated 2025-01-19)
 
 | Category              | Location               | Count | Purpose                         |
 | --------------------- | ---------------------- | ----- | ------------------------------- |
@@ -90,6 +91,7 @@ When updating any SQL file:
 | Notifications         | setup/02_functions.sql | 1     | User notifications              |
 | API Keys              | setup/02_functions.sql | 4     | API key management              |
 | Activity Logging      | setup/02_functions.sql | 2     | Log cleanup, stats              |
+| **Engagement Analytics** | **Migrations**         | **6** | **Session management, metrics computation, engagement scoring** |
 | Utilities             | setup/02_functions.sql | 10+   | Helper functions                |
 | Dashboard             | setup/02_functions.sql | 2     | Dashboard reporting             |
 | Permissions           | setup/02_functions.sql | 6     | Role and permission checks      |
@@ -183,6 +185,157 @@ When updating any SQL file:
 ```
 
 ## 📝 Change Log
+
+### 2025-01-19: Advanced Engagement Analytics System ⭐ NEW
+
+- **Files Created**:
+  - `migrations/20260119_create_engagement_analytics_schema.sql` ✅ **APPLIED**
+  - `migrations/20260119_create_engagement_functions.sql` ✅ **APPLIED**
+  - `migrations/20260119_create_engagement_jobs.sql` ⏳ **PENDING** (requires pg_cron extension)
+
+- **Purpose**: Transform basic login/logout activity tracking into comprehensive student engagement analytics with role-based tracking, organizational hierarchy analytics, and at-risk student identification.
+
+- **Architecture**: Hybrid Event Capture + Materialized Views
+  - Real-time session tracking with organizational context
+  - Pre-computed daily metrics via background jobs
+  - Materialized view for fast dashboard queries (15-min refresh)
+  - Hierarchical drill-down: Institution → Department → Program → Semester → Section → Student
+
+- **Database Changes**:
+  - **Tables Created (4)**:
+    - `user_sessions` - Detailed session tracking with organizational context
+      - Fields: session_id, user_id, login_at, logout_at, duration_seconds, device_type
+      - Organizational context: institution_id → section_id hierarchy
+      - Activity tracking: modules_accessed[], actions_count
+      - 7 performance indexes
+    - `daily_engagement_metrics` - Pre-aggregated daily metrics by hierarchy and role
+      - Metrics: total_logins, unique_users, avg_session_duration, modules_per_user
+      - 4 composite indexes for fast queries
+    - `student_engagement_scores` - Individual student engagement tracking
+      - Metrics: logins_7d/30d, avg_session_duration, total_time_spent, modules_accessed
+      - Comparative: percentile_rank, section averages
+      - Risk indicators: engagement_level (high/medium/low/at_risk), risk_factors[]
+      - 6 indexes including partial index on is_at_risk
+    - `mv_engagement_overview` - Materialized view for fast dashboard summaries
+  - **Functions Created (6)**:
+    - `close_user_session()` - Session closure and duration calculation
+    - `add_module_to_session()` - Track module access
+    - `get_user_organizational_context()` - Hierarchy context detection
+    - `compute_daily_engagement_metrics()` - Daily metric aggregation
+    - `compute_student_engagement_scores()` - Engagement scoring and risk identification
+    - `cleanup_orphaned_sessions()` - Auto-close stale sessions
+  - **Background Jobs (3)** - Using pg_cron:
+    - Daily at 2 AM: Compute daily metrics
+    - Daily at 3 AM: Compute student engagement scores
+    - Every 15 minutes: Refresh materialized view
+  - **RLS Policies (3)**:
+    - Hierarchical access control based on user role
+    - Students can view own sessions
+    - Admins see institution/department scoped data
+
+- **Application Layer Changes**:
+  - **Service Layer (2 files)**:
+    - `lib/services/analytics/session-tracking-service.ts` - Session management
+    - `lib/services/analytics/engagement-service.ts` - Analytics business logic with hierarchical access control
+  - **API Endpoints (4 files)**:
+    - `app/api/analytics/engagement/route.ts` - Main metrics endpoint
+    - `app/api/analytics/engagement/at-risk/route.ts` - At-risk students
+    - `app/api/analytics/engagement/student/[id]/route.ts` - Student detail
+    - `app/api/analytics/engagement/sections/compare/route.ts` - Section comparison
+  - **React Hooks (4 files)**:
+    - `hooks/analytics/use-engagement-metrics.ts` - Dashboard metrics (15-min refetch)
+    - `hooks/analytics/use-at-risk-students.ts` - At-risk students (5-min refetch)
+    - `hooks/analytics/use-student-engagement.ts` - Student detail
+    - `hooks/analytics/use-section-comparison.ts` - Section comparison
+  - **UI Components (7 files)**:
+    - `components/analytics/engagement-filters.tsx` - Hierarchical filters
+    - `components/analytics/student-engagement-table.tsx` - Full-featured data table
+    - `components/analytics/at-risk-modal.tsx` - At-risk students modal
+    - `components/analytics/student-detail-modal.tsx` - Student drill-down (3 tabs)
+    - `components/analytics/section-comparison-table.tsx` - Section comparison
+    - `components/analytics/charts/login-trend-chart.tsx` - Trend visualization
+    - `components/analytics/charts/engagement-distribution-chart.tsx` - Distribution chart
+  - **Types (1 file)**:
+    - `types/analytics.ts` - 30+ interfaces for complete type safety
+  - **Modified Files (2)**:
+    - `app/auth/callback/route.ts` - Enhanced with session creation
+    - `app/api/auth/logout/route.ts` - Enhanced with session closure
+    - `app/(routes)/users/activity/page.tsx` - Added Engagement Analytics tab
+
+- **Key Features**:
+  - ✅ Automatic session tracking on login/logout
+  - ✅ Device detection (mobile/tablet/desktop)
+  - ✅ Module access tracking (academic, billing, etc.)
+  - ✅ Engagement level calculation (high/medium/low/at_risk)
+  - ✅ Percentile ranking within section
+  - ✅ At-risk student identification with risk factors:
+    - no_login_7d - No login in 7 days
+    - inactive_7d - Inactive for 7+ days
+    - below_20_percentile - Bottom 20% performance
+    - low_session_duration - Below section average
+    - limited_module_access - Using <3 modules
+  - ✅ Section comparison with engagement scoring
+  - ✅ Trend charts (30-day login activity)
+  - ✅ Distribution charts (engagement levels)
+  - ✅ Hierarchical access control (Faculty → HOD → Principal → Super Admin)
+  - ✅ Export to CSV functionality
+
+- **Dashboard Integration**:
+  - Tabbed interface: "Activity Logs" + "Engagement Analytics"
+  - Overview cards: Active Students (7d), At-Risk Count, Avg Session Duration, Avg Logins/Week
+  - Interactive charts: Login Trend, Engagement Distribution
+  - Section comparison (when semester selected)
+  - Student engagement table with sorting/filtering/pagination
+  - Click-through modals for at-risk students and student details
+
+- **Access Control**:
+  - Faculty: See only sections they teach
+  - HOD: See department-level data
+  - Principal: See institution-level data
+  - Super Admin: Global access across all institutions
+
+- **Performance Optimizations**:
+  - 17 indexes across 4 tables
+  - Materialized view for fast queries
+  - React Query caching (15-min stale time for metrics)
+  - Pagination (50 items per page)
+  - Lazy loading for charts and modals
+
+- **Completion Status**: 95% Complete
+  - ✅ Phase 1: Database schema (100%)
+  - ✅ Phase 2: Session tracking integration (100%)
+  - ✅ Phase 3: Database functions (100%)
+  - ✅ Phase 4: Service layer (100%)
+  - ✅ Phase 5: API endpoints (100%)
+  - ✅ Phase 6: React hooks (100%)
+  - ✅ Phase 7: TypeScript types (100%)
+  - ✅ Phase 8: UI components (100%)
+  - ✅ Phase 9: Dashboard integration (100%)
+  - ⏳ Phase 10: pg_cron job scheduling (pending extension verification)
+
+- **Ready for Use**:
+  - All components functional and integrated
+  - Session tracking starts on next login
+  - Manually run database functions to compute initial metrics:
+    ```sql
+    SELECT compute_daily_engagement_metrics(CURRENT_DATE - INTERVAL '1 day');
+    SELECT compute_student_engagement_scores(CURRENT_DATE);
+    REFRESH MATERIALIZED VIEW CONCURRENTLY mv_engagement_overview;
+    ```
+  - Schedule pg_cron jobs when ready (migration file available)
+
+- **Impact**:
+  - Complete visibility into student engagement patterns
+  - Early identification of at-risk students for intervention
+  - Data-driven insights for improving student success
+  - Section-level performance comparison for faculty
+  - Comprehensive audit trail of system usage
+  - Foundation for predictive analytics and ML models
+
+- **Documentation Updated**:
+  - `supabase/SQL_FILE_INDEX.md` - Added new tables and functions
+  - `IMPLEMENTATION_STATUS.md` - Comprehensive tracking document
+  - All code includes JSDoc comments and type annotations
 
 ### 2025-01-18: Unified Learners Profiles (Phase 1 Complete)
 

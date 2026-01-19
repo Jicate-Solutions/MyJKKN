@@ -271,7 +271,7 @@ export class StudentTimetableService {
       // Enrich slots
       return slots.map((slot, index) => {
         const period = periodMap.get(slot.period_id);
-        const course = courseMap.get(slot.course_id);
+        const course = courseMap.get(slot.course_id) as any;
         const staffMembers = (slot.staff_ids || [])
           .map((id: string) => staffMap.get(id))
           .filter(Boolean);
