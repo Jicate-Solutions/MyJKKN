@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { ACTIVITY_TYPES, RESOURCE_TYPES } from '@/types/activity';
+import { SessionTrackingService } from '@/lib/services/analytics/session-tracking-service';
+import { cookies } from 'next/headers';
 
 
 export async function POST(request: NextRequest) {
@@ -27,6 +29,25 @@ export async function POST(request: NextRequest) {
         .select('full_name, role, institution_id')
         .eq('id', user.id)
         .single() as { data: { full_name: string | null; role: string | null; institution_id: string | null } | null };
+
+      // Close analytics session
+      try {
+        const cookieStore = await cookies();
+        const sessionId = cookieStore.get('analytics_session_id')?.value;
+
+        if (sessionId) {
+          const closed = await SessionTrackingService.closeSession(sessionId);
+          if (closed) {
+            console.log('[Logout] ✅ Analytics session closed:', sessionId);
+          }
+
+          // Clear the session cookie
+          cookieStore.delete('analytics_session_id');
+        }
+      } catch (sessionError) {
+        // Don't block logout if session closing fails
+        console.error('[Logout] Failed to close analytics session (non-blocking):', sessionError);
+      }
 
       // Log logout activity
       const userName = profile?.full_name || user.email || 'Unknown';

@@ -31,19 +31,31 @@ import { UsersClientWrapper } from './_components/users-client-wrapper';
  */
 export default async function UsersPage() {
   // Fetch profile and stats in parallel on the server
-  const [profileResult, stats] = await Promise.all([
-    getEnhancedUserProfile(),
-    getCachedUserStats() // Cached with cacheLife('hours')
-  ]);
-
+  const profileResult = await getEnhancedUserProfile();
   const profile = profileResult.profile;
 
-  // If user has institution, get stats for that institution
-  // Otherwise, get all stats (for super admins)
-  const institutionId = profile?.institution_id;
-  const institutionStats = institutionId
-    ? await getCachedUserStats(institutionId)
-    : stats;
+  // Fetch stats with error handling for build-time
+  let stats = null;
+  let institutionStats = null;
+  try {
+    stats = await getCachedUserStats(); // Cached with cacheLife('hours')
+
+    // If user has institution, get stats for that institution
+    // Otherwise, get all stats (for super admins)
+    const institutionId = profile?.institution_id;
+    institutionStats = institutionId
+      ? await getCachedUserStats(institutionId)
+      : stats;
+  } catch (error) {
+    // Gracefully handle errors during build-time or when API is unavailable
+    console.warn('[users/page] Failed to fetch stats, using defaults');
+    institutionStats = {
+      totalUsers: 0,
+      activeUsers: 0,
+      inactiveUsers: 0,
+      usersByRole: {}
+    };
+  }
 
   return (
     <ContentLayout title='Users'>

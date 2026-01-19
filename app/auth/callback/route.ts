@@ -8,6 +8,7 @@ import { Profile } from '@/types/auth';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
+import { SessionTrackingService } from '@/lib/services/analytics/session-tracking-service';
 
 
 export async function GET(request: NextRequest) {
@@ -325,6 +326,38 @@ export async function GET(request: NextRequest) {
         // Log login activity for new user
         await logLoginActivity(newProfile);
 
+        // Create session tracking record for new user
+        console.log('[Auth Callback] 🆕 Creating session for NEW user...');
+        console.log('[Auth Callback] 👤 User ID:', user.id);
+        console.log('[Auth Callback] 🎭 User role:', newProfile.role);
+
+        try {
+          const sessionInfo = await SessionTrackingService.createSession({
+            userId: user.id,
+            role: newProfile.role || 'guest',
+            request
+          });
+
+          console.log('[Auth Callback] 📊 New user session result:', sessionInfo);
+
+          if (sessionInfo) {
+            cookieStore.set('analytics_session_id', sessionInfo.sessionId, {
+              httpOnly: true,
+              secure: process.env.NODE_ENV === 'production',
+              sameSite: 'lax',
+              maxAge: 60 * 60 * 24
+            });
+            console.log('[Auth Callback] ✅ New user session created:', sessionInfo.sessionId);
+          } else {
+            console.warn('[Auth Callback] ⚠️ New user session creation returned null');
+          }
+        } catch (sessionError) {
+          console.error('[Auth Callback] ❌ Session tracking failed for new user (non-blocking):', sessionError);
+          if (sessionError instanceof Error) {
+            console.error('[Auth Callback] ❌ Error stack:', sessionError.stack);
+          }
+        }
+
         return NextResponse.redirect(new URL('/auth/complete-profile', origin));
       }
 
@@ -341,6 +374,43 @@ export async function GET(request: NextRequest) {
 
       // Log login activity for existing user
       await logLoginActivity(actualProfile);
+
+      // Create session tracking record for engagement analytics
+      console.log('[Auth Callback] 🎯 Attempting to create analytics session...');
+      console.log('[Auth Callback] 👤 User ID:', user.id);
+      console.log('[Auth Callback] 🎭 User role:', actualProfile.role);
+      console.log('[Auth Callback] 🏢 Institution ID:', actualProfile.institution_id);
+
+      try {
+        const sessionInfo = await SessionTrackingService.createSession({
+          userId: user.id,
+          role: actualProfile.role || 'unknown',
+          institutionId: actualProfile.institution_id || undefined,
+          request
+        });
+
+        console.log('[Auth Callback] 📊 Session creation result:', sessionInfo);
+
+        // Store session ID in cookie if session was created successfully
+        if (sessionInfo) {
+          cookieStore.set('analytics_session_id', sessionInfo.sessionId, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 60 * 60 * 24 // 24 hours
+          });
+          console.log('[Auth Callback] ✅ Analytics session created:', sessionInfo.sessionId);
+          console.log('[Auth Callback] 🍪 Cookie set: analytics_session_id');
+        } else {
+          console.warn('[Auth Callback] ⚠️ Session creation returned null - check SessionTrackingService logs above');
+        }
+      } catch (sessionError) {
+        // Don't block login if session tracking fails
+        console.error('[Auth Callback] ❌ Session tracking failed (non-blocking):', sessionError);
+        if (sessionError instanceof Error) {
+          console.error('[Auth Callback] ❌ Error stack:', sessionError.stack);
+        }
+      }
 
       // If profile exists but not completed
       if (!actualProfile.profile_completed) {

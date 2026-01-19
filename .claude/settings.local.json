@@ -189,7 +189,8 @@
       "Bash(done)",
       "Skill(import-export-advanced)",
       "Bash(git push:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(psql:*)"
     ],
     "deny": [],
     "ask": []
