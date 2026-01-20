@@ -81,8 +81,7 @@ export function StudentEngagementTable({
             <div className="text-sm text-gray-500">{row.original.student_id}</div>
           </div>
         </div>
-      ),
-      accessorKey: 'name'
+      )
     },
     {
       id: 'section',
@@ -103,8 +102,7 @@ export function StudentEngagementTable({
             {formatDate(row.original.last_login_at)}
           </span>
         </div>
-      ),
-      accessorKey: 'last_login_at'
+      )
     },
     {
       id: 'logins_7d',
@@ -116,13 +114,12 @@ export function StudentEngagementTable({
             {row.original.logins_last_7_days || 0}
           </span>
           {(row.original.logins_last_7_days || 0) > (row.original.section_avg_logins_7d || 0) ? (
-            <TrendingUp className="h-4 w-4 text-green-500" title="Above section average" />
+            <TrendingUp className="h-4 w-4 text-green-500" />
           ) : (
-            <TrendingDown className="h-4 w-4 text-red-500" title="Below section average" />
+            <TrendingDown className="h-4 w-4 text-red-500" />
           )}
         </div>
-      ),
-      accessorKey: 'logins_last_7_days'
+      )
     },
     {
       id: 'avg_duration',
@@ -137,8 +134,7 @@ export function StudentEngagementTable({
               : 'N/A'}
           </span>
         </div>
-      ),
-      accessorKey: 'avg_session_duration_minutes'
+      )
     },
     {
       id: 'modules',
@@ -151,8 +147,7 @@ export function StudentEngagementTable({
             {row.original.modules_accessed_count || 0}
           </span>
         </div>
-      ),
-      accessorKey: 'modules_accessed_count'
+      )
     },
     {
       id: 'percentile',
@@ -178,8 +173,7 @@ export function StudentEngagementTable({
             {row.original.percentile_rank || 0}%
           </span>
         </div>
-      ),
-      accessorKey: 'percentile_rank'
+      )
     },
     {
       id: 'engagement_level',
@@ -196,12 +190,11 @@ export function StudentEngagementTable({
               {engagementConfig.label}
             </Badge>
             {row.original.is_at_risk && (
-              <AlertTriangle className="h-4 w-4 text-red-500" title="At Risk" />
+              <AlertTriangle className="h-4 w-4 text-red-500" />
             )}
           </div>
         );
-      },
-      accessorKey: 'engagement_level'
+      }
     },
     {
       id: 'actions',
