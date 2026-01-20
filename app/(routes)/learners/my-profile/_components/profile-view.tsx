@@ -200,10 +200,7 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
               />
               <InfoField
                 label="Degree"
-                value={
-                  (learner.degree as any)?.display_name ||
-                  learner.degree?.degree_name
-                }
+                value={learner.degree?.degree_name}
                 icon={GraduationCap}
               />
               <InfoField

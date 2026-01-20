@@ -45,7 +45,7 @@ export default async function MyProfilePage() {
       ),
       degree:degree_id (
         degree_name,
-        display_name,
+        degree_id,
         id
       ),
       department:department_id (
