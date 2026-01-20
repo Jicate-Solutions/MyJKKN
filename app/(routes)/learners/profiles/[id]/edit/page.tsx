@@ -46,7 +46,7 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { RegulationService } from '@/lib/services/organization/regulation-service';
 import { BatchService } from '@/lib/services/organization/batch-service';
-import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
+import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import Link from 'next/link';
 
 // Form schema for learner edit
@@ -138,6 +138,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
   const [sections, setSections] = useState<any[]>([]);
   const [regulations, setRegulations] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
+  const [academicYears, setAcademicYears] = useState<any[]>([]);
 
   // Check for permission to edit learner
   useEffect(() => {
@@ -170,10 +171,6 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
   const watchProgramId = form.watch('program_id');
   const watchSemesterId = form.watch('semester_id');
 
-  const { academicYears = [] } = useAcademicYearsByInstitution(
-    watchInstitutionId || ''
-  );
-
   // Fetch learner data
   useEffect(() => {
     async function fetchLearner() {
@@ -192,30 +189,100 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
         // This prevents the race condition where form values are set before dropdown options load
         if (data.institution_id) {
           const degreesData = await DegreeService.getDegreesByInstitution(data.institution_id);
-          setDegrees(degreesData || []);
+          let degrees = degreesData || [];
+
+          // Ensure current degree is in the list (even if institution_id doesn't match)
+          if (data.degree_id && data.degree && !degrees.find(d => d.id === data.degree_id)) {
+            degrees = [...degrees, { id: data.degree.id, degree_name: data.degree.degree_name }];
+          }
+          setDegrees(degrees);
 
           // Load regulations and batches for this institution
           const regulationsData = await RegulationService.getRegulationsByInstitution(data.institution_id);
-          setRegulations(regulationsData || []);
+          let regulations = regulationsData || [];
+
+          // Ensure current regulation is in the list
+          if (data.regulation_id && data.regulation && !regulations.find(r => r.id === data.regulation_id)) {
+            regulations = [...regulations, {
+              id: data.regulation.id,
+              regulation_code: data.regulation.regulation_code,
+              regulation_year: data.regulation.regulation_year
+            }];
+          }
+          setRegulations(regulations);
 
           const batchesData = await BatchService.getBatchesByInstitution(data.institution_id);
-          setBatches(batchesData || []);
+          let batches = batchesData || [];
+
+          // Ensure current batch is in the list
+          if (data.batch_id && data.batch && !batches.find(b => b.id === data.batch_id)) {
+            batches = [...batches, {
+              id: data.batch.id,
+              batch_name: data.batch.batch_name,
+              batch_code: data.batch.batch_code
+            }];
+          }
+          setBatches(batches);
+
+          // Load academic years for this institution
+          const academicYearsData = await AcademicYearService.getAcademicYearsByInstitution(data.institution_id);
+          let academicYearsOptions = academicYearsData || [];
+
+          // Ensure current academic year is in the list (even if institution_id doesn't match)
+          if (data.academic_year_id && data.academic_year && !academicYearsOptions.find(ay => ay.id === data.academic_year_id)) {
+            academicYearsOptions = [...academicYearsOptions, {
+              id: data.academic_year.id,
+              academic_year_name: data.academic_year.academic_year_name,
+              start_date: data.academic_year.start_date,
+              end_date: data.academic_year.end_date,
+              is_active: data.academic_year.is_active
+            }];
+          }
+          setAcademicYears(academicYearsOptions);
         }
         if (data.degree_id) {
           const departmentsData = await DepartmentService.getDepartmentsByDegree(data.degree_id);
-          setDepartments(departmentsData || []);
+          let departments = departmentsData || [];
+
+          // Ensure current department is in the list
+          if (data.department_id && data.department && !departments.find(d => d.id === data.department_id)) {
+            departments = [...departments, { id: data.department.id, department_name: data.department.department_name }];
+          }
+          setDepartments(departments);
         }
         if (data.department_id) {
           const programsData = await ProgramService.getProgramsByDepartment(data.department_id);
-          setPrograms(programsData || []);
+          let programs = programsData || [];
+
+          // Ensure current program is in the list
+          if (data.program_id && data.program && !programs.find(p => p.id === data.program_id)) {
+            programs = [...programs, { id: data.program.id, program_name: data.program.program_name }];
+          }
+          setPrograms(programs);
         }
         if (data.program_id) {
           const semestersData = await SemesterService.getSemestersByProgram(data.program_id);
-          setSemesters(semestersData || []);
+          let semesters = semestersData || [];
+
+          // Ensure current semester is in the list
+          if (data.semester_id && data.semester && !semesters.find(s => s.id === data.semester_id)) {
+            semesters = [...semesters, {
+              id: data.semester.id,
+              semester_name: data.semester.semester_name,
+              semester_code: data.semester.semester_code
+            }];
+          }
+          setSemesters(semesters);
         }
         if (data.semester_id) {
           const sectionsData = await SectionService.getSectionsBySemester(data.semester_id);
-          setSections(sectionsData || []);
+          let sections = sectionsData || [];
+
+          // Ensure current section is in the list
+          if (data.section_id && data.section && !sections.find(s => s.id === data.section_id)) {
+            sections = [...sections, { id: data.section.id, section_name: data.section.section_name }];
+          }
+          setSections(sections);
         }
 
         // Populate form with existing data
@@ -424,6 +491,25 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
     }
 
     fetchBatches();
+  }, [watchInstitutionId]);
+
+  // Fetch academic years based on institution
+  useEffect(() => {
+    if (!watchInstitutionId) {
+      setAcademicYears([]);
+      return;
+    }
+
+    async function fetchAcademicYears() {
+      try {
+        const data = await AcademicYearService.getAcademicYearsByInstitution(watchInstitutionId || '');
+        setAcademicYears(data || []);
+      } catch (error) {
+        console.error('[learners/profiles/[id]/edit] Error fetching academic years:', error);
+      }
+    }
+
+    fetchAcademicYears();
   }, [watchInstitutionId]);
 
   const onSubmit = async (values: EditLearnerFormValues) => {
