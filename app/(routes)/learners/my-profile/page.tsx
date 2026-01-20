@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
-import ProfileForm from './_components/profile-form';
+import ProfilePageContent from './_components/profile-page-content';
 
 export const metadata = {
   title: 'My Profile | MyJKKN',
@@ -34,20 +34,37 @@ export default async function MyProfilePage() {
 
   // Step 4: Fetch learner profile data
   const { data: learnerProfile } = await supabase
-    .from('learners_profiles')
+    .from('learner_profiles')
     .select(`
       *,
-      sections:section_id (
+      institution:institution_id (
         name,
-        programs:program_id (
-          name,
-          degrees:degree_id (
-            name,
-            institutions:institution_id (
-              name
-            )
-          )
-        )
+        id
+      ),
+      degree:degree_id (
+        degree_name,
+        id
+      ),
+      department:department_id (
+        department_name,
+        id
+      ),
+      program:program_id (
+        program_name,
+        id
+      ),
+      semester:semester_id (
+        semester_name,
+        semester_code,
+        id
+      ),
+      section:section_id (
+        section_name,
+        id
+      ),
+      academic_year:academic_year_id (
+        academic_year_name,
+        id
       )
     `)
     .eq('id', profile.learner_id)
@@ -67,7 +84,7 @@ export default async function MyProfilePage() {
           </p>
         </div>
 
-        <ProfileForm learnerProfile={learnerProfile} userId={user.id} />
+        <ProfilePageContent learner={learnerProfile} userId={user.id} />
       </div>
     </div>
   );

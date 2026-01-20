@@ -60,9 +60,9 @@ export default async function TimetablesPage({
   // Get user profile for institution/department filtering
   const { data: userProfile } = user
     ? await supabase
-        .from('user_profiles')
+        .from('profiles')
         .select('id, role, institution_id, department_id')
-        .eq('user_id', user.id)
+        .eq('id', user.id)
         .single()
     : { data: null };
 
