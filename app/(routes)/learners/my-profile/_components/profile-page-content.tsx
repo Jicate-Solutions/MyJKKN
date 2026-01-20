@@ -58,6 +58,7 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
       {
         learner_id: learner.id,
         changed_fields: changedFields,
+        fields_summary: Object.keys(changedFields),
       },
       {
         onSuccess: () => {
@@ -71,12 +72,12 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
   };
 
   // If there's a pending request, show banner and comparison view
-  if (pendingRequest && pendingRequest.status === 'pending') {
+  if (pendingRequest && pendingRequest.request_status === 'pending') {
     return (
       <div className="space-y-6">
         <PendingChangesBanner
           requestId={pendingRequest.id}
-          status={pendingRequest.status}
+          status={pendingRequest.request_status}
           submittedAt={pendingRequest.created_at}
           reviewComments={pendingRequest.review_comments}
         />
