@@ -43,7 +43,7 @@ ON profile_change_requests FOR SELECT
 USING (
   EXISTS (
     SELECT 1 FROM profiles p
-    JOIN learner_profiles lp ON lp.id = profile_change_requests.learner_id
+    JOIN learners_profiles lp ON lp.id = profile_change_requests.learner_id
     WHERE p.id = auth.uid()
       AND p.role = 'hod'
       AND p.institution_id = lp.institution_id
@@ -56,7 +56,7 @@ ON profile_change_requests FOR SELECT
 USING (
   EXISTS (
     SELECT 1 FROM profiles p
-    JOIN learner_profiles lp ON lp.id = profile_change_requests.learner_id
+    JOIN learners_profiles lp ON lp.id = profile_change_requests.learner_id
     WHERE p.id = auth.uid()
       AND p.role = 'staff'
       AND p.department_id = lp.department_id
@@ -69,7 +69,7 @@ ON profile_change_requests FOR UPDATE
 USING (
   EXISTS (
     SELECT 1 FROM profiles p
-    JOIN learner_profiles lp ON lp.id = profile_change_requests.learner_id
+    JOIN learners_profiles lp ON lp.id = profile_change_requests.learner_id
     WHERE p.id = auth.uid()
       AND (
         (p.role = 'hod' AND p.institution_id = lp.institution_id)
@@ -110,7 +110,7 @@ ON profile_change_audit_log FOR SELECT
 USING (
   EXISTS (
     SELECT 1 FROM profiles p
-    JOIN learner_profiles lp ON lp.id = profile_change_audit_log.learner_id
+    JOIN learners_profiles lp ON lp.id = profile_change_audit_log.learner_id
     WHERE p.id = auth.uid()
       AND p.role = 'hod'
       AND p.institution_id = lp.institution_id
@@ -123,7 +123,7 @@ ON profile_change_audit_log FOR SELECT
 USING (
   EXISTS (
     SELECT 1 FROM profiles p
-    JOIN learner_profiles lp ON lp.id = profile_change_audit_log.learner_id
+    JOIN learners_profiles lp ON lp.id = profile_change_audit_log.learner_id
     WHERE p.id = auth.uid()
       AND p.role = 'staff'
       AND p.department_id = lp.department_id
