@@ -69,7 +69,7 @@ The My Profile page displays student information organized into **7 main section
 | Field Label | Database Column | Editable | Icon | Source |
 |------------|----------------|----------|------|--------|
 | Institution | `institution_id` → `institutions.name` | ❌ No | Building | Join query |
-| Degree | `degree_id` → `degrees.display_name` or `degree_name` | ❌ No | GraduationCap | Join query |
+| Degree | `degree_id` → `degrees.degree_name` | ❌ No | GraduationCap | Join query |
 | Department | `department_id` → `departments.department_name` | ❌ No | BookOpen | Join query |
 | Program | `program_id` → `programs.program_name` | ❌ No | BookOpen | Join query |
 
