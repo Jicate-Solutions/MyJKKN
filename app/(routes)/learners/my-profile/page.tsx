@@ -35,7 +35,7 @@ export default async function MyProfilePage() {
   }
 
   // Step 4: Fetch learner profile data with all relationships
-  const { data: learnerProfile } = await supabase
+  const { data: learnerProfile, error: profileError } = await supabase
     .from('learners_profiles')
     .select(`
       *,
@@ -83,7 +83,13 @@ export default async function MyProfilePage() {
     .eq('id', profile.learner_id)
     .single();
 
-  if (!learnerProfile) {
+  if (profileError || !learnerProfile) {
+    console.error('[my-profile] Error fetching learner profile:', {
+      error: profileError,
+      learnerId: profile.learner_id,
+      userId: user.id,
+    });
+
     return (
       <ContentLayout title="Profile Not Found">
         <PageBreadcrumb
@@ -97,6 +103,16 @@ export default async function MyProfilePage() {
           <p className="text-muted-foreground">
             Your learner profile could not be found. Please contact support.
           </p>
+          {process.env.NODE_ENV === 'development' && profileError && (
+            <div className="mt-4 p-4 bg-destructive/10 rounded-lg text-left max-w-2xl">
+              <p className="font-mono text-sm text-destructive">
+                <strong>Debug Info:</strong><br />
+                Error: {profileError.message}<br />
+                Code: {profileError.code}<br />
+                Learner ID: {profile.learner_id}
+              </p>
+            </div>
+          )}
         </div>
       </ContentLayout>
     );
