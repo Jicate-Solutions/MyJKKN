@@ -20,10 +20,10 @@ interface LearnerPageGuardProps {
  *
  * Usage:
  * ```tsx
- * export default async function MyGradesPage() {
+ * export default async function MyTimetablePage() {
  *   return (
- *     <LearnerPageGuard requiredPermission="learners.my-grades.view">
- *       <MyGradesContent />
+ *     <LearnerPageGuard requiredPermission="learners.my-timetable.view">
+ *       <MyTimetableContent />
  *     </LearnerPageGuard>
  *   );
  * }

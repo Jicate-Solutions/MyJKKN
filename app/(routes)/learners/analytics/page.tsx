@@ -150,7 +150,7 @@ export default function LearnersAnalyticsDashboard() {
         searchParams.set('dateTo', filters.dateRange.to.toISOString());
       }
 
-      const response = await fetch(`/api/learners/dashboard/stats?${searchParams.toString()}`);
+      const response = await fetch(`/api/learners/analytics/stats?${searchParams.toString()}`);
 
       if (!response.ok) {
         const error = await response.json();

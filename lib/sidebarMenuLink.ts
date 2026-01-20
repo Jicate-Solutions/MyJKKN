@@ -112,15 +112,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
 
   // Learners Module (Unified) - Using Granular Permissions
-  '/learners': 'learners.dashboard.view',
+  '/learners': 'learners.profiles.view',
 
   // Learner Portal Routes (Student Self-Service)
-  '/learners/dashboard': 'learners.dashboard.view',
-  '/learners/my-grades': 'learners.my-grades.view',
   '/learners/my-timetable': 'learners.my-timetable.view',
   '/learners/my-attendance': 'learners.my-attendance.view',
   '/learners/my-profile': 'learners.my-profile.view',
-  '/learners/my-academic-records': 'learners.my-academic-records.view',
 
   // Admin Routes
   '/learners/enquiries': 'learners.admissions.view',
@@ -609,20 +606,6 @@ export function GetPages(pathname: string): MenuGroup[] {
       menus: [
         // Learner Portal (Student Self-Service) - Only for role='student'
         {
-          href: '/learners/dashboard',
-          label: 'My Dashboard',
-          active: pathname === '/learners/dashboard',
-          icon: LayoutGrid,
-          submenus: []
-        },
-        {
-          href: '/learners/my-grades',
-          label: 'My Grades',
-          active: pathname === '/learners/my-grades',
-          icon: GraduationCap,
-          submenus: []
-        },
-        {
           href: '/learners/my-timetable',
           label: 'My Timetable',
           active: pathname === '/learners/my-timetable',
@@ -641,13 +624,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Profile',
           active: pathname === '/learners/my-profile',
           icon: Users,
-          submenus: []
-        },
-        {
-          href: '/learners/my-academic-records',
-          label: 'My Records',
-          active: pathname === '/learners/my-academic-records',
-          icon: FileText,
           submenus: []
         },
 
@@ -983,9 +959,6 @@ export function GetRoleBasedPages(
         if (menu.href.includes('/learners/my-')) {
           return false;
         }
-        if (menu.href === '/learners/dashboard') {
-          return false;
-        }
         return true;
       })
     })).filter((group) => group.menus.length > 0);
@@ -1062,7 +1035,7 @@ export function GetRoleBasedPages(
           }
 
           // Special case: Student portal pages (my-*) are ONLY for students
-          if (menu.href.includes('/learners/my-') || menu.href === '/learners/dashboard') {
+          if (menu.href.includes('/learners/my-')) {
             return userRole.role_key === 'student';
           }
 

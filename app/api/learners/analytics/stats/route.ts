@@ -1,9 +1,9 @@
 // ============================================
-// LEARNERS DASHBOARD STATS API
+// LEARNERS ANALYTICS STATS API
 // ============================================
 // Created: 2026-01-05
-// Updated: 2026-01-05 - Removed 'use cache' (incompatible with cookies-based auth)
-// Purpose: Server-side API for dashboard statistics
+// Updated: 2026-01-20 - Moved from /dashboard/stats to /analytics/stats
+// Purpose: Server-side API for analytics statistics
 // Fixes: CORS errors when calling from client components
 // Note: Caching handled by React Query on client side (staleTime: 0 for real-time)
 // Architecture: This route uses Supabase auth which requires cookies() - cannot use 'use cache'
@@ -15,9 +15,9 @@ import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
 
 /**
- * GET /api/learners/dashboard/stats
+ * GET /api/learners/analytics/stats
  *
- * Fetch comprehensive dashboard statistics
+ * Fetch comprehensive analytics statistics
  *
  * Caching Strategy:
  * - Server-side: No caching (uses cookies for auth - incompatible with 'use cache')
@@ -155,7 +155,7 @@ export async function GET(request: NextRequest) {
       }
     });
   } catch (error) {
-    console.error('[api/learners/dashboard/stats] Error:', error);
+    console.error('[api/learners/analytics/stats] Error:', error);
 
     return NextResponse.json(
       {

@@ -240,18 +240,14 @@ export const PERMISSION_CATEGORIES = [
 
       // Specific Page Access (Granular Permissions)
       // Admin Features
-      { key: 'learners.dashboard.view', label: 'View Learner Analytics Dashboard (Admin)' },
       { key: 'learners.profiles.view', label: 'View Learner Profiles (Admin)' },
       { key: 'learners.alumni.view', label: 'View Alumni & Graduates (Admin)' },
 
       // Learner Portal Features (Student Self-Service)
-      { key: 'learners.my-grades.view', label: 'View My Grades (Students)' },
       { key: 'learners.my-timetable.view', label: 'View My Timetable (Students)' },
       { key: 'learners.my-attendance.view', label: 'View My Attendance (Students)' },
       { key: 'learners.my-profile.view', label: 'View My Profile (Students)' },
       { key: 'learners.my-profile.edit', label: 'Edit My Profile (Students)' },
-      { key: 'learners.my-academic-records.view', label: 'View My Academic Records (Students)' },
-      { key: 'learners.my-academic-records.download', label: 'Download Academic Records (Students)' },
 
       // Legacy permissions (deprecated - use my-* versions above)
       { key: 'learners.attendance.view', label: 'View Own Attendance (Students) - DEPRECATED: Use learners.my-attendance.view' },
