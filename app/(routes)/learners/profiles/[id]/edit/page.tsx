@@ -80,6 +80,7 @@ const editLearnerSchema = z.object({
   religion: z.string().optional(),
   community: z.string().optional(),
   caste: z.string().optional(),
+  aadhar_number: z.string().optional(),
   blood_group: z.string().optional(),
   annual_income: z.string().optional(),
   last_school: z.string().optional(),
@@ -173,13 +174,36 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
       try {
         setLoading(true);
         const data = await LearnerProfileService.getLearnerProfile(id);
-        
+
         if (!data) {
           setLearner(null);
           return;
         }
-        
+
         setLearner(data);
+
+        // Pre-load cascading dropdown data to ensure values display correctly
+        // This prevents the race condition where form values are set before dropdown options load
+        if (data.institution_id) {
+          const degreesData = await DegreeService.getDegreesByInstitution(data.institution_id);
+          setDegrees(degreesData || []);
+        }
+        if (data.degree_id) {
+          const departmentsData = await DepartmentService.getDepartmentsByDegree(data.degree_id);
+          setDepartments(departmentsData || []);
+        }
+        if (data.department_id) {
+          const programsData = await ProgramService.getProgramsByDepartment(data.department_id);
+          setPrograms(programsData || []);
+        }
+        if (data.program_id) {
+          const semestersData = await SemesterService.getSemestersByProgram(data.program_id);
+          setSemesters(semestersData || []);
+        }
+        if (data.semester_id) {
+          const sectionsData = await SectionService.getSectionsBySemester(data.semester_id);
+          setSections(sectionsData || []);
+        }
 
         // Populate form with existing data
         form.reset({
@@ -202,6 +226,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
           religion: data.religion || '',
           community: data.community || '',
           caste: data.caste || '',
+          aadhar_number: data.aadhar_number || '',
           blood_group: data.blood_group || '',
           annual_income: data.annual_income || '',
           last_school: data.last_school || '',
@@ -372,6 +397,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
         religion: values.religion || undefined,
         community: values.community || undefined,
         caste: values.caste || undefined,
+        aadhar_number: values.aadhar_number || undefined,
         blood_group: values.blood_group || undefined,
         annual_income: values.annual_income || undefined,
         last_school: values.last_school || undefined,
@@ -638,6 +664,20 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
                             <FormLabel>Caste</FormLabel>
                             <FormControl>
                               <Input {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="aadhar_number"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Aadhar Number</FormLabel>
+                            <FormControl>
+                              <Input {...field} placeholder="XXXX-XXXX-XXXX" maxLength={12} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
