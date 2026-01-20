@@ -178,6 +178,63 @@ const formTabs = [
 ];
 
 /**
+ * Helper function to normalize 12th group/stream values
+ * Maps legacy database values to dropdown values
+ */
+function normalizeGroupValue(group: string | undefined): string {
+  if (!group) return '';
+
+  const normalized = group.toLowerCase().trim();
+
+  // Map legacy values to dropdown values
+  const groupMappings: Record<string, string> = {
+    'bio maths': 'pcbm',
+    'maths biology': 'pcbm',
+    'bio nursing': 'pcbz',
+    'maths computer': 'pccs',
+    'computer science': 'pccs',
+    'pcbm': 'pcbm',
+    'pccs': 'pccs',
+    'pcbz': 'pcbz',
+    'science': 'science',
+    'commerce': 'commerce',
+    'cseca': 'cseca',
+    'heca': 'heca',
+    'seca': 'seca',
+    'arts': 'arts',
+    'vocational': 'vocational',
+    'diploma': 'diploma',
+  };
+
+  return groupMappings[normalized] || '';
+}
+
+/**
+ * Helper function to normalize reference type values
+ * Maps legacy database values to dropdown values
+ */
+function normalizeReferenceType(referenceType: string | undefined): string {
+  if (!referenceType) return '';
+
+  const normalized = referenceType.toUpperCase().trim();
+
+  // Map legacy values to dropdown values
+  const referenceMappings: Record<string, string> = {
+    'STAFF': 'JKKN STAFF',
+    'JKKN STAFF': 'JKKN STAFF',
+    'CONSULTANT': 'EDUCATIONAL CONSULTANT',
+    'EDUCATIONAL CONSULTANT': 'EDUCATIONAL CONSULTANT',
+    'CURRENT/FORMER STUDENT': 'CURRENT/FORMER STUDENT',
+    'DIRECT APPLICATION': 'DIRECT APPLICATION',
+    'SOCIAL MEDIA': 'SOCIAL MEDIA',
+    'OTHERS': 'OTHERS',
+    'NO': '', // Legacy "NO" value maps to empty
+  };
+
+  return referenceMappings[normalized] || '';
+}
+
+/**
  * Helper function to convert location name back to ID for editing
  * Database stores names, but form needs IDs for dropdowns
  */
@@ -284,7 +341,19 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
   const form = useForm<EnquiryFormValues>({
     resolver: zodResolver(enquiryFormSchema),
     defaultValues: learner
-      ? {
+      ? (() => {
+          console.log('[enquiry-form] Loading learner data:', {
+            id: learner.id,
+            name: `${learner.first_name} ${learner.last_name}`,
+            institution_id: learner.institution_id,
+            degree_id: learner.degree_id,
+            department_id: learner.department_id,
+            program_id: learner.program_id,
+            academic_year_id: learner.academic_year_id,
+            semester_id: learner.semester_id,
+            section_id: learner.section_id,
+          });
+          return {
           // Basic Details
           enquiry_date: learner.enquiry_date || new Date().toISOString().split('T')[0],
           first_name: learner.first_name || '',
@@ -310,14 +379,14 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
 
           // Academic
           last_school: learner.last_school || '',
-          board_of_study: learner.board_of_study?.toLowerCase() || '',
+          board_of_study: learner.board_of_study?.toLowerCase().replace(/\s+/g, '_') || '',
           tenth_marks: {
             max_marks: learner.tenth_marks?.max_marks || '',
             obtained_marks: learner.tenth_marks?.obtained_marks || '',
             percentage: learner.tenth_marks?.percentage || '',
           },
           twelfth_marks: {
-            group: learner.twelfth_marks?.group || '',
+            group: normalizeGroupValue(learner.twelfth_marks?.group),
             max_marks: learner.twelfth_marks?.max_marks || '',
             obtained_marks: learner.twelfth_marks?.obtained_marks || '',
             percentage: learner.twelfth_marks?.percentage || '',
@@ -349,13 +418,41 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
           entry_type: learner.entry_type || '',
 
           // Course Selection
-          institution_id: learner.institution_id || '',
-          degree_id: learner.degree_id || '',
-          department_id: learner.department_id || '',
-          program_id: learner.program_id || '',
-          academic_year_id: learner.academic_year_id || '',
-          semester_id: learner.semester_id || '',
-          section_id: learner.section_id || '',
+          institution_id: (() => {
+            const id = learner.institution_id || '';
+            console.log('[enquiry-form] Institution ID:', id);
+            return id;
+          })(),
+          degree_id: (() => {
+            const id = learner.degree_id || '';
+            console.log('[enquiry-form] Degree ID:', id);
+            return id;
+          })(),
+          department_id: (() => {
+            const id = learner.department_id || '';
+            console.log('[enquiry-form] Department ID:', id);
+            return id;
+          })(),
+          program_id: (() => {
+            const id = learner.program_id || '';
+            console.log('[enquiry-form] Program ID:', id);
+            return id;
+          })(),
+          academic_year_id: (() => {
+            const id = learner.academic_year_id || '';
+            console.log('[enquiry-form] Academic Year ID:', id);
+            return id;
+          })(),
+          semester_id: (() => {
+            const id = learner.semester_id || '';
+            console.log('[enquiry-form] Semester ID:', id);
+            return id;
+          })(),
+          section_id: (() => {
+            const id = learner.section_id || '';
+            console.log('[enquiry-form] Section ID:', id);
+            return id;
+          })(),
           roll_number: learner.roll_number || '',
           register_number: learner.register_number || '',
           college_email: learner.college_email || '',
@@ -388,10 +485,11 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
           bus_required: learner.bus_required || false,
           bus_route: learner.bus_route || '',
           bus_pickup_location: learner.bus_pickup_location || '',
-          reference_type: learner.reference_type || '',
+          reference_type: normalizeReferenceType(learner.reference_type),
           reference_name: learner.reference_name || '',
           reference_contact: learner.reference_contact || '',
-        }
+        };
+        })()
       : {
           // Basic Details
           enquiry_date: new Date().toISOString().split('T')[0], // Auto-populate with today's date
