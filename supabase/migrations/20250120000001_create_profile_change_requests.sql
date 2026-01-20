@@ -3,7 +3,7 @@ CREATE TABLE profile_change_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Request metadata
-  learner_id UUID NOT NULL REFERENCES learner_profiles(id) ON DELETE CASCADE,
+  learner_id UUID NOT NULL REFERENCES learners_profiles(id) ON DELETE CASCADE,
   request_status TEXT NOT NULL DEFAULT 'pending' CHECK (request_status IN ('pending', 'approved', 'rejected', 'cancelled')),
 
   -- Change data (stores old vs new as JSONB for flexibility)
@@ -20,11 +20,13 @@ CREATE TABLE profile_change_requests (
 
   -- Audit fields
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-
-  -- Constraint: only one pending request per learner
-  CONSTRAINT unique_pending_request_per_learner UNIQUE (learner_id) WHERE (request_status = 'pending')
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Partial unique index: only one pending request per learner
+CREATE UNIQUE INDEX unique_pending_request_per_learner
+ON profile_change_requests(learner_id)
+WHERE (request_status = 'pending');
 
 -- Indexes for performance
 CREATE INDEX idx_change_requests_status ON profile_change_requests(request_status);
@@ -36,7 +38,7 @@ CREATE INDEX idx_change_requests_filter ON profile_change_requests(request_statu
 CREATE TABLE profile_change_audit_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  learner_id UUID NOT NULL REFERENCES learner_profiles(id) ON DELETE CASCADE,
+  learner_id UUID NOT NULL REFERENCES learners_profiles(id) ON DELETE CASCADE,
   change_request_id UUID REFERENCES profile_change_requests(id), -- Link to original request
 
   action_type TEXT NOT NULL CHECK (action_type IN ('approved', 'rejected', 'cancelled')),
