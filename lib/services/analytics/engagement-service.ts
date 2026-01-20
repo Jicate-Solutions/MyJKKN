@@ -197,6 +197,10 @@ export class EngagementService {
           (metrics30d.length || 1);
 
       // Query student_engagement_scores for actual engagement level counts and students list
+      // NOTE: Supabase default limit is 1000 rows. We set explicit limit to handle large institutions.
+      // For institutions with >10,000 students, consider implementing pagination.
+      const STUDENT_QUERY_LIMIT = 10000;
+
       let studentsQuery = supabase
         .from('student_engagement_scores')
         .select(`
@@ -205,7 +209,7 @@ export class EngagementService {
           sections!inner(section_name),
           programs(program_name),
           departments(department_name)
-        `)
+        `, { count: 'exact' }) // Get total count to detect if we hit the limit
         .eq('calculation_date', new Date().toISOString().split('T')[0]); // Today's scores
 
       // Apply level-specific filter - skip for "all" institutions
@@ -230,8 +234,18 @@ export class EngagementService {
           break;
       }
 
-      const { data: studentScores, error: studentsError } =
-        await studentsQuery.order('percentile_rank', { ascending: false });
+      const { data: studentScores, error: studentsError, count: totalStudentCount } =
+        await studentsQuery
+          .order('percentile_rank', { ascending: false })
+          .limit(STUDENT_QUERY_LIMIT);
+
+      // Log warning if we're hitting the limit (indicates data truncation)
+      if (totalStudentCount && totalStudentCount >= STUDENT_QUERY_LIMIT) {
+        console.warn(
+          `[EngagementService] Query limit reached: ${STUDENT_QUERY_LIMIT} students. ` +
+          `Total students: ${totalStudentCount}. Consider implementing pagination for this scope.`
+        );
+      }
 
       if (studentsError) {
         console.error(
@@ -351,7 +365,10 @@ export class EngagementService {
         return [];
       }
 
-      const { data: scores, error } = await supabase
+      // NOTE: Supabase default limit is 1000. Set explicit limit for large sections.
+      const STUDENT_QUERY_LIMIT = 10000;
+
+      const { data: scores, error, count } = await supabase
         .from('student_engagement_scores')
         .select(
           `
@@ -360,11 +377,21 @@ export class EngagementService {
           sections!inner(section_name),
           programs(program_name),
           departments(department_name)
-        `
+        `,
+          { count: 'exact' }
         )
         .eq('section_id', request.sectionId)
         .eq('calculation_date', new Date().toISOString().split('T')[0])
-        .order('percentile_rank', { ascending: false });
+        .order('percentile_rank', { ascending: false })
+        .limit(STUDENT_QUERY_LIMIT);
+
+      // Log warning if hitting limit
+      if (count && count >= STUDENT_QUERY_LIMIT) {
+        console.warn(
+          `[EngagementService] Section query limit reached: ${STUDENT_QUERY_LIMIT} students. ` +
+          `Total students in section: ${count}. Consider pagination.`
+        );
+      }
 
       if (error || !scores) {
         console.error(
@@ -416,6 +443,9 @@ export class EngagementService {
         return [];
       }
 
+      // NOTE: Supabase default limit is 1000. Set explicit limit for at-risk students.
+      const AT_RISK_QUERY_LIMIT = 10000;
+
       let query = supabase
         .from('student_engagement_scores')
         .select(
@@ -425,7 +455,8 @@ export class EngagementService {
           sections!inner(section_name),
           programs(program_name),
           departments(department_name)
-        `
+        `,
+          { count: 'exact' }
         )
         .eq('is_at_risk', true)
         .eq('calculation_date', new Date().toISOString().split('T')[0]);
@@ -452,9 +483,17 @@ export class EngagementService {
           break;
       }
 
-      const { data: students, error } = await query.order('percentile_rank', {
-        ascending: true
-      });
+      const { data: students, error, count } = await query
+        .order('percentile_rank', { ascending: true })
+        .limit(AT_RISK_QUERY_LIMIT);
+
+      // Log warning if hitting limit
+      if (count && count >= AT_RISK_QUERY_LIMIT) {
+        console.warn(
+          `[EngagementService] At-risk query limit reached: ${AT_RISK_QUERY_LIMIT} students. ` +
+          `Total at-risk students: ${count}. Immediate action required for large institutions.`
+        );
+      }
 
       if (error || !students) {
         console.error(
@@ -500,16 +539,29 @@ export class EngagementService {
         return [];
       }
 
-      const { data: overview, error } = await supabase
+      // NOTE: Limit for section comparison. Most semesters have < 100 sections.
+      const SECTION_COMPARISON_LIMIT = 500;
+
+      const { data: overview, error, count } = await supabase
         .from('mv_engagement_overview')
         .select(
           `
           *,
           sections!inner(section_name)
-        `
+        `,
+          { count: 'exact' }
         )
         .eq('semester_id', request.semesterId)
-        .not('section_id', 'is', null);
+        .not('section_id', 'is', null)
+        .limit(SECTION_COMPARISON_LIMIT);
+
+      // Log warning if hitting limit
+      if (count && count >= SECTION_COMPARISON_LIMIT) {
+        console.warn(
+          `[EngagementService] Section comparison limit reached: ${SECTION_COMPARISON_LIMIT} sections. ` +
+          `Total sections in semester: ${count}.`
+        );
+      }
 
       if (error || !overview) {
         console.error(

@@ -81,8 +81,13 @@ import { StudentDetailModal } from '@/components/analytics/student-detail-modal'
 import { SectionComparisonTable } from '@/components/analytics/section-comparison-table';
 import { LoginTrendChart } from '@/components/analytics/charts/login-trend-chart';
 import { EngagementDistributionChart } from '@/components/analytics/charts/engagement-distribution-chart';
+import { HierarchicalBreakdownChart } from '@/components/analytics/charts/hierarchical-breakdown-chart';
+import { EngagementComparisonChart } from '@/components/analytics/charts/engagement-comparison-chart';
+import { EngagementHeatmap } from '@/components/analytics/charts/engagement-heatmap';
+import { EngagementRadialChart } from '@/components/analytics/charts/engagement-radial-chart';
 import { useEngagementMetrics } from '@/hooks/analytics/use-engagement-metrics';
 import { useAtRiskStudents } from '@/hooks/analytics/use-at-risk-students';
+import { useHierarchyData } from '@/hooks/analytics/use-hierarchy-data';
 import type { OrganizationalLevel, EngagementLevel } from '@/types/analytics';
 
 const SEVERITY_COLORS = {
@@ -205,6 +210,19 @@ export default function ActivityPage() {
   } = useAtRiskStudents({
     level: engagementFilters?.level || 'institution',
     id: engagementFilters?.id || '',
+    enabled: activeTab === 'engagement' && !!engagementFilters?.id
+  });
+
+  // Hierarchy data for advanced charts
+  const {
+    data: hierarchyData,
+    isLoading: hierarchyLoading
+  } = useHierarchyData({
+    level: engagementFilters?.level === 'institution' ? 'department' :
+           engagementFilters?.level === 'department' ? 'program' :
+           engagementFilters?.level === 'program' ? 'semester' :
+           engagementFilters?.level === 'semester' ? 'section' : 'all',
+    parentId: engagementFilters?.id,
     enabled: activeTab === 'engagement' && !!engagementFilters?.id
   });
 
@@ -1064,30 +1082,170 @@ export default function ActivityPage() {
 
                 {/* Charts */}
                 {!engagementLoading && engagementMetrics && (
-                  <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Login Trend (30 days)</CardTitle>
-                        <CardDescription>Daily login activity over time</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <LoginTrendChart data={loginTrendData} height={300} />
-                      </CardContent>
-                    </Card>
+                  <>
+                    <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Login Trend (30 days)</CardTitle>
+                          <CardDescription>Daily login activity over time</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <LoginTrendChart data={loginTrendData} height={300} />
+                        </CardContent>
+                      </Card>
 
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Engagement Distribution</CardTitle>
-                        <CardDescription>Students by engagement level</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <EngagementDistributionChart
-                          data={engagementDistributionData}
-                          height={300}
-                        />
-                      </CardContent>
-                    </Card>
-                  </div>
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Engagement Distribution</CardTitle>
+                          <CardDescription>Students by engagement level</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <EngagementDistributionChart
+                            data={engagementDistributionData}
+                            height={300}
+                          />
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Advanced Hierarchical Charts */}
+                    {hierarchyData && hierarchyData.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Organizational Breakdown</CardTitle>
+                          <CardDescription>
+                            Engagement distribution across{' '}
+                            {engagementFilters?.level === 'institution'
+                              ? 'departments'
+                              : engagementFilters?.level === 'department'
+                              ? 'programs'
+                              : engagementFilters?.level === 'program'
+                              ? 'semesters'
+                              : engagementFilters?.level === 'semester'
+                              ? 'sections'
+                              : 'units'}
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <HierarchicalBreakdownChart
+                            data={hierarchyData}
+                            height={400}
+                            level={
+                              engagementFilters?.level === 'institution'
+                                ? 'department'
+                                : engagementFilters?.level === 'department'
+                                ? 'program'
+                                : engagementFilters?.level === 'program'
+                                ? 'semester'
+                                : engagementFilters?.level === 'semester'
+                                ? 'section'
+                                : 'institution'
+                            }
+                            onBarClick={(data) => {
+                              // Drill-down: Navigate to clicked entity
+                              const nextLevel: OrganizationalLevel =
+                                engagementFilters?.level === 'institution'
+                                  ? 'department'
+                                  : engagementFilters?.level === 'department'
+                                  ? 'program'
+                                  : engagementFilters?.level === 'program'
+                                  ? 'semester'
+                                  : engagementFilters?.level === 'semester'
+                                  ? 'section'
+                                  : 'institution';
+
+                              setEngagementFilters({
+                                ...engagementFilters,
+                                level: nextLevel,
+                                id: data.id
+                              });
+                            }}
+                          />
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Comparison Charts */}
+                    {hierarchyData && hierarchyData.length > 1 && (
+                      <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
+                        <Card>
+                          <CardHeader>
+                            <CardTitle>Active Students Comparison</CardTitle>
+                            <CardDescription>
+                              Percentage of active students by unit
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <EngagementComparisonChart
+                              data={hierarchyData}
+                              metric='active_percentage'
+                              height={350}
+                            />
+                          </CardContent>
+                        </Card>
+
+                        <Card>
+                          <CardHeader>
+                            <CardTitle>At-Risk Students Comparison</CardTitle>
+                            <CardDescription>
+                              Percentage of at-risk students by unit
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <EngagementComparisonChart
+                              data={hierarchyData.map(d => ({
+                                ...d,
+                                at_risk_percentage: d.total_students > 0
+                                  ? (d.at_risk / d.total_students) * 100
+                                  : 0,
+                                avg_logins_7d: 0,
+                                avg_session_duration: 0
+                              }))}
+                              metric='at_risk_percentage'
+                              height={350}
+                            />
+                          </CardContent>
+                        </Card>
+                      </div>
+                    )}
+
+                    {/* Radial Chart for Top Units */}
+                    {hierarchyData && hierarchyData.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Top Performing Units</CardTitle>
+                          <CardDescription>
+                            Units with highest student engagement
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <EngagementRadialChart
+                            data={hierarchyData
+                              .sort((a, b) => b.total_students - a.total_students)
+                              .slice(0, 7)
+                              .map((item, idx) => {
+                                const colors = [
+                                  '#3B82F6',
+                                  '#10B981',
+                                  '#F59E0B',
+                                  '#8B5CF6',
+                                  '#EC4899',
+                                  '#14B8A6',
+                                  '#F97316'
+                                ];
+                                return {
+                                  name: item.name,
+                                  value: item.high_engagement + item.medium_engagement,
+                                  fill: colors[idx % colors.length],
+                                  fullMark: item.total_students
+                                };
+                              })}
+                            height={350}
+                          />
+                        </CardContent>
+                      </Card>
+                    )}
+                  </>
                 )}
 
                 {/* Section Comparison (if semester selected) */}
