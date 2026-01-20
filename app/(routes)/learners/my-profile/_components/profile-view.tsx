@@ -238,7 +238,7 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
               <InfoField
                 label="Regulation"
                 value={
-                  (learner as any).regulation?.regulation_name ||
+                  (learner as any).regulation?.regulation_year ||
                   (learner as any).regulation?.regulation_code
                 }
                 icon={BookOpen}
