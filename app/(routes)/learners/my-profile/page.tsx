@@ -34,7 +34,7 @@ export default async function MyProfilePage() {
     redirect(`/auth/login?reason=${validation.reason}`);
   }
 
-  // Step 4: Fetch learner profile data
+  // Step 4: Fetch learner profile data with all relationships
   const { data: learnerProfile } = await supabase
     .from('learners_profiles')
     .select(`
@@ -45,6 +45,7 @@ export default async function MyProfilePage() {
       ),
       degree:degree_id (
         degree_name,
+        display_name,
         id
       ),
       department:department_id (
@@ -66,6 +67,16 @@ export default async function MyProfilePage() {
       ),
       academic_year:academic_year_id (
         academic_year_name,
+        id
+      ),
+      regulation:regulation_id (
+        regulation_name,
+        regulation_code,
+        id
+      ),
+      batch:batch_id (
+        batch_name,
+        batch_code,
         id
       )
     `)
