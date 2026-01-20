@@ -57,7 +57,8 @@ import {
   History,
   Sparkles,
   Bot,
-  UserCircle
+  UserCircle,
+  FileCheck
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
@@ -135,6 +136,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/alumni': 'learners.alumni.view',
   '/learners/alumni/[id]': 'learners.alumni.view',
   '/learners/analytics': 'learners.dashboard.view',
+  '/learners/change-requests': 'learners.change-requests.view',
+  '/learners/change-requests/[id]': 'learners.change-requests.view',
 
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
@@ -676,6 +679,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Alumni & Graduates',
           active: pathname.startsWith('/learners/alumni'),
           icon: Award,
+          submenus: []
+        },
+        {
+          href: '/learners/change-requests',
+          label: 'Change Requests',
+          active: pathname.startsWith('/learners/change-requests'),
+          icon: FileCheck,
           submenus: []
         }
       ]
