@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { learnerId: string } }
+  { params }: { params: Promise<{ learnerId: string }> }
 ) {
   try {
     const supabase = await createClient();
@@ -15,7 +15,8 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const result = await LearnerProfileChangeService.getPendingChangeRequest(params.learnerId);
+    const { learnerId } = await params;
+    const result = await LearnerProfileChangeService.getPendingChangeRequest(learnerId);
 
     if (!result) {
       return NextResponse.json({ error: 'No pending request found' }, { status: 404 });

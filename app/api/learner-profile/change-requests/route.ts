@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LearnerProfileChangeService } from '@/lib/services/learner-profile-change-service';
 import { createClient } from '@/lib/supabase/server';
-import { CreateChangeRequestDto } from '@/types/learner-profile-change';
+import { CreateChangeRequestDto, ChangeRequestStatus } from '@/types/learner-profile-change';
 
 /**
  * GET /api/learner-profile/change-requests
@@ -19,9 +19,9 @@ export async function GET(request: NextRequest) {
 
     // Get filters from query params
     const searchParams = request.nextUrl.searchParams;
-    const statusParam = searchParams.get('status');
+    const statusParam = searchParams.get('status') || 'pending';
     const filters = {
-      status: (statusParam as 'pending' | 'approved' | 'rejected' | 'cancelled') || 'pending',
+      status: statusParam as ChangeRequestStatus,
       institution_id: searchParams.get('institution_id') || undefined,
       department_id: searchParams.get('department_id') || undefined,
       page: parseInt(searchParams.get('page') || '1'),

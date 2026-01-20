@@ -1177,7 +1177,14 @@ export default function ActivityPage() {
                           </CardHeader>
                           <CardContent>
                             <EngagementComparisonChart
-                              data={hierarchyData}
+                              data={hierarchyData.map(d => ({
+                                ...d,
+                                at_risk_percentage: d.total_students > 0
+                                  ? (d.at_risk / d.total_students) * 100
+                                  : 0,
+                                avg_logins_7d: 0,
+                                avg_session_duration: 0
+                              }))}
                               metric='active_percentage'
                               height={350}
                             />

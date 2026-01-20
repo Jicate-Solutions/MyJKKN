@@ -6,7 +6,7 @@ import { RejectRequestDto } from '@/types/learner-profile-change';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createClient();
@@ -16,6 +16,7 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const { id } = await params;
     const body: RejectRequestDto = await request.json();
 
     // Validate rejection reason
@@ -27,7 +28,7 @@ export async function POST(
     }
 
     const result = await LearnerProfileChangeService.rejectChangeRequest(
-      params.id,
+      id,
       body,
       user.id
     );
