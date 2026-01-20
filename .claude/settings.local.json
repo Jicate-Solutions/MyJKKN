@@ -191,7 +191,8 @@
       "Bash(git push:*)",
       "Bash(git restore:*)",
       "Bash(psql:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(timeout 10 npm run type-check:*)"
     ],
     "deny": [],
     "ask": []
