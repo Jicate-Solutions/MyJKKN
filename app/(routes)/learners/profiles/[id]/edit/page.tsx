@@ -193,7 +193,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
           // Ensure current degree is in the list (even if institution_id doesn't match)
           if (data.degree_id && data.degree && !degrees.find(d => d.id === data.degree_id)) {
-            degrees = [...degrees, { id: data.degree.id, degree_name: data.degree.degree_name }];
+            degrees = [...degrees, data.degree as any];
           }
           setDegrees(degrees);
 
@@ -203,11 +203,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
           // Ensure current regulation is in the list
           if (data.regulation_id && data.regulation && !regulations.find(r => r.id === data.regulation_id)) {
-            regulations = [...regulations, {
-              id: data.regulation.id,
-              regulation_code: data.regulation.regulation_code,
-              regulation_year: data.regulation.regulation_year
-            }];
+            regulations = [...regulations, data.regulation as any];
           }
           setRegulations(regulations);
 
@@ -216,11 +212,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
           // Ensure current batch is in the list
           if (data.batch_id && data.batch && !batches.find(b => b.id === data.batch_id)) {
-            batches = [...batches, {
-              id: data.batch.id,
-              batch_name: data.batch.batch_name,
-              batch_code: data.batch.batch_code
-            }];
+            batches = [...batches, data.batch as any];
           }
           setBatches(batches);
 
@@ -230,13 +222,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
           // Ensure current academic year is in the list (even if institution_id doesn't match)
           if (data.academic_year_id && data.academic_year && !academicYearsOptions.find(ay => ay.id === data.academic_year_id)) {
-            academicYearsOptions = [...academicYearsOptions, {
-              id: data.academic_year.id,
-              academic_year_name: data.academic_year.academic_year_name,
-              start_date: data.academic_year.start_date,
-              end_date: data.academic_year.end_date,
-              is_active: data.academic_year.is_active
-            }];
+            academicYearsOptions = [...academicYearsOptions, data.academic_year as any];
           }
           setAcademicYears(academicYearsOptions);
         }
@@ -246,7 +232,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
           // Ensure current department is in the list
           if (data.department_id && data.department && !departments.find(d => d.id === data.department_id)) {
-            departments = [...departments, { id: data.department.id, department_name: data.department.department_name }];
+            departments = [...departments, data.department as any];
           }
           setDepartments(departments);
         }
@@ -256,7 +242,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
           // Ensure current program is in the list
           if (data.program_id && data.program && !programs.find(p => p.id === data.program_id)) {
-            programs = [...programs, { id: data.program.id, program_name: data.program.program_name }];
+            programs = [...programs, data.program as any];
           }
           setPrograms(programs);
         }
@@ -266,11 +252,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
           // Ensure current semester is in the list
           if (data.semester_id && data.semester && !semesters.find(s => s.id === data.semester_id)) {
-            semesters = [...semesters, {
-              id: data.semester.id,
-              semester_name: data.semester.semester_name,
-              semester_code: data.semester.semester_code
-            }];
+            semesters = [...semesters, data.semester as any];
           }
           setSemesters(semesters);
         }
@@ -280,7 +262,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
 
           // Ensure current section is in the list
           if (data.section_id && data.section && !sections.find(s => s.id === data.section_id)) {
-            sections = [...sections, { id: data.section.id, section_name: data.section.section_name }];
+            sections = [...sections, data.section as any];
           }
           setSections(sections);
         }
