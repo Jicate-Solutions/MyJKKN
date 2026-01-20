@@ -139,9 +139,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/alumni/[id]': 'learners.alumni.view',
   '/learners/analytics': 'learners.dashboard.view',
 
-  // Legacy routes (redirects)
-  '/learners/attendance': 'learners.my-attendance.view', // Redirects to /learners/my-attendance
-
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
   '/organizations/institutions': 'organizations.institutions.view',
@@ -982,8 +979,11 @@ export function GetRoleBasedPages(
     return allMenus.map((group) => ({
       ...group,
       menus: group.menus.filter((menu) => {
-        // Hide "My Attendance" from super admin (student-only page)
-        if (menu.href === '/learners/attendance') {
+        // Hide student portal pages (my-*) from super admin
+        if (menu.href.includes('/learners/my-')) {
+          return false;
+        }
+        if (menu.href === '/learners/dashboard') {
           return false;
         }
         return true;
@@ -1061,8 +1061,8 @@ export function GetRoleBasedPages(
             });
           }
 
-          // Special case: "My Attendance" is ONLY for students
-          if (menu.href === '/learners/attendance') {
+          // Special case: Student portal pages (my-*) are ONLY for students
+          if (menu.href.includes('/learners/my-') || menu.href === '/learners/dashboard') {
             return userRole.role_key === 'student';
           }
 
