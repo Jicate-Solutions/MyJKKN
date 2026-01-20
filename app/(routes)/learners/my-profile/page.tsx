@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import ProfilePageContent from './_components/profile-page-content';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 
 export const metadata = {
   title: 'My Profile | MyJKKN',
@@ -71,21 +73,37 @@ export default async function MyProfilePage() {
     .single();
 
   if (!learnerProfile) {
-    return <div>Profile not found</div>;
+    return (
+      <ContentLayout title="Profile Not Found">
+        <PageBreadcrumb
+          items={[
+            { label: 'Home', href: '/' },
+            { label: 'My Profile' },
+          ]}
+        />
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <h2 className="text-xl font-semibold mb-2">Profile Not Found</h2>
+          <p className="text-muted-foreground">
+            Your learner profile could not be found. Please contact support.
+          </p>
+        </div>
+      </ContentLayout>
+    );
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">My Profile</h1>
-          <p className="text-muted-foreground">
-            View and update your personal information
-          </p>
-        </div>
+    <ContentLayout title="My Profile">
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Learners Management' },
+          { label: 'My Profile' },
+        ]}
+      />
 
+      <div className="space-y-6 mt-6">
         <ProfilePageContent learner={learnerProfile} userId={user.id} />
       </div>
-    </div>
+    </ContentLayout>
   );
 }
