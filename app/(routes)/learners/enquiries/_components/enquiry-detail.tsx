@@ -365,6 +365,14 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                     </div>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
+                        Admission Year
+                      </h4>
+                      <p className='text-sm'>
+                        {enquiry.admission_year || 'Not specified'}
+                      </p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
                         Entry Type
                       </h4>
                       <p className='text-sm'>{enquiry.entry_type}</p>

@@ -36,6 +36,10 @@ import { usePrograms } from '@/hooks/organization/use-programs';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
+import { useQuery } from '@tanstack/react-query';
+import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
 import { useRegulations } from '@/hooks/academic/use-regulations';
 import { useBatches } from '@/hooks/academic/use-batches';
 import type { Degree, Department, Program, Semester } from '@/types/organizations';
@@ -62,7 +66,7 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
     institution_id: watchedInstitutionId || undefined,
   });
 
-  // Departments - filtered by degree (only fetch if degree is selected)
+  // Departments - filtered by degree
   const { data: departmentsData, isLoading: loadingDepartments } = useDepartments({
     degree_id: watchedDegreeId || undefined,
   });
@@ -88,15 +92,101 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
     institution_id: watchedInstitutionId || undefined,
   });
 
-  // Extract data arrays from React Query results
-  const degrees = degreesData?.data || [];
-  const departments = departmentsData?.data || [];
+  // Extract data arrays from React Query results and merge with current selections
+  const filteredDegrees = degreesData?.data || [];
+  const currentDegreeInFiltered = filteredDegrees.find((d: Degree) => d.id === watchedDegreeId);
+
+  // If degree not in filtered list, fetch it directly by ID
+  const { data: specificDegree } = useQuery({
+    queryKey: ['degree', watchedDegreeId],
+    queryFn: () => DegreeService.getDegree(watchedDegreeId),
+    enabled: !!watchedDegreeId && !currentDegreeInFiltered,
+  });
+
+  const currentDegreeToUse = currentDegreeInFiltered || specificDegree;
+  const degrees = currentDegreeToUse && !filteredDegrees.find((d: Degree) => d.id === watchedDegreeId)
+    ? [currentDegreeToUse, ...filteredDegrees]
+    : filteredDegrees;
+
+  console.log('[course-selection] Degree Debug:', {
+    watchedInstitutionId,
+    watchedDegreeId,
+    filteredDegreesCount: filteredDegrees.length,
+    currentDegreeInFiltered,
+    specificDegree,
+    currentDegreeToUse,
+    finalDegreesCount: degrees.length,
+    loadingDegrees
+  });
+
+  const filteredDepartments = departmentsData?.data || [];
+  const currentDepartmentInFiltered = filteredDepartments.find((d: Department) => d.id === watchedDepartmentId);
+
+  // If department not in filtered list, fetch it directly by ID
+  const { data: specificDepartment } = useQuery({
+    queryKey: ['department', watchedDepartmentId],
+    queryFn: () => DepartmentService.getDepartment(watchedDepartmentId),
+    enabled: !!watchedDepartmentId && !currentDepartmentInFiltered,
+  });
+
+  const currentDepartmentToUse = currentDepartmentInFiltered || specificDepartment;
+  const departments = currentDepartmentToUse && !filteredDepartments.find((d: Department) => d.id === watchedDepartmentId)
+    ? [currentDepartmentToUse, ...filteredDepartments]
+    : filteredDepartments;
+
+  console.log('[course-selection] Department Debug:', {
+    watchedDegreeId,
+    watchedDepartmentId,
+    filteredDepartmentsCount: filteredDepartments.length,
+    currentDepartmentInFiltered,
+    specificDepartment,
+    currentDepartmentToUse,
+    finalDepartmentsCount: departments.length,
+    loadingDepartments
+  });
+
   const programs = programsData?.data || [];
   const semesters = semestersData?.data || [];
   const sections = sectionsData?.data || [];
 
-  // Filter active academic years
-  const activeAcademicYears = academicYears?.filter((year: AcademicYear) => year.is_active) || [];
+  // Filter active academic years and include current selection if not in filtered list
+  const watchedAcademicYearId = form.watch('academic_year_id');
+
+  // First, check if current selection exists in institution-filtered list
+  const currentYearInFiltered = academicYears?.find((y: AcademicYear) => y.id === watchedAcademicYearId);
+
+  // If not in filtered list, fetch it directly by ID
+  const { data: specificAcademicYear } = useQuery({
+    queryKey: ['academic-year', watchedAcademicYearId],
+    queryFn: () => AcademicYearService.getAcademicYear(watchedAcademicYearId),
+    enabled: !!watchedAcademicYearId && !currentYearInFiltered, // Only fetch if we have an ID and it's not in the filtered list
+  });
+
+  // Filter for active years
+  const filteredAcademicYears = academicYears?.filter((year: AcademicYear) => year.is_active) || [];
+
+  // Determine which year to use: from filtered list or fetched specifically
+  const currentAcademicYearToUse = currentYearInFiltered || specificAcademicYear;
+
+  // If current year exists but is not active or not in filtered list, still include it
+  const activeAcademicYears = currentAcademicYearToUse && !filteredAcademicYears.find((y: AcademicYear) => y.id === watchedAcademicYearId)
+    ? [currentAcademicYearToUse, ...filteredAcademicYears]
+    : filteredAcademicYears;
+
+  console.log('[course-selection] Academic Year Debug:', {
+    watchedInstitutionId,
+    watchedAcademicYearId,
+    academicYearsCount: academicYears?.length || 0,
+    academicYearsData: academicYears,
+    currentYearInFiltered,
+    specificAcademicYear,
+    currentAcademicYearToUse,
+    filteredAcademicYearsCount: filteredAcademicYears.length,
+    filteredAcademicYearsData: filteredAcademicYears,
+    finalAcademicYearsCount: activeAcademicYears.length,
+    finalAcademicYearsData: activeAcademicYears,
+    loadingAcademicYears
+  });
 
   return (
     <div className="space-y-6">
@@ -177,11 +267,14 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
               </FormLabel>
               <Select
                 onValueChange={(value) => {
+                  const oldValue = field.value;
                   field.onChange(value);
-                  // Reset dependent fields
-                  form.setValue('degree_id', '');
-                  form.setValue('department_id', '');
-                  form.setValue('program_id', '');
+                  // Only reset dependent fields if institution is actually changing (not initial load)
+                  if (oldValue && oldValue !== value) {
+                    form.setValue('degree_id', '');
+                    form.setValue('department_id', '');
+                    form.setValue('program_id', '');
+                  }
                 }}
                 value={field.value || ''}
               >
@@ -212,10 +305,13 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
               <FormLabel>Degree <span className="text-red-500">*</span></FormLabel>
               <Select
                 onValueChange={(value) => {
+                  const oldValue = field.value;
                   field.onChange(value);
-                  // Reset dependent fields
-                  form.setValue('department_id', '');
-                  form.setValue('program_id', '');
+                  // Only reset dependent fields if degree is actually changing (not initial load)
+                  if (oldValue && oldValue !== value) {
+                    form.setValue('department_id', '');
+                    form.setValue('program_id', '');
+                  }
                 }}
                 value={field.value || ''}
                 disabled={!watchedInstitutionId || loadingDegrees}
@@ -260,9 +356,12 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
               <FormLabel>Department <span className="text-red-500">*</span></FormLabel>
               <Select
                 onValueChange={(value) => {
+                  const oldValue = field.value;
                   field.onChange(value);
-                  // Reset dependent fields
-                  form.setValue('program_id', '');
+                  // Only reset dependent field if department is actually changing (not initial load)
+                  if (oldValue && oldValue !== value) {
+                    form.setValue('program_id', '');
+                  }
                 }}
                 value={field.value || ''}
                 disabled={!watchedDegreeId || loadingDepartments}
@@ -336,10 +435,13 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
               </FormLabel>
               <Select
                 onValueChange={(value) => {
+                  const oldValue = field.value;
                   field.onChange(value);
-                  // Reset dependent fields
-                  form.setValue('semester_id', '');
-                  form.setValue('section_id', '');
+                  // Only reset dependent fields if program is actually changing (not initial load)
+                  if (oldValue && oldValue !== value) {
+                    form.setValue('semester_id', '');
+                    form.setValue('section_id', '');
+                  }
                 }}
                 value={field.value || ''}
                 disabled={!watchedDepartmentId || loadingPrograms}
@@ -429,9 +531,12 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
               </FormLabel>
               <Select
                 onValueChange={(value) => {
+                  const oldValue = field.value;
                   field.onChange(value);
-                  // Reset dependent field
-                  form.setValue('section_id', '');
+                  // Only reset dependent field if semester is actually changing (not initial load)
+                  if (oldValue && oldValue !== value) {
+                    form.setValue('section_id', '');
+                  }
                 }}
                 value={field.value || ''}
                 disabled={!watchedProgramId || loadingSemesters}
