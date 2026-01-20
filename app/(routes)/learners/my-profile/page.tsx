@@ -34,7 +34,7 @@ export default async function MyProfilePage() {
 
   // Step 4: Fetch learner profile data
   const { data: learnerProfile } = await supabase
-    .from('learner_profiles')
+    .from('learners_profiles')
     .select(`
       *,
       institution:institution_id (

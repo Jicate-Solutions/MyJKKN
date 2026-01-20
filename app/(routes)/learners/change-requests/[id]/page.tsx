@@ -117,7 +117,7 @@ export default async function RequestDetailPage({ params }: RequestDetailPagePro
 
   // 6. Build full learner profile for display
   const { data: fullLearner } = await supabase
-    .from('learner_profiles')
+    .from('learners_profiles')
     .select(`
       *,
       institution:institutions(id, name),
