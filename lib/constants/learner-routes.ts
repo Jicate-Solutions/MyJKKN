@@ -30,27 +30,6 @@ export const LEARNER_ROUTES: Record<string, LearnerRoute> = {
   // CATEGORY: PORTAL (Core learner features in /learners)
   // ========================================
 
-  'learners-dashboard': {
-    path: '/learners/dashboard',
-    category: 'portal',
-    module: 'learners',
-    feature: 'Dashboard',
-    permission: 'learners.dashboard.view',
-    description: 'Learner home dashboard with grades summary, attendance, upcoming classes',
-    allowedStatuses: ['active', 'graduated'],
-    isNew: true,
-  },
-
-  'learners-my-grades': {
-    path: '/learners/my-grades',
-    category: 'portal',
-    module: 'learners',
-    feature: 'My Grades',
-    permission: 'learners.my-grades.view',
-    description: 'View personal grades from LTI tools (MATLAB, external systems)',
-    allowedStatuses: ['active', 'graduated'],
-  },
-
   'learners-my-timetable': {
     path: '/learners/my-timetable',
     category: 'portal',
@@ -80,17 +59,6 @@ export const LEARNER_ROUTES: Record<string, LearnerRoute> = {
     feature: 'My Profile',
     permission: 'learners.my-profile.view',
     description: 'Personal profile, contact information, and account settings',
-    allowedStatuses: ['active', 'graduated'],
-    isNew: true,
-  },
-
-  'learners-my-academic-records': {
-    path: '/learners/my-academic-records',
-    category: 'portal',
-    module: 'learners',
-    feature: 'My Academic Records',
-    permission: 'learners.my-academic-records.view',
-    description: 'Transcripts, certificates, achievements, and academic history',
     allowedStatuses: ['active', 'graduated'],
     isNew: true,
   },
