@@ -70,7 +70,7 @@ export default async function MyProfilePage() {
         id
       ),
       regulation:regulation_id (
-        regulation_name,
+        regulation_year,
         regulation_code,
         id
       ),
