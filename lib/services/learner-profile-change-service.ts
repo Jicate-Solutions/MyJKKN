@@ -27,7 +27,7 @@ export class LearnerProfileChangeService {
 
     // Validate learner exists and is active
     const { data: learner, error: learnerError } = await supabase
-      .from('learner_profiles')
+      .from('learners_profiles')
       .select('id, lifecycle_status, first_name, last_name')
       .eq('id', dto.learner_id)
       .single();
@@ -69,7 +69,7 @@ export class LearnerProfileChangeService {
       })
       .select(`
         *,
-        learner:learner_profiles(id, first_name, last_name, roll_number),
+        learner:learners_profiles(id, first_name, last_name, roll_number),
         submitter:profiles!submitted_by(id, full_name, email)
       `)
       .single();
@@ -94,7 +94,7 @@ export class LearnerProfileChangeService {
       .from('profile_change_requests')
       .select(`
         *,
-        learner:learner_profiles(
+        learner:learners_profiles(
           id, first_name, last_name, roll_number, college_email,
           institution_id, department_id,
           institution:institutions(id, name),
@@ -125,7 +125,7 @@ export class LearnerProfileChangeService {
       .from('profile_change_requests')
       .select(`
         *,
-        learner:learner_profiles(id, first_name, last_name),
+        learner:learners_profiles(id, first_name, last_name),
         submitter:profiles!submitted_by(id, full_name, email)
       `)
       .eq('learner_id', learnerId)
@@ -149,7 +149,7 @@ export class LearnerProfileChangeService {
       .select(
         `
         *,
-        learner:learner_profiles(
+        learner:learners_profiles(
           id, first_name, last_name, roll_number, college_email,
           institution_id, department_id,
           institution:institutions(id, name),
@@ -240,7 +240,7 @@ export class LearnerProfileChangeService {
       });
 
       const { error: updateError } = await supabase
-        .from('learner_profiles')
+        .from('learners_profiles')
         .update(updateData)
         .eq('id', request.learner_id);
 
@@ -262,7 +262,7 @@ export class LearnerProfileChangeService {
         .eq('id', requestId)
         .select(`
           *,
-          learner:learner_profiles(id, first_name, last_name, roll_number),
+          learner:learners_profiles(id, first_name, last_name, roll_number),
           submitter:profiles!submitted_by(id, full_name, email),
           reviewer:profiles!reviewed_by(id, full_name, email)
         `)
@@ -335,7 +335,7 @@ export class LearnerProfileChangeService {
       .eq('id', requestId)
       .select(`
         *,
-        learner:learner_profiles(id, first_name, last_name, roll_number),
+        learner:learners_profiles(id, first_name, last_name, roll_number),
         submitter:profiles!submitted_by(id, full_name, email),
         reviewer:profiles!reviewed_by(id, full_name, email)
       `)
@@ -391,7 +391,7 @@ export class LearnerProfileChangeService {
       .eq('id', requestId)
       .select(`
         *,
-        learner:learner_profiles(id, first_name, last_name),
+        learner:learners_profiles(id, first_name, last_name),
         submitter:profiles!submitted_by(id, full_name, email)
       `)
       .single();
@@ -436,7 +436,7 @@ export class LearnerProfileChangeService {
 
     // Get learner's institution and department
     const { data: learner } = await supabase
-      .from('learner_profiles')
+      .from('learners_profiles')
       .select('institution_id, department_id')
       .eq('id', learnerId)
       .single();
