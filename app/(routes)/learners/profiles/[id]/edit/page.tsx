@@ -44,6 +44,8 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
+import { RegulationService } from '@/lib/services/organization/regulation-service';
+import { BatchService } from '@/lib/services/organization/batch-service';
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
 import Link from 'next/link';
 
@@ -95,6 +97,8 @@ const editLearnerSchema = z.object({
   section_id: z.string().min(1, 'Section is required'),
   register_number: z.string().optional(),
   entry_type: z.string().optional(),
+  regulation_id: z.string().optional(),
+  batch_id: z.string().optional(),
 
   // Address
   permanent_address: z.string().optional(),
@@ -132,6 +136,8 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
   const [programs, setPrograms] = useState<any[]>([]);
   const [semesters, setSemesters] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
+  const [regulations, setRegulations] = useState<any[]>([]);
+  const [batches, setBatches] = useState<any[]>([]);
 
   // Check for permission to edit learner
   useEffect(() => {
@@ -187,6 +193,13 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
         if (data.institution_id) {
           const degreesData = await DegreeService.getDegreesByInstitution(data.institution_id);
           setDegrees(degreesData || []);
+
+          // Load regulations and batches for this institution
+          const regulationsData = await RegulationService.getRegulationsByInstitution(data.institution_id);
+          setRegulations(regulationsData || []);
+
+          const batchesData = await BatchService.getBatchesByInstitution(data.institution_id);
+          setBatches(batchesData || []);
         }
         if (data.degree_id) {
           const departmentsData = await DepartmentService.getDepartmentsByDegree(data.degree_id);
@@ -239,6 +252,8 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
           section_id: data.section_id || '',
           register_number: data.register_number || '',
           entry_type: data.entry_type || '',
+          regulation_id: data.regulation_id || '',
+          batch_id: data.batch_id || '',
           permanent_address: data.permanent_address_street || '',
           communication_address: '',
           city: '',
@@ -373,6 +388,44 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
     fetchSections();
   }, [watchSemesterId]);
 
+  // Fetch regulations based on institution
+  useEffect(() => {
+    if (!watchInstitutionId) {
+      setRegulations([]);
+      return;
+    }
+
+    async function fetchRegulations() {
+      try {
+        const data = await RegulationService.getRegulationsByInstitution(watchInstitutionId || '');
+        setRegulations(data || []);
+      } catch (error) {
+        console.error('[learners/profiles/[id]/edit] Error fetching regulations:', error);
+      }
+    }
+
+    fetchRegulations();
+  }, [watchInstitutionId]);
+
+  // Fetch batches based on institution
+  useEffect(() => {
+    if (!watchInstitutionId) {
+      setBatches([]);
+      return;
+    }
+
+    async function fetchBatches() {
+      try {
+        const data = await BatchService.getBatchesByInstitution(watchInstitutionId || '');
+        setBatches(data || []);
+      } catch (error) {
+        console.error('[learners/profiles/[id]/edit] Error fetching batches:', error);
+      }
+    }
+
+    fetchBatches();
+  }, [watchInstitutionId]);
+
   const onSubmit = async (values: EditLearnerFormValues) => {
     try {
       setSaving(true);
@@ -410,6 +463,8 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
         section_id: values.section_id,
         register_number: values.register_number || undefined,
         entry_type: values.entry_type || undefined,
+        regulation_id: values.regulation_id || undefined,
+        batch_id: values.batch_id || undefined,
         permanent_address_street: values.permanent_address || undefined,
         permanent_address_state: values.state || undefined,
         permanent_address_pin_code: values.pincode || undefined,
@@ -883,7 +938,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
                               <SelectContent>
                                 {institutions.map((inst) => (
                                   <SelectItem key={inst.id} value={inst.id}>
-                                    {inst.institution_name}
+                                    {inst.name}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -1064,6 +1119,64 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
                                 {academicYears.map((year) => (
                                   <SelectItem key={year.id} value={year.id}>
                                     {year.academic_year_name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="regulation_id"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Regulation</FormLabel>
+                            <Select
+                              onValueChange={field.onChange}
+                              value={field.value}
+                              disabled={!watchInstitutionId}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select regulation" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {regulations.map((reg) => (
+                                  <SelectItem key={reg.id} value={reg.id}>
+                                    {reg.regulation_year || reg.regulation_code}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="batch_id"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Batch</FormLabel>
+                            <Select
+                              onValueChange={field.onChange}
+                              value={field.value}
+                              disabled={!watchInstitutionId}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select batch" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {batches.map((batch) => (
+                                  <SelectItem key={batch.id} value={batch.id}>
+                                    {batch.batch_name || batch.batch_code}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
