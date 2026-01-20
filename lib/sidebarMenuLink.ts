@@ -113,6 +113,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Learners Module (Unified) - Using Granular Permissions
   '/learners': 'learners.dashboard.view',
+
+  // Learner Portal Routes (Student Self-Service)
+  '/learners/dashboard': 'learners.dashboard.view',
+  '/learners/my-grades': 'learners.my-grades.view',
+  '/learners/my-timetable': 'learners.my-timetable.view',
+  '/learners/my-attendance': 'learners.my-attendance.view',
+  '/learners/my-profile': 'learners.my-profile.view',
+  '/learners/my-academic-records': 'learners.my-academic-records.view',
+
+  // Admin Routes
   '/learners/enquiries': 'learners.admissions.view',
   '/learners/enquiries/new': 'learners.admissions.create',
   '/learners/enquiries/[id]': 'learners.admissions.view',
@@ -125,11 +135,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/profiles/[id]/edit': 'learners.edit',
   '/learners/profiles/bulk-edit': 'learners.bulk_edit',
   '/learners/profiles/promotion': 'learners.promotion.view',
-  '/learners/attendance': 'learners.attendance.view',
-  '/learners/my-timetable': 'learners.timetable.view',
   '/learners/alumni': 'learners.alumni.view',
   '/learners/alumni/[id]': 'learners.alumni.view',
   '/learners/analytics': 'learners.dashboard.view',
+
+  // Legacy routes (redirects)
+  '/learners/attendance': 'learners.my-attendance.view', // Redirects to /learners/my-attendance
 
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
@@ -599,6 +610,51 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Learners Management',
       menus: [
+        // Learner Portal (Student Self-Service) - Only for role='student'
+        {
+          href: '/learners/dashboard',
+          label: 'My Dashboard',
+          active: pathname === '/learners/dashboard',
+          icon: LayoutGrid,
+          submenus: []
+        },
+        {
+          href: '/learners/my-grades',
+          label: 'My Grades',
+          active: pathname === '/learners/my-grades',
+          icon: GraduationCap,
+          submenus: []
+        },
+        {
+          href: '/learners/my-timetable',
+          label: 'My Timetable',
+          active: pathname === '/learners/my-timetable',
+          icon: CalendarClock,
+          submenus: []
+        },
+        {
+          href: '/learners/my-attendance',
+          label: 'My Attendance',
+          active: pathname.startsWith('/learners/my-attendance'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          href: '/learners/my-profile',
+          label: 'My Profile',
+          active: pathname === '/learners/my-profile',
+          icon: Users,
+          submenus: []
+        },
+        {
+          href: '/learners/my-academic-records',
+          label: 'My Records',
+          active: pathname === '/learners/my-academic-records',
+          icon: FileText,
+          submenus: []
+        },
+
+        // Admin Features
         {
           href: '/learners/analytics',
           label: 'Analytics Dashboard',
@@ -641,20 +697,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname.startsWith('/learners/profiles/promotion')
             }
           ]
-        },
-        {
-          href: '/learners/attendance',
-          label: 'My Attendance',
-          active: pathname.startsWith('/learners/attendance'),
-          icon: ClipboardCheck,
-          submenus: []
-        },
-        {
-          href: '/learners/my-timetable',
-          label: 'My Timetable',
-          active: pathname.startsWith('/learners/my-timetable'),
-          icon: CalendarClock,
-          submenus: []
         },
         {
           href: '/learners/alumni',
