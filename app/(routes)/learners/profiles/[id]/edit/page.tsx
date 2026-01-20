@@ -537,9 +537,9 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                <SelectItem value="male">Male</SelectItem>
-                                <SelectItem value="female">Female</SelectItem>
-                                <SelectItem value="other">Other</SelectItem>
+                                <SelectItem value="MALE">Male</SelectItem>
+                                <SelectItem value="FEMALE">Female</SelectItem>
+                                <SelectItem value="OTHER">Other</SelectItem>
                               </SelectContent>
                             </Select>
                             <FormMessage />
@@ -553,9 +553,25 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Blood Group</FormLabel>
-                            <FormControl>
-                              <Input {...field} placeholder="e.g., A+, B-, O+" />
-                            </FormControl>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select blood group" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="A+">A+</SelectItem>
+                                <SelectItem value="A-">A-</SelectItem>
+                                <SelectItem value="B+">B+</SelectItem>
+                                <SelectItem value="B-">B-</SelectItem>
+                                <SelectItem value="AB+">AB+</SelectItem>
+                                <SelectItem value="AB-">AB-</SelectItem>
+                                <SelectItem value="O+">O+</SelectItem>
+                                <SelectItem value="O-">O-</SelectItem>
+                                <SelectItem value="A1+">A1+</SelectItem>
+                                <SelectItem value="A1B">A1B</SelectItem>
+                              </SelectContent>
+                            </Select>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -567,9 +583,19 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Religion</FormLabel>
-                            <FormControl>
-                              <Input {...field} />
-                            </FormControl>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select religion" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="HINDU">Hindu</SelectItem>
+                                <SelectItem value="CHRISTIAN">Christian</SelectItem>
+                                <SelectItem value="MUSLIM">Muslim</SelectItem>
+                                <SelectItem value="OTHERS">Others</SelectItem>
+                              </SelectContent>
+                            </Select>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -581,9 +607,24 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Community</FormLabel>
-                            <FormControl>
-                              <Input {...field} />
-                            </FormControl>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select community" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="OC">OC</SelectItem>
+                                <SelectItem value="BC">BC</SelectItem>
+                                <SelectItem value="BCM">BCM</SelectItem>
+                                <SelectItem value="MBC">MBC</SelectItem>
+                                <SelectItem value="DNC">DNC</SelectItem>
+                                <SelectItem value="BC-CC">BC-CC</SelectItem>
+                                <SelectItem value="SC">SC</SelectItem>
+                                <SelectItem value="ST">ST</SelectItem>
+                                <SelectItem value="SC (A)">SC (A)</SelectItem>
+                              </SelectContent>
+                            </Select>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -1129,9 +1170,10 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                <SelectItem value="regular">Regular</SelectItem>
-                                <SelectItem value="lateral">Lateral Entry</SelectItem>
-                                <SelectItem value="transfer">Transfer</SelectItem>
+                                <SelectItem value="FIRST YEAR">First Year</SelectItem>
+                                <SelectItem value="LATERAL ENTRY">Lateral Entry</SelectItem>
+                                <SelectItem value="RE-ADMISSION">Re-Admission</SelectItem>
+                                <SelectItem value="COLLEGE TRANSFER">College Transfer</SelectItem>
                               </SelectContent>
                             </Select>
                             <FormMessage />
@@ -1164,8 +1206,9 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                <SelectItem value="day_scholar">Day Scholar</SelectItem>
-                                <SelectItem value="hostel">Hostel</SelectItem>
+                                <SelectItem value="HOSTEL">Hostel</SelectItem>
+                                <SelectItem value="DAY SCHOLAR">Day Scholar</SelectItem>
+                                <SelectItem value="HOME">Home</SelectItem>
                               </SelectContent>
                             </Select>
                             <FormMessage />
