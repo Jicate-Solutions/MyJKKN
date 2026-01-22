@@ -37,7 +37,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -92,6 +91,9 @@ export function DataTableRowActions<TData>({
       await deleteMutation.mutateAsync(learner.id);
       toast.success('Student profile deleted successfully');
       setShowDeleteDialog(false);
+
+      // Refresh server component data for real-time update
+      router.refresh();
     } catch (error) {
       console.error('[row-actions] Error deleting profile:', error);
       toast.error('Failed to delete profile. Please try again.');
@@ -123,6 +125,9 @@ export function DataTableRowActions<TData>({
       toast.success(`Status updated to ${statusLabels[selectedStatus]}`);
       setShowStatusDialog(false);
       setSelectedStatus('');
+
+      // Refresh server component data for real-time update
+      router.refresh();
     } catch (error) {
       console.error('[row-actions] Error updating status:', error);
       toast.error('Failed to update status. Please try again.');
@@ -230,13 +235,13 @@ export function DataTableRowActions<TData>({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
+            <Button
               onClick={handleDelete}
               disabled={deleteMutation.isPending}
               className="bg-red-600 hover:bg-red-700"
             >
               {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -257,12 +262,12 @@ export function DataTableRowActions<TData>({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={updateMutation.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
+            <Button
               onClick={confirmStatusUpdate}
               disabled={updateMutation.isPending}
             >
               {updateMutation.isPending ? 'Updating...' : 'Update Status'}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

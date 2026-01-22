@@ -54,7 +54,7 @@ import toast from 'react-hot-toast';
  */
 const enquiryFormSchema = z.object({
   // Basic Details
-  enquiry_date: z.string().optional(),
+  enquiry_date: z.string().nullable().optional(),
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().min(1, 'Last name is required'),
   date_of_birth: z.string().min(1, 'Date of birth is required'),
@@ -62,61 +62,61 @@ const enquiryFormSchema = z.object({
   religion: z.string().min(1, 'Religion is required'),
   community: z.string().min(1, 'Community is required'),
   caste: z.string().min(1, 'Caste is required'),
-  aadhar_number: z.string().optional(),
-  blood_group: z.string().optional(),
-  student_photo_url: z.string().optional(),
-  admission_year: z.number().optional(),
+  aadhar_number: z.string().nullable().optional(),
+  blood_group: z.string().nullable().optional(),
+  student_photo_url: z.string().nullable().optional(),
+  admission_year: z.number().nullable().optional(),
 
   // Family Information
   father_name: z.string().min(1, "Father's name is required"),
-  father_occupation: z.string().optional(),
-  father_mobile: z.string().optional(),
+  father_occupation: z.string().nullable().optional(),
+  father_mobile: z.string().nullable().optional(),
   mother_name: z.string().min(1, "Mother's name is required"),
-  mother_occupation: z.string().optional(),
-  mother_mobile: z.string().optional(),
-  annual_income: z.string().optional(),
+  mother_occupation: z.string().nullable().optional(),
+  mother_mobile: z.string().nullable().optional(),
+  annual_income: z.string().nullable().optional(),
 
   // Academic Information
-  last_school: z.string().optional(),
-  board_of_study: z.string().optional(),
+  last_school: z.string().nullable().optional(),
+  board_of_study: z.string().nullable().optional(),
   tenth_marks: z.object({
-    max_marks: z.string().optional(),
-    obtained_marks: z.string().optional(),
-    percentage: z.string().optional(),
-  }).optional(),
+    max_marks: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    obtained_marks: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    percentage: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+  }).nullable().optional(),
   twelfth_marks: z.object({
-    group: z.string().optional(),
-    max_marks: z.string().optional(),
-    obtained_marks: z.string().optional(),
-    percentage: z.string().optional(),
+    group: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    max_marks: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    obtained_marks: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    percentage: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
     subjects: z.object({
       // Science subjects
-      physics: z.string().optional(),
-      chemistry: z.string().optional(),
-      mathematics: z.string().optional(),
-      biology: z.string().optional(),
-      botany: z.string().optional(),
-      zoology: z.string().optional(),
-      computer_science: z.string().optional(),
+      physics: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+      chemistry: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+      mathematics: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+      biology: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+      botany: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+      zoology: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+      computer_science: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
       // Commerce subjects
-      accountancy: z.string().optional(),
-      commerce: z.string().optional(),
-      economics: z.string().optional(),
-      statistics: z.string().optional(),
+      accountancy: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+      commerce: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+      economics: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+      statistics: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
       // Arts subjects
-      history: z.string().optional(),
-      geography: z.string().optional(),
+      history: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+      geography: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
     }).optional(),
-  }).optional(),
-  neet_roll_number: z.string().optional(),
-  neet_score: z.string().optional(),
-  medical_cutoff_marks: z.string().optional(),
-  engineering_cutoff_marks: z.string().optional(),
-  counseling_applied: z.boolean().optional(),
-  counseling_number: z.string().optional(),
+  }).nullable().optional(),
+  neet_roll_number: z.string().nullable().optional(),
+  neet_score: z.string().nullable().optional(),
+  medical_cutoff_marks: z.string().nullable().optional(),
+  engineering_cutoff_marks: z.string().nullable().optional(),
+  counseling_applied: z.boolean().nullable().optional(),
+  counseling_number: z.string().nullable().optional(),
   scholarship_type: z.string().min(1, 'Scholarship type is required'),
-  quota: z.string().optional(),
-  category: z.string().optional(),
+  quota: z.string().nullable().optional(),
+  category: z.string().nullable().optional(),
   entry_type: z.string().min(1, 'Entry type is required'),
 
   // Course Selection
@@ -127,15 +127,15 @@ const enquiryFormSchema = z.object({
   academic_year_id: z.string().min(1, 'Academic year is required'),
   semester_id: z.string().min(1, 'Semester is required'),
   section_id: z.string().min(1, 'Section is required'),
-  roll_number: z.string().optional(),
-  register_number: z.string().optional(),
-  college_email: z.string().optional(),
-  regulation_id: z.string().optional(),
-  batch_id: z.string().optional(),
+  roll_number: z.string().nullable().optional(),
+  register_number: z.string().nullable().optional(),
+  college_email: z.string().nullable().optional(),
+  regulation_id: z.string().nullable().optional(),
+  batch_id: z.string().nullable().optional(),
 
   // Contact Details
   student_mobile: z.string().min(1, "Student's mobile number is required"),
-  student_email: z.string().optional(),
+  student_email: z.string().nullable().optional(),
   permanent_address_street: z.string().min(1, 'Street address is required'),
   permanent_address_taluk: z.string().min(1, 'Taluk is required'),
   permanent_address_district: z.string().min(1, 'District is required'),
@@ -144,14 +144,14 @@ const enquiryFormSchema = z.object({
 
   // Accommodation Preferences
   accommodation_type: z.string().min(1, 'Accommodation type is required'),
-  hostel_type: z.string().optional(),
-  food_type: z.string().optional(),
-  bus_required: z.boolean().optional(),
-  bus_route: z.string().optional(),
-  bus_pickup_location: z.string().optional(),
-  reference_type: z.string().optional(),
-  reference_name: z.string().optional(),
-  reference_contact: z.string().optional(),
+  hostel_type: z.string().nullable().optional(),
+  food_type: z.string().nullable().optional(),
+  bus_required: z.boolean().nullable().optional(),
+  bus_route: z.string().nullable().optional(),
+  bus_pickup_location: z.string().nullable().optional(),
+  reference_type: z.string().nullable().optional(),
+  reference_name: z.string().nullable().optional(),
+  reference_contact: z.string().nullable().optional(),
 });
 
 // Required fields schema for final submission
@@ -345,6 +345,7 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
           console.log('[enquiry-form] Loading learner data:', {
             id: learner.id,
             name: `${learner.first_name} ${learner.last_name}`,
+            lifecycle_status: learner.lifecycle_status,
             institution_id: learner.institution_id,
             degree_id: learner.degree_id,
             department_id: learner.department_id,
@@ -352,6 +353,8 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
             academic_year_id: learner.academic_year_id,
             semester_id: learner.semester_id,
             section_id: learner.section_id,
+            tenth_marks: learner.tenth_marks,
+            twelfth_marks: learner.twelfth_marks,
           });
           return {
           // Basic Details
@@ -381,29 +384,29 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
           last_school: learner.last_school || '',
           board_of_study: learner.board_of_study?.toLowerCase().replace(/\s+/g, '_') || '',
           tenth_marks: {
-            max_marks: learner.tenth_marks?.max_marks || '',
-            obtained_marks: learner.tenth_marks?.obtained_marks || '',
-            percentage: learner.tenth_marks?.percentage || '',
+            max_marks: learner.tenth_marks?.max_marks ? String(learner.tenth_marks.max_marks) : '',
+            obtained_marks: learner.tenth_marks?.obtained_marks ? String(learner.tenth_marks.obtained_marks) : '',
+            percentage: learner.tenth_marks?.percentage ? String(learner.tenth_marks.percentage) : '',
           },
           twelfth_marks: {
             group: normalizeGroupValue(learner.twelfth_marks?.group),
-            max_marks: learner.twelfth_marks?.max_marks || '',
-            obtained_marks: learner.twelfth_marks?.obtained_marks || '',
-            percentage: learner.twelfth_marks?.percentage || '',
+            max_marks: learner.twelfth_marks?.max_marks ? String(learner.twelfth_marks.max_marks) : '',
+            obtained_marks: learner.twelfth_marks?.obtained_marks ? String(learner.twelfth_marks.obtained_marks) : '',
+            percentage: learner.twelfth_marks?.percentage ? String(learner.twelfth_marks.percentage) : '',
             subjects: {
-              physics: learner.twelfth_marks?.subjects?.physics || '',
-              chemistry: learner.twelfth_marks?.subjects?.chemistry || '',
-              mathematics: learner.twelfth_marks?.subjects?.mathematics || '',
-              biology: learner.twelfth_marks?.subjects?.biology || '',
-              botany: learner.twelfth_marks?.subjects?.botany || '',
-              zoology: learner.twelfth_marks?.subjects?.zoology || '',
-              computer_science: learner.twelfth_marks?.subjects?.computer_science || '',
-              accountancy: learner.twelfth_marks?.subjects?.accountancy || '',
-              commerce: learner.twelfth_marks?.subjects?.commerce || '',
-              economics: learner.twelfth_marks?.subjects?.economics || '',
-              statistics: learner.twelfth_marks?.subjects?.statistics || '',
-              history: learner.twelfth_marks?.subjects?.history || '',
-              geography: learner.twelfth_marks?.subjects?.geography || '',
+              physics: learner.twelfth_marks?.subjects?.physics ? String(learner.twelfth_marks.subjects.physics) : '',
+              chemistry: learner.twelfth_marks?.subjects?.chemistry ? String(learner.twelfth_marks.subjects.chemistry) : '',
+              mathematics: learner.twelfth_marks?.subjects?.mathematics ? String(learner.twelfth_marks.subjects.mathematics) : '',
+              biology: learner.twelfth_marks?.subjects?.biology ? String(learner.twelfth_marks.subjects.biology) : '',
+              botany: learner.twelfth_marks?.subjects?.botany ? String(learner.twelfth_marks.subjects.botany) : '',
+              zoology: learner.twelfth_marks?.subjects?.zoology ? String(learner.twelfth_marks.subjects.zoology) : '',
+              computer_science: learner.twelfth_marks?.subjects?.computer_science ? String(learner.twelfth_marks.subjects.computer_science) : '',
+              accountancy: learner.twelfth_marks?.subjects?.accountancy ? String(learner.twelfth_marks.subjects.accountancy) : '',
+              commerce: learner.twelfth_marks?.subjects?.commerce ? String(learner.twelfth_marks.subjects.commerce) : '',
+              economics: learner.twelfth_marks?.subjects?.economics ? String(learner.twelfth_marks.subjects.economics) : '',
+              statistics: learner.twelfth_marks?.subjects?.statistics ? String(learner.twelfth_marks.subjects.statistics) : '',
+              history: learner.twelfth_marks?.subjects?.history ? String(learner.twelfth_marks.subjects.history) : '',
+              geography: learner.twelfth_marks?.subjects?.geography ? String(learner.twelfth_marks.subjects.geography) : '',
             },
           },
           neet_roll_number: learner.neet_roll_number || '',
@@ -758,9 +761,9 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
       reference_name: toUpperCaseField(values.reference_name),
       reference_contact: values.reference_contact || undefined,
 
-      // System fields
-      lifecycle_status: 'enquiry' as const,
-      is_profile_complete: false,
+      // System fields - Preserve existing values when editing, default to 'enquiry' when creating
+      lifecycle_status: learner?.lifecycle_status || ('enquiry' as const),
+      is_profile_complete: learner?.is_profile_complete ?? false,
     };
   };
 
@@ -862,15 +865,97 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
       return;
     }
 
+    // Check for form validation errors from zodResolver
+    if (Object.keys(form.formState.errors).length > 0) {
+      console.error('[enquiry-form] Form validation errors:', form.formState.errors);
+
+      const errorFields = Object.entries(form.formState.errors)
+        .map(([field, error]) => `• ${field}: ${error.message}`)
+        .slice(0, 10); // Show max 10 errors
+
+      toast.error(
+        `Validation errors found:\n\n${errorFields.join('\n')}\n\n${
+          Object.keys(form.formState.errors).length > 10
+            ? '... and more. Please check all tabs.'
+            : 'Please check the highlighted fields.'
+        }`,
+        {
+          duration: 8000,
+          style: {
+            maxWidth: '500px',
+            whiteSpace: 'pre-line'
+          }
+        }
+      );
+      return;
+    }
+
     // Validate required fields
     const validation = requiredFieldsSchema.safeParse(values);
     if (!validation.success) {
       const errors = validation.error.flatten().fieldErrors;
-      const errorMessages = Object.entries(errors)
-        .map(([field, messages]) => `${field}: ${messages?.join(', ')}`)
-        .join('\n');
 
-      toast.error('Please fill in all required fields');
+      // Create user-friendly field names
+      const fieldNames: Record<string, { label: string; tab: string }> = {
+        first_name: { label: 'First Name', tab: 'Basic Details' },
+        last_name: { label: 'Last Name', tab: 'Basic Details' },
+        date_of_birth: { label: 'Date of Birth', tab: 'Basic Details' },
+        gender: { label: 'Gender', tab: 'Basic Details' },
+        religion: { label: 'Religion', tab: 'Basic Details' },
+        community: { label: 'Community', tab: 'Basic Details' },
+        caste: { label: 'Caste', tab: 'Basic Details' },
+        father_name: { label: "Father's Name", tab: 'Basic Details' },
+        mother_name: { label: "Mother's Name", tab: 'Basic Details' },
+        student_mobile: { label: 'Student Mobile', tab: 'Contact Details' },
+        institution_id: { label: 'Institution', tab: 'Course Selection' },
+        degree_id: { label: 'Degree', tab: 'Course Selection' },
+        department_id: { label: 'Department', tab: 'Course Selection' },
+        program_id: { label: 'Program', tab: 'Course Selection' },
+        academic_year_id: { label: 'Academic Year', tab: 'Course Selection' },
+        semester_id: { label: 'Semester', tab: 'Course Selection' },
+        section_id: { label: 'Section', tab: 'Course Selection' },
+        scholarship_type: { label: 'Scholarship Type', tab: 'Academic Information' },
+        entry_type: { label: 'Entry Type', tab: 'Academic Information' },
+        permanent_address_street: { label: 'Street Address', tab: 'Contact Details' },
+        permanent_address_taluk: { label: 'Taluk', tab: 'Contact Details' },
+        permanent_address_district: { label: 'District', tab: 'Contact Details' },
+        permanent_address_state: { label: 'State', tab: 'Contact Details' },
+        permanent_address_pin_code: { label: 'PIN Code', tab: 'Contact Details' },
+        accommodation_type: { label: 'Accommodation Type', tab: 'Accommodation' },
+      };
+
+      // Group errors by tab
+      const errorsByTab: Record<string, string[]> = {};
+      Object.entries(errors).forEach(([field, messages]) => {
+        const fieldInfo = fieldNames[field] || { label: field, tab: 'Unknown' };
+        if (!errorsByTab[fieldInfo.tab]) {
+          errorsByTab[fieldInfo.tab] = [];
+        }
+        errorsByTab[fieldInfo.tab].push(`• ${fieldInfo.label}`);
+      });
+
+      // Create detailed error message
+      const errorMessage = Object.entries(errorsByTab)
+        .map(([tab, fields]) => `${tab}:\n${fields.join('\n')}`)
+        .join('\n\n');
+
+      console.error('[enquiry-form] Validation errors:', {
+        errors,
+        errorsByTab,
+        errorMessage
+      });
+
+      // Show error toast with details
+      toast.error(
+        `Please fill in the following required fields:\n\n${errorMessage}`,
+        {
+          duration: 8000,
+          style: {
+            maxWidth: '500px',
+            whiteSpace: 'pre-line'
+          }
+        }
+      );
       return;
     }
 
@@ -1112,7 +1197,11 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
               <Button type="submit" disabled={isSubmitting || isSavingDraft}>
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Send className="mr-2 h-4 w-4" />
-                {learner ? 'Update Enquiry' : 'Submit Enquiry'}
+                {learner
+                  ? (learner.lifecycle_status === 'active' || learner.lifecycle_status === 'inactive' || learner.lifecycle_status === 'exited' || learner.lifecycle_status === 'graduated'
+                      ? 'Update Profile'
+                      : 'Update Enquiry')
+                  : 'Submit Enquiry'}
               </Button>
             )}
           </div>

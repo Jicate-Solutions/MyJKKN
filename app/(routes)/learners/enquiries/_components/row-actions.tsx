@@ -37,7 +37,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -89,16 +88,29 @@ export function DataTableRowActions<TData>({
   const handleDelete = async () => {
     if (!canDelete) return;
 
+    console.log('[enquiries/row-actions] Delete started', { id: learner.id });
+
     try {
       await deleteMutation.mutateAsync(learner.id);
+      console.log('[enquiries/row-actions] Delete mutation completed');
+
       toast.success('Enquiry deleted successfully');
+
+      // Close dialog first to clear component state
+      console.log('[enquiries/row-actions] Closing dialog');
       setShowDeleteDialog(false);
 
-      // Refresh server component data for real-time update
-      router.refresh();
+      // Delay refresh to allow React to finish updating component state
+      // This prevents race conditions between client state and server re-render
+      console.log('[enquiries/row-actions] Scheduling router.refresh()');
+      setTimeout(() => {
+        console.log('[enquiries/row-actions] Calling router.refresh()');
+        router.refresh();
+      }, 300);
     } catch (error) {
-      console.error('[row-actions] Error deleting enquiry:', error);
+      console.error('[enquiries/row-actions] Error deleting enquiry:', error);
       toast.error('Failed to delete enquiry. Please try again.');
+      setShowDeleteDialog(false);
     }
   };
 
@@ -111,11 +123,19 @@ export function DataTableRowActions<TData>({
   const confirmStatusUpdate = async () => {
     if (!canEdit || !selectedStatus) return;
 
+    console.log('[enquiries/row-actions] Status update started', {
+      id: learner.id,
+      from: learner.lifecycle_status,
+      to: selectedStatus
+    });
+
     try {
       const result = await updateMutation.mutateAsync({
         id: learner.id,
         dto: { lifecycle_status: selectedStatus as any }
       });
+
+      console.log('[enquiries/row-actions] Status mutation completed', { result });
 
       const statusLabels: Record<string, string> = {
         enquiry: 'Enquiry',
@@ -131,6 +151,7 @@ export function DataTableRowActions<TData>({
       // @ts-expect-error - Temporary metadata from service
       const userCreation = result._userCreation;
       if (userCreation) {
+        console.log('[enquiries/row-actions] User creation metadata found', userCreation);
         if (userCreation.success) {
           toast.success(userCreation.message, { duration: 5000 });
         } else {
@@ -138,11 +159,23 @@ export function DataTableRowActions<TData>({
         }
       }
 
+      // Close dialog and clear state first
+      console.log('[enquiries/row-actions] Closing dialog');
       setShowStatusDialog(false);
       setSelectedStatus('');
+
+      // Delay refresh to allow React to finish updating component state
+      // This prevents race conditions between client state and server re-render
+      console.log('[enquiries/row-actions] Scheduling router.refresh()');
+      setTimeout(() => {
+        console.log('[enquiries/row-actions] Calling router.refresh()');
+        router.refresh();
+      }, 300);
     } catch (error) {
-      console.error('[row-actions] Error updating status:', error);
+      console.error('[enquiries/row-actions] Error updating status:', error);
       toast.error('Failed to update status. Please try again.');
+      setShowStatusDialog(false);
+      setSelectedStatus('');
     }
   };
 
@@ -254,13 +287,13 @@ export function DataTableRowActions<TData>({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
+            <Button
               onClick={handleDelete}
               disabled={deleteMutation.isPending}
               className="bg-red-600 hover:bg-red-700"
             >
               {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -281,12 +314,12 @@ export function DataTableRowActions<TData>({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={updateMutation.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
+            <Button
               onClick={confirmStatusUpdate}
               disabled={updateMutation.isPending}
             >
               {updateMutation.isPending ? 'Updating...' : 'Update Status'}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
