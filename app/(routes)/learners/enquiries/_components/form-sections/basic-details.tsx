@@ -27,9 +27,10 @@ import { ProfileImageUpload } from '../profile-image-upload';
 interface BasicDetailsProps {
   form: UseFormReturn<any>;
   onImageFileChange?: (file: File | null) => void;
+  isStudentView?: boolean;
 }
 
-export function BasicDetailsSection({ form, onImageFileChange }: BasicDetailsProps) {
+export function BasicDetailsSection({ form, onImageFileChange, isStudentView = false }: BasicDetailsProps) {
   // Generate year options (current year - 10 to current year + 5)
   const yearOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -87,55 +88,57 @@ export function BasicDetailsSection({ form, onImageFileChange }: BasicDetailsPro
         />
       </div>
 
-      {/* Enquiry Date and Admission Year */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <FormField
-          control={form.control}
-          name="enquiry_date"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Enquiry Date</FormLabel>
-              <FormControl>
-                <Input type="date" {...field} value={field.value || ''} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="admission_year"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Admission Year</FormLabel>
-              <Select
-                onValueChange={(value) => field.onChange(parseInt(value))}
-                value={field.value?.toString() || ''}
-              >
+      {/* Enquiry Date and Admission Year - Hidden in Student View */}
+      {!isStudentView && (
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+          <FormField
+            control={form.control}
+            name="enquiry_date"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Enquiry Date</FormLabel>
                 <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select admission year" />
-                  </SelectTrigger>
+                  <Input type="date" {...field} value={field.value || ''} />
                 </FormControl>
-                <SelectContent>
-                  {yearOptions.map((year) => (
-                    <SelectItem key={year} value={year.toString()}>
-                      {year}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </div>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="admission_year"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Admission Year</FormLabel>
+                <Select
+                  onValueChange={(value) => field.onChange(parseInt(value))}
+                  value={field.value?.toString() || ''}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select admission year" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {yearOptions.map((year) => (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+      )}
 
       {/* Personal Information */}
       <div className="space-y-4 border-t pt-4">
         <h3 className="text-lg font-semibold">Personal Information</h3>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
           <FormField
             control={form.control}
             name="first_name"
@@ -270,7 +273,7 @@ export function BasicDetailsSection({ form, onImageFileChange }: BasicDetailsPro
           />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
           <FormField
             control={form.control}
             name="aadhar_number"
@@ -320,7 +323,7 @@ export function BasicDetailsSection({ form, onImageFileChange }: BasicDetailsPro
       {/* Father's Information */}
       <div className="space-y-4 border-t pt-4">
         <h3 className="text-lg font-semibold">Father&apos;s Information</h3>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
           <FormField
             control={form.control}
             name="father_name"
@@ -368,7 +371,7 @@ export function BasicDetailsSection({ form, onImageFileChange }: BasicDetailsPro
       {/* Mother's Information */}
       <div className="space-y-4 border-t pt-4">
         <h3 className="text-lg font-semibold">Mother&apos;s Information</h3>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
           <FormField
             control={form.control}
             name="mother_name"

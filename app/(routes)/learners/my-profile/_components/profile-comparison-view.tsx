@@ -47,6 +47,7 @@ export function ProfileComparisonView({
                   key={fieldName}
                   label={formatFieldLabel(fieldName)}
                   value={pendingChanges[fieldName].old}
+                  fieldName={fieldName}
                   className="bg-white p-3 rounded-md border"
                 />
               ))}
@@ -69,6 +70,7 @@ export function ProfileComparisonView({
                   key={fieldName}
                   label={formatFieldLabel(fieldName)}
                   value={change.new}
+                  fieldName={fieldName}
                   className="bg-yellow-50 p-3 rounded-md border border-yellow-200"
                   isChanged={true}
                 />

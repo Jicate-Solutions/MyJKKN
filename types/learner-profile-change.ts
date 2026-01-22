@@ -102,6 +102,19 @@ export interface ChangeRequestFilters {
  * Students can only edit these fields
  */
 export const EDITABLE_PROFILE_FIELDS = [
+  // Academic Marks (Added)
+  'tenth_marks',
+  'twelfth_marks',
+  'engineering_cutoff_marks',
+  'medical_cutoff_marks',
+  'neet_roll_number',
+  'neet_score',
+  'counseling_applied',
+  'counseling_number',
+  'scholarship_type',
+  'last_school',
+  'board_of_study',
+
   // Contact Details
   'student_mobile',
   'student_email',
