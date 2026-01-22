@@ -193,7 +193,9 @@
       "Bash(psql:*)",
       "Bash(git reset:*)",
       "Bash(timeout 10 npm run type-check:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(claude --version)",
+      "Bash(claude install)"
     ],
     "deny": [],
     "ask": []
