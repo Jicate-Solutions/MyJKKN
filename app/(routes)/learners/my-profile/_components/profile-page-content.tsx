@@ -7,7 +7,8 @@ import { useCreateChangeRequest } from '@/hooks/learner-profile/use-change-reque
 import { PendingChangesBanner } from './pending-changes-banner';
 import { ProfileComparisonView } from './profile-comparison-view';
 import { ProfileView } from './profile-view';
-import ProfileEditForm from './profile-edit-form';
+import { Button } from '@/components/ui/button';
+import { EnquiryForm } from '../../enquiries/_components/enquiry-form';
 import ChangeRequestDialog from './change-request-dialog';
 
 interface ProfilePageContentProps {
@@ -45,6 +46,82 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
   const handleFormSubmit = (changes: Record<string, { old: any; new: any }>) => {
     setChangedFields(changes);
     setShowPreviewDialog(true);
+  };
+
+  const handleEnquirySubmit = async (formData: any) => {
+    const changes: Record<string, { old: any; new: any }> = {};
+
+    /**
+     * Deep comparison helper that handles:
+     * - Empty string vs null/undefined equivalence
+     * - Object comparison with meaningful values only
+     * - Nested objects (like marks with subjects)
+     */
+    const deepEqual = (a: any, b: any): boolean => {
+      // Treat empty string, null, undefined as equivalent
+      const isEmpty = (v: any) => v === null || v === undefined || v === '';
+
+      if (isEmpty(a) && isEmpty(b)) return true;
+      if (isEmpty(a) !== isEmpty(b)) return false;
+
+      // If types differ, not equal
+      if (typeof a !== typeof b) return false;
+
+      // Handle objects (including arrays)
+      if (typeof a === 'object' && a !== null) {
+        // Get all keys from both objects
+        const allKeys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
+
+        for (const key of allKeys) {
+          const aVal = a?.[key];
+          const bVal = b?.[key];
+
+          // Skip keys where both values are empty
+          if (isEmpty(aVal) && isEmpty(bVal)) continue;
+
+          // Recursively compare
+          if (!deepEqual(aVal, bVal)) return false;
+        }
+        return true;
+      }
+
+      // Primitive comparison (convert to string for consistent comparison)
+      return String(a) === String(b);
+    };
+
+    // Compare formData with learner
+    for (const key in formData) {
+      if (['lifecycle_status', 'is_profile_complete'].includes(key)) continue;
+
+      const newValue = formData[key];
+      const oldValue = (learner as any)[key];
+
+      // Use deep equality check that handles empty values properly
+      const isEqual = deepEqual(newValue, oldValue);
+
+      if (!isEqual) {
+        // Filter out cases where both are effectively empty
+        const isEmpty = (v: any) => v === null || v === undefined || v === '';
+
+        // Handle specific case for objects (empty object vs undefined/null)
+        if (typeof newValue === 'object' && newValue !== null) {
+          // Check if object has any meaningful (non-empty) values
+          const hasMeaningfulValues = (obj: any): boolean => {
+            if (!obj || typeof obj !== 'object') return !isEmpty(obj);
+            return Object.values(obj).some(v => hasMeaningfulValues(v));
+          };
+
+          // Skip if both don't have meaningful values
+          if (!hasMeaningfulValues(newValue) && !hasMeaningfulValues(oldValue)) continue;
+        }
+
+        if (isEmpty(newValue) && isEmpty(oldValue)) continue;
+
+        changes[key] = { old: oldValue, new: newValue };
+      }
+    }
+
+    handleFormSubmit(changes);
   };
 
   // Handle going back from preview dialog to edit form
@@ -94,11 +171,21 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
   // If editing, show edit form
   if (isEditing) {
     return (
-      <>
-        <ProfileEditForm
+      <div className="space-y-6">
+        <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-2xl font-bold tracking-tight">Edit Profile</h2>
+          <Button variant="outline" onClick={handleCancelEdit} className="w-full sm:w-auto">
+            Cancel Editing
+          </Button>
+        </div>
+        
+        <EnquiryForm
           learner={learner}
-          onCancel={handleCancelEdit}
-          onSubmit={handleFormSubmit}
+          visibleTabs={['basic-details', 'academic-information', 'contact-details', 'accommodation-preferences']}
+          onSubmit={handleEnquirySubmit}
+          submitLabel="Preview Changes"
+          hideDraft={true}
+          isStudentView={true}
         />
 
         <ChangeRequestDialog
@@ -110,7 +197,7 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
           onBack={handleBackToEdit}
           isSubmitting={isSubmitting}
         />
-      </>
+      </div>
     );
   }
 

@@ -39,6 +39,7 @@ export function RequestDetailCard({
                 key={fieldName}
                 label={formatFieldLabel(fieldName)}
                 value={changedFields[fieldName].old}
+                fieldName={fieldName}
                 className="bg-white p-3 rounded-md border"
               />
             ))}
@@ -61,6 +62,7 @@ export function RequestDetailCard({
                 key={fieldName}
                 label={formatFieldLabel(fieldName)}
                 value={change.new}
+                fieldName={fieldName}
                 className="bg-blue-50 p-3 rounded-md border border-blue-200"
                 isChanged={true}
               />

@@ -41,10 +41,12 @@ import { useEffect } from 'react';
 
 interface AccommodationPreferencesProps {
   form: UseFormReturn<any>;
+  isStudentView?: boolean;
 }
 
 export function AccommodationPreferencesSection({
-  form
+  form,
+  isStudentView = false
 }: AccommodationPreferencesProps) {
   // Watch for accommodation type to show conditional fields
   const accommodationType = useWatch({
@@ -379,78 +381,81 @@ export function AccommodationPreferencesSection({
           </>
         )}
 
-        <div className='pt-4 border-t border-border'>
-          <FormField
-            control={form.control}
-            name='reference_type'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>How did you hear about us?</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  value={field.value || ''}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder='Select reference type' />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent className='max-h-60 overflow-y-auto'>
-                    {referenceTypeOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
+        {/* Reference section - hidden for student view */}
+        {!isStudentView && (
+          <div className='pt-4 border-t border-border'>
+            <FormField
+              control={form.control}
+              name='reference_type'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>How did you hear about us?</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value || ''}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select reference type' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent className='max-h-60 overflow-y-auto'>
+                      {referenceTypeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {referenceType && referenceType !== 'DIRECT APPLICATION' && (
+              <>
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-6 mt-4'>
+                  <FormField
+                    control={form.control}
+                    name='reference_name'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Reference Name</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder='Name of the reference person'
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='reference_contact'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Reference Contact</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder='Contact number of reference'
+                            maxLength={10}
+                            inputMode='tel'
+                          />
+                        </FormControl>
+                        <FormDescription>10-digit mobile number</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </>
             )}
-          />
-
-          {referenceType && referenceType !== 'DIRECT APPLICATION' && (
-            <>
-              <div className='grid grid-cols-1 md:grid-cols-2 gap-6 mt-4'>
-                <FormField
-                  control={form.control}
-                  name='reference_name'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Reference Name</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder='Name of the reference person'
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name='reference_contact'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Reference Contact</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder='Contact number of reference'
-                          maxLength={10}
-                          inputMode='tel'
-                        />
-                      </FormControl>
-                      <FormDescription>10-digit mobile number</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

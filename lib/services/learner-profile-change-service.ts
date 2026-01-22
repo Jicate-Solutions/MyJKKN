@@ -136,6 +136,34 @@ export class LearnerProfileChangeService {
   }
 
   /**
+   * Get all change requests for a learner (history)
+   * Returns all requests regardless of status, ordered by most recent
+   */
+  static async getAllChangeRequestsForLearner(
+    learnerId: string
+  ): Promise<ProfileChangeRequest[]> {
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from('profile_change_requests')
+      .select(`
+        *,
+        learner:learners_profiles(id, first_name, last_name, roll_number),
+        submitter:profiles!submitted_by(id, full_name, email),
+        reviewer:profiles!reviewed_by(id, full_name, email)
+      `)
+      .eq('learner_id', learnerId)
+      .order('submitted_at', { ascending: false });
+
+    if (error) {
+      console.error('[learner-profile-change-service] Error fetching all requests:', error);
+      throw new Error('Failed to fetch change request history');
+    }
+
+    return data || [];
+  }
+
+  /**
    * Get pending requests with filters (for HOD/Staff)
    * Applies role-based filtering
    */

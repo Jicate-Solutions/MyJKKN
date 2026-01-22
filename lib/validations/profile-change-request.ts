@@ -10,6 +10,19 @@ const pincodeRegex = /^\d{6}$/;
  * Only editable fields are allowed
  */
 export const profileChangeSchema = z.object({
+  // Academic Marks
+  tenth_marks: z.any().optional(),
+  twelfth_marks: z.any().optional(),
+  engineering_cutoff_marks: z.any().optional(),
+  medical_cutoff_marks: z.any().optional(),
+  neet_roll_number: z.string().optional(),
+  neet_score: z.any().optional(),
+  counseling_applied: z.boolean().optional(),
+  counseling_number: z.string().optional(),
+  scholarship_type: z.string().optional(),
+  last_school: z.string().optional(),
+  board_of_study: z.string().optional(),
+
   // Contact Details
   student_mobile: z
     .string()
@@ -147,6 +160,19 @@ export function getChangedFields<T extends Record<string, any>>(
  */
 export function formatFieldLabel(fieldName: string): string {
   const labels: Record<string, string> = {
+    // Academic Marks
+    tenth_marks: '10th Marks',
+    twelfth_marks: '12th Marks',
+    engineering_cutoff_marks: 'Engineering Cutoff',
+    medical_cutoff_marks: 'Medical Cutoff',
+    neet_roll_number: 'NEET Roll Number',
+    neet_score: 'NEET Score',
+    counseling_applied: 'Counseling Applied',
+    counseling_number: 'Counseling Number',
+    scholarship_type: 'Scholarship Type',
+    last_school: 'Last School',
+    board_of_study: 'Board of Study',
+
     student_mobile: 'Student Mobile',
     student_email: 'Student Email',
     alternate_mobile: 'Alternate Mobile',

@@ -52,7 +52,7 @@ import toast from 'react-hot-toast';
  * All fields are optional for draft mode
  * Required fields are validated only on final submission
  */
-const enquiryFormSchema = z.object({
+export const enquiryFormSchema = z.object({
   // Basic Details
   enquiry_date: z.string().nullable().optional(),
   first_name: z.string().min(1, 'First name is required'),
@@ -162,20 +162,25 @@ const requiredFieldsSchema = enquiryFormSchema.extend({
   program_id: z.string().uuid('Program is required'),
 });
 
-type EnquiryFormValues = z.infer<typeof enquiryFormSchema>;
+export type EnquiryFormValues = z.infer<typeof enquiryFormSchema>;
 
 interface EnquiryFormProps {
   learner?: LearnerProfile;
   onSuccess?: (learner: LearnerProfile) => void;
+  visibleTabs?: string[];
+  onSubmit?: (data: any) => Promise<void>;
+  submitLabel?: string;
+  hideDraft?: boolean;
+  isStudentView?: boolean;
 }
 
-const formTabs = [
-  { id: 'basic-details', label: 'Basic Details' },
-  { id: 'academic-information', label: 'Academic Information' },
-  { id: 'course-selection', label: 'Course Selection' },
-  { id: 'contact-details', label: 'Contact Details' },
-  { id: 'accommodation-preferences', label: 'Accommodation' },
-];
+  const ALL_TABS = [
+    { id: 'basic-details', label: 'Basic Details' },
+    { id: 'academic-information', label: 'Academic Information' },
+    { id: 'course-selection', label: 'Course Selection' },
+    { id: 'contact-details', label: 'Contact Details' },
+    { id: 'accommodation-preferences', label: 'Accommodation' },
+  ];
 
 /**
  * Helper function to normalize 12th group/stream values
@@ -328,14 +333,26 @@ function getLocationIdByName(
  * - Form validation on submit
  * - All admission fields included
  */
-export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
+export function EnquiryForm({ 
+  learner, 
+  onSuccess, 
+  visibleTabs, 
+  onSubmit: onSubmitProp,
+  submitLabel,
+  hideDraft = false,
+  isStudentView = false
+}: EnquiryFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
-  const [activeTab, setActiveTab] = useState('basic-details');
+  const [activeTab, setActiveTab] = useState(visibleTabs ? visibleTabs[0] : 'basic-details');
   const [savedEnquiryId, setSavedEnquiryId] = useState<string | null>(learner?.id || null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+
+  const formTabs = visibleTabs 
+    ? ALL_TABS.filter(tab => visibleTabs.includes(tab.id))
+    : ALL_TABS;
 
   // Initialize form with all fields
   const form = useForm<EnquiryFormValues>({
@@ -979,11 +996,20 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
 
       const data = formatFormDataForAPI(values);
 
+      // Allow overriding submission logic (e.g. for change requests)
+      if (onSubmitProp) {
+        console.log('[enquiry-form] Using custom onSubmit handler');
+        await onSubmitProp(data);
+        setIsSubmitting(false);
+        return;
+      }
+
       let result: LearnerProfile;
 
       if (learner) {
         result = await LearnerProfileService.updateLearnerProfile(learner.id, data);
-        toast.success('Enquiry updated successfully');
+        const isProfile = ['active', 'inactive', 'graduated', 'exited'].includes(learner.lifecycle_status);
+        toast.success(isProfile ? 'Profile updated successfully' : 'Enquiry updated successfully');
       } else if (savedEnquiryId) {
         // Update existing draft with final submission
         result = await LearnerProfileService.updateLearnerProfile(savedEnquiryId, data);
@@ -1099,9 +1125,13 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="w-full flex h-auto p-1 overflow-x-auto">
             {formTabs.map((tab) => (
-              <TabsTrigger key={tab.id} value={tab.id}>
+              <TabsTrigger 
+                key={tab.id} 
+                value={tab.id}
+                className="flex-1 min-w-[140px]"
+              >
                 {tab.label}
               </TabsTrigger>
             ))}
@@ -1109,7 +1139,11 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
 
           <TabsContent value="basic-details" className="space-y-4">
             <Card className="p-6">
-              <BasicDetailsSection form={form} onImageFileChange={setPendingImageFile} />
+              <BasicDetailsSection 
+                form={form} 
+                onImageFileChange={setPendingImageFile} 
+                isStudentView={isStudentView}
+              />
             </Card>
           </TabsContent>
 
@@ -1133,26 +1167,27 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
 
           <TabsContent value="accommodation-preferences" className="space-y-4">
             <Card className="p-6">
-              <AccommodationPreferencesSection form={form} />
+              <AccommodationPreferencesSection form={form} isStudentView={isStudentView} />
             </Card>
           </TabsContent>
         </Tabs>
 
         {/* Form Actions - Navigation Buttons */}
-        <div className="flex items-center justify-between gap-4 pt-4 border-t">
+        <div className="flex flex-col-reverse items-center justify-between gap-4 pt-4 border-t sm:flex-row">
           {/* Left side - Cancel button */}
           <Button
             type="button"
             variant="outline"
             onClick={handleCancelClick}
             disabled={isSubmitting || isSavingDraft}
+            className="w-full sm:w-auto"
           >
             <X className="mr-2 h-4 w-4" />
             Cancel
           </Button>
 
           {/* Right side - Navigation and Action buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col-reverse items-center gap-2 w-full sm:flex-row sm:w-auto">
             {/* Previous Button - Show on all tabs except first */}
             {!isFirstTab && (
               <Button
@@ -1160,23 +1195,27 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
                 variant="outline"
                 onClick={goToPreviousTab}
                 disabled={isSubmitting || isSavingDraft}
+                className="w-full sm:w-auto"
               >
                 <ChevronLeft className="mr-2 h-4 w-4" />
                 Previous
               </Button>
             )}
 
-            {/* Save Draft Button - Always visible */}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleSaveDraft}
-              disabled={isSubmitting || isSavingDraft}
-            >
-              {isSavingDraft && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              <Save className="mr-2 h-4 w-4" />
-              Save Draft
-            </Button>
+            {/* Save Draft Button - Always visible unless hidden */}
+            {!hideDraft && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleSaveDraft}
+                disabled={isSubmitting || isSavingDraft}
+                className="w-full sm:w-auto"
+              >
+                {isSavingDraft && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <Save className="mr-2 h-4 w-4" />
+                Save Draft
+              </Button>
+            )}
 
             {/* Save & Next Button - Show on all tabs except last */}
             {!isLastTab && (
@@ -1184,6 +1223,7 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
                 type="button"
                 onClick={handleSaveAndNext}
                 disabled={isSubmitting || isSavingDraft}
+                className="w-full sm:w-auto"
               >
                 {isSavingDraft && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Save className="mr-2 h-4 w-4" />
@@ -1194,14 +1234,14 @@ export function EnquiryForm({ learner, onSuccess }: EnquiryFormProps) {
 
             {/* Submit Button - Show only on last tab */}
             {isLastTab && (
-              <Button type="submit" disabled={isSubmitting || isSavingDraft}>
+              <Button type="submit" disabled={isSubmitting || isSavingDraft} className="w-full sm:w-auto">
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Send className="mr-2 h-4 w-4" />
-                {learner
+                {submitLabel || (learner
                   ? (learner.lifecycle_status === 'active' || learner.lifecycle_status === 'inactive' || learner.lifecycle_status === 'exited' || learner.lifecycle_status === 'graduated'
                       ? 'Update Profile'
                       : 'Update Enquiry')
-                  : 'Submit Enquiry'}
+                  : 'Submit Enquiry')}
               </Button>
             )}
           </div>

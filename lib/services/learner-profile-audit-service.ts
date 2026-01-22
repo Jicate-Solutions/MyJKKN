@@ -30,7 +30,7 @@ export class LearnerProfileAuditService {
       })
       .select(`
         *,
-        learner:learner_profiles(id, first_name, last_name),
+        learner:learners_profiles(id, first_name, last_name),
         performer:profiles!performed_by(id, full_name, email)
       `)
       .single();
@@ -58,7 +58,7 @@ export class LearnerProfileAuditService {
       .from('profile_change_audit_log')
       .select(`
         *,
-        learner:learner_profiles(id, first_name, last_name),
+        learner:learners_profiles(id, first_name, last_name),
         performer:profiles!performed_by(id, full_name, email)
       `)
       .eq('learner_id', learnerId)

@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { LearnerProfile } from '@/types/learner-profile';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,7 @@ import {
   Award,
   School,
   ClipboardList,
+  History,
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -36,6 +38,7 @@ interface ProfileViewProps {
 }
 
 export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
+  const router = useRouter();
   // Helper to mask Aadhar number (show only last 4 digits)
   const maskAadhar = (aadhar?: string | null) => {
     if (!aadhar) return 'Not provided';
@@ -125,13 +128,24 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
               </div>
             </div>
 
-            {/* Edit Button */}
-            {canEdit && (
-              <Button onClick={onEdit} size="lg" className="w-full md:w-auto shadow-sm">
-                <Pencil className="h-4 w-4 mr-2" />
-                Edit Profile
+            {/* Action Buttons */}
+            <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+              <Button
+                onClick={() => router.push('/learners/my-profile/status')}
+                size="lg"
+                variant="outline"
+                className="w-full md:w-auto shadow-sm"
+              >
+                <History className="h-4 w-4 mr-2" />
+                View Status & History
               </Button>
-            )}
+              {canEdit && (
+                <Button onClick={onEdit} size="lg" className="w-full md:w-auto shadow-sm">
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit Profile
+                </Button>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -347,13 +361,19 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
                     value={learner.permanent_address_district}
                     icon={MapPin}
                   />
+                   <InfoField
+                    label="TALUK"
+                    value={learner.permanent_address_taluk}  
+                    icon={MapPin}
+                  />
                   <InfoField label="State" value={learner.permanent_address_state} icon={MapPin} />
-                </div>
-                <InfoField
+                  <InfoField
                   label="PIN Code"
                   value={learner.permanent_address_pin_code}
                   icon={MapPin}
                 />
+                </div>
+               
               </div>
             </div>
           </CardContent>
