@@ -29,6 +29,8 @@
       "mcp__memory__create_entities",
       "Bash(grep:*)",
       "Bash(cat:*)",
+      "Bash(cat << 'EOF':*)",
+      "Bash(cat << EOF:*)",
       "Bash(head:*)",
       "Bash(node:*)",
       "Bash(curl:*)",
@@ -196,6 +198,7 @@
       "Bash(git rm:*)",
       "Bash(claude --version)",
       "Bash(claude install)"
+      
     ],
     "deny": [],
     "ask": []
