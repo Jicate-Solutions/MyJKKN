@@ -471,20 +471,52 @@ export function BulkUploadLearnerImages({
       }> = [];
 
       for (const chunk of chunks) {
-        const { data, error } = await supabase
+        // Build query with institution filter for RLS compliance
+        let query = supabase
           .from('learners_profiles')
-          .select('id, student_name, roll_number, semester_name, section_name, institution_name, student_photo_url')
+          .select(`
+            id,
+            first_name,
+            last_name,
+            roll_number,
+            student_photo_url,
+            semester:semesters(semester_name),
+            section:sections(section_name),
+            institution:institutions(name)
+          `)
           .in('roll_number', chunk);
 
+        // Apply institution filter if provided (required for RLS policy)
+        if (institutionId) {
+          query = query.eq('institution_id', institutionId);
+        }
+
+        const { data, error } = await query;
+
         if (error) {
-          console.error('[bulk-upload-images] Database query error:', error);
-          toast.error('Failed to validate learners');
+          console.error('[bulk-upload-images] Database query error:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code,
+          });
+          toast.error(`Failed to validate learners: ${error.message || 'Unknown error'}`);
           setIsValidating(false);
           return;
         }
 
         if (data) {
-          allLearners.push(...data);
+          // Transform data to match expected interface
+          const transformedData = data.map((learner) => ({
+            id: learner.id,
+            student_name: [learner.first_name, learner.last_name].filter(Boolean).join(' '),
+            roll_number: learner.roll_number!,
+            semester_name: (learner.semester as { semester_name: string } | null)?.semester_name || null,
+            section_name: (learner.section as { section_name: string } | null)?.section_name || null,
+            institution_name: (learner.institution as { name: string } | null)?.name || null,
+            student_photo_url: learner.student_photo_url,
+          }));
+          allLearners.push(...transformedData);
         }
       }
 
@@ -551,7 +583,7 @@ export function BulkUploadLearnerImages({
     } finally {
       setIsValidating(false);
     }
-  }, [files]);
+  }, [files, institutionId]);
 
   // ========================================================================
   // UPLOAD INTEGRATION (Phase 6)

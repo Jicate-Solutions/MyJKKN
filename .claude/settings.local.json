@@ -198,7 +198,8 @@
       "Bash(git rm:*)",
       "Bash(claude --version)",
       "Bash(claude install)",
-      "Bash(git diff:*)"
+      "Bash(git diff:*)",
+      "Skill(superpowers:brainstorming)"
     ],
     "deny": [],
     "ask": []
