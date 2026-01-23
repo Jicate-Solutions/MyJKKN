@@ -530,10 +530,10 @@ export class AttendanceService {
 
     return data
       ? ({
-          ...(data as any),
-          marked_by: '', // Add missing required property
-          marked_by_profile: undefined
-        } as ConsolidatedStudentAttendance)
+        ...(data as any),
+        marked_by: '', // Add missing required property
+        marked_by_profile: undefined
+      } as ConsolidatedStudentAttendance)
       : null;
   }
 
@@ -589,10 +589,11 @@ export class AttendanceService {
   }> {
     try {
       // First check if the slot has continuity tracking
-      const { data: continuityCheck, error: checkError } = await this.supabase
+      // Type assertion to prevent TypeScript infinite recursion on Supabase query chain
+      const { data: continuityCheck, error: checkError } = await (this.supabase as any)
         .from('timetable_slot_continuity')
         .select('continuity_group_id')
-        .eq('slot_id', slot_id)
+        .eq('timetable_slot_id', slot_id)
         .single();
 
       if (checkError || !(continuityCheck as any)?.continuity_group_id) {
@@ -606,7 +607,8 @@ export class AttendanceService {
       }
 
       // Get all versions in the continuity group
-      const { data: continuityData, error } = await this.supabase
+      // Type assertion to prevent TypeScript infinite recursion on Supabase query chain
+      const { data: continuityData, error } = await (this.supabase as any)
         .from('timetable_slot_continuity')
         .select('*')
         .eq('continuity_group_id', (continuityCheck as any).continuity_group_id)
@@ -701,8 +703,9 @@ export class AttendanceService {
 
       // Check if this slot has versions by querying the continuity table directly
       // Since the RPC function has a bug, we'll implement the logic here
+      // Type assertion to prevent TypeScript infinite recursion on Supabase query chain
       const { data: continuityData, error: continuityError } =
-        await this.supabase
+        await (this.supabase as any)
           .from('timetable_slot_continuity')
           .select('continuity_group_id')
           .eq('timetable_slot_id', slot_id)
@@ -713,7 +716,8 @@ export class AttendanceService {
 
       if (!continuityError && (continuityData as any)?.continuity_group_id) {
         // Check if there are multiple slots in this continuity group
-        const { data: groupSlots, error: groupError } = await this.supabase
+        // Type assertion to prevent TypeScript infinite recursion on Supabase query chain
+        const { data: groupSlots, error: groupError } = await (this.supabase as any)
           .from('timetable_slot_continuity')
           .select('id')
           .eq('continuity_group_id', (continuityData as any).continuity_group_id);
@@ -1718,7 +1722,7 @@ export class AttendanceService {
         .eq('degree_id', filters.degree_id)
         .eq('program_id', filters.program_id)
         .eq('department_id', filters.department_id)
-        .eq('semester_id', filters.semester) // Use semester_id column directly
+        .eq('semester_id', String(filters.semester)) // Use semester_id column directly
         .eq('is_active', true)
         .lte('start_date', date) // start_date <= selected date
         .gte('end_date', date); // end_date >= selected date
@@ -2026,7 +2030,7 @@ export class AttendanceService {
         .eq('is_active', true);
 
       // Use the semester_id column for comparison (timetables table stores semester_id as UUID)
-      timetableQuery = timetableQuery.eq('semester_id', filters.semester);
+      timetableQuery = timetableQuery.eq('semester_id', String(filters.semester));
 
       let timetables;
       let timetableError;
@@ -2038,10 +2042,9 @@ export class AttendanceService {
       } catch (networkError) {
         logger.error('academic/attendance', 'Network error fetching timetables', networkError);
         throw new Error(
-          `Failed to fetch timetables: ${
-            networkError instanceof Error
-              ? networkError.message
-              : 'Network error'
+          `Failed to fetch timetables: ${networkError instanceof Error
+            ? networkError.message
+            : 'Network error'
           }`
         );
       }
@@ -2049,8 +2052,7 @@ export class AttendanceService {
       if (timetableError) {
         logger.error('academic/attendance', 'Database error fetching timetables', timetableError);
         throw new Error(
-          `Database error: ${
-            timetableError.message || 'Unknown database error'
+          `Database error: ${timetableError.message || 'Unknown database error'
           }`
         );
       }
@@ -2399,11 +2401,11 @@ export class AttendanceService {
                   // Add course details from coursesMap if course_id exists
                   course_name: subSlot.course_id
                     ? coursesMap.get(subSlot.course_id)?.course_name ||
-                      subSlot.course_name
+                    subSlot.course_name
                     : subSlot.course_name,
                   course_code: subSlot.course_id
                     ? coursesMap.get(subSlot.course_id)?.course_code ||
-                      subSlot.course_code
+                    subSlot.course_code
                     : subSlot.course_code,
                   // Add staff members from staffMap
                   staff_members: (subSlot.staff_ids || [])
@@ -2619,10 +2621,10 @@ export class AttendanceService {
                 : ''),
             course: slot.course
               ? {
-                  id: slot.course.id,
-                  course_name: slot.course.course_name || '',
-                  course_code: slot.course.course_code || ''
-                }
+                id: slot.course.id,
+                course_name: slot.course.course_name || '',
+                course_code: slot.course.course_code || ''
+              }
               : undefined,
             // Note: staff field is deprecated, use staff_members instead
             staff: undefined,
@@ -2688,12 +2690,12 @@ export class AttendanceService {
               // Override course if sub-slot has its own course (Updated: 2025-10-13)
               course: subSlot.course_id
                 ? {
-                    id: subSlot.course_id,
-                    course_name:
-                      subSlot.course_name || period.course?.course_name || '',
-                    course_code:
-                      subSlot.course_code || period.course?.course_code || ''
-                  }
+                  id: subSlot.course_id,
+                  course_name:
+                    subSlot.course_name || period.course?.course_name || '',
+                  course_code:
+                    subSlot.course_code || period.course?.course_code || ''
+                }
                 : period.course,
               // Updated: 2025-10-13 - Override section_name to include group info for better identification
               section_name: `${period.section_name} - ${groupName}`,
@@ -3557,8 +3559,7 @@ export class AttendanceService {
     } catch (error) {
       logger.error('academic/attendance', 'Error debugging attendance record', error);
       issues.push(
-        `Debug error: ${
-          error instanceof Error ? error.message : 'Unknown error'
+        `Debug error: ${error instanceof Error ? error.message : 'Unknown error'
         }`
       );
       return { issues, suggestions };
@@ -3654,8 +3655,7 @@ export class AttendanceService {
           }
         } catch (error) {
           errors.push(
-            `Error processing record ${(record as any).id}: ${
-              error instanceof Error ? error.message : 'Unknown error'
+            `Error processing record ${(record as any).id}: ${error instanceof Error ? error.message : 'Unknown error'
             }`
           );
         }
@@ -3665,8 +3665,7 @@ export class AttendanceService {
     } catch (error) {
       logger.error('academic/attendance', 'Error in fixAttendanceRecords', error);
       errors.push(
-        `Fix operation error: ${
-          error instanceof Error ? error.message : 'Unknown error'
+        `Fix operation error: ${error instanceof Error ? error.message : 'Unknown error'
         }`
       );
       return { totalFound: 0, fixedCount: 0, errors, summary };

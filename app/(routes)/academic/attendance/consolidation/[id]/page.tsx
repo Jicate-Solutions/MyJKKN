@@ -1,18 +1,27 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
   ArrowLeft,
   Download,
-  FileText,
   Users,
   Calendar,
   TrendingUp,
   Loader2,
   AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  GraduationCap,
+  Building2,
+  BookOpen,
+  Layers,
+  Users2,
+  CheckCircle2,
+  XCircle,
+  Clock,
 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -36,14 +45,23 @@ import { Badge } from '@/components/ui/badge';
 import {
   Table,
   TableBody,
-  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useConsolidationReport } from '@/hooks/academic/use-attendance-consolidation';
+import { cn } from '@/lib/utils';
+import type { StudentAttendanceSummary, GroupAttendanceSummary } from '@/types/attendance';
 
 interface PageProps {
   params: Promise<{
@@ -51,18 +69,297 @@ interface PageProps {
   }>;
 }
 
+// Helper to get attendance color based on percentage
+function getAttendanceColor(percentage: number) {
+  if (percentage >= 90) return 'text-green-600 bg-green-50 border-green-200';
+  if (percentage >= 75) return 'text-blue-600 bg-blue-50 border-blue-200';
+  if (percentage >= 60) return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+  return 'text-red-600 bg-red-50 border-red-200';
+}
+
+function getAttendanceBadgeVariant(percentage: number): 'default' | 'secondary' | 'destructive' | 'outline' {
+  if (percentage >= 75) return 'default';
+  if (percentage >= 60) return 'secondary';
+  return 'destructive';
+}
+
+// Component to display hierarchy info for a learner
+function LearnerHierarchyInfo({ student }: { student: StudentAttendanceSummary }) {
+  const hierarchyParts = [];
+
+  if (student.degreeName) {
+    hierarchyParts.push(student.degreeName);
+  }
+  if (student.departmentName || student.departmentCode) {
+    hierarchyParts.push(student.departmentCode || student.departmentName);
+  }
+  if (student.programName) {
+    hierarchyParts.push(student.programName);
+  }
+  if (student.semesterName) {
+    hierarchyParts.push(student.semesterName);
+  }
+  if (student.sectionName) {
+    hierarchyParts.push(`Section ${student.sectionName}`);
+  }
+
+  if (hierarchyParts.length === 0) return null;
+
+  return (
+    <span className="text-xs text-muted-foreground">
+      {hierarchyParts.join(' • ')}
+    </span>
+  );
+}
+
+// Component to display group header with hierarchy
+function GroupHeader({ group, isExpanded }: {
+  group: GroupAttendanceSummary;
+  isExpanded: boolean;
+}) {
+  // Get first student's hierarchy info if available
+  const firstStudent = group.students[0];
+  const hierarchyInfo = firstStudent ? {
+    degree: firstStudent.degreeName || firstStudent.degreeCode,
+    department: firstStudent.departmentName || firstStudent.departmentCode,
+    program: firstStudent.programName || firstStudent.programCode,
+    semester: firstStudent.semesterName,
+  } : null;
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col md:flex-row md:items-center justify-between p-4 cursor-pointer rounded-lg transition-colors",
+        "hover:bg-muted/50",
+        isExpanded && "bg-muted/30"
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <div className={cn(
+          "p-2 rounded-lg",
+          getAttendanceColor(group.averageAttendance)
+        )}>
+          <Users2 className="h-5 w-5" />
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold">{group.groupName}</h3>
+            <Badge variant="outline" className="text-xs capitalize">
+              {group.groupType}
+            </Badge>
+          </div>
+
+          {/* Hierarchy breadcrumb */}
+          {hierarchyInfo && (
+            <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+              {hierarchyInfo.degree && (
+                <>
+                  <GraduationCap className="h-3 w-3" />
+                  <span>{hierarchyInfo.degree}</span>
+                </>
+              )}
+              {hierarchyInfo.department && (
+                <>
+                  <span className="mx-1">›</span>
+                  <Building2 className="h-3 w-3" />
+                  <span>{hierarchyInfo.department}</span>
+                </>
+              )}
+              {hierarchyInfo.program && (
+                <>
+                  <span className="mx-1">›</span>
+                  <BookOpen className="h-3 w-3" />
+                  <span>{hierarchyInfo.program}</span>
+                </>
+              )}
+              {hierarchyInfo.semester && (
+                <>
+                  <span className="mx-1">›</span>
+                  <Layers className="h-3 w-3" />
+                  <span>{hierarchyInfo.semester}</span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4 mt-3 md:mt-0">
+        <div className="flex items-center gap-6 text-sm">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-1.5">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">{group.totalStudents}</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>Total Learners</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">{group.totalWorkingDays}</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>Working Days</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <Badge
+            variant={getAttendanceBadgeVariant(group.averageAttendance)}
+            className="text-sm px-3"
+          >
+            {group.averageAttendance.toFixed(1)}%
+          </Badge>
+        </div>
+
+        <div className="ml-2 p-2 rounded-md hover:bg-muted">
+          {isExpanded ? (
+            <ChevronUp className="h-4 w-4" />
+          ) : (
+            <ChevronDown className="h-4 w-4" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Learner row component with improved design
+function LearnerRow({
+  learner,
+  index,
+  showHierarchy,
+  showAbsentDetails
+}: {
+  learner: StudentAttendanceSummary;
+  index: number;
+  showHierarchy: boolean;
+  showAbsentDetails: boolean;
+}) {
+  return (
+    <TableRow className={cn(index % 2 === 0 && "bg-muted/20")}>
+      <TableCell className="font-medium">
+        <div className="flex flex-col">
+          <span className={cn(
+            "font-medium",
+            // Show as warning if name looks like a UUID
+            learner.studentName?.includes('-') && learner.studentName.length > 30 && "text-yellow-600"
+          )}>
+            {learner.studentName}
+          </span>
+          {showHierarchy && <LearnerHierarchyInfo student={learner} />}
+        </div>
+      </TableCell>
+      <TableCell>
+        <Badge variant="outline" className="font-mono text-xs">
+          {learner.rollNumber || '-'}
+        </Badge>
+      </TableCell>
+      <TableCell className="text-center">
+        {learner.totalWorkingDays}
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 text-green-600">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            <span className="font-medium">{learner.totalPresent}</span>
+          </div>
+          <span className="text-muted-foreground">/</span>
+          <div className="flex items-center gap-1 text-red-500">
+            <XCircle className="h-3.5 w-3.5" />
+            <span className="font-medium">{learner.totalAbsent}</span>
+          </div>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-2 min-w-[120px]">
+          <Progress
+            value={learner.attendancePercentage}
+            className="h-2 flex-1"
+          />
+          <Badge variant={getAttendanceBadgeVariant(learner.attendancePercentage)} className="w-16 justify-center">
+            {learner.attendancePercentage.toFixed(1)}%
+          </Badge>
+        </div>
+      </TableCell>
+      {showAbsentDetails && (
+        <TableCell className="max-w-[200px]">
+          {learner.absentDates && learner.absentDates.length > 0 ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground cursor-help">
+                    <Clock className="h-3 w-3" />
+                    <span className="truncate">
+                      {learner.absentDates.length <= 3
+                        ? learner.absentDates.join(', ')
+                        : `${learner.absentDates.slice(0, 2).join(', ')} +${learner.absentDates.length - 2} more`
+                      }
+                    </span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  <div className="space-y-1">
+                    <p className="font-medium">Absent Dates:</p>
+                    <p className="text-xs">{learner.absentDates.join(', ')}</p>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <span className="text-xs text-green-600 flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3" />
+              Perfect
+            </span>
+          )}
+        </TableCell>
+      )}
+    </TableRow>
+  );
+}
+
 export default function ConsolidationReportDetailPage({ params }: PageProps) {
   const router = useRouter();
   const resolvedParams = use(params);
   const reportId = resolvedParams.id;
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const { data: report, isLoading, error } = useConsolidationReport(reportId);
+
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  };
+
+  const expandAll = () => {
+    if (report?.reportData?.groups) {
+      setExpandedGroups(new Set(report.reportData.groups.map(g => g.groupId)));
+    }
+  };
+
+  const collapseAll = () => {
+    setExpandedGroups(new Set());
+  };
 
   if (isLoading) {
     return (
       <ContentLayout title="Loading...">
-        <div className="flex items-center justify-center min-h-[50vh]">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading report data...</p>
         </div>
       </ContentLayout>
     );
@@ -102,8 +399,7 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>
-              Failed to load report. The report may have been deleted or you don't have permission
-              to view it.
+              Failed to load report. The report may have been deleted or you don't have permission to view it.
             </AlertDescription>
           </Alert>
           <Button onClick={() => router.back()}>
@@ -145,15 +441,23 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
         </Breadcrumb>
 
         <div className="space-y-6 mt-6">
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Report Not Ready</AlertTitle>
-            <AlertDescription>
-              This report is still being generated. Status: {report.status}
-              {report.errorMessage && <div className="mt-2 text-red-600">Error: {report.errorMessage}</div>}
-            </AlertDescription>
-          </Alert>
-          <Button onClick={() => router.back()}>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center gap-4">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                <div className="text-center">
+                  <p className="font-medium">Report is being generated...</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Status: <Badge variant="outline" className="capitalize">{report.status}</Badge>
+                  </p>
+                  {report.errorMessage && (
+                    <p className="mt-2 text-sm text-red-600">{report.errorMessage}</p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Button variant="outline" onClick={() => router.back()}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Go Back
           </Button>
@@ -163,6 +467,7 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
   }
 
   const { summary, groups } = report.reportData;
+  const showHierarchy = report.reportParams.groupBy === 'section' || report.reportParams.groupBy === 'student';
 
   return (
     <ContentLayout title={report.reportName}>
@@ -187,25 +492,23 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Details</BreadcrumbPage>
+            <BreadcrumbPage>Report Details</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
       <div className="space-y-6 mt-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={() => router.back()}>
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold py-1">{report.reportName}</h1>
-                {report.reportDescription && (
-                  <p className="text-sm sm:text-base text-muted-foreground">{report.reportDescription}</p>
-                )}
-              </div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <Button variant="outline" size="icon" onClick={() => router.back()}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold">{report.reportName}</h1>
+              {report.reportDescription && (
+                <p className="text-sm text-muted-foreground mt-1">{report.reportDescription}</p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -220,182 +523,182 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
           </div>
         </div>
 
-      {/* Report Metadata */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Report Information</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <p className="text-sm text-muted-foreground">Date Range</p>
-            <p className="font-medium">
-              {summary.dateRange.from} to {summary.dateRange.to}
-            </p>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Group By</p>
-            <Badge variant="outline" className="capitalize">
-              {report.reportParams.groupBy}
-            </Badge>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Format</p>
-            <Badge variant="outline" className="uppercase">
-              {report.format}
-            </Badge>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Generated</p>
-            <p className="text-sm">{format(new Date(report.createdAt), 'PPp')}</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Overall Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Report Info Card */}
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Students
-            </CardTitle>
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base">Report Configuration</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-muted-foreground" />
-              <span className="text-2xl font-bold">{summary.totalStudents}</span>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Date Range</p>
+                <p className="text-sm font-medium">
+                  {format(new Date(summary.dateRange.from), 'MMM dd')} - {format(new Date(summary.dateRange.to), 'MMM dd, yyyy')}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Grouped By</p>
+                <Badge variant="secondary" className="capitalize">
+                  {report.reportParams.groupBy}
+                </Badge>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Format</p>
+                <Badge variant="outline" className="uppercase">
+                  {report.format}
+                </Badge>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Generated</p>
+                <p className="text-sm">{format(new Date(report.createdAt), 'PPp')}</p>
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Working Days
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-muted-foreground" />
-              <span className="text-2xl font-bold">{summary.totalWorkingDays}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Average Attendance
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-green-600" />
-              <span className="text-2xl font-bold text-green-600">
-                {summary.averageAttendance.toFixed(2)}%
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Present
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col">
-              <span className="text-2xl font-bold text-green-600">{summary.totalPresent}</span>
-              <span className="text-sm text-muted-foreground">
-                {summary.totalAbsent} Absent
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Groups Data */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Detailed Report</CardTitle>
-          <CardDescription>
-            Attendance breakdown by {report.reportParams.groupBy}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {groups.map((group, index) => (
-            <div key={group.groupId} className="space-y-3">
-              {index > 0 && <div className="border-t my-6" />}
-
+        {/* Summary Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/50 dark:to-blue-900/30 border-blue-200 dark:border-blue-800">
+            <CardContent className="pt-6">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">{group.groupName}</h3>
-                <div className="flex items-center gap-4 text-sm">
-                  <span className="text-muted-foreground">
-                    {group.totalStudents} Students
-                  </span>
-                  <Badge variant={group.averageAttendance >= 75 ? 'default' : 'destructive'}>
-                    {group.averageAttendance.toFixed(2)}% Avg
-                  </Badge>
+                <div>
+                  <p className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">Total Learners</p>
+                  <p className="text-3xl font-bold text-blue-700 dark:text-blue-300 mt-1">{summary.totalStudents}</p>
+                </div>
+                <div className="p-3 bg-blue-100 dark:bg-blue-900/50 rounded-full">
+                  <Users className="h-6 w-6 text-blue-600 dark:text-blue-400" />
                 </div>
               </div>
+            </CardContent>
+          </Card>
 
-              <Table>
-                <TableCaption>
-                  Attendance details for {group.groupName}
-                </TableCaption>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Student Name</TableHead>
-                    <TableHead>Roll Number</TableHead>
-                    {report.reportParams.groupBy !== 'section' && (
-                      <TableHead>Section</TableHead>
-                    )}
-                    <TableHead className="text-right">Working Days</TableHead>
-                    <TableHead className="text-right">Present</TableHead>
-                    <TableHead className="text-right">Absent</TableHead>
-                    <TableHead className="text-right">Attendance %</TableHead>
-                    {report.reportParams.includeAbsentDetails && (
-                      <TableHead>Absent Dates</TableHead>
-                    )}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {group.students.map((student) => (
-                    <TableRow key={student.studentId}>
-                      <TableCell className="font-medium">{student.studentName}</TableCell>
-                      <TableCell>{student.rollNumber || '-'}</TableCell>
-                      {report.reportParams.groupBy !== 'section' && (
-                        <TableCell>{student.sectionName || '-'}</TableCell>
-                      )}
-                      <TableCell className="text-right">{student.totalWorkingDays}</TableCell>
-                      <TableCell className="text-right text-green-600 font-medium">
-                        {student.totalPresent}
-                      </TableCell>
-                      <TableCell className="text-right text-red-600 font-medium">
-                        {student.totalAbsent}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Badge
-                          variant={student.attendancePercentage >= 75 ? 'default' : 'destructive'}
-                        >
-                          {student.attendancePercentage.toFixed(2)}%
-                        </Badge>
-                      </TableCell>
-                      {report.reportParams.includeAbsentDetails && (
-                        <TableCell className="text-xs text-muted-foreground max-w-xs">
-                          {student.absentDates && student.absentDates.length > 0
-                            ? student.absentDates.join(', ')
-                            : 'No absences'}
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+          <Card className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/50 dark:to-purple-900/30 border-purple-200 dark:border-purple-800">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-purple-600 dark:text-purple-400 uppercase tracking-wide">Working Days</p>
+                  <p className="text-3xl font-bold text-purple-700 dark:text-purple-300 mt-1">{summary.totalWorkingDays}</p>
+                </div>
+                <div className="p-3 bg-purple-100 dark:bg-purple-900/50 rounded-full">
+                  <Calendar className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/50 dark:to-green-900/30 border-green-200 dark:border-green-800">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wide">Avg Attendance</p>
+                  <p className="text-3xl font-bold text-green-700 dark:text-green-300 mt-1">{summary.averageAttendance.toFixed(1)}%</p>
+                </div>
+                <div className="p-3 bg-green-100 dark:bg-green-900/50 rounded-full">
+                  <TrendingUp className="h-6 w-6 text-green-600 dark:text-green-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/50 dark:to-orange-900/30 border-orange-200 dark:border-orange-800">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-orange-600 dark:text-orange-400 uppercase tracking-wide">Present / Absent</p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-2xl font-bold text-green-600 dark:text-green-400">{summary.totalPresent}</span>
+                    <span className="text-muted-foreground">/</span>
+                    <span className="text-xl font-bold text-red-500">{summary.totalAbsent}</span>
+                  </div>
+                </div>
+                <div className="p-3 bg-orange-100 dark:bg-orange-900/50 rounded-full">
+                  <CheckCircle2 className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Groups Data */}
+        <Card>
+          <CardHeader className="pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <CardTitle>Attendance Details</CardTitle>
+                <CardDescription className="mt-1">
+                  {groups.length} {groups.length === 1 ? 'group' : 'groups'} • Grouped by {report.reportParams.groupBy}
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={expandAll}>
+                  Expand All
+                </Button>
+                <Button variant="outline" size="sm" onClick={collapseAll}>
+                  Collapse All
+                </Button>
+              </div>
             </div>
-          ))}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {groups.map((group) => {
+              const isExpanded = expandedGroups.has(group.groupId);
+              return (
+                <div
+                  key={group.groupId}
+                  className={cn(
+                    "border rounded-lg overflow-hidden",
+                    isExpanded && "ring-1 ring-primary/20"
+                  )}
+                >
+                  {/* Clickable header */}
+                  <div
+                    onClick={() => toggleGroup(group.groupId)}
+                    className="cursor-pointer"
+                  >
+                    <GroupHeader
+                      group={group}
+                      isExpanded={isExpanded}
+                    />
+                  </div>
+
+                  {/* Expandable content */}
+                  {isExpanded && (
+                    <>
+                      <Separator />
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-muted/50">
+                              <TableHead className="min-w-[200px]">Learner</TableHead>
+                              <TableHead className="min-w-[100px]">Roll No.</TableHead>
+                              <TableHead className="text-center min-w-[80px]">Days</TableHead>
+                              <TableHead className="min-w-[120px]">Present/Absent</TableHead>
+                              <TableHead className="min-w-[180px]">Attendance</TableHead>
+                              {report.reportParams.includeAbsentDetails && (
+                                <TableHead className="min-w-[150px]">Absent Dates</TableHead>
+                              )}
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {group.students.map((learner, learnerIndex) => (
+                              <LearnerRow
+                                key={learner.studentId}
+                                learner={learner}
+                                index={learnerIndex}
+                                showHierarchy={showHierarchy}
+                                showAbsentDetails={report.reportParams.includeAbsentDetails || false}
+                              />
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
       </div>
     </ContentLayout>
   );

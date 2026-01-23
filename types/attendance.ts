@@ -329,6 +329,7 @@ export interface ConsolidationReportParams {
   groupBy: GroupByType; // How to group the data
   includeAbsentDetails?: boolean; // Include detailed absent records
   includePeriodBreakdown?: boolean; // Include period-wise breakdown
+  [key: string]: any; // Allow arbitrary keys for JSON compatibility
 }
 
 // Student Attendance Summary
@@ -336,8 +337,19 @@ export interface StudentAttendanceSummary {
   studentId: string;
   studentName: string;
   rollNumber?: string;
+  // Section info
   sectionId?: string;
   sectionName?: string;
+  // Hierarchy info for detailed reports
+  degreeName?: string;
+  degreeCode?: string;
+  departmentName?: string;
+  departmentCode?: string;
+  programName?: string;
+  programCode?: string;
+  semesterName?: string;
+  semesterNumber?: number;
+  // Attendance stats
   totalWorkingDays: number;
   totalPresent: number;
   totalAbsent: number;

@@ -32,7 +32,7 @@ export class AttendanceFacultySync {
       }
 
       // Type cast to fix TypeScript inference after React 19 upgrade
-      const attendanceData = attendance as { timetables: { timetable_data: any }; attendance_date: string; attendance_data: any };
+      const attendanceData = attendance as unknown as { timetables: { timetable_data: any }; attendance_date: string; attendance_data: any };
 
       const timetableData = attendanceData.timetables.timetable_data;
       const attendanceDate = attendanceData.attendance_date;
@@ -254,7 +254,7 @@ export class AttendanceFacultySync {
         .single();
 
       // Type cast to fix TypeScript inference after React 19 upgrade
-      const attendanceRecord = attendance as {
+      const attendanceRecord = attendance as unknown as {
         attendance_data: any;
         attendance_date: string;
         timetables: { timetable_data: any };
@@ -313,8 +313,8 @@ export class AttendanceFacultySync {
         faculty_email: staff.institution_email,
         ...(timetableSlot.staff_ids.length > 1
           ? {
-              is_primary: staff.id === timetableSlot.primary_staff_id
-            }
+            is_primary: staff.id === timetableSlot.primary_staff_id
+          }
           : {})
       }));
 

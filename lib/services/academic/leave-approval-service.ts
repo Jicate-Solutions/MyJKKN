@@ -128,7 +128,7 @@ export class LeaveApprovalService {
 
       if (error) throw error;
 
-      return (data || []) as LeaveApprovalChain[];
+      return (data || []) as unknown as LeaveApprovalChain[];
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching approval chains', error);
       throw error;
@@ -160,7 +160,7 @@ export class LeaveApprovalService {
 
       if (error) throw error;
 
-      return (data || []) as LeaveApprovalChain[];
+      return (data || []) as unknown as LeaveApprovalChain[];
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching approval chain for leave', error);
       throw error;
@@ -247,7 +247,7 @@ export class LeaveApprovalService {
 
       if (error) throw error;
 
-      return (data || []) as LeaveApproval[];
+      return (data || []) as unknown as LeaveApproval[];
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching approvals for leave', error);
       throw error;
@@ -320,9 +320,9 @@ export class LeaveApprovalService {
       if (chainsError) throw chainsError;
 
       // Type assertions for the data
-      const typedUserRoles = (userRoles || []) as UserRoleWithCustom[];
-      const typedLeaves = (pendingLeaves || []) as InstitutionLeave[];
-      const typedChains = (chains || []) as LeaveApprovalChain[];
+      const typedUserRoles = (userRoles || []) as unknown as UserRoleWithCustom[];
+      const typedLeaves = (pendingLeaves || []) as unknown as InstitutionLeave[];
+      const typedChains = (chains || []) as unknown as LeaveApprovalChain[];
 
       // Match pending leaves to user's approval authority
       const pendingApprovals: PendingApproval[] = [];

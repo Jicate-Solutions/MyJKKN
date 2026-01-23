@@ -117,13 +117,13 @@ export class ActivityService {
       let query = (this.supabase as any).from('user_activity_logs').select(
         `
           *,
-          user:profiles!user_activity_logs_user_id_fkey(
+          profiles!user_activity_logs_user_id_fkey(
             id,
             full_name,
             email,
             role
           ),
-          institution:institutions(
+          institutions(
             id,
             name
           )
@@ -173,12 +173,9 @@ export class ActivityService {
       }
 
       if (filters.search) {
-        query = query.or(`
-          description.ilike.%${filters.search}%,
-          action_type.ilike.%${filters.search}%,
-          resource_type.ilike.%${filters.search}%,
-          resource_name.ilike.%${filters.search}%
-        `);
+        query = query.or(
+          `description.ilike.%${filters.search}%,action_type.ilike.%${filters.search}%,resource_type.ilike.%${filters.search}%,resource_name.ilike.%${filters.search}%`
+        );
       }
 
       // Apply sorting
@@ -215,13 +212,6 @@ export class ActivityService {
     to: string;
   }): Promise<ActivityDashboardMetrics> {
     try {
-      // Base query for the date range
-      const baseQuery = this.supabase
-        .from('user_activity_logs')
-        .select('*')
-        .gte('created_at', dateRange.from)
-        .lte('created_at', dateRange.to);
-
       // Get total activities
       const { count: totalActivities } = await this.supabase
         .from('user_activity_logs')
@@ -332,7 +322,7 @@ export class ActivityService {
         .lte('created_at', dateRange.to);
 
       // Type cast to fix TypeScript inference after React 19 upgrade
-      const userActivityResult = userActivityData as { user_id: string; profiles: { full_name: string }[] }[] | null;
+      const userActivityResult = userActivityData as { user_id: string; profiles: { full_name: string } | null }[] | null;
 
       const userCounts =
         userActivityResult?.reduce((acc, log) => {
@@ -346,7 +336,7 @@ export class ActivityService {
 
       const mostActiveUser =
         userActivityResult?.find((log) => log.user_id === mostActiveUserId)
-          ?.profiles?.[0]?.full_name || 'Unknown';
+          ?.profiles?.full_name || 'Unknown';
 
       return {
         totalActivities: totalActivities || 0,
@@ -464,13 +454,13 @@ export class ActivityService {
         .not('institution_id', 'is', null);
 
       // Type cast to fix TypeScript inference after React 19 upgrade
-      const institutionData = data as { institutions: { name: string }[] }[] | null;
+      const institutionData = data as { institutions: { name: string } | null }[] | null;
 
       const totalWithInstitution = institutionData?.length || 0;
 
       const institutionCounts =
         institutionData?.reduce((acc, log) => {
-          const name = log.institutions?.[0]?.name || 'Unknown';
+          const name = log.institutions?.name || 'Unknown';
           acc[name] = (acc[name] || 0) + 1;
           return acc;
         }, {} as Record<string, number>) || {};
@@ -502,13 +492,13 @@ export class ActivityService {
         .select(
           `
           *,
-          user:profiles!user_activity_logs_user_id_fkey(
+          profiles!user_activity_logs_user_id_fkey(
             id,
             full_name,
             email,
             role
           ),
-          institution:institutions(
+          institutions(
             id,
             name
           )
@@ -582,13 +572,13 @@ export class ActivityService {
         .select(
           `
           *,
-          user:profiles!user_activity_logs_user_id_fkey(
+          profiles!user_activity_logs_user_id_fkey(
             id,
             full_name,
             email,
             role
           ),
-          institution:institutions(
+          institutions(
             id,
             name
           )
