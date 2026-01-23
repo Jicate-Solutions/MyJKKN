@@ -241,7 +241,8 @@ export function BulkUploadLearnerImages({
 
       // Show confirmation if closing with files in progress
       if (!newOpen && files.length > 0 && step !== 'results') {
-        setShowCloseConfirmation(true);
+        // Use setTimeout to prevent conflict with Dialog event handling
+        setTimeout(() => setShowCloseConfirmation(true), 0);
         return;
       }
 
@@ -257,8 +258,12 @@ export function BulkUploadLearnerImages({
 
   const handleConfirmClose = useCallback(() => {
     setShowCloseConfirmation(false);
-    setOpen(false);
-    resetState();
+    // Small delay to allow AlertDialog to close properly before closing parent Dialog
+    // This prevents "stuck" page issues with multiple Radix overlays
+    setTimeout(() => {
+      setOpen(false);
+      resetState();
+    }, 100);
   }, [resetState]);
 
   // ========================================================================
