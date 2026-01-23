@@ -45,7 +45,7 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const canCreate =
-    isSuperAdmin || canAccess('organizations.institutions', 'create');
+    isSuperAdmin || canAccess('organizations.degrees', 'create');
 
   const fetchData = async (params: {
     page: number;

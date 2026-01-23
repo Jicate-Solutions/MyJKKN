@@ -45,7 +45,7 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const canCreate =
-    isSuperAdmin || canAccess('organizations.institutions', 'create');
+    isSuperAdmin || canAccess('organizations.programs', 'create');
 
   // FIXED: Wrap fetchData in useCallback to prevent infinite re-renders
   const fetchData = useCallback(async (params: {
