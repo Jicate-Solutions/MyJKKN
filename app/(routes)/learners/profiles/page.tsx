@@ -193,7 +193,7 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
             <div className="flex gap-2">
               <CreateMissingProfilesButton />
               <BulkUploadProfilesDialogEnhanced />
-              <BulkUploadLearnerImages />
+              <BulkUploadLearnerImages institutionId={params.institution_id as string | undefined} />
               <BulkEditActiveDialog />
 
               <Button variant="outline" asChild>
