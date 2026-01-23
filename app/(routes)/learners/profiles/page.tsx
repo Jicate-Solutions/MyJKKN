@@ -18,6 +18,7 @@ import { ProfilesFilters } from './_components/profiles-filters';
 import { profilesSearchParamsSchema } from './_components/data-table-schema';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { BulkUploadProfilesDialogEnhanced } from './_components/bulk-upload-profiles-dialog-enhanced';
+import { BulkUploadLearnerImages } from './_components/bulk-upload-learner-images';
 import { BulkEditActiveDialog } from './_components/bulk-edit-exited-dialog';
 import { getLearnerProfiles } from './_data/get-learner-profiles';
 import { TableSkeleton } from '@/components/Loading';
@@ -192,6 +193,7 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
             <div className="flex gap-2">
               <CreateMissingProfilesButton />
               <BulkUploadProfilesDialogEnhanced />
+              <BulkUploadLearnerImages />
               <BulkEditActiveDialog />
 
               <Button variant="outline" asChild>

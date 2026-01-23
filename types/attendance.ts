@@ -1,5 +1,13 @@
 // types/attendance.ts
 
+// Authorization types for attendance marking
+export type AttendanceAuthorizationType =
+  | 'super_admin'
+  | 'admin'
+  | 'hod_department'
+  | 'assigned_faculty'
+  | 'permission_based';
+
 // Simplified student interface for attendance purposes
 export interface AttendanceStudent {
   id: string;
@@ -50,6 +58,7 @@ export interface ConsolidatedAttendancePeriod {
     marker_role: string;
     marker_email: string;
     marked_at: string; // ISO timestamp when the period was marked
+    authorization_type?: AttendanceAuthorizationType; // How the marker was authorized
   };
 }
 
@@ -297,4 +306,158 @@ export interface AttendancePeriodOption {
   institution_id?: string;
   department_id?: string;
   semester_id?: string;
+}
+
+// =====================================================
+// ATTENDANCE CONSOLIDATION REPORT TYPES
+// =====================================================
+// Created: 2026-01-23
+// Purpose: Types for institution-wide attendance consolidation reports
+
+export type ReportStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type ReportFormat = 'pdf' | 'excel' | 'csv';
+export type GroupByType = 'program' | 'semester' | 'section' | 'student';
+
+// Report Parameters
+export interface ConsolidationReportParams {
+  dateFrom: string; // YYYY-MM-DD
+  dateTo: string; // YYYY-MM-DD
+  programs?: string[]; // Program IDs to include
+  semesters?: string[]; // Semester IDs to include
+  sections?: string[]; // Section IDs to include
+  students?: string[]; // Student IDs to include (for specific student reports)
+  groupBy: GroupByType; // How to group the data
+  includeAbsentDetails?: boolean; // Include detailed absent records
+  includePeriodBreakdown?: boolean; // Include period-wise breakdown
+}
+
+// Student Attendance Summary
+export interface StudentAttendanceSummary {
+  studentId: string;
+  studentName: string;
+  rollNumber?: string;
+  sectionId?: string;
+  sectionName?: string;
+  totalWorkingDays: number;
+  totalPresent: number;
+  totalAbsent: number;
+  attendancePercentage: number;
+  absentDates?: string[]; // List of dates when absent (if includeAbsentDetails = true)
+  periodBreakdown?: {
+    // Period-wise attendance (if includePeriodBreakdown = true)
+    periodId: string;
+    periodName: string;
+    present: number;
+    absent: number;
+    percentage: number;
+  }[];
+}
+
+// Group Summary
+export interface GroupAttendanceSummary {
+  groupName: string; // Program name, Semester name, Section name, etc.
+  groupId: string;
+  groupType: GroupByType;
+  totalStudents: number;
+  totalWorkingDays: number;
+  averageAttendance: number;
+  totalPresent: number;
+  totalAbsent: number;
+  students: StudentAttendanceSummary[]; // Student-level details
+}
+
+// Overall Report Summary
+export interface ReportSummary {
+  totalStudents: number;
+  totalWorkingDays: number;
+  averageAttendance: number;
+  totalPresent: number;
+  totalAbsent: number;
+  dateRange: {
+    from: string;
+    to: string;
+  };
+}
+
+// Complete Report Data
+export interface ConsolidationReportData {
+  summary: ReportSummary;
+  groups: GroupAttendanceSummary[];
+}
+
+// Main Consolidation Report Model
+export interface AttendanceConsolidationReport {
+  id: string;
+  reportName: string;
+  reportDescription?: string;
+  institutionId: string;
+  generatedBy: string;
+  reportParams: ConsolidationReportParams;
+  reportData?: ConsolidationReportData;
+  status: ReportStatus;
+  format: ReportFormat;
+  fileUrl?: string;
+  fileSize?: number;
+  errorMessage?: string;
+  retryCount: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  isDeleted: boolean;
+  deletedAt?: string;
+  deletedBy?: string;
+
+  // Relations (populated on demand)
+  institution?: {
+    id: string;
+    name: string;
+  };
+  generatedByProfile?: {
+    id: string;
+    email: string;
+    fullName?: string;
+  };
+}
+
+// DTOs for creating reports
+export interface CreateConsolidationReportDto {
+  reportName: string;
+  reportDescription?: string;
+  institutionId: string;
+  reportParams: ConsolidationReportParams;
+  format?: ReportFormat; // Defaults to 'pdf'
+}
+
+// DTOs for updating reports
+export interface UpdateConsolidationReportDto {
+  reportName?: string;
+  reportDescription?: string;
+  status?: ReportStatus;
+  reportData?: ConsolidationReportData;
+  fileUrl?: string;
+  fileSize?: number;
+  errorMessage?: string;
+  completedAt?: string;
+}
+
+// Filters for listing reports
+export interface ConsolidationReportFilters {
+  institutionId?: string;
+  generatedBy?: string;
+  status?: ReportStatus;
+  dateFrom?: string; // Filter by created_at
+  dateTo?: string;
+  page?: number;
+  limit?: number;
+}
+
+// List Response
+export interface ConsolidationReportListResponse {
+  data: AttendanceConsolidationReport[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
 }
