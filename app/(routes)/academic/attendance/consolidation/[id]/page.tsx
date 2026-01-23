@@ -1,6 +1,7 @@
 'use client';
 
 import { use } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -14,6 +15,15 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -50,80 +60,165 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
+      <ContentLayout title="Loading...">
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
     );
   }
 
   if (error || !report) {
     return (
-      <div className="container mx-auto p-6">
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>
-            Failed to load report. The report may have been deleted or you don't have permission
-            to view it.
-          </AlertDescription>
-        </Alert>
-        <Button onClick={() => router.back()} className="mt-4">
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Go Back
-        </Button>
-      </div>
+      <ContentLayout title="Report Not Found">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/">Home</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/academic/attendance">Attendance</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/academic/attendance/consolidation">Consolidation</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Error</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <div className="space-y-6 mt-6">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>
+              Failed to load report. The report may have been deleted or you don't have permission
+              to view it.
+            </AlertDescription>
+          </Alert>
+          <Button onClick={() => router.back()}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Go Back
+          </Button>
+        </div>
+      </ContentLayout>
     );
   }
 
   if (report.status !== 'completed' || !report.reportData) {
     return (
-      <div className="container mx-auto p-6">
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Report Not Ready</AlertTitle>
-          <AlertDescription>
-            This report is still being generated. Status: {report.status}
-            {report.errorMessage && <div className="mt-2 text-red-600">Error: {report.errorMessage}</div>}
-          </AlertDescription>
-        </Alert>
-        <Button onClick={() => router.back()} className="mt-4">
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Go Back
-        </Button>
-      </div>
+      <ContentLayout title="Report Not Ready">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/">Home</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/academic/attendance">Attendance</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/academic/attendance/consolidation">Consolidation</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Processing</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <div className="space-y-6 mt-6">
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Report Not Ready</AlertTitle>
+            <AlertDescription>
+              This report is still being generated. Status: {report.status}
+              {report.errorMessage && <div className="mt-2 text-red-600">Error: {report.errorMessage}</div>}
+            </AlertDescription>
+          </Alert>
+          <Button onClick={() => router.back()}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Go Back
+          </Button>
+        </div>
+      </ContentLayout>
     );
   }
 
   const { summary, groups } = report.reportData;
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => router.back()}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div>
-              <h1 className="text-2xl font-bold">{report.reportName}</h1>
-              {report.reportDescription && (
-                <p className="text-muted-foreground">{report.reportDescription}</p>
-              )}
+    <ContentLayout title={report.reportName}>
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/">Home</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/academic/attendance">Attendance</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/academic/attendance/consolidation">Consolidation</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Details</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
+      <div className="space-y-6 mt-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="sm" onClick={() => router.back()}>
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <div>
+                <h1 className="text-2xl font-bold py-1">{report.reportName}</h1>
+                {report.reportDescription && (
+                  <p className="text-sm sm:text-base text-muted-foreground">{report.reportDescription}</p>
+                )}
+              </div>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            {report.fileUrl && (
+              <Button asChild>
+                <a href={report.fileUrl} download target="_blank" rel="noopener noreferrer">
+                  <Download className="mr-2 h-4 w-4" />
+                  Download {report.format.toUpperCase()}
+                </a>
+              </Button>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {report.fileUrl && (
-            <Button asChild>
-              <a href={report.fileUrl} download target="_blank" rel="noopener noreferrer">
-                <Download className="mr-2 h-4 w-4" />
-                Download {report.format.toUpperCase()}
-              </a>
-            </Button>
-          )}
-        </div>
-      </div>
 
       {/* Report Metadata */}
       <Card>
@@ -301,6 +396,7 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
           ))}
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </ContentLayout>
   );
 }

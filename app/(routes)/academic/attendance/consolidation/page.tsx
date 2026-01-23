@@ -1,8 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Plus, FileText } from 'lucide-react';
 
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -29,17 +39,39 @@ export default function AttendanceConsolidationPage() {
 
   if (!currentInstitution) {
     return (
-      <div className="container mx-auto p-6">
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center p-8 text-center">
-            <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Institution Selected</h3>
-            <p className="text-sm text-muted-foreground">
-              Please select an institution to access attendance consolidation reports.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <ContentLayout title="Attendance Consolidation">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/">Home</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/academic/attendance">Attendance</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Consolidation</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <div className="space-y-6 mt-6">
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center p-8 text-center">
+              <FileText className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No Institution Selected</h3>
+              <p className="text-sm text-muted-foreground">
+                Please select an institution to access attendance consolidation reports.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </ContentLayout>
     );
   }
 
@@ -48,12 +80,33 @@ export default function AttendanceConsolidationPage() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <ContentLayout title="Attendance Consolidation">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/">Home</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/academic/attendance">Attendance</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Consolidation</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
+      <div className="space-y-6 mt-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Attendance Consolidation Reports</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-2xl font-bold py-1">Attendance Consolidation Reports</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
             Generate and view institution-wide attendance consolidation reports
           </p>
         </div>
@@ -114,6 +167,7 @@ export default function AttendanceConsolidationPage() {
           />
         </DialogContent>
       </Dialog>
-    </div>
+      </div>
+    </ContentLayout>
   );
 }
