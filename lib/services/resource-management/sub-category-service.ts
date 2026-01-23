@@ -540,7 +540,7 @@ export class SubCategoryService {
 
       if (error) throw error;
 
-      return attributes || [];
+      return (attributes || []) as AttributeDefinition[];
     } catch (error) {
       console.error('Error fetching attribute definitions:', error);
       throw new Error(

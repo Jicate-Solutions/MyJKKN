@@ -1,4 +1,4 @@
-import { createBrowserClient, type SupabaseClient as SSRSupabaseClient } from '@supabase/ssr';
+import { createBrowserClient } from '@supabase/ssr';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database.types';
 
@@ -6,13 +6,14 @@ import type { Database } from '@/types/database.types';
 export type TypedSupabaseClient = SupabaseClient<Database>;
 
 // Client-side singleton instance with proper database typing
-let clientInstance: SSRSupabaseClient<Database>;
+let clientInstance: SupabaseClient<Database>;
 
 // Admin singleton instance with proper database typing
 let adminInstance: SupabaseClient<Database>;
 
 export function createClientSupabaseClient(): TypedSupabaseClient {
   if (!clientInstance) {
+    // Type assertion needed: createBrowserClient returns a compatible but slightly different type
     clientInstance = createBrowserClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -33,7 +34,7 @@ export function createClientSupabaseClient(): TypedSupabaseClient {
           }
         }
       }
-    );
+    ) as unknown as SupabaseClient<Database>;
   }
   return clientInstance as TypedSupabaseClient;
 }

@@ -254,7 +254,7 @@ export class BillingRefundService {
         .single();
 
       if (error) throw error;
-      return data;
+      return data as unknown as BillingRefund;
     } catch (error) {
       console.error('Error fetching refund:', error);
       throw new Error(

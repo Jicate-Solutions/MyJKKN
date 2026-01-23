@@ -545,7 +545,9 @@ export class StaffService {
 
       if (error) throw error;
 
-      return staff;
+      // Type assertion: gender is stored as string but should be typed as Gender enum
+      // Also: category relation returns partial data, full type includes additional fields
+      return staff as unknown as Staff;
     } catch (error) {
       console.error('Error fetching staff:', error);
       throw error;

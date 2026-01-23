@@ -77,7 +77,8 @@ export class ReservationService {
       throw error;
     }
 
-    return data as Reservation[];
+    // Type assertion: recurring_config is stored as Json but should be typed as RecurringConfig
+    return (data || []) as unknown as Reservation[];
   }
 
   /**
@@ -110,7 +111,8 @@ export class ReservationService {
       throw error;
     }
 
-    return data as Reservation;
+    // Type assertion: recurring_config is stored as Json but should be typed as RecurringConfig
+    return data as unknown as Reservation;
   }
 
   /**
@@ -296,9 +298,10 @@ export class ReservationService {
 
     return {
       is_available,
+      // Type assertion: recurring_config is stored as Json but should be typed as RecurringConfig
       conflicting_reservations: is_available
         ? undefined
-        : (conflicts as Reservation[]),
+        : (conflicts as unknown as Reservation[]),
       message: is_available
         ? 'Resource is available'
         : `Resource is already booked for ${conflicts?.length} time slot(s)`

@@ -3,7 +3,10 @@ import type {
   StudentForBilling,
   StudentForBillingListResponse,
   StudentSearchFilters,
-  StudentBillingSummary
+  StudentBillingSummary,
+  StudentBill,
+  BillingReceipt,
+  BillingInvoice
 } from '@/types/billing-schedule';
 
 // Helper type for raw Supabase response
@@ -394,11 +397,11 @@ export class StudentSearchService {
 
       return {
         student,
-        bills: bills || [],
-        receipts: receipts || [],
+        bills: (bills || []) as StudentBill[],
+        receipts: (receipts || []) as BillingReceipt[],
         discounts,
         refunds,
-        invoices: invoices || [],
+        invoices: (invoices || []) as BillingInvoice[],
         summary: {
           total_bills: totalBills,
           paid_amount: paidAmount,

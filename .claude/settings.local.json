@@ -200,7 +200,9 @@
       "Bash(claude install)",
       "Bash(git diff:*)",
       "Skill(superpowers:brainstorming)",
-      "WebFetch(domain:ui.shadcn.com)"
+      "WebFetch(domain:ui.shadcn.com)",
+      "Skill(superpowers:systematic-debugging)",
+      "Skill(supabase-postgres-best-practices)"
     ],
     "deny": [],
     "ask": []

@@ -82,7 +82,7 @@ export class BillingItemCategoryService {
         .single();
 
       if (error) throw error;
-      return data;
+      return data as unknown as BillingItemCategory;
     } catch (error) {
       console.error('Error creating billing item category:', error);
       throw error;
@@ -146,7 +146,7 @@ export class BillingItemCategoryService {
         throw error;
       }
 
-      return data;
+      return data as unknown as BillingItemCategory;
     } catch (error) {
       console.error('Error updating billing item category:', error);
       throw error;
@@ -313,7 +313,7 @@ export class BillingItemCategoryService {
         throw error;
       }
 
-      return data;
+      return data as unknown as BillingItemCategory;
     } catch (error) {
       console.error('Error fetching billing item category:', error);
       throw error;
@@ -356,7 +356,7 @@ export class BillingItemCategoryService {
 
       if (error) throw error;
 
-      return data || [];
+      return (data || []) as unknown as BillingItemCategory[];
     } catch (error) {
       console.error(
         'Error fetching billing item categories by sub category:',
@@ -402,7 +402,7 @@ export class BillingItemCategoryService {
 
       if (error) throw error;
 
-      return data || [];
+      return (data || []) as unknown as BillingItemCategory[];
     } catch (error) {
       console.error(
         'Error fetching billing item categories by institution:',

@@ -59,7 +59,7 @@ export class LeaveService {
         throw enhancedError;
       }
 
-      return leave as InstitutionLeave;
+      return leave as unknown as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error creating leave', error);
       throw error;
@@ -99,7 +99,7 @@ export class LeaveService {
         throw enhancedError;
       }
 
-      return leave as InstitutionLeave;
+      return leave as unknown as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error updating leave', error);
       throw error;
@@ -152,7 +152,7 @@ export class LeaveService {
 
       if (error) throw error;
 
-      return leave as InstitutionLeave;
+      return leave as unknown as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching leave', error);
       throw error;
@@ -244,7 +244,7 @@ export class LeaveService {
       if (error) throw error;
 
       return {
-        data: (data || []) as InstitutionLeave[],
+        data: (data || []) as unknown as InstitutionLeave[],
         metadata: {
           total: count || 0,
           page,
@@ -338,7 +338,7 @@ export class LeaveService {
       const totalPages = Math.ceil(total / limit);
 
       return {
-        data: (data || []) as InstitutionLeave[],
+        data: (data || []) as unknown as InstitutionLeave[],
         metadata: {
           total,
           page,
@@ -392,7 +392,7 @@ export class LeaveService {
         }
       ]);
 
-      return leave as InstitutionLeave;
+      return leave as unknown as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error approving leave', error);
       throw error;
@@ -437,7 +437,7 @@ export class LeaveService {
         }
       ]);
 
-      return leave as InstitutionLeave;
+      return leave as unknown as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error rejecting leave', error);
       throw error;
@@ -466,7 +466,7 @@ export class LeaveService {
 
       if (error) throw error;
 
-      return leave as InstitutionLeave;
+      return leave as unknown as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error cancelling leave', error);
       throw error;
@@ -537,7 +537,7 @@ export class LeaveService {
 
       if (error) throw error;
 
-      return (data || []) as InstitutionLeave[];
+      return (data || []) as unknown as InstitutionLeave[];
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching pending leaves', error);
       throw error;
@@ -573,7 +573,7 @@ export class LeaveService {
 
       if (error) throw error;
 
-      return (data || []) as InstitutionLeave[];
+      return (data || []) as unknown as InstitutionLeave[];
     } catch (error) {
       logger.error('academic/leaves', 'Error fetching upcoming leaves', error);
       throw error;

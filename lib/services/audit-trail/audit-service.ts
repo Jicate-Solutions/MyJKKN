@@ -18,7 +18,7 @@ import { AuditAction, AuditModule, AuditSeverity } from '@/types/audit-trail';
 export async function getAuditLogs(
   filters: AuditFilters = {}
 ): Promise<AuditLog[]> {
-  let query = supabase
+  let query = (supabase as any)
     .from('audit_logs')
     .select(
       `
@@ -84,7 +84,7 @@ export async function getAuditLogs(
 }
 
 export async function getAuditLog(id: string): Promise<AuditLog | null> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('audit_logs')
     .select(
       `
@@ -107,8 +107,8 @@ export async function createAuditLog(
     severity: dto.severity || AuditSeverity.INFO
   };
 
-  const { data, error } = await (supabase
-    .from('audit_logs') as any)
+  const { data, error } = await (supabase as any)
+    .from('audit_logs')
     .insert(auditData)
     .select()
     .single();

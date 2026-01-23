@@ -319,7 +319,8 @@ export class LearnerProfileService {
       throw error;
     }
 
-    return data;
+    // Type assertion: migration_source is stored as string but should be typed as MigrationSource
+    return data as LearnerProfile;
   }
 
   /**
@@ -339,7 +340,8 @@ export class LearnerProfileService {
       throw error;
     }
 
-    return data;
+    // Type assertion: migration_source is stored as string but should be typed as MigrationSource
+    return data as LearnerProfile | null;
   }
 
   /**
@@ -433,7 +435,8 @@ export class LearnerProfileService {
     }
 
     return {
-      data: data || [],
+      // Type assertion: migration_source is stored as string but should be typed as MigrationSource
+      data: (data || []) as LearnerProfile[],
       metadata: {
         total: count || 0,
         page,
