@@ -29,15 +29,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useAuth } from '@/hooks/use-auth';
 import { ReportGenerationForm } from './_components/report-generation-form';
 import { ReportsList } from './_components/reports-list';
 
 export default function AttendanceConsolidationPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const { currentInstitution } = useUserInstitutionAccess();
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id;
 
-  if (!currentInstitution) {
+  if (!institutionId) {
     return (
       <ContentLayout title="Attendance Consolidation">
         <Breadcrumb>
@@ -144,11 +145,11 @@ export default function AttendanceConsolidationPage() {
         </TabsList>
 
         <TabsContent value="all" className="space-y-4">
-          <ReportsList institutionId={currentInstitution} />
+          <ReportsList institutionId={institutionId} />
         </TabsContent>
 
         <TabsContent value="recent" className="space-y-4">
-          <ReportsList institutionId={currentInstitution} />
+          <ReportsList institutionId={institutionId} />
         </TabsContent>
       </Tabs>
 
@@ -162,7 +163,7 @@ export default function AttendanceConsolidationPage() {
             </DialogDescription>
           </DialogHeader>
           <ReportGenerationForm
-            institutionId={currentInstitution}
+            institutionId={institutionId}
             onSuccess={handleSuccess}
           />
         </DialogContent>

@@ -197,8 +197,8 @@
       "Bash(timeout 10 npm run type-check:*)",
       "Bash(git rm:*)",
       "Bash(claude --version)",
-      "Bash(claude install)"
-      
+      "Bash(claude install)",
+      "Bash(git diff:*)"
     ],
     "deny": [],
     "ask": []
