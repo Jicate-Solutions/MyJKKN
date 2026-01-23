@@ -182,7 +182,7 @@ export function ReportGenerationForm({
               render={({ field }) => (
                 <FormItem className="flex flex-col">
                   <FormLabel>From Date</FormLabel>
-                  <Popover open={fromDateOpen} onOpenChange={setFromDateOpen}>
+                  <Popover open={fromDateOpen} onOpenChange={setFromDateOpen} modal={true}>
                     <PopoverTrigger asChild>
                       <FormControl>
                         <Button
@@ -226,7 +226,7 @@ export function ReportGenerationForm({
               render={({ field }) => (
                 <FormItem className="flex flex-col">
                   <FormLabel>To Date</FormLabel>
-                  <Popover open={toDateOpen} onOpenChange={setToDateOpen}>
+                  <Popover open={toDateOpen} onOpenChange={setToDateOpen} modal={true}>
                     <PopoverTrigger asChild>
                       <FormControl>
                         <Button
