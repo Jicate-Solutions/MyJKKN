@@ -71,6 +71,8 @@ export function ReportGenerationForm({
   onSuccess,
 }: ReportGenerationFormProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [fromDateOpen, setFromDateOpen] = useState(false);
+  const [toDateOpen, setToDateOpen] = useState(false);
   const createReport = useCreateConsolidationReport();
 
   const form = useForm<FormValues>({
@@ -87,6 +89,22 @@ export function ReportGenerationForm({
       sections: [],
     },
   });
+
+  // Handler for From Date selection
+  const handleFromDateSelect = (date: Date | undefined) => {
+    if (date) {
+      form.setValue('dateFrom', date);
+      setFromDateOpen(false);
+    }
+  };
+
+  // Handler for To Date selection
+  const handleToDateSelect = (date: Date | undefined) => {
+    if (date) {
+      form.setValue('dateTo', date);
+      setToDateOpen(false);
+    }
+  };
 
   const onSubmit = async (values: FormValues) => {
     const dto = {
@@ -164,11 +182,13 @@ export function ReportGenerationForm({
               render={({ field }) => (
                 <FormItem className="flex flex-col">
                   <FormLabel>From Date</FormLabel>
-                  <Popover>
+                  <Popover open={fromDateOpen} onOpenChange={setFromDateOpen}>
                     <PopoverTrigger asChild>
                       <FormControl>
                         <Button
                           variant="outline"
+                          type="button"
+                          onClick={() => setFromDateOpen(true)}
                           className={cn(
                             'w-full pl-3 text-left font-normal',
                             !field.value && 'text-muted-foreground'
@@ -187,7 +207,7 @@ export function ReportGenerationForm({
                       <Calendar
                         mode="single"
                         selected={field.value}
-                        onSelect={field.onChange}
+                        onSelect={handleFromDateSelect}
                         disabled={(date) =>
                           date > new Date() || date < new Date('1900-01-01')
                         }
@@ -206,11 +226,13 @@ export function ReportGenerationForm({
               render={({ field }) => (
                 <FormItem className="flex flex-col">
                   <FormLabel>To Date</FormLabel>
-                  <Popover>
+                  <Popover open={toDateOpen} onOpenChange={setToDateOpen}>
                     <PopoverTrigger asChild>
                       <FormControl>
                         <Button
                           variant="outline"
+                          type="button"
+                          onClick={() => setToDateOpen(true)}
                           className={cn(
                             'w-full pl-3 text-left font-normal',
                             !field.value && 'text-muted-foreground'
@@ -229,7 +251,7 @@ export function ReportGenerationForm({
                       <Calendar
                         mode="single"
                         selected={field.value}
-                        onSelect={field.onChange}
+                        onSelect={handleToDateSelect}
                         disabled={(date) =>
                           date > new Date() || date < new Date('1900-01-01')
                         }

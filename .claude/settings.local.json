@@ -199,7 +199,8 @@
       "Bash(claude --version)",
       "Bash(claude install)",
       "Bash(git diff:*)",
-      "Skill(superpowers:brainstorming)"
+      "Skill(superpowers:brainstorming)",
+      "WebFetch(domain:ui.shadcn.com)"
     ],
     "deny": [],
     "ask": []
