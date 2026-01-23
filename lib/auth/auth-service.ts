@@ -100,7 +100,7 @@ export class AuthService {
         throw error;
       }
 
-      return profile;
+      return profile as Profile;
     } catch (error) {
       console.error('Error getting user profile:', error);
       return null;
