@@ -1,0 +1,29 @@
+
+> my-jkkn@0.1.0 build
+> next build
+
+▲ Next.js 16.1.1 (Turbopack, Cache Components)
+- Environments: .env
+- Experiments (use with caution):
+  · cpus: 1
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 82s
+  Running TypeScript ...
+Failed to compile.
+
+./lib/services/academic/attendance-consolidation-service.ts:48:10
+Type error: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { count?: "exact" | "planned" | "estimated"; }): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "attendance_consolidation_reports", never, "POST">', gave the following error.
+    Argument of type '{ report_name: string; report_description: string; institution_id: string; generated_by: string; report_params: ConsolidationReportParams; format: ReportFormat; status: string; }' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { count?: "exact" | "planned" | "estimated"; defaultToNull?: boolean; }): PostgrestFilterBuilder<{ PostgrestVersion: "12.2.3 (519615d)"; }, never, never, null, "attendance_consolidation_reports", never, "POST">', gave the following error.
+    Object literal may only specify known properties, and 'report_name' does not exist in type 'never[]'.
+
+[0m [90m 46 |[39m       [36mconst[39m { data[33m,[39m error } [33m=[39m [36mawait[39m [36mthis[39m[33m.[39msupabase
+ [90m 47 |[39m         [33m.[39m[36mfrom[39m([32m'attendance_consolidation_reports'[39m)
+[31m[1m>[22m[39m[90m 48 |[39m         [33m.[39minsert({
+ [90m    |[39m          [31m[1m^[22m[39m
+ [90m 49 |[39m           report_name[33m:[39m dto[33m.[39mreportName[33m,[39m
+ [90m 50 |[39m           report_description[33m:[39m dto[33m.[39mreportDescription[33m,[39m
+ [90m 51 |[39m           institution_id[33m:[39m dto[33m.[39minstitutionId[33m,[39m[0m
+Next.js build worker exited with code: 1 and signal: null

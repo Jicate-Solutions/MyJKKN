@@ -27,7 +27,9 @@ import type {
  * - Export to PDF/Excel/CSV formats
  */
 export class AttendanceConsolidationService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() {
+    return createClientSupabaseClient();
+  }
 
   /**
    * Create a new consolidation report
@@ -354,7 +356,7 @@ export class AttendanceConsolidationService {
 
         // Include absent details if requested
         if (params.includeAbsentDetails) {
-          studentSummary.absentDates = Array.from(studentData.absentDates).sort();
+          studentSummary.absentDates = Array.from(studentData.absentDates).sort() as string[];
         }
 
         studentSummaries.push(studentSummary);
