@@ -184,6 +184,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance': 'academic.attendance.view',
   '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
   '/academic/attendance/reports': 'academic.attendance.reports.view',
+  '/academic/attendance/consolidation': 'academic.attendance.consolidation.view',
 
   // Regulations Management
   '/academic/regulations': 'academic.regulations.view',
@@ -572,6 +573,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/academic/attendance/reports',
               label: 'Attendance Reports',
               active: pathname.startsWith('/academic/attendance/reports')
+            },
+            {
+              href: '/academic/attendance/consolidation',
+              label: 'Consolidation Reports',
+              active: pathname.startsWith('/academic/attendance/consolidation')
             }
           ]
         }

@@ -997,26 +997,52 @@ RETURNS TRIGGER AS $$
 DECLARE
     timetable_staff_ids UUID[];
     is_super_admin BOOLEAN := FALSE;
+    is_hod BOOLEAN := FALSE;
+    user_department_id UUID;
+    timetable_department_id UUID;
     period_slot JSONB;
     day_key TEXT;
     period_key TEXT;
     timetable_data_obj JSONB;
 BEGIN
-    -- Skip validation for super admins and system operations
+    -- Check 1: Super admin validation
     SELECT EXISTS(
         SELECT 1 FROM user_institution_access uia
         JOIN profiles p ON uia.user_id = p.id
-        WHERE uia.user_id = NEW.marked_by 
+        WHERE uia.user_id = NEW.marked_by
         AND uia.role = 'super_admin'
         AND uia.institution_id = NEW.institution_id
         AND uia.is_active = true
     ) INTO is_super_admin;
-    
+
     IF is_super_admin THEN
         RETURN NEW;
     END IF;
-    
-    -- Get timetable data
+
+    -- Check 2: HOD department validation
+    SELECT
+        p.role = 'hod' AND p.department_id IS NOT NULL,
+        p.department_id
+    INTO is_hod, user_department_id
+    FROM profiles p
+    WHERE p.id = NEW.marked_by;
+
+    IF is_hod THEN
+        -- Get timetable department
+        SELECT t.department_id
+        INTO timetable_department_id
+        FROM timetables t
+        WHERE t.id = NEW.timetable_id;
+
+        -- Allow if HOD's department matches timetable's department
+        IF user_department_id = timetable_department_id THEN
+            RAISE NOTICE 'HOD department access granted for user % in department %',
+                NEW.marked_by, user_department_id;
+            RETURN NEW;
+        END IF;
+    END IF;
+
+    -- Check 3: Get timetable data for staff assignment validation
     SELECT t.timetable_data 
     INTO timetable_data_obj
     FROM timetables t

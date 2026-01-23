@@ -58,6 +58,7 @@ export class AttendanceService {
     isAuthorized: boolean;
     reason?: string;
     assignedStaff?: any[];
+    authorizationType?: 'super_admin' | 'admin' | 'hod_department' | 'assigned_faculty' | 'permission_based';
   }> {
     try {
       // STEP 1: Check if user is super admin first (super admins can mark any attendance)
@@ -71,7 +72,7 @@ export class AttendanceService {
         .maybeSingle();
 
       if (superAdminCheck) {
-        return { isAuthorized: true, reason: 'Super admin access' };
+        return { isAuthorized: true, reason: 'Super admin access', authorizationType: 'super_admin' };
       }
 
       // STEP 2: Check if user has admin role (admins can also mark any attendance)
@@ -85,13 +86,13 @@ export class AttendanceService {
         .maybeSingle();
 
       if (adminCheck) {
-        return { isAuthorized: true, reason: 'Admin access' };
+        return { isAuthorized: true, reason: 'Admin access', authorizationType: 'admin' };
       }
 
       // STEP 3: Get the profile information for the marking user
       const { data: profileData } = await this.supabase
         .from('profiles')
-        .select('email, is_super_admin')
+        .select('email, is_super_admin, role, department_id')
         .eq('id', markedBy)
         .single();
 
@@ -104,7 +105,48 @@ export class AttendanceService {
 
       // STEP 4: Check if user is marked as super admin in profiles table
       if ((profileData as any).is_super_admin) {
-        return { isAuthorized: true, reason: 'Profile super admin access' };
+        return { isAuthorized: true, reason: 'Profile super admin access', authorizationType: 'super_admin' };
+      }
+
+      // STEP 4.5: Check if user is HOD with department access
+      if ((profileData as any).role === 'hod' && (profileData as any).department_id) {
+        logger.info('academic/attendance', 'Checking HOD department access', {
+          hod_id: markedBy,
+          hod_department: (profileData as any).department_id,
+          timetable_id: timetableId
+        });
+
+        // Get timetable department
+        const { data: timetableData, error: timetableError } = await this.supabase
+          .from('timetables')
+          .select('department_id')
+          .eq('id', timetableId)
+          .single();
+
+        if (timetableError || !timetableData) {
+          logger.error('academic/attendance', 'Failed to fetch timetable department', timetableError);
+          throw timetableError || new Error('Timetable not found');
+        }
+
+        if (timetableData.department_id === (profileData as any).department_id) {
+          logger.info('academic/attendance', 'HOD department authorization granted', {
+            hod_id: markedBy,
+            department_id: (profileData as any).department_id,
+            timetable_id: timetableId
+          });
+
+          return {
+            isAuthorized: true,
+            reason: 'HOD department access',
+            assignedStaff: [],
+            authorizationType: 'hod_department'
+          };
+        } else {
+          logger.warn('academic/attendance', 'HOD department mismatch', {
+            hod_department: (profileData as any).department_id,
+            timetable_department: timetableData.department_id
+          });
+        }
       }
 
       // STEP 5: Get the staff record for this user
@@ -208,7 +250,7 @@ export class AttendanceService {
 
       if (isAuthorizedByProfile || isAuthorizedByStaff) {
         const authType = isAuthorizedByProfile ? 'profile' : 'staff';
-        return { isAuthorized: true, reason: `Assigned ${authType} member` };
+        return { isAuthorized: true, reason: `Assigned ${authType} member`, authorizationType: 'assigned_faculty' };
       }
 
       // STEP 9: For development/testing - if no assignments found, allow with warning
@@ -825,6 +867,18 @@ export class AttendanceService {
         throw new Error(errorMessage);
       }
 
+      // Enrich attendance_data with authorization_type in marked_by_details
+      const enrichedAttendanceData = { ...data.attendance_data };
+      Object.keys(enrichedAttendanceData).forEach((periodKey) => {
+        const period = enrichedAttendanceData[periodKey];
+        if (period && period.marked_by_details) {
+          period.marked_by_details = {
+            ...period.marked_by_details,
+            authorization_type: validationResult.authorizationType || 'assigned_faculty'
+          };
+        }
+      });
+
       // Validate section_id is a valid UUID
       const uuidRegex =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -928,7 +982,7 @@ export class AttendanceService {
           ((currentRecord as any)?.attendance_data as ConsolidatedAttendanceData) || {};
         const mergedAttendanceData = {
           ...existingAttendanceData, // Keep existing periods
-          ...data.attendance_data // Add/update new periods
+          ...enrichedAttendanceData // Add/update new periods with authorization_type
         };
 
         // Updated: 2025-10-09 - Update section_ids array for multi-section support
@@ -1031,7 +1085,7 @@ export class AttendanceService {
             section_id: resolvedSectionId,
             section_ids: data.section_ids || null, // Store section_ids array if provided
             attendance_date: data.attendance_date,
-            attendance_data: data.attendance_data,
+            attendance_data: enrichedAttendanceData, // Use enriched data with authorization_type
             institution_id: data.institution_id,
             academic_year_id: academicFields.academic_year_id,
             degree_id: academicFields.degree_id,
@@ -3205,7 +3259,8 @@ export class AttendanceService {
             marker_name: markerName,
             marker_role: markerRole,
             marker_email: markerEmail,
-            marked_at: new Date().toISOString() // Add timestamp when period is marked
+            marked_at: new Date().toISOString(), // Add timestamp when period is marked
+            authorization_type: 'permission_based' // Manual entries use permission-based authorization
           }
         }
       };

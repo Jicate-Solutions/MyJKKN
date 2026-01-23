@@ -38,7 +38,8 @@ import {
   Mail,
   ChevronRight,
   Search,
-  ArrowUpDown
+  ArrowUpDown,
+  Shield
 } from 'lucide-react';
 import {
   Table,
@@ -666,6 +667,12 @@ export default function AttendanceReportDetailPage() {
                                         <Clock className='h-3 w-3' />
                                         {format(new Date(period.marked_by_details.marked_at), 'MMM dd, yyyy hh:mm a')}
                                       </p>
+                                    )}
+                                    {period.marked_by_details.marker_role === 'HOD Department' && (
+                                      <Badge variant='secondary' className='mt-2 text-xs'>
+                                        <Shield className='w-3 h-3 mr-1' />
+                                        HOD Department Access
+                                      </Badge>
                                     )}
                                   </div>
                                 ) : (
