@@ -63,7 +63,6 @@ export default function AttendanceConsolidationPage() {
 
   const isLoading = authLoading || institutionsLoading;
   const showInstitutionSelector = institutions.length > 1 || !profile?.institution_id;
-  const selectedInstitution = institutions.find(i => i.id === selectedInstitutionId);
 
   // Loading state
   if (isLoading) {
@@ -134,7 +133,7 @@ export default function AttendanceConsolidationPage() {
               <Building2 className="h-12 w-12 text-muted-foreground mb-4" />
               <h3 className="text-lg font-semibold mb-2">No Institution Access</h3>
               <p className="text-sm text-muted-foreground">
-                You don't have access to any institutions. Please contact your administrator.
+                You do not have access to any institutions. Please contact your administrator.
               </p>
             </CardContent>
           </Card>
