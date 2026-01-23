@@ -101,7 +101,8 @@ export class DashboardService {
         }
         throw error;
       }
-      return data;
+      // Type assertion: layout_config is stored as Json but should be typed as DashboardWidget[]
+      return data as unknown as DashboardConfiguration;
     } catch (error) {
       console.error('Error fetching default configuration:', error);
       throw error;

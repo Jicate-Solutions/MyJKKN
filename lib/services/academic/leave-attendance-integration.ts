@@ -312,7 +312,8 @@ export class LeaveAttendanceIntegration {
       }
 
       // First, get the timetable slot to determine scope
-      const { data: slot, error: slotError } = await this.supabase
+      // Type cast to fix TypeScript deep inference issue
+      const { data: slot, error: slotError } = await (this.supabase as any)
         .from('timetable_slots')
         .select(
           `

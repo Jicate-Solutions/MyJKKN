@@ -460,7 +460,8 @@ export class UserService {
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
-      const updateQuery: any = supabase.from('users');
+      // Note: 'users' table may not exist in schema - using type assertion to bypass strict typing
+      const updateQuery = supabase.from('users' as any);
       const { data: user, error } = await updateQuery
         .update({
           ...data,
@@ -474,7 +475,7 @@ export class UserService {
       if (error) throw error;
       if (!user) throw new Error('User not found');
 
-      return user as Profile;
+      return user as unknown as Profile;
     } catch (error) {
       throw error;
     }
@@ -489,7 +490,8 @@ export class UserService {
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
-      const insertQuery: any = supabase.from('users');
+      // Note: 'users' table may not exist in schema - using type assertion to bypass strict typing
+      const insertQuery = supabase.from('users' as any);
       const { data: user, error } = await insertQuery
         .insert([
           {
@@ -504,7 +506,7 @@ export class UserService {
       if (error) throw error;
       if (!user) throw new Error('Failed to create user');
 
-      return user as Profile;
+      return user as unknown as Profile;
     } catch (error) {
       throw error;
     }

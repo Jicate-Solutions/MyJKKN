@@ -83,7 +83,7 @@ export async function getNotifications(
   const { data, error } = await query;
 
   if (error) throw error;
-  return data || [];
+  return (data as unknown as Notification[]) || [];
 }
 
 export async function getNotification(
@@ -112,7 +112,7 @@ export async function getNotification(
     .single();
 
   if (error) throw error;
-  return data;
+  return data as unknown as Notification | null;
 }
 
 export async function createNotification(
@@ -135,10 +135,12 @@ export async function createNotification(
 
   if (error) throw error;
 
-  // TODO: Send to external channels (email, SMS, push) based on channels array
-  await sendToChannels(data);
+  const notification = data as unknown as Notification;
 
-  return data;
+  // TODO: Send to external channels (email, SMS, push) based on channels array
+  await sendToChannels(notification);
+
+  return notification;
 }
 
 export async function updateNotification(
@@ -300,20 +302,20 @@ export async function getNotificationStats(
 export async function getUserPreferences(
   userId: string
 ): Promise<NotificationPreference[]> {
-  const { data, error } = await supabase
-    .from('notification_preferences')
+  const { data, error } = await (supabase
+    .from('notification_preferences' as any) as any)
     .select('*')
     .eq('user_id', userId);
 
   if (error) throw error;
-  return data || [];
+  return (data as unknown as NotificationPreference[]) || [];
 }
 
 export async function createPreference(
   dto: CreateNotificationPreferenceDto
 ): Promise<NotificationPreference> {
   const { data, error } = await (supabase
-    .from('notification_preferences') as any)
+    .from('notification_preferences' as any) as any)
     .insert({
       ...dto,
       enabled: dto.enabled !== undefined ? dto.enabled : true
@@ -322,7 +324,7 @@ export async function createPreference(
     .single();
 
   if (error) throw error;
-  return data;
+  return data as unknown as NotificationPreference;
 }
 
 export async function updatePreference(
@@ -330,19 +332,19 @@ export async function updatePreference(
   dto: UpdateNotificationPreferenceDto
 ): Promise<NotificationPreference> {
   const { data, error } = await (supabase
-    .from('notification_preferences') as any)
+    .from('notification_preferences' as any) as any)
     .update(dto)
     .eq('id', id)
     .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return data as unknown as NotificationPreference;
 }
 
 export async function deletePreference(id: string): Promise<void> {
-  const { error } = await supabase
-    .from('notification_preferences')
+  const { error } = await (supabase
+    .from('notification_preferences' as any) as any)
     .delete()
     .eq('id', id);
 

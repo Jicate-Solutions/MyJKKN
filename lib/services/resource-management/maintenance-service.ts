@@ -69,7 +69,7 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error fetching logs:', error);
       throw error;
     }
-    return data || [];
+    return (data || []) as MaintenanceLog[];
   }
 
   /**
@@ -269,7 +269,7 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error fetching schedules:', error);
       throw error;
     }
-    return data || [];
+    return (data || []) as MaintenanceSchedule[];
   }
 
   /**
@@ -292,7 +292,7 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error fetching schedule:', error);
       throw error;
     }
-    return data;
+    return data as MaintenanceSchedule;
   }
 
   /**
@@ -466,7 +466,7 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error fetching upcoming maintenance:', error);
       throw error;
     }
-    return data || [];
+    return (data || []) as MaintenanceLog[];
   }
 
   /**
@@ -492,7 +492,7 @@ class MaintenanceService {
       console.error('[MaintenanceService] Error fetching overdue maintenance:', error);
       throw error;
     }
-    return data || [];
+    return (data || []) as MaintenanceLog[];
   }
 }
 

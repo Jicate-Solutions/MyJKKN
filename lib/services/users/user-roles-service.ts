@@ -503,7 +503,8 @@ export class UserRolesService {
 
       if (error) throw error;
 
-      return data || [];
+      // Type assertion: permissions is stored as Json but should be typed as Record<string, boolean>
+      return (data || []) as CustomRole[];
     } catch (error) {
       console.error('[users/roles] Failed to get available roles:', error);
       throw error;

@@ -99,7 +99,7 @@ export class OrganizationService {
               email: contact.email!,
               mobile: contact.mobile!
             };
-            return ((this.supabase.from('institution_departments') as any).insert(deptData));
+            return (((this.supabase as any).from('institution_departments')).insert(deptData));
           });
 
         if (departmentPromises.length > 0) {
@@ -158,7 +158,7 @@ export class OrganizationService {
       // Update department contacts if provided
       if (data.departments) {
         // First delete existing departments
-        await this.supabase
+        await (this.supabase as any)
           .from('institution_departments')
           .delete()
           .eq('institution_id', id);
@@ -175,7 +175,7 @@ export class OrganizationService {
               email: contact.email!,
               mobile: contact.mobile!
             };
-            return ((this.supabase.from('institution_departments') as any).insert(deptData));
+            return (((this.supabase as any).from('institution_departments')).insert(deptData));
           });
 
         if (departmentPromises.length > 0) {
@@ -434,7 +434,7 @@ export class OrganizationService {
       if (error) throw error;
 
       return {
-        data: institutions || [],
+        data: (institutions || []) as Institution[],
         metadata: {
           total: count || 0,
           page,
@@ -508,7 +508,7 @@ export class OrganizationService {
         });
         // Don't throw for departments error - just return empty departments
         return {
-          institution,
+          institution: institution as Institution,
           departments: {}
         };
       }
@@ -517,7 +517,7 @@ export class OrganizationService {
       const transformedDepartments = this.transformDepartments(departments || []);
 
       return {
-        institution,
+        institution: institution as Institution,
         departments: transformedDepartments
       };
     } catch (error) {
@@ -587,7 +587,7 @@ export class OrganizationService {
       if (error) {
         throw error;
       }
-      return data;
+      return data as Institution | null;
     } catch (error) {
       console.error('Error fetching institution by name:', error);
       throw error;

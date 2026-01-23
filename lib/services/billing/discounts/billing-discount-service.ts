@@ -77,7 +77,7 @@ export class BillingDiscountService {
         .single();
 
       if (error) throw error;
-      return data as BillingDiscount;
+      return data as unknown as BillingDiscount;
     } catch (error) {
       console.error('Error creating discount:', error);
       throw new Error(
@@ -119,7 +119,7 @@ export class BillingDiscountService {
         .single();
 
       if (error) throw error;
-      return data as BillingDiscount;
+      return data as unknown as BillingDiscount;
     } catch (error) {
       console.error('Error updating discount:', error);
       throw new Error(
@@ -259,7 +259,7 @@ export class BillingDiscountService {
         .single();
 
       if (error) throw error;
-      return data;
+      return data as unknown as BillingDiscount;
     } catch (error) {
       console.error('Error fetching discount:', error);
       throw new Error(
@@ -587,7 +587,7 @@ export class BillingDiscountService {
 
       if (discountError) throw discountError;
 
-      const discountsTyped = discounts as BillingDiscount[];
+      const discountsTyped = discounts as unknown as BillingDiscount[];
       const billTyped = bill as { total_amount: number; tax_amount: number; final_amount: number };
 
       // Calculate discount totals
@@ -608,12 +608,12 @@ export class BillingDiscountService {
 
       return {
         bill,
-        discounts,
+        discounts: discountsTyped as BillingDiscount[],
         originalAmount,
         totalDiscountAmount,
         effectiveAmount,
-        appliedDiscounts,
-        pendingDiscounts
+        appliedDiscounts: appliedDiscounts as BillingDiscount[],
+        pendingDiscounts: pendingDiscounts as BillingDiscount[]
       };
     } catch (error) {
       console.error('Error getting bill with discount summary:', error);

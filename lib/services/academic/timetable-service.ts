@@ -2396,7 +2396,7 @@ Please select a different date period that doesn't overlap.`
       if (error) throw error;
       if (!data) throw new Error('Template not found');
 
-      return data;
+      return data as unknown as Timetable;
     } catch (error) {
       logger.error('academic/timetables', 'Error fetching template', error);
       throw error;

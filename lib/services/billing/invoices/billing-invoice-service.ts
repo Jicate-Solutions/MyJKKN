@@ -322,7 +322,7 @@ export class BillingInvoiceService {
         throw new Error('Invoice not found');
       }
 
-      return data as BillingInvoice;
+      return data as unknown as BillingInvoice;
     } catch (error) {
       console.error('Error in getBillingInvoice:', error);
       throw error;
@@ -913,7 +913,7 @@ export class BillingInvoiceService {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data || [];
+      return (data || []) as unknown as BillingInvoice[];
     } catch (error) {
         console.error('Error fetching student invoices:', error);
       throw new Error(
@@ -973,7 +973,7 @@ export class BillingInvoiceService {
         )
       );
 
-      return invoice || null;
+      return (invoice as unknown as BillingInvoice) || null;
     } catch (error) {
       console.error('Error checking bill auto-invoice:', error);
       throw new Error(
@@ -1029,7 +1029,7 @@ export class BillingInvoiceService {
       const { data, error } = await query;
 
       if (error) throw error;
-      return data || [];
+      return (data || []) as unknown as BillingInvoice[];
     } catch (error) {
       console.error('Error fetching auto-generated invoices:', error);
       throw new Error(

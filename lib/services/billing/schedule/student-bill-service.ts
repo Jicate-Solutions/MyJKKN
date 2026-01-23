@@ -560,7 +560,7 @@ export class StudentBillService {
 
   static async getStudentBill(id: string): Promise<StudentBill> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('billing_student_bills')
         .select(
           `
@@ -616,7 +616,7 @@ export class StudentBillService {
         .single();
 
       if (error) throw error;
-      return data;
+      return data as StudentBill;
     } catch (error) {
       console.error('Error fetching student bill:', error);
       throw error;
@@ -662,7 +662,7 @@ export class StudentBillService {
       const { data, error } = await query;
 
       if (error) throw error;
-      return data || [];
+      return (data || []) as StudentBill[];
     } catch (error) {
       console.error('Error fetching student bills by student:', error);
       throw error;
@@ -813,7 +813,7 @@ export class StudentBillService {
         .order('due_date', { ascending: true });
 
       if (error) throw error;
-      return data || [];
+      return (data || []) as StudentBill[];
     } catch (error) {
       console.error('Error fetching unpaid bills:', error);
       throw error;

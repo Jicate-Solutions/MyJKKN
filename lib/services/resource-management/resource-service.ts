@@ -160,7 +160,7 @@ export class ResourceService {
       if (error) throw error;
       if (!resource) throw new Error('Resource not found');
 
-      return resource;
+      return resource as unknown as Resource;
     } catch (error) {
       console.error('Error fetching resource:', error);
       throw new Error(
@@ -684,7 +684,7 @@ export class ResourceService {
 
       if (error) throw error;
 
-      return resources || [];
+      return (resources || []) as unknown as Resource[];
     } catch (error) {
       console.error('Error searching resources:', error);
       throw new Error(

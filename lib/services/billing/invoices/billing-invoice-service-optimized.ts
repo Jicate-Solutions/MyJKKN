@@ -218,11 +218,11 @@ export class BillingInvoiceServiceOptimized {
 
       // Step 2: Get related data for the fetched invoices
       if (invoices.length > 0) {
-        const studentIds = [...new Set(invoices.map((inv: any) => inv.student_id))];
+        const studentIds = [...new Set(invoices.map((inv: any) => inv.student_id))] as string[];
         const institutionIds = [
           ...new Set(invoices.map((inv: any) => inv.institution_id))
-        ];
-        const invoiceIds = invoices.map((inv: any) => inv.id);
+        ] as string[];
+        const invoiceIds = invoices.map((inv: any) => inv.id) as string[];
 
         // Fetch related data in parallel
         const [studentsResult, institutionsResult, invoiceItemsResult] =
