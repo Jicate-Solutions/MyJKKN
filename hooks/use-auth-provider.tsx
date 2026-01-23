@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (profileError) throw profileError;
 
           if (isMounted) {
-            setProfile(userProfile);
+            setProfile(userProfile as Profile);
             setError(null);
           }
         } else {
