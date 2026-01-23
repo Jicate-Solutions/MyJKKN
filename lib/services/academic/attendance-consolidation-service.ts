@@ -176,13 +176,9 @@ export class AttendanceConsolidationService {
         .select(`
           *,
           section:sections(id, section_name),
-          timetable:timetables(
-            id,
-            timetable_name,
-            program:programs(id, program_name),
-            semester:semesters(id, semester_name),
-            department:departments(id, department_name)
-          )
+          program:programs(id, program_name),
+          semester:semesters(id, semester_name),
+          department:departments(id, department_name)
         `)
         .eq('institution_id', institutionId)
         .gte('attendance_date', dateFrom)
@@ -194,27 +190,11 @@ export class AttendanceConsolidationService {
       }
 
       if (params.semesters && params.semesters.length > 0) {
-        // Note: Need to join through timetables table
-        // This is a simplified version - may need refinement
-        const { data: timetables } = await this.supabase
-          .from('timetables')
-          .select('id')
-          .in('semester_id', params.semesters);
-
-        if (timetables && timetables.length > 0) {
-          query = query.in('timetable_id', timetables.map(t => t.id));
-        }
+        query = query.in('semester_id', params.semesters);
       }
 
       if (params.programs && params.programs.length > 0) {
-        const { data: timetables } = await this.supabase
-          .from('timetables')
-          .select('id')
-          .in('program_id', params.programs);
-
-        if (timetables && timetables.length > 0) {
-          query = query.in('timetable_id', timetables.map(t => t.id));
-        }
+        query = query.in('program_id', params.programs);
       }
 
       const { data, error } = await query;
@@ -260,12 +240,12 @@ export class AttendanceConsolidationService {
           // Determine group based on groupBy type
           switch (params.groupBy) {
             case 'program':
-              groupKey = record.timetable?.program?.id || 'unknown';
-              groupName = record.timetable?.program?.program_name || 'Unknown Program';
+              groupKey = record.program?.id || 'unknown';
+              groupName = record.program?.program_name || 'Unknown Program';
               break;
             case 'semester':
-              groupKey = record.timetable?.semester?.id || 'unknown';
-              groupName = record.timetable?.semester?.semester_name || 'Unknown Semester';
+              groupKey = record.semester?.id || 'unknown';
+              groupName = record.semester?.semester_name || 'Unknown Semester';
               break;
             case 'section':
               groupKey = record.section?.id || 'unknown';
@@ -348,6 +328,16 @@ export class AttendanceConsolidationService {
           rollNumber: studentData.rollNumber,
           sectionId: studentData.sectionId,
           sectionName: studentData.sectionName,
+          // Hierarchy info from enrichment
+          degreeName: studentData.degreeName,
+          degreeCode: studentData.degreeCode,
+          departmentName: studentData.departmentName,
+          departmentCode: studentData.departmentCode,
+          programName: studentData.programName,
+          programCode: studentData.programCode,
+          semesterName: studentData.semesterName,
+          semesterNumber: studentData.semesterNumber,
+          // Attendance stats
           totalWorkingDays,
           totalPresent,
           totalAbsent,
@@ -417,7 +407,7 @@ export class AttendanceConsolidationService {
   }
 
   /**
-   * Enrich student data with names and roll numbers
+   * Enrich student data with names, roll numbers, and hierarchy info
    */
   private static async enrichStudentData(groups: Map<string, any>, institutionId: string) {
     try {
@@ -429,43 +419,165 @@ export class AttendanceConsolidationService {
         }
       }
 
-      if (allStudentIds.size === 0) return;
-
-      // Fetch student details
-      const { data: students, error } = await this.supabase
-        .from('learners_profiles')
-        .select('id, student_name, roll_number')
-        .eq('institution_id', institutionId)
-        .in('id', Array.from(allStudentIds));
-
-      if (error) {
-        logger.warn('academic/attendance-consolidation', 'Failed to fetch student details', error);
+      if (allStudentIds.size === 0) {
+        logger.warn('academic/attendance-consolidation', 'No student IDs to enrich');
         return;
       }
 
-      // Create lookup map
-      const studentLookup = new Map(students?.map(s => [s.id, s]) || []);
+      logger.info('academic/attendance-consolidation', 'Enriching student data', {
+        studentCount: allStudentIds.size,
+        institutionId,
+      });
+
+      // Fetch student details with hierarchy info
+      // Using explicit FK hints because constraint names are custom (fk_learners_profiles_*)
+      // Also adding institution_id filter to satisfy RLS policy
+      const studentIdsArray = Array.from(allStudentIds);
+
+      logger.info('academic/attendance-consolidation', 'Fetching learner details', {
+        studentIds: studentIdsArray.slice(0, 5), // Log first 5 for debugging
+        totalCount: studentIdsArray.length,
+      });
+
+      // First, fetch basic student data
+      const { data: students, error } = await this.supabase
+        .from('learners_profiles')
+        .select(`
+          id,
+          first_name,
+          last_name,
+          roll_number,
+          institution_id,
+          degree_id,
+          department_id,
+          program_id,
+          semester_id,
+          section_id
+        `)
+        .in('id', studentIdsArray)
+        .eq('institution_id', institutionId);
+
+      if (error) {
+        logger.error('academic/attendance-consolidation', 'Failed to fetch student details', {
+          errorCode: error.code,
+          errorMessage: error.message,
+          errorDetails: error.details,
+          errorHint: error.hint,
+          studentCount: studentIdsArray.length,
+          institutionId,
+        });
+        return;
+      }
+
+      logger.info('academic/attendance-consolidation', 'Student data fetched', {
+        requested: allStudentIds.size,
+        found: students?.length || 0,
+      });
+
+      // Collect unique hierarchy IDs for separate queries
+      const degreeIds = new Set<string>();
+      const departmentIds = new Set<string>();
+      const programIds = new Set<string>();
+      const semesterIds = new Set<string>();
+      const sectionIds = new Set<string>();
+
+      students?.forEach(s => {
+        if (s.degree_id) degreeIds.add(s.degree_id);
+        if (s.department_id) departmentIds.add(s.department_id);
+        if (s.program_id) programIds.add(s.program_id);
+        if (s.semester_id) semesterIds.add(s.semester_id);
+        if (s.section_id) sectionIds.add(s.section_id);
+      });
+
+      // Fetch hierarchy data in parallel
+      const [degreesResult, departmentsResult, programsResult, semestersResult, sectionsResult] = await Promise.all([
+        degreeIds.size > 0
+          ? this.supabase.from('degrees').select('id, degree_name, display_name').in('id', Array.from(degreeIds))
+          : { data: [], error: null },
+        departmentIds.size > 0
+          ? this.supabase.from('departments').select('id, department_name, department_code, display_name').in('id', Array.from(departmentIds))
+          : { data: [], error: null },
+        programIds.size > 0
+          ? this.supabase.from('programs').select('id, program_name, display_name').in('id', Array.from(programIds))
+          : { data: [], error: null },
+        semesterIds.size > 0
+          ? this.supabase.from('semesters').select('id, semester_name, semester_code, semester_order').in('id', Array.from(semesterIds))
+          : { data: [], error: null },
+        sectionIds.size > 0
+          ? this.supabase.from('sections').select('id, section_name').in('id', Array.from(sectionIds))
+          : { data: [], error: null },
+      ]);
+
+      // Create lookup maps for hierarchy data
+      const degreeLookup = new Map((degreesResult.data || []).map(d => [d.id, d]));
+      const departmentLookup = new Map((departmentsResult.data || []).map(d => [d.id, d]));
+      const programLookup = new Map((programsResult.data || []).map(p => [p.id, p]));
+      const semesterLookup = new Map((semestersResult.data || []).map(s => [s.id, s]));
+      const sectionLookup = new Map((sectionsResult.data || []).map(s => [s.id, s]));
+
+      logger.info('academic/attendance-consolidation', 'Hierarchy data fetched', {
+        degrees: degreeLookup.size,
+        departments: departmentLookup.size,
+        programs: programLookup.size,
+        semesters: semesterLookup.size,
+        sections: sectionLookup.size,
+      });
+
+      // Create student lookup map with enriched hierarchy data
+      const studentLookup = new Map(students?.map(s => {
+        const degree = degreeLookup.get(s.degree_id) as any;
+        const department = departmentLookup.get(s.department_id) as any;
+        const program = programLookup.get(s.program_id) as any;
+        const semester = semesterLookup.get(s.semester_id) as any;
+        const section = sectionLookup.get(s.section_id) as any;
+
+        return [s.id, {
+          ...s,
+          degree,
+          department,
+          program,
+          semester,
+          section,
+        }];
+      }) || []);
 
       // Enrich each student in each group
       for (const groupData of groups.values()) {
         for (const [studentId, studentData] of groupData.students) {
-          const studentInfo = studentLookup.get(studentId);
+          const studentInfo = studentLookup.get(studentId) as any;
           if (studentInfo) {
-            studentData.studentName = studentInfo.student_name || studentId;
+            const firstName = studentInfo.first_name || '';
+            const lastName = studentInfo.last_name || '';
+            studentData.studentName = `${firstName} ${lastName}`.trim() || studentId;
             studentData.rollNumber = studentInfo.roll_number;
+
+            // Add hierarchy info from joined data
+            studentData.degreeName = studentInfo.degree?.degree_name || studentInfo.degree?.display_name;
+            studentData.degreeCode = studentInfo.degree?.id;
+            studentData.departmentName = studentInfo.department?.department_name || studentInfo.department?.display_name;
+            studentData.departmentCode = studentInfo.department?.department_code;
+            studentData.programName = studentInfo.program?.program_name || studentInfo.program?.display_name;
+            studentData.programCode = studentInfo.program?.id;
+            studentData.semesterName = studentInfo.semester?.semester_name;
+            studentData.semesterNumber = studentInfo.semester?.semester_order;
+            studentData.sectionName = studentInfo.section?.section_name || studentData.sectionName;
           }
         }
 
         // For student-grouped reports, update group name
         if (groupData.groupType === 'student') {
-          const studentInfo = studentLookup.get(groupData.groupId);
+          const studentInfo = studentLookup.get(groupData.groupId) as any;
           if (studentInfo) {
-            groupData.groupName = studentInfo.student_name || groupData.groupId;
+            const firstName = studentInfo.first_name || '';
+            const lastName = studentInfo.last_name || '';
+            groupData.groupName = `${firstName} ${lastName}`.trim() || groupData.groupId;
           }
         }
       }
     } catch (error) {
-      logger.warn('academic/attendance-consolidation', 'Error enriching student data', error);
+      logger.error('academic/attendance-consolidation', 'Error enriching student data', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -614,24 +726,43 @@ export class AttendanceConsolidationService {
    */
   static async deleteReport(reportId: string, userId: string): Promise<boolean> {
     try {
-      const { error } = await this.supabase
+      logger.info('academic/attendance-consolidation', 'Attempting to delete report', { reportId, userId });
+
+      const { data, error, count } = await this.supabase
         .from('attendance_consolidation_reports')
         .update({
           is_deleted: true,
           deleted_at: new Date().toISOString(),
           deleted_by: userId,
         })
-        .eq('id', reportId);
+        .eq('id', reportId)
+        .select('id')
+        .single();
 
       if (error) {
-        logger.error('academic/attendance-consolidation', 'Failed to delete report', error);
+        // Properly log Supabase error with all details
+        logger.error('academic/attendance-consolidation', 'Failed to delete report', {
+          reportId,
+          errorCode: error.code,
+          errorMessage: error.message,
+          errorDetails: error.details,
+          errorHint: error.hint,
+        });
+        return false;
+      }
+
+      if (!data) {
+        logger.warn('academic/attendance-consolidation', 'No report found or RLS policy blocked update', { reportId });
         return false;
       }
 
       logger.info('academic/attendance-consolidation', 'Report deleted successfully', { reportId });
       return true;
     } catch (error) {
-      logger.error('academic/attendance-consolidation', 'Error deleting report', error);
+      logger.error('academic/attendance-consolidation', 'Error deleting report', {
+        reportId,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return false;
     }
   }

@@ -92,8 +92,10 @@ class AnalyticsService {
       filters.end_date
     );
 
-    // Base query with filters
-    let resourceQuery = supabase.from('resources').select(`
+    // Base query with filters - using explicit eq() calls instead of match() to avoid TS2589
+    let resourceQuery: any = supabase
+      .from('resources')
+      .select(`
         *,
         parent_category:resource_parent_categories(id, name),
         subcategory:resource_sub_categories(id, name),
@@ -101,26 +103,18 @@ class AnalyticsService {
         department:departments(id, department_name)
       `);
 
+    // Apply filters explicitly to avoid deep type instantiation
     if (filters.institution_id) {
-      resourceQuery = resourceQuery.eq(
-        'institution_id',
-        filters.institution_id
-      );
+      resourceQuery = resourceQuery.eq('institution_id', filters.institution_id);
     }
     if (filters.department_id) {
       resourceQuery = resourceQuery.eq('department_id', filters.department_id);
     }
     if (filters.parent_category_id) {
-      resourceQuery = resourceQuery.eq(
-        'parent_category_id',
-        filters.parent_category_id
-      );
+      resourceQuery = resourceQuery.eq('parent_category_id', filters.parent_category_id);
     }
     if (filters.sub_category_id) {
-      resourceQuery = resourceQuery.eq(
-        'sub_category_id',
-        filters.sub_category_id
-      );
+      resourceQuery = resourceQuery.eq('sub_category_id', filters.sub_category_id);
     }
 
     const { data: resources, error } = await resourceQuery;
@@ -259,7 +253,7 @@ class AnalyticsService {
       }
     }
 
-    let reservationQuery = supabase
+    let reservationQuery: any = supabase
       .from('resource_reservations')
       .select(
         `
@@ -381,7 +375,7 @@ class AnalyticsService {
       filters.end_date
     );
 
-    let query = supabase
+    let query: any = supabase
       .from('resource_maintenance_logs')
       .select('*')
       .gte('scheduled_date', dateRange.start_date)
