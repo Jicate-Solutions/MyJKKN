@@ -39,7 +39,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { PermissionGuard } from '@/components/permission-guard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { ReportGenerationForm } from './_components/report-generation-form';
 import { ReportsDataTable } from './_components/reports-data-table';
 
