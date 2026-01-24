@@ -352,6 +352,14 @@ export const PERMISSION_CATEGORIES = [
         key: 'academic.attendance.dashboard.view_all_institutions',
         label: 'View Dashboard for All Institutions'
       },
+      {
+        key: 'academic.attendance.consolidation.view',
+        label: 'View Consolidation Reports'
+      },
+      {
+        key: 'academic.attendance.consolidation.export',
+        label: 'Export Consolidation Reports'
+      },
       // Regulations Management
       { key: 'academic.regulations.view', label: 'View Regulations' },
       { key: 'academic.regulations.create', label: 'Create Regulations' },

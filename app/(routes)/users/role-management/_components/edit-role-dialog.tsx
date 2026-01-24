@@ -443,7 +443,7 @@ export function EditRoleDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-[900px] max-h-[95vh]'>
+      <DialogContent className='sm:max-w-[900px] max-h-[95vh] flex flex-col'>
         <DialogHeader>
           <DialogTitle>
             {isSuperAdmin
@@ -464,15 +464,16 @@ export function EditRoleDialog({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleSubmit)}
-            className='space-y-6'
+            className='flex flex-col flex-1 overflow-hidden'
           >
-            <Tabs defaultValue='details' className='w-full'>
-              <TabsList className='grid w-full grid-cols-2'>
-                <TabsTrigger value='details'>Details</TabsTrigger>
-                <TabsTrigger value='permissions'>Permissions</TabsTrigger>
-              </TabsList>
+            <div className='flex-1 overflow-hidden flex flex-col'>
+              <Tabs defaultValue='details' className='w-full flex-1 flex flex-col overflow-hidden'>
+                <TabsList className='grid w-full grid-cols-2'>
+                  <TabsTrigger value='details'>Details</TabsTrigger>
+                  <TabsTrigger value='permissions'>Permissions</TabsTrigger>
+                </TabsList>
 
-              <TabsContent value='details' className='space-y-4 mt-4'>
+                <TabsContent value='details' className='space-y-4 mt-4 overflow-y-auto px-1 pb-4 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col'>
                 <FormField
                   control={form.control}
                   name='role_name'
@@ -531,7 +532,7 @@ export function EditRoleDialog({
                 />
               </TabsContent>
 
-              <TabsContent value='permissions' className='mt-4'>
+              <TabsContent value='permissions' className='mt-4 px-1 pb-4 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col data-[state=active]:overflow-hidden'>
                 <Card className='mb-4'>
                   <CardHeader className='pb-2'>
                     {isSuperAdmin && (
@@ -560,7 +561,7 @@ export function EditRoleDialog({
                   </CardContent>
                 </Card>
 
-                <div className='max-h-[55vh] overflow-y-auto pr-4'>
+                <div className='flex-1 overflow-y-auto pr-4'>
                   <Accordion type='multiple' className='space-y-4'>
                     {filteredCategories.map((category) => {
                       const { active, total } = getCategoryActiveCount(
@@ -837,9 +838,10 @@ export function EditRoleDialog({
                   )}
                 </div>
               </TabsContent>
-            </Tabs>
+              </Tabs>
+            </div>
 
-            <DialogFooter>
+            <DialogFooter className='mt-4'>
               <Button
                 type='button'
                 variant='outline'

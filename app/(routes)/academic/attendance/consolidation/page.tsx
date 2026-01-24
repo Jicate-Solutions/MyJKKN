@@ -39,6 +39,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { PermissionGuard } from '@/components/permission-guard';
 import { ReportGenerationForm } from './_components/report-generation-form';
 import { ReportsDataTable } from './_components/reports-data-table';
 
@@ -170,28 +171,29 @@ export default function AttendanceConsolidationPage() {
     : 'All Institutions';
 
   return (
-    <ContentLayout title="Attendance Consolidation">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/">Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/academic/attendance">Attendance</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Consolidation</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+    <PermissionGuard module="academic.attendance.consolidation" action="view">
+      <ContentLayout title="Attendance Consolidation">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/">Home</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/academic/attendance">Attendance</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Consolidation</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
 
-      <div className="space-y-6 mt-6">
+        <div className="space-y-6 mt-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -271,5 +273,6 @@ export default function AttendanceConsolidationPage() {
         </Dialog>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }
