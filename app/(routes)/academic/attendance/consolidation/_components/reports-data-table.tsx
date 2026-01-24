@@ -168,7 +168,7 @@ export function ReportsDataTable({ institutionId, onCreateClick, refreshTrigger:
     <>
       <DataTable
         key={`${internalRefreshTrigger}-${externalRefreshTrigger || 0}`}
-        fetchDataFn={fetchData}
+        fetchDataFn={fetchData as any}
         getColumns={() => columns as any}
         idField="id"
         config={{
@@ -178,8 +178,7 @@ export function ReportsDataTable({ institutionId, onCreateClick, refreshTrigger:
           enableRowSelection: true,
         }}
         exportConfig={{
-          filename: 'consolidation-reports',
-          sheetName: 'Reports',
+          entityName: 'consolidation-reports',
           headers: [
             'Report Name',
             'Description',
@@ -193,9 +192,34 @@ export function ReportsDataTable({ institutionId, onCreateClick, refreshTrigger:
             'Groups',
             'Generated At',
           ],
+          columnMapping: {
+            reportName: 'Report Name',
+            reportDescription: 'Description',
+            status: 'Status',
+            format: 'Format',
+            groupBy: 'Group By',
+            dateFrom: 'Date From',
+            dateTo: 'Date To',
+            totalStudents: 'Total Students',
+            avgAttendance: 'Avg Attendance',
+            groups: 'Groups',
+            createdAt: 'Generated At',
+          },
+          columnWidths: [
+            { wch: 25 }, // Report Name
+            { wch: 30 }, // Description
+            { wch: 12 }, // Status
+            { wch: 10 }, // Format
+            { wch: 15 }, // Group By
+            { wch: 12 }, // Date From
+            { wch: 12 }, // Date To
+            { wch: 15 }, // Total Students
+            { wch: 15 }, // Avg Attendance
+            { wch: 10 }, // Groups
+            { wch: 20 }, // Generated At
+          ],
         }}
         renderToolbarContent={renderCustomToolbar}
-        onRowSelectionChange={setSelectedRows}
       />
 
       {/* Delete Confirmation Dialog */}

@@ -299,27 +299,27 @@ export class ConsolidationReportPDFExporter {
     // Configure column styles based on hierarchy data
     const columnStyles = hasHierarchyData
       ? {
-          0: { cellWidth: 8, halign: 'center' },    // #
-          1: { cellWidth: 18, halign: 'center' },   // Roll No.
-          2: { cellWidth: 'auto', minCellWidth: 30 }, // Student Name
+          0: { cellWidth: 8, halign: 'center' as const },    // #
+          1: { cellWidth: 18, halign: 'center' as const },   // Roll No.
+          2: { cellWidth: 'auto' as const, minCellWidth: 30 }, // Student Name
           3: { cellWidth: 20, fontSize: 7 },        // Degree
           4: { cellWidth: 20, fontSize: 7 },        // Dept.
           5: { cellWidth: 20, fontSize: 7 },        // Program
-          6: { cellWidth: 12, halign: 'center', fontSize: 7 }, // Sem.
+          6: { cellWidth: 12, halign: 'center' as const, fontSize: 7 }, // Sem.
           7: { cellWidth: 15, fontSize: 7 },        // Section
-          8: { cellWidth: 15, halign: 'center', fontSize: 7 },  // Total
-          9: { cellWidth: 15, halign: 'center', fontSize: 7 },  // Present
-          10: { cellWidth: 15, halign: 'center', fontSize: 7 }, // Absent
-          11: { cellWidth: 18, halign: 'center' },  // Att. %
+          8: { cellWidth: 15, halign: 'center' as const, fontSize: 7 },  // Total
+          9: { cellWidth: 15, halign: 'center' as const, fontSize: 7 },  // Present
+          10: { cellWidth: 15, halign: 'center' as const, fontSize: 7 }, // Absent
+          11: { cellWidth: 18, halign: 'center' as const },  // Att. %
         }
       : {
-          0: { cellWidth: 10, halign: 'center' },
-          1: { cellWidth: 25, halign: 'center' },
-          2: { cellWidth: 'auto' },
-          3: { cellWidth: 22, halign: 'center' },
-          4: { cellWidth: 20, halign: 'center' },
-          5: { cellWidth: 20, halign: 'center' },
-          6: { cellWidth: 25, halign: 'center' },
+          0: { cellWidth: 10, halign: 'center' as const },
+          1: { cellWidth: 25, halign: 'center' as const },
+          2: { cellWidth: 'auto' as const },
+          3: { cellWidth: 22, halign: 'center' as const },
+          4: { cellWidth: 20, halign: 'center' as const },
+          5: { cellWidth: 20, halign: 'center' as const },
+          6: { cellWidth: 25, halign: 'center' as const },
         };
 
     const attendanceColIndex = hasHierarchyData ? 11 : 6;
