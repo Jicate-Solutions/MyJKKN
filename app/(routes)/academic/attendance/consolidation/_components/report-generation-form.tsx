@@ -107,6 +107,11 @@ export function ReportGenerationForm({
   };
 
   const onSubmit = async (values: FormValues) => {
+    // Filter out empty strings from filter arrays to avoid UUID errors
+    const cleanPrograms = values.programs?.filter(id => id && id.trim() !== '') || [];
+    const cleanSemesters = values.semesters?.filter(id => id && id.trim() !== '') || [];
+    const cleanSections = values.sections?.filter(id => id && id.trim() !== '') || [];
+
     const dto = {
       reportName: values.reportName,
       reportDescription: values.reportDescription,
@@ -118,9 +123,9 @@ export function ReportGenerationForm({
         groupBy: values.groupBy as GroupByType,
         includeAbsentDetails: values.includeAbsentDetails,
         includePeriodBreakdown: values.includePeriodBreakdown,
-        programs: values.programs,
-        semesters: values.semesters,
-        sections: values.sections,
+        programs: cleanPrograms,
+        semesters: cleanSemesters,
+        sections: cleanSections,
       },
     };
 

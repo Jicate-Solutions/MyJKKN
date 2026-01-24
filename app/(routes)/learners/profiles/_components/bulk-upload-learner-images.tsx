@@ -291,7 +291,7 @@ export function BulkUploadLearnerImages({
       // Extract roll number from filename
       const rollNumber = extractRollNumberFromFilename(file.name);
       const extractionError = !rollNumber
-        ? 'Could not extract roll number from filename. Expected format: ROLLNUMBER.jpg (e.g., DB22092.jpg)'
+        ? 'Could not extract roll number from filename. Expected format: ROLLNUMBER.jpg (e.g., 123654789.jpg, 24MBA60.jpg, DB22092.jpg)'
         : undefined;
 
       // Validate file type and size
@@ -463,6 +463,8 @@ export function BulkUploadLearnerImages({
       }
 
       console.log(`[bulk-upload-images] Validating ${rollNumbers.length} roll numbers in ${chunks.length} chunks`);
+      console.log('[bulk-upload-images] Extracted roll numbers:', rollNumbers);
+      console.log('[bulk-upload-images] Institution filter:', institutionId || 'None');
 
       // Fetch all learners in parallel chunks
       const allLearners: Array<{
@@ -526,10 +528,11 @@ export function BulkUploadLearnerImages({
       }
 
       console.log(`[bulk-upload-images] Found ${allLearners.length} learners in database`);
+      console.log('[bulk-upload-images] Database learners roll numbers:', allLearners.map(l => l.roll_number));
 
-      // Create map for quick lookup
+      // Create map for quick lookup (case-insensitive: use uppercase keys)
       const learnerMap = new Map(
-        allLearners.map((l) => [l.roll_number, l])
+        allLearners.map((l) => [l.roll_number.toUpperCase(), l])
       );
 
       // Update files with learner data
@@ -546,15 +549,21 @@ export function BulkUploadLearnerImages({
             return file;
           }
 
-          // Look up learner
-          const learner = learnerMap.get(file.rollNumber);
+          // Look up learner (case-insensitive: file.rollNumber is already uppercase from extraction)
+          const learner = learnerMap.get(file.rollNumber.toUpperCase());
 
           if (!learner) {
-            // Learner not found
+            // Learner not found - provide helpful error message
+            console.warn(`[bulk-upload-images] No learner found for roll number: ${file.rollNumber}`);
+            const suggestions = [
+              'Verify roll number format matches database',
+              institutionId ? 'Check learner belongs to selected institution' : 'Try selecting an institution filter',
+              'Check for case sensitivity or extra spaces',
+            ];
             return {
               ...file,
               validationStatus: 'error' as ImageValidationStatus,
-              extractionError: `No learner found with roll number ${file.rollNumber}`,
+              extractionError: `No learner found with roll number "${file.rollNumber}". ${suggestions.join('. ')}.`,
               selected: false,
             };
           }
@@ -577,6 +586,11 @@ export function BulkUploadLearnerImages({
 
         // Then detect duplicates
         const filesWithDuplicates = detectDuplicates(matchedFiles);
+
+        // Log match statistics
+        const matched = filesWithDuplicates.filter(f => f.learnerId).length;
+        const notMatched = filesWithDuplicates.filter(f => !f.learnerId && f.rollNumber).length;
+        console.log(`[bulk-upload-images] Match results: ${matched} matched, ${notMatched} not matched`);
 
         return filesWithDuplicates;
       });

@@ -160,3 +160,40 @@ export function useRegenerateConsolidationReport() {
     },
   });
 }
+
+/**
+ * Hook to bulk delete consolidation reports
+ */
+export function useBulkDeleteConsolidationReports() {
+  const queryClient = useQueryClient();
+  const { userProfile } = usePermissions();
+
+  return useMutation({
+    mutationFn: async (reportIds: string[]) => {
+      if (!userProfile?.id) {
+        throw new Error('User not authenticated');
+      }
+
+      const results = await Promise.allSettled(
+        reportIds.map((id) => AttendanceConsolidationService.deleteReport(id, userProfile.id))
+      );
+
+      const successCount = results.filter((r) => r.status === 'fulfilled' && r.value).length;
+      const failureCount = results.length - successCount;
+
+      return { successCount, failureCount, total: results.length };
+    },
+    onSuccess: ({ successCount, failureCount }) => {
+      if (successCount > 0) {
+        toast.success(`Successfully deleted ${successCount} report(s)`);
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.lists() });
+      }
+      if (failureCount > 0) {
+        toast.error(`Failed to delete ${failureCount} report(s)`);
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete reports');
+    },
+  });
+}

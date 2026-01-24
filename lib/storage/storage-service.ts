@@ -358,7 +358,8 @@ export class StorageService {
         .select(
           `
           id,
-          student_name,
+          first_name,
+          last_name,
           roll_number,
           institution_id,
           institutions(name)
@@ -393,7 +394,7 @@ export class StorageService {
                 results.failed.push({
                   filename: file.name,
                   error:
-                    'Could not extract roll number from filename. Expected format: ROLLNUMBER.extension'
+                    'Could not extract roll number from filename. Expected format: ROLLNUMBER.extension (e.g., 123654789.jpg, 24MBA60.jpg, DB22092.jpg)'
                 });
                 return;
               }
@@ -463,9 +464,15 @@ export class StorageService {
                 );
               }
 
+              // Combine first_name and last_name to create student_name
+              const studentName = [
+                (student as any).first_name,
+                (student as any).last_name
+              ].filter(Boolean).join(' ');
+
               results.success.push({
                 roll_number: rollNumber,
-                student_name: (student as any).student_name,
+                student_name: studentName,
                 image_url: urlData.publicUrl
               });
             } catch (error) {
@@ -702,8 +709,11 @@ export class StorageService {
     // Remove file extension and extract roll number
     const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
 
-    // Look for patterns like DB22092, CS21001, etc.
-    const rollNumberMatch = nameWithoutExt.match(/^([A-Z]{2,4}\d{2,6})$/i);
+    // Pattern matches either:
+    // 1. Pure numeric: \d{6,10} = 6-10 digits (e.g., "123654789")
+    // 2. Alphanumeric: \d*[A-Z]{2,4}\d{2,6} = optional leading digits + 2-4 letters + 2-6 digits
+    //    Examples: "24MBA60", "DB22092", "CS21001"
+    const rollNumberMatch = nameWithoutExt.match(/(\d{6,10}|\d*[A-Z]{2,4}\d{2,6})/i);
 
     if (rollNumberMatch) {
       return rollNumberMatch[1].toUpperCase();
