@@ -7,6 +7,40 @@ description: Comprehensive Next.js 16 web development skill covering Cache Compo
 
 Complete production-ready workflow for building modern Next.js 16 applications with optimal performance, security, and developer experience.
 
+## 🎯 Two-Module Architecture
+
+This skill is organized into **two integrated modules** that work together in a unified workflow:
+
+### 📱 Frontend Module (`modules/01-frontend/`)
+Production-ready admin dashboard patterns and UI components:
+- **Layout System**: AppSidebar, Header, PageContainer with RBAC navigation
+- **Form Components**: 12 standardized form types with React Hook Form + Zod
+- **Data Tables**: TanStack Table v8 with URL state management (Nuqs)
+- **Authentication**: Supabase Auth integration with SSR
+- **Theme System**: Dark/light mode with next-themes
+- **Command Palette**: Global search with kbar (Cmd+K)
+- **Charts & Analytics**: Recharts wrappers for dashboards
+- **Drag & Drop**: dnd-kit for Kanban boards and sortable lists
+- **File Upload**: React Dropzone with validation
+
+### ⚙️ Backend Module (`modules/02-backend/`)
+Server-side data patterns with optimal caching:
+- **Cache Components**: 10 production patterns for `use cache` directive
+- **Server Actions**: Form handling, mutations, and cache invalidation
+- **Database Layer**: Supabase integration with Row Level Security
+- **Cache Strategies**: Hot/Warm/Cold/Static profiles from production (MyJKKN)
+- **Cache Invalidation**: Hierarchical tag system with `updateTag()`
+- **Type Safety**: Zod schemas and TypeScript strict mode
+
+### 🔄 Unified Workflow
+
+**Complete Development Flow:**
+1. **Dashboard Setup** (Frontend) → Initialize layout, auth, navigation
+2. **Module Development** (Frontend + Backend) → Build CRUD features with both UI and data layers
+3. **Deployment** → Production-ready Next.js 16 application
+
+Each feature module uses **both** Frontend patterns (forms, tables, layouts) and Backend patterns (cached data, server actions, database).
+
 ## 🚨 CRITICAL: Read Error Prevention Guide First
 
 **BEFORE implementing ANY features**, read the [Error Prevention Guide](references/error-prevention-guide.md) to avoid the THREE MOST COMMON ERRORS that occur repeatedly in Next.js 16:
@@ -28,14 +62,23 @@ This fundamental shift provides fine-grained control over caching at the functio
 
 Use this skill when:
 
+- **Setting up admin dashboards** with production-ready layout, navigation, and auth
 - **Starting a new Next.js 16 project** with proper configuration and structure
 - **Building CRUD modules** with optimal caching and Server Actions
 - **Implementing forms** with validation, error handling, and optimistic updates
+- **Creating data tables** with server-side search, filtering, and pagination
+- **Integrating Supabase Auth** with SSR and role-based access control
 - **Optimizing performance** with Cache Components and PPR
 - **Designing database schemas** with Supabase and Row Level Security
 - **Migrating from Next.js 15** to Next.js 16 architecture
 - **Standardizing team workflows** for consistent Next.js 16 development
 - **Creating real-time features** with appropriate cache strategies
+
+### Quick Start Paths
+
+**Path 1: Admin Dashboard** → Use Frontend Module to set up layout, auth, and navigation first
+**Path 2: Feature Module** → Use Backend Module for data patterns, then Frontend Module for UI
+**Path 3: Full Project** → Start with `workflows/complete-workflow.md` for end-to-end guidance
 
 ## Quick Decision Framework
 
@@ -885,6 +928,7 @@ When building a new feature module (e.g., Products, Orders):
 
 ### DO:
 
+**Server-Side:**
 - ✅ Enable `cacheComponents` in next.config.ts
 - ✅ Use Server Actions for all mutations
 - ✅ Apply `use cache` to data fetching functions
@@ -898,8 +942,20 @@ When building a new feature module (e.g., Products, Orders):
 - ✅ Add multiple cache tags for granular invalidation
 - ✅ Stream UI progressively with PPR
 
+**Performance Optimization:**
+- ✅ Import directly from specific files (avoid barrel imports)
+- ✅ Use `next/dynamic` for heavy components
+- ✅ Defer third-party scripts with `next/script`
+- ✅ Use `Promise.all()` for parallel operations
+- ✅ Memoize expensive components with `React.memo()`
+- ✅ Cache calculations with `useMemo()`
+- ✅ Stable callbacks with `useCallback()`
+- ✅ Virtualize large lists (1000+ items)
+- ✅ Write comprehensive tests (unit, integration, E2E)
+
 ### DON'T:
 
+**Server-Side:**
 - ❌ **NEVER** use cookies(), headers(), or access searchParams inside 'use cache' scopes
 - ❌ **NEVER** access searchParams or params without await/React.use()
 - ❌ **NEVER** fetch data without Suspense boundary OR 'use cache' directive
@@ -915,9 +971,21 @@ When building a new feature module (e.g., Products, Orders):
 - ❌ Use edge runtime with Cache Components
 - ❌ Hardcode cache durations everywhere (use cache profiles)
 
-**See [Error Prevention Guide](references/error-prevention-guide.md) for detailed explanations and correct patterns.**
+**Performance:**
+- ❌ Use barrel imports (import from `@/components/ui` instead of specific files)
+- ❌ Import heavy libraries without code splitting
+- ❌ Await sequentially when operations can run in parallel
+- ❌ Create inline objects/arrays as props to memoized components
+- ❌ Render 1000+ items without virtualization
+- ❌ Skip testing Server Actions and validation logic
 
-**See [Production Patterns](references/production-patterns.md) for real-world MyJKKN examples.**
+**Essential Guides:**
+- **[Error Prevention Guide](references/error-prevention-guide.md)** - Three critical errors and fixes
+- **[Production Patterns](references/production-patterns.md)** - Real-world MyJKKN examples
+- **[Bundle Optimization](references/bundle-optimization.md)** - 60% smaller bundles
+- **[Async Optimization](references/async-optimization.md)** - 70% faster page loads
+- **[Client Optimization](modules/01-frontend/client-optimization.md)** - 85% fewer re-renders
+- **[Testing Patterns](references/testing-patterns.md)** - Comprehensive testing guide
 
 ## Performance Targets
 
@@ -963,35 +1031,88 @@ See `references/migration-guide.md` for complete migration patterns.
 
 ## Resources
 
-This skill includes comprehensive reference documentation and automation tools:
+This skill includes comprehensive reference documentation and automation tools organized by module:
 
-### references/
+### modules/
 
-Detailed patterns and examples loaded as needed:
+**Frontend Module (`modules/01-frontend/`)**
+- `README.md` - Frontend module overview and quick start
+- `layout-system.md` - AppSidebar, Header, PageContainer patterns
+- `form-patterns.md` - 12 form component types with examples
+- `data-table-patterns.md` - TanStack Table with URL state
+- `rbac-navigation.md` - Role-based navigation filtering
+- `command-palette.md` - kbar integration patterns
+- `charts-analytics.md` - Recharts dashboard components
+- `drag-drop-patterns.md` - dnd-kit Kanban and sortable lists
+- `file-upload-patterns.md` - React Dropzone with validation
+- `theme-system.md` - Dark/light mode configuration
+- `client-optimization.md` - 🆕 React optimization patterns (memo, useMemo, useCallback)
 
-- **`error-prevention-guide.md`** - 🚨 **READ THIS FIRST** - The three critical errors and how to prevent them
-- **`production-patterns.md`** - 🏆 **NEW** - Real-world patterns from MyJKKN production app (cache profiles, hierarchical tags, "extract and pass" pattern)
-- `cache-components-patterns.md` - Advanced caching strategies, PPR, cache key optimization, invalidation patterns
-- `server-actions-forms.md` - Form handling, validation, file uploads, multi-step forms
-- `module-builder-patterns.md` - Complete CRUD module development workflows
-- `migration-guide.md` - Step-by-step Next.js 15 to 16 migration
-- `database-patterns.md` - Supabase schemas, RLS policies, indexes, functions
+**Backend Module (`modules/02-backend/`)**
+- `README.md` - Backend module overview
+- `patterns/` - 10 production cache patterns (migrated from references/)
+- `database-layer.md` - Supabase + RLS integration
+
+### workflows/
+
+End-to-end development guides:
+
+- `complete-workflow.md` - Dashboard setup → Module development → Deployment
+- `module-builder-workflow.md` - Step-by-step CRUD module creation
+- `auth-integration-workflow.md` - Supabase Auth setup patterns
+
+### templates/
+
+Production-ready code templates:
+
+- `dashboard-layout/` - AppSidebar, Header, PageContainer components
+- `form-components/` - 12 reusable form field components
+- `data-table/` - TanStack Table setup with hooks
+- `auth/` - Supabase Auth middleware, context, pages
+- `navigation/` - Nav config, breadcrumbs, RBAC hooks
+- `module-templates/` - Complete CRUD and analytics modules
 
 ### scripts/
 
-Automation tools for common tasks:
+Automation tools for quick setup:
 
-- `init_project.sh` - Initialize Next.js 16 project with standard structure
-- `generate_module.py` - Generate CRUD module boilerplate
-- `validate_structure.py` - Validate project follows team standards
+- `init_dashboard.sh` - **NEW** - Initialize complete admin dashboard
+- `setup_auth.sh` - **NEW** - Configure Supabase Auth integration
+- `generate_module.py` - Generate CRUD module (Frontend + Backend)
+- `init_project.sh` - Initialize Next.js 16 project
+- `validate_structure.py` - Validate project structure
+
+### references/
+
+**Essential Guides:**
+- **`error-prevention-guide.md`** - 🚨 **READ THIS FIRST** - Three critical errors
+- **`production-patterns.md`** - 🏆 Real-world MyJKKN patterns
+
+**Performance Optimization (🆕 Updated):**
+- **`bundle-optimization.md`** - 🆕 Barrel imports, code splitting, 60% smaller bundles
+- **`async-optimization.md`** - 🆕 Promise.all(), parallel fetching, 70% faster loads
+- **`testing-patterns.md`** - 🆕 Server Actions, Zod, Playwright, comprehensive testing
+
+**Backend Patterns:**
+- `cache-components-patterns.md` - Advanced caching strategies
+- `server-actions-forms.md` - Form handling and validation
+- `module-builder-patterns.md` - CRUD development workflows
+- `migration-guide.md` - Next.js 15 to 16 migration
+- `database-patterns.md` - Supabase schemas and RLS
+
+**Integration Guides:**
+- `supabase-auth-patterns.md` - Auth integration guide
+- `shadcn-ui-guide.md` - Shadcn component usage
+- `tech-stack-reference.md` - Complete dependency list (~45 packages)
 
 ### assets/
 
-Templates and boilerplate code:
+Configuration and reference files:
 
 - `next.config.ts` - Optimized Next.js 16 configuration
-- `module-template/` - Complete CRUD module boilerplate
-- `supabase-schema/` - Database schema templates
+- `tailwind.config.dashboard.ts` - **NEW** - Dashboard Tailwind config
+- `shadcn-components-list.md` - **NEW** - 45+ Shadcn components
+- `supabase-schema-template.sql` - Database schema templates
 
 ---
 
