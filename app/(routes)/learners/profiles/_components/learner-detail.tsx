@@ -764,6 +764,48 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                   </div>
                 </div>
 
+                {/* Reference Details - Super Admin Only */}
+                {isSuperAdmin && (
+                  <>
+                    <Separator />
+
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-medium">Reference Details</h3>
+                        <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300 text-xs">
+                          Super Admin Only
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">
+                            Reference Type
+                          </h4>
+                          <p className="text-sm capitalize">
+                            {learner.reference_type || 'Not specified'}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">
+                            Reference Name
+                          </h4>
+                          <p className="text-sm">
+                            {learner.reference_name || 'Not specified'}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">
+                            Reference Contact
+                          </h4>
+                          <p className="text-sm">
+                            {learner.reference_contact || 'Not specified'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 <Separator />
 
                 <div className="space-y-2">

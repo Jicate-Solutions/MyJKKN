@@ -45,6 +45,23 @@ export class AttendanceConsolidationService {
         userId,
       });
 
+      // Validate institution ID
+      if (!dto.institutionId || dto.institutionId.trim() === '') {
+        const error = new Error('Institution ID is required to create a consolidation report');
+        logger.error('academic/attendance-consolidation', 'Invalid institution ID', {
+          institutionId: dto.institutionId,
+        });
+        throw error;
+      }
+
+      // Clean report params - remove empty strings from filter arrays
+      const cleanedParams = {
+        ...dto.reportParams,
+        programs: dto.reportParams.programs?.filter(id => id && id.trim() !== '') || [],
+        semesters: dto.reportParams.semesters?.filter(id => id && id.trim() !== '') || [],
+        sections: dto.reportParams.sections?.filter(id => id && id.trim() !== '') || [],
+      };
+
       const { data, error } = await this.supabase
         .from('attendance_consolidation_reports')
         .insert({
@@ -52,7 +69,7 @@ export class AttendanceConsolidationService {
           report_description: dto.reportDescription,
           institution_id: dto.institutionId,
           generated_by: userId,
-          report_params: dto.reportParams,
+          report_params: cleanedParams,
           format: dto.format || 'pdf',
           status: 'pending',
         })
@@ -68,8 +85,8 @@ export class AttendanceConsolidationService {
         reportId: data.id,
       });
 
-      // Trigger report generation
-      await this.generateReportData(data.id, dto.reportParams, dto.institutionId);
+      // Trigger report generation with cleaned params
+      await this.generateReportData(data.id, cleanedParams, dto.institutionId);
 
       return this.mapDatabaseToReport(data);
     } catch (error) {
@@ -184,17 +201,26 @@ export class AttendanceConsolidationService {
         .gte('attendance_date', dateFrom)
         .lte('attendance_date', dateTo);
 
-      // Apply filters
+      // Apply filters - filter out empty strings to avoid UUID errors
       if (params.sections && params.sections.length > 0) {
-        query = query.in('section_id', params.sections);
+        const validSections = params.sections.filter(id => id && id.trim() !== '');
+        if (validSections.length > 0) {
+          query = query.in('section_id', validSections);
+        }
       }
 
       if (params.semesters && params.semesters.length > 0) {
-        query = query.in('semester_id', params.semesters);
+        const validSemesters = params.semesters.filter(id => id && id.trim() !== '');
+        if (validSemesters.length > 0) {
+          query = query.in('semester_id', validSemesters);
+        }
       }
 
       if (params.programs && params.programs.length > 0) {
-        query = query.in('program_id', params.programs);
+        const validPrograms = params.programs.filter(id => id && id.trim() !== '');
+        if (validPrograms.length > 0) {
+          query = query.in('program_id', validPrograms);
+        }
       }
 
       const { data, error } = await query;
@@ -227,6 +253,7 @@ export class AttendanceConsolidationService {
       const attendanceData = record.attendance_data || {};
 
       // Extract students from attendance_data (JSONB structure)
+      // Each key in attendance_data represents a period_id with student attendance for that period
       const periodSlots = Object.values(attendanceData);
 
       for (const slot of periodSlots as any[]) {
@@ -281,18 +308,20 @@ export class AttendanceConsolidationService {
               studentName: studentId, // Will be enriched later
               sectionId: student.section_id,
               sectionName: record.section?.section_name,
-              presentDates: new Set<string>(),
-              absentDates: new Set<string>(),
+              presentPeriodsCount: 0,
+              absentPeriodsCount: 0,
+              absentDates: new Set<string>(), // Still track dates for absent details feature
             });
           }
 
           const studentData = group.students.get(studentId);
 
-          // Track attendance
+          // Track attendance - COUNT PERIODS, not dates
           if (student.status === 'Present') {
-            studentData.presentDates.add(record.attendance_date);
+            studentData.presentPeriodsCount++;
           } else if (student.status === 'Absent') {
-            studentData.absentDates.add(record.attendance_date);
+            studentData.absentPeriodsCount++;
+            studentData.absentDates.add(record.attendance_date); // Track date for absent details
           }
 
           // Track working days at group level
@@ -300,6 +329,12 @@ export class AttendanceConsolidationService {
         }
       }
     }
+
+    logger.info('academic/attendance-consolidation', 'Attendance records processed', {
+      totalGroups: groups.size,
+      totalRecords: attendanceRecords.length,
+      note: 'Period-wise attendance tracking enabled'
+    });
 
     // Enrich student data (fetch names, roll numbers)
     await this.enrichStudentData(groups, institutionId);
@@ -315,11 +350,12 @@ export class AttendanceConsolidationService {
       const totalWorkingDays = groupData.dates.size;
 
       for (const [studentId, studentData] of groupData.students) {
-        const totalPresent = studentData.presentDates.size;
-        const totalAbsent = studentData.absentDates.size;
+        const totalPresent = studentData.presentPeriodsCount;
+        const totalAbsent = studentData.absentPeriodsCount;
+        const totalPeriods = totalPresent + totalAbsent;
         const attendancePercentage =
-          totalWorkingDays > 0
-            ? (totalPresent / totalWorkingDays) * 100
+          totalPeriods > 0
+            ? (totalPresent / totalPeriods) * 100
             : 0;
 
         const studentSummary: StudentAttendanceSummary = {
@@ -358,9 +394,10 @@ export class AttendanceConsolidationService {
       const totalStudents = groupData.students.size;
       const totalPresent = studentSummaries.reduce((sum, s) => sum + s.totalPresent, 0);
       const totalAbsent = studentSummaries.reduce((sum, s) => sum + s.totalAbsent, 0);
+      const totalPeriods = totalPresent + totalAbsent;
       const averageAttendance =
-        totalStudents > 0 && totalWorkingDays > 0
-          ? (totalPresent / (totalStudents * totalWorkingDays)) * 100
+        totalPeriods > 0
+          ? (totalPresent / totalPeriods) * 100
           : 0;
 
       groupSummaries.push({
@@ -385,12 +422,25 @@ export class AttendanceConsolidationService {
     attendanceRecords.forEach(r => allDates.add(r.attendance_date));
     const totalWorkingDays = allDates.size;
 
+    const totalPeriodsOverall = totalPresentOverall + totalAbsentOverall;
+
+    logger.info('academic/attendance-consolidation', 'Consolidation statistics calculated', {
+      totalStudents: totalStudentsOverall,
+      totalWorkingDays,
+      totalPeriods: totalPeriodsOverall,
+      presentPeriods: totalPresentOverall,
+      absentPeriods: totalAbsentOverall,
+      averageAttendance: totalPeriodsOverall > 0
+        ? Math.round(((totalPresentOverall / totalPeriodsOverall) * 100) * 100) / 100
+        : 0
+    });
+
     const summary: ReportSummary = {
       totalStudents: totalStudentsOverall,
       totalWorkingDays,
       averageAttendance:
-        totalStudentsOverall > 0 && totalWorkingDays > 0
-          ? Math.round(((totalPresentOverall / (totalStudentsOverall * totalWorkingDays)) * 100) * 100) / 100
+        totalPeriodsOverall > 0
+          ? Math.round(((totalPresentOverall / totalPeriodsOverall) * 100) * 100) / 100
           : 0,
       totalPresent: totalPresentOverall,
       totalAbsent: totalAbsentOverall,
@@ -439,40 +489,128 @@ export class AttendanceConsolidationService {
         totalCount: studentIdsArray.length,
       });
 
-      // First, fetch basic student data
-      const { data: students, error } = await this.supabase
-        .from('learners_profiles')
-        .select(`
-          id,
-          first_name,
-          last_name,
-          roll_number,
-          institution_id,
-          degree_id,
-          department_id,
-          program_id,
-          semester_id,
-          section_id
-        `)
-        .in('id', studentIdsArray)
-        .eq('institution_id', institutionId);
+      // Batch queries to avoid URL length limits (Supabase .in() uses GET requests)
+      // With 792 students, URL would be ~28KB (exceeds typical 8KB limit)
+      const BATCH_SIZE = 100; // Safe batch size for URL length
+      const batches: string[][] = [];
 
-      if (error) {
-        logger.error('academic/attendance-consolidation', 'Failed to fetch student details', {
-          errorCode: error.code,
-          errorMessage: error.message,
-          errorDetails: error.details,
-          errorHint: error.hint,
-          studentCount: studentIdsArray.length,
-          institutionId,
+      for (let i = 0; i < studentIdsArray.length; i += BATCH_SIZE) {
+        batches.push(studentIdsArray.slice(i, i + BATCH_SIZE));
+      }
+
+      logger.info('academic/attendance-consolidation', 'Using batched queries', {
+        totalStudents: studentIdsArray.length,
+        batchSize: BATCH_SIZE,
+        batchCount: batches.length,
+      });
+
+      let finalStudents: any[] = [];
+      let hasError = false;
+
+      // Execute batches sequentially to avoid overwhelming the database
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+
+        logger.info('academic/attendance-consolidation', `Processing batch ${i + 1}/${batches.length}`, {
+          batchSize: batch.length,
+        });
+
+        const { data: batchStudents, error: batchError } = await this.supabase
+          .from('learners_profiles')
+          .select(`
+            id,
+            first_name,
+            last_name,
+            roll_number,
+            institution_id,
+            degree_id,
+            department_id,
+            program_id,
+            semester_id,
+            section_id
+          `)
+          .in('id', batch)
+          .eq('institution_id', institutionId);
+
+        if (batchError) {
+          logger.error('academic/attendance-consolidation', `Batch ${i + 1} primary query failed`, {
+            error: batchError.message,
+            code: batchError.code,
+            hint: batchError.hint,
+            details: batchError.details,
+            batchNumber: i + 1,
+            batchSize: batch.length,
+            institutionId,
+          });
+
+          // Try fallback without institution filter for this batch
+          logger.info('academic/attendance-consolidation', `Attempting fallback for batch ${i + 1}`);
+
+          const { data: fallbackData, error: fallbackError } = await this.supabase
+            .from('learners_profiles')
+            .select(`
+              id,
+              first_name,
+              last_name,
+              roll_number,
+              institution_id,
+              degree_id,
+              department_id,
+              program_id,
+              semester_id,
+              section_id
+            `)
+            .in('id', batch);
+
+          if (fallbackError) {
+            logger.error('academic/attendance-consolidation', `Batch ${i + 1} fallback also failed`, {
+              error: fallbackError.message,
+              code: fallbackError.code,
+            });
+            hasError = true;
+            continue; // Skip this batch and continue with next
+          }
+
+          finalStudents = finalStudents.concat(fallbackData || []);
+          logger.warn('academic/attendance-consolidation', `Using fallback for batch ${i + 1}`, {
+            found: fallbackData?.length || 0,
+            note: 'Primary query failed but fallback succeeded - possible RLS or institution_id issue',
+          });
+        } else {
+          finalStudents = finalStudents.concat(batchStudents || []);
+        }
+      }
+
+      if (hasError && finalStudents.length === 0) {
+        logger.error('academic/attendance-consolidation', 'All batches failed', {
+          totalBatches: batches.length,
         });
         return;
       }
 
-      logger.info('academic/attendance-consolidation', 'Student data fetched', {
+      // Add validation logging
+      const foundCount = finalStudents.length;
+      const matchRate = allStudentIds.size > 0
+        ? ((foundCount / allStudentIds.size) * 100).toFixed(1)
+        : '0.0';
+
+      logger.info('academic/attendance-consolidation', 'All batches completed - Student data fetched', {
         requested: allStudentIds.size,
-        found: students?.length || 0,
+        found: foundCount,
+        matchRate: `${matchRate}%`,
+        batchesProcessed: batches.length,
       });
+
+      if (foundCount < allStudentIds.size) {
+        const foundIds = new Set(finalStudents.map(s => s.id));
+        const missingIds = Array.from(allStudentIds).filter(id => !foundIds.has(id));
+
+        logger.warn('academic/attendance-consolidation', 'Some students not found', {
+          matchRate: `${matchRate}%`,
+          missing: missingIds.length,
+          sampleMissing: missingIds.slice(0, 5),
+        });
+      }
 
       // Collect unique hierarchy IDs for separate queries
       const degreeIds = new Set<string>();
@@ -481,7 +619,7 @@ export class AttendanceConsolidationService {
       const semesterIds = new Set<string>();
       const sectionIds = new Set<string>();
 
-      students?.forEach(s => {
+      finalStudents.forEach(s => {
         if (s.degree_id) degreeIds.add(s.degree_id);
         if (s.department_id) departmentIds.add(s.department_id);
         if (s.program_id) programIds.add(s.program_id);
@@ -524,7 +662,7 @@ export class AttendanceConsolidationService {
       });
 
       // Create student lookup map with enriched hierarchy data
-      const studentLookup = new Map(students?.map(s => {
+      const studentLookup = new Map(finalStudents.map(s => {
         const degree = degreeLookup.get(s.degree_id) as any;
         const department = departmentLookup.get(s.department_id) as any;
         const program = programLookup.get(s.program_id) as any;
@@ -539,7 +677,7 @@ export class AttendanceConsolidationService {
           semester,
           section,
         }];
-      }) || []);
+      }));
 
       // Enrich each student in each group
       for (const groupData of groups.values()) {

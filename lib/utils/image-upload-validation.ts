@@ -18,12 +18,16 @@ import {
 /**
  * Extract roll number from filename using pattern matching
  *
- * Expected format: 2-4 letters + 2-6 digits (e.g., DB22092, CS21001, MECH2023)
+ * Supported formats:
+ * 1. Pure numeric: 6-10 digits (e.g., 123654789)
+ * 2. Alphanumeric: Optional leading digits + 2-4 letters + 2-6 digits (e.g., 24MBA60, DB22092)
  *
  * Examples:
+ * - "123654789.jpg" → "123654789"
+ * - "24MBA60.jpg" → "24MBA60"
  * - "DB22092.jpg" → "DB22092"
  * - "cs21001.png" → "CS21001"
- * - "Student_MECH2023.jpg" → "MECH2023"
+ * - "Student_24MBA60.jpg" → "24MBA60"
  * - "photo.jpg" → null
  *
  * @param filename - The filename to extract roll number from
@@ -33,9 +37,11 @@ export function extractRollNumberFromFilename(filename: string): string | null {
   // Remove file extension
   const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
 
-  // Pattern: 2-4 letters followed by 2-6 digits
-  // Matches: DB22092, CS21001, MECH2023, etc.
-  const pattern = /([A-Z]{2,4}\d{2,6})/i;
+  // Pattern matches either:
+  // 1. Pure numeric: \d{6,10} = 6-10 digits (e.g., "123654789")
+  // 2. Alphanumeric: \d*[A-Z]{2,4}\d{2,6} = optional leading digits + 2-4 letters + 2-6 digits
+  //    Examples: "24MBA60", "DB22092", "CS21001"
+  const pattern = /(\d{6,10}|\d*[A-Z]{2,4}\d{2,6})/i;
   const match = nameWithoutExt.match(pattern);
 
   // Return uppercase for consistency
