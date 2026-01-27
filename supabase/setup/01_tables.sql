@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     last_login TIMESTAMPTZ,
     is_super_admin BOOLEAN,
-    institution_id UUID
+    institution_id UUID,
+    department_id UUID,
+    learner_id UUID
 );
 
 -- User Institution Access (Multi-tenancy)

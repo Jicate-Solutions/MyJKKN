@@ -716,6 +716,144 @@ When updating any SQL file:
   - Configured 5MB file size limit
   - Allowed image MIME types only
 
+### 2025-01-27: Fix Sync Missing Profiles - Add learner_id to profiles
+
+- **File**: `migrations/20250127_add_learner_id_to_profiles.sql` ✅ **APPLIED**
+
+  **Purpose**: Fix "Sync Missing Profiles" functionality by adding bidirectional link between profiles and learners_profiles tables
+
+  **Problem Solved**:
+  - Profiles were created but not linked to learners (missing `learner_id`)
+  - Students couldn't see their own profiles (filter by `learner_id` failed)
+  - Sync function reported same missing profiles repeatedly
+  - RLS policies failing (relied on non-existent `learner_id`)
+  - Missing `department_id` in profile creation logic
+
+  **Changes**:
+  - Added `learner_id UUID` column to `profiles` table with foreign key to `learners_profiles(id)`
+  - Added `department_id UUID` column to `profiles` table with foreign key to `departments(id)`
+  - Created 3 indexes:
+    - `idx_profiles_learner_id` - Fast lookup by learner
+    - `idx_profiles_learner_id_unique` - Prevent duplicate profiles per learner (unique constraint)
+    - `idx_profiles_department_id` - Department-level queries
+  - Backfilled existing profiles:
+    - Matched by `LOWER(email)` for case-insensitive comparison
+    - Set `learner_id` for active/inactive/exited students
+    - Set `department_id` from learners_profiles
+
+  **Code Changes**:
+  - Updated `app/api/learners/create-missing-profiles/route.ts`:
+    - Added `learner_id: learner.id` to profile creation
+    - Added `department_id: learner.department_id` to profile creation
+    - Fixed phone field: `learner.mobile` → `learner.student_mobile`
+  - Updated `app/api/learners/complete-onboarding/route.ts`:
+    - Added `learner_id: learner.id` to profile creation
+  - Updated `supabase/setup/01_tables.sql`:
+    - Added `learner_id UUID` and `department_id UUID` columns to profiles table definition
+  - Updated `types/auth.ts`:
+    - Added `learner_id: string | null` to Profile interface
+
+  **Impact**:
+  - ✅ Profiles now properly linked to learners
+  - ✅ Students can see their own profiles
+  - ✅ Sync function works correctly
+  - ✅ RLS policies function properly
+  - ✅ Fast joins between profiles ↔ learners_profiles
+  - ✅ Referential integrity maintained
+  - ✅ Department-level filtering enabled
+
+  **Files Updated**:
+  - `supabase/migrations/20250127_add_learner_id_to_profiles.sql` (NEW)
+  - `supabase/setup/01_tables.sql` (Updated profiles table)
+  - `app/api/learners/create-missing-profiles/route.ts` (Added learner_id, department_id, fixed phone field)
+  - `app/api/learners/complete-onboarding/route.ts` (Added learner_id)
+  - `types/auth.ts` (Added learner_id to Profile interface)
+  - `docs/fixes/2025-01/2025-01-27-FIX-sync-missing-profiles.md` (NEW - Documentation)
+
+### 2025-01-27: Sync Profile Data from Learners (Role, Institution, Department)
+
+- **Migration**: `fix_duplicate_learner_ids` + `sync_existing_profile_data_from_learners` + `add_unique_constraint_learner_id` ✅ **APPLIED**
+
+  **Purpose**: Ensure profiles stay in sync with learner data (role, institution_id, department_id)
+
+  **Problem Solved**:
+  - Students showing with wrong role ('guest', 'faculty' instead of 'student')
+  - Profiles had wrong institution_id (not matching learner's institution)
+  - Profiles had wrong department_id (not matching learner's department)
+  - Duplicate profiles with same learner_id (2 cases found and fixed)
+
+  **Changes Applied**:
+  1. **Fixed duplicate learner_ids**:
+     - Found 2 profiles with duplicate learner_id values
+     - Cleared learner_id from profiles with mismatched emails
+     - Re-backfilled with correct email matching
+
+  2. **Created sync function** - `sync_profile_data_from_learners()`:
+     ```sql
+     CREATE OR REPLACE FUNCTION sync_profile_data_from_learners()
+     RETURNS INTEGER
+     -- Updates role, institution_id, department_id from learners to profiles
+     -- Returns count of profiles updated
+     ```
+
+  3. **One-time data sync**:
+     - Fixed 3 profiles with wrong role (faculty→student, guest→student)
+     - Fixed 2 profiles with wrong institution_id
+     - Fixed 2 profiles with wrong department_id
+
+  4. **Added unique constraint**:
+     - `idx_profiles_learner_id_unique` - Prevents duplicate profiles per learner
+
+  **Function Details**:
+  - **Name**: `sync_profile_data_from_learners()`
+  - **Returns**: INTEGER (count of profiles updated)
+  - **Security**: SECURITY DEFINER
+  - **Permissions**: Granted to authenticated and service_role
+  - **Called by**: Sync Missing Profiles API + can be called manually
+
+  **Profiles Fixed**:
+  | Email | Issue | Status |
+  |-------|-------|--------|
+  | vijayabharathyrpcse2022@jkkn.ac.in | Role: faculty → student | ✅ |
+  | jeevananthame24uba@jkkn.ac.in | Role: guest → student | ✅ |
+  | keerthana23ucsai@jkkn.ac.in | Role: guest → student | ✅ |
+  | roshinia25uen@jkkn.ac.in | Institution & Department synced | ✅ |
+  | soundharyan25uen@jkkn.ac.in | Institution & Department synced | ✅ |
+
+  **Code Changes**:
+  - Updated `app/api/learners/create-missing-profiles/route.ts`:
+    - Added call to `sync_profile_data_from_learners()` before creating new profiles
+    - Ensures existing profiles stay in sync on every sync operation
+
+  **Impact**:
+  - ✅ All profiles with learner_id now have correct role='student' (100%)
+  - ✅ All profiles with learner_id have correct institution_id (100%)
+  - ✅ All profiles with learner_id have correct department_id (100%)
+  - ✅ No duplicate learner_ids (unique constraint enforced)
+  - ✅ Automatic sync on every "Sync Missing Profiles" button click
+  - ✅ Students get correct role-based permissions
+  - ✅ Accurate analytics and reporting by institution/department
+
+  **Verification**:
+  ```sql
+  -- Test the function
+  SELECT sync_profile_data_from_learners(); -- Returns: 0 (all synced)
+
+  -- Verify no issues
+  SELECT COUNT(*) FROM profiles p
+  INNER JOIN learners_profiles lp ON p.learner_id = lp.id
+  WHERE p.role != 'student'
+     OR p.institution_id IS DISTINCT FROM lp.institution_id
+     OR p.department_id IS DISTINCT FROM lp.department_id;
+  -- Returns: 0 (all correct)
+  ```
+
+  **Files Updated**:
+  - `app/api/learners/create-missing-profiles/route.ts` (Added sync call)
+  - Database: Created function `sync_profile_data_from_learners()`
+  - Database: Applied 3 migrations (fix duplicates, sync data, add unique constraint)
+  - `docs/fixes/2025-01/2025-01-27-FIX-sync-profile-data-from-learners.md` (NEW - Documentation)
+
 ---
 
 **Remember: ONE file per object type, NO duplicates, ALWAYS update existing files!**

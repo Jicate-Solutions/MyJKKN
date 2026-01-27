@@ -134,9 +134,20 @@ export async function POST() {
     }
 
     const createdProfiles = [];
+    const updatedProfiles = [];
     const failedProfiles = [];
 
-    // 2. The function already returns the needed data (learner_id, email, names)
+    // 2. Also sync existing profiles (update role, institution_id, department_id from learners)
+    // This ensures profiles stay in sync with learner data
+    const { data: syncResult, error: syncError } = await supabaseAdmin.rpc('sync_profile_data_from_learners');
+
+    if (syncError) {
+      console.warn('[api/learners/create-missing-profiles] Warning: Failed to sync existing profiles:', syncError.message);
+    } else if (syncResult && syncResult > 0) {
+      console.log(`[api/learners/create-missing-profiles] Synced ${syncResult} existing profile(s)`);
+    }
+
+    // 3. The function already returns the needed data (learner_id, email, names)
     // But we need full learner details for institution_id and mobile
     const learnerIds = learnersToCreate.map((l: any) => l.learner_id);
     const { data: learners, error: learnersError } = await supabaseAdmin
@@ -150,7 +161,7 @@ export async function POST() {
       );
     }
 
-    // 3. Loop through and create each user and profile
+    // 4. Loop through and create each user and profile
     for (const learner of learners) {
       try {
         const tempPassword = generateTemporaryPassword();
@@ -181,9 +192,11 @@ export async function POST() {
             id: authUser.user.id,
             email: learner.college_email,
             full_name: fullName,
-            phone_number: learner.mobile,
+            phone_number: learner.student_mobile,
             role: 'student',
             institution_id: learner.institution_id,
+            department_id: learner.department_id,
+            learner_id: learner.id,
             profile_completed: true,
             is_active: true
           });

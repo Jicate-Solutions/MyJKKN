@@ -61,6 +61,7 @@ export interface Profile {
   is_pre_registered?: boolean;
   institution_id: string | null;
   department_id: string | null;
+  learner_id: string | null;
   institutions?: Institution | null;
   departments?: Department | null;
   created_at: string;
