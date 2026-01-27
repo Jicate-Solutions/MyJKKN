@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
 
     // Step 2: Parse request body
     const body = await request.json();
-    const { student_id, bill_ids, return_url, cancel_url } = body;
+    const { student_id, bill_ids, bill_amounts, return_url, cancel_url } = body;
 
     // Step 3: Validate request data
     if (!student_id || !bill_ids || !Array.isArray(bill_ids) || bill_ids.length === 0) {
@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
     const sessionData: CreatePaymentSessionDto = {
       student_id,
       bill_ids,
+      bill_amounts,
       return_url,
       cancel_url,
     };

@@ -17,8 +17,10 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { OnlinePaymentButton } from './online-payment-button';
+import { OnlinePaymentAmountSelector } from './online-payment-amount-selector';
 import { format } from 'date-fns';
 import type { StudentBill } from '@/types/billing-schedule';
+import { ArrowLeft } from 'lucide-react';
 
 interface PaymentSelectionModalProps {
   open: boolean;
@@ -34,21 +36,33 @@ export function PaymentSelectionModal({
   studentId,
 }: PaymentSelectionModalProps) {
   const [selectedBillIds, setSelectedBillIds] = useState<Set<string>>(new Set());
+  const [step, setStep] = useState<'select' | 'amount'>('select');
+  const [billAmounts, setBillAmounts] = useState<Record<string, number>>({});
 
   // Filter only unpaid bills
   const unpaidBills = useMemo(() => {
     return bills.filter((bill) => bill.status !== 'paid');
   }, [bills]);
 
+  // Get selected bills objects
+  const selectedBills = useMemo(() => {
+    return unpaidBills.filter((bill) => selectedBillIds.has(bill.id));
+  }, [unpaidBills, selectedBillIds]);
+
   // Calculate total amount for selected bills
   const totalAmount = useMemo(() => {
+    // If custom amounts are set, use them; otherwise use full balances
+    if (Object.keys(billAmounts).length > 0) {
+      return Object.values(billAmounts).reduce((sum, amount) => sum + (amount || 0), 0);
+    }
+
     return unpaidBills
       .filter((bill) => selectedBillIds.has(bill.id))
       .reduce((sum, bill) => {
         const balance = bill.balance_amount ?? bill.final_amount ?? bill.total_amount ?? 0;
         return sum + Number(balance);
       }, 0);
-  }, [unpaidBills, selectedBillIds]);
+  }, [unpaidBills, selectedBillIds, billAmounts]);
 
   const handleToggleBill = (billId: string) => {
     const newSelected = new Set(selectedBillIds);
@@ -70,7 +84,17 @@ export function PaymentSelectionModal({
 
   const handleClose = () => {
     setSelectedBillIds(new Set());
+    setStep('select');
+    setBillAmounts({});
     onOpenChange(false);
+  };
+
+  const handleProceedToAmount = () => {
+    setStep('amount');
+  };
+
+  const handleBackToSelect = () => {
+    setStep('select');
   };
 
   const getStatusBadgeVariant = (status: string) => {
@@ -88,36 +112,55 @@ export function PaymentSelectionModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Select Bills to Pay Online</DialogTitle>
-          <DialogDescription>
-            Choose one or more bills to pay via HDFC SmartGateway
-          </DialogDescription>
+          <div className="flex items-center gap-2">
+            {step === 'amount' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleBackToSelect}
+                className="h-8 w-8 p-0"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            )}
+            <div className="flex-1">
+              <DialogTitle>
+                {step === 'select' ? 'Select Bills to Pay Online' : 'Configure Payment Amount'}
+              </DialogTitle>
+              <DialogDescription>
+                {step === 'select'
+                  ? 'Choose one or more bills to pay via HDFC SmartGateway'
+                  : 'Choose to pay the full balance or enter custom amounts'}
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Select All Checkbox */}
-          <div className="flex items-center justify-between border-b pb-3">
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="select-all"
-                checked={selectedBillIds.size === unpaidBills.length && unpaidBills.length > 0}
-                onCheckedChange={handleSelectAll}
-              />
-              <label
-                htmlFor="select-all"
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-              >
-                Select All ({unpaidBills.length} bills)
-              </label>
-            </div>
-            {selectedBillIds.size > 0 && (
-              <div className="text-sm text-muted-foreground">
-                {selectedBillIds.size} selected
+        {step === 'select' ? (
+          <div className="space-y-4">
+            {/* Select All Checkbox */}
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="select-all"
+                  checked={selectedBillIds.size === unpaidBills.length && unpaidBills.length > 0}
+                  onCheckedChange={handleSelectAll}
+                />
+                <label
+                  htmlFor="select-all"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  Select All ({unpaidBills.length} bills)
+                </label>
               </div>
-            )}
-          </div>
+              {selectedBillIds.size > 0 && (
+                <div className="text-sm text-muted-foreground">
+                  {selectedBillIds.size} selected
+                </div>
+              )}
+            </div>
 
           {/* Bills List */}
           {unpaidBills.length === 0 ? (
@@ -169,33 +212,60 @@ export function PaymentSelectionModal({
             </div>
           )}
 
-          {/* Payment Summary */}
-          {selectedBillIds.size > 0 && (
-            <div className="border-t pt-4 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Selected Bills:</span>
-                <span className="font-medium">{selectedBillIds.size}</span>
+            {/* Payment Summary */}
+            {selectedBillIds.size > 0 && (
+              <div className="border-t pt-4 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Selected Bills:</span>
+                  <span className="font-medium">{selectedBillIds.size}</span>
+                </div>
+                <div className="flex items-center justify-between text-lg font-bold">
+                  <span>Total Amount:</span>
+                  <span className="text-primary">
+                    ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center justify-between text-lg font-bold">
-                <span>Total Amount:</span>
-                <span className="text-primary">
-                  ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <OnlinePaymentAmountSelector
+              bills={selectedBills}
+              onAmountsChange={setBillAmounts}
+              defaultToFullPayment={true}
+            />
+          </div>
+        )}
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={handleClose}>
-            Cancel
-          </Button>
-          <OnlinePaymentButton
-            studentId={studentId}
-            billIds={Array.from(selectedBillIds)}
-            totalAmount={totalAmount}
-            disabled={selectedBillIds.size === 0}
-          />
+          {step === 'select' ? (
+            <>
+              <Button variant="outline" onClick={handleClose}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleProceedToAmount}
+                disabled={selectedBillIds.size === 0}
+              >
+                Next: Configure Amount
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={handleBackToSelect}>
+                Back
+              </Button>
+              <OnlinePaymentButton
+                studentId={studentId}
+                billIds={Array.from(selectedBillIds)}
+                billAmounts={billAmounts}
+                totalAmount={totalAmount}
+                disabled={selectedBillIds.size === 0 || Object.keys(billAmounts).length === 0}
+                onSuccess={handleClose}
+              />
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
