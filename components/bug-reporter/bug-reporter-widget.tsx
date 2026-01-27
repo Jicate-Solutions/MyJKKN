@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -490,11 +490,14 @@ export function BugReporterWidget() {
   const [category, setCategory] = useState<string>('bug');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
-  const [capturedScreenshot, setCapturedScreenshot] = useState<string>('');
+  const [capturedScreenshot, setCapturedScreenshot] = useState<string>(''); // Primary auto-captured screenshot
+  const [additionalImages, setAdditionalImages] = useState<string[]>([]); // Additional uploaded images
   const [isClient, setIsClient] = useState(false);
   const [testResults, setTestResults] = useState<string>('');
   const [debugMode, setDebugMode] = useState(false);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null); // File input ref for manual upload (single)
+  const multipleFileInputRef = useRef<HTMLInputElement>(null); // File input ref for multiple uploads
   const router = useRouter();
 
   useEffect(() => {
@@ -540,18 +543,177 @@ export function BugReporterWidget() {
 
       setIsOpen(true);
 
-      toast.success('Bug Report Ready');
+      toast.success('Screenshot captured! Bug report ready.');
     } catch (error: any) {
       logger.error('bug-reports', 'Failed to capture screenshot', error);
       setCapturedScreenshot(''); // Ensure no stale screenshot
       setIsOpen(true);
-      toast.error(error instanceof Error ? error.message : 'Unknown error');
+      toast.error('Could not auto-capture screenshot. You can add one manually.');
     } finally {
       setIsCapturingScreenshot(false);
     }
   };
 
+  // Handle retaking the auto-screenshot
+  const handleRetakeScreenshot = async () => {
+    setIsCapturingScreenshot(true);
+
+    try {
+      // Close modal temporarily to capture clean screenshot
+      setIsOpen(false);
+
+      // Wait for modal to close
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const screenshot = await capturePageScreenshot();
+
+      if (!screenshot || screenshot.length === 0) {
+        throw new Error('Screenshot capture returned empty result');
+      }
+
+      setCapturedScreenshot(screenshot);
+      toast.success('Screenshot retaken successfully!');
+
+      // Reopen modal
+      setIsOpen(true);
+    } catch (error: any) {
+      logger.error('bug-reports', 'Failed to retake screenshot', error);
+      toast.error('Could not retake screenshot. Try manual upload instead.');
+      setIsOpen(true);
+    } finally {
+      setIsCapturingScreenshot(false);
+    }
+  };
+
+  // Handle manual screenshot - supports both file browse and clipboard paste
   const handleManualScreenshot = async () => {
+    // Trigger file input click for browsing files
+    fileInputRef.current?.click();
+  };
+
+  // Handle file selection from file input (single replacement for screenshot)
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsCapturingScreenshot(true);
+
+    try {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        toast.error('Please select an image file (PNG, JPG, etc.)');
+        return;
+      }
+
+      // Validate file size (max 5MB)
+      const maxSizeBytes = 5 * 1024 * 1024;
+      if (file.size > maxSizeBytes) {
+        toast.error('Image file is too large (max 5MB). Please select a smaller file.');
+        return;
+      }
+
+      // Convert file to data URL
+      const dataURL = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      // Compress the screenshot to ensure it's within limits
+      const compressedDataUrl = await compressScreenshot(dataURL);
+
+      setCapturedScreenshot(compressedDataUrl);
+      toast.success('Image uploaded successfully!');
+    } catch (error: any) {
+      logger.error('bug-reports', 'File upload failed', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to upload image');
+    } finally {
+      setIsCapturingScreenshot(false);
+      // Reset file input so the same file can be selected again
+      if (event.target) {
+        event.target.value = '';
+      }
+    }
+  };
+
+  // Handle multiple file selection for additional images
+  const handleMultipleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsCapturingScreenshot(true);
+
+    try {
+      const maxFiles = 5; // Maximum 5 additional images
+      const maxSizeBytes = 5 * 1024 * 1024;
+      const totalAllowed = maxFiles - additionalImages.length;
+
+      if (files.length > totalAllowed) {
+        toast.error(`You can only upload ${totalAllowed} more image(s). Maximum is ${maxFiles} additional images.`);
+        return;
+      }
+
+      const processedImages: string[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+          toast.error(`File "${file.name}" is not an image. Skipping.`);
+          continue;
+        }
+
+        // Validate file size
+        if (file.size > maxSizeBytes) {
+          toast.error(`File "${file.name}" is too large (max 5MB). Skipping.`);
+          continue;
+        }
+
+        // Convert file to data URL
+        const dataURL = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        // Compress the image
+        const compressedDataUrl = await compressScreenshot(dataURL);
+        processedImages.push(compressedDataUrl);
+      }
+
+      if (processedImages.length > 0) {
+        setAdditionalImages(prev => [...prev, ...processedImages]);
+        toast.success(`${processedImages.length} image(s) added successfully!`);
+      }
+    } catch (error: any) {
+      logger.error('bug-reports', 'Multiple file upload failed', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to upload images');
+    } finally {
+      setIsCapturingScreenshot(false);
+      // Reset file input
+      if (event.target) {
+        event.target.value = '';
+      }
+    }
+  };
+
+  // Remove a specific additional image
+  const handleRemoveAdditionalImage = (index: number) => {
+    setAdditionalImages(prev => prev.filter((_, i) => i !== index));
+    toast.success('Image removed');
+  };
+
+  // Clear all additional images
+  const handleClearAllAdditionalImages = () => {
+    setAdditionalImages([]);
+    toast.success('All additional images cleared');
+  };
+
+  // Handle clipboard paste (alternative method)
+  const handleClipboardPaste = async () => {
     setIsCapturingScreenshot(true);
 
     const isMobile = isMobileDevice();
@@ -585,20 +747,23 @@ export function BugReporterWidget() {
                 reader.readAsDataURL(blob);
               });
 
-              setCapturedScreenshot(dataURL);
-              toast.success('Manual Screenshot Added!');
+              // Compress the screenshot
+              const compressedDataUrl = await compressScreenshot(dataURL);
+
+              setCapturedScreenshot(compressedDataUrl);
+              toast.success('Screenshot from clipboard added!');
               return;
             }
           }
 
-          toast.error('No Screenshot Found');
+          toast.error('No screenshot found in clipboard');
         }
       } else {
-        toast.error('Manual Screenshot Not Available');
+        toast.error('Clipboard paste not available on this device');
       }
     } catch (error: any) {
-      logger.error('bug-reports', 'Manual screenshot failed', error);
-      toast.error(error instanceof Error ? error.message : 'Unknown error');
+      logger.error('bug-reports', 'Clipboard paste failed', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to paste from clipboard');
     } finally {
       setIsCapturingScreenshot(false);
     }
@@ -635,6 +800,7 @@ export function BugReporterWidget() {
         description: description.trim(),
         category: category,
         screenshot_data_url: capturedScreenshot,
+        additional_images_data_urls: additionalImages, // Add multiple images
         console_logs: safeLogs,
         log_summary: structuredLogs.summary, // Add structured summary
         metadata: {
@@ -644,6 +810,7 @@ export function BugReporterWidget() {
           timestamp: new Date().toISOString(),
           captureMethod: capturedScreenshot ? 'html2canvas' : 'none',
           devicePixelRatio: window.devicePixelRatio,
+          additionalImagesCount: additionalImages.length,
           // Add log statistics
           logStats: {
             uniqueEntries: structuredLogs.summary.totalUniqueEntries,
@@ -797,6 +964,7 @@ export function BugReporterWidget() {
       setDescription('');
       setCategory('bug');
       setCapturedScreenshot('');
+      setAdditionalImages([]);
       setIsOpen(false);
 
       // Clear logs from enhanced logger (reuse logManager from try block)
@@ -827,6 +995,27 @@ export function BugReporterWidget() {
 
   return (
     <>
+      {/* Hidden file input for manual image upload (single) */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelect}
+        style={{ display: 'none' }}
+        aria-label="Upload screenshot"
+      />
+
+      {/* Hidden file input for multiple additional images */}
+      <input
+        ref={multipleFileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleMultipleFileSelect}
+        style={{ display: 'none' }}
+        aria-label="Upload additional images"
+      />
+
       {/* Floating Bug Report Button */}
       <TooltipProvider>
         <Tooltip>
@@ -900,6 +1089,7 @@ export function BugReporterWidget() {
                 onClick={() => {
                   setIsOpen(false);
                   setCapturedScreenshot('');
+                  setAdditionalImages([]);
                   setDescription('');
                   setCategory('bug');
                 }}
@@ -1214,7 +1404,17 @@ export function BugReporterWidget() {
                       className='w-full h-20 object-cover object-top'
                     />
                   </div>
-                  <div className='flex gap-2 mt-2'>
+                  <div className='flex flex-wrap gap-2 mt-2'>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={handleRetakeScreenshot}
+                      disabled={isCapturingScreenshot}
+                      className='text-xs'
+                    >
+                      <Camera className='w-3 h-3 mr-1' />
+                      {isCapturingScreenshot ? 'Capturing...' : 'Retake Auto-Screenshot'}
+                    </Button>
                     <Button
                       variant='outline'
                       size='sm'
@@ -1223,13 +1423,25 @@ export function BugReporterWidget() {
                       className='text-xs'
                     >
                       <Camera className='w-3 h-3 mr-1' />
-                      Replace
+                      Browse Image File
                     </Button>
+                    {('clipboard' in navigator && 'read' in navigator.clipboard) && (
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={handleClipboardPaste}
+                        disabled={isCapturingScreenshot}
+                        className='text-xs'
+                      >
+                        <Camera className='w-3 h-3 mr-1' />
+                        Paste from Clipboard
+                      </Button>
+                    )}
                     <Button
                       variant='outline'
                       size='sm'
                       onClick={() => setCapturedScreenshot('')}
-                      className='text-xs'
+                      className='text-xs text-destructive hover:text-destructive'
                     >
                       <X className='w-3 h-3 mr-1' />
                       Remove
@@ -1248,26 +1460,123 @@ export function BugReporterWidget() {
                     <p className='text-sm text-muted-foreground mb-3'>
                       No screenshot captured
                     </p>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={handleManualScreenshot}
-                      disabled={isCapturingScreenshot}
-                      className='text-xs'
-                    >
-                      <Camera className='w-3 h-3 mr-1' />
-                      {isCapturingScreenshot
-                        ? 'Processing...'
-                        : 'Add Screenshot'}
-                    </Button>
+                    <div className='flex flex-col gap-2'>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={handleManualScreenshot}
+                        disabled={isCapturingScreenshot}
+                        className='text-xs'
+                      >
+                        <Camera className='w-3 h-3 mr-1' />
+                        {isCapturingScreenshot
+                          ? 'Processing...'
+                          : 'Browse Image File'}
+                      </Button>
+                      {('clipboard' in navigator && 'read' in navigator.clipboard) && (
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={handleClipboardPaste}
+                          disabled={isCapturingScreenshot}
+                          className='text-xs'
+                        >
+                          <Camera className='w-3 h-3 mr-1' />
+                          Paste from Clipboard
+                        </Button>
+                      )}
+                    </div>
                     <p className='text-xs text-muted-foreground mt-2'>
-                      {isMobileDevice()
-                        ? 'Use device screenshot buttons for highest quality'
-                        : 'Use Windows + Shift + S for highest quality'}
+                      Browse files or {isMobileDevice()
+                        ? 'use device screenshot buttons'
+                        : 'press Windows + Shift + S'}
                     </p>
                   </div>
                 </div>
               )}
+
+              {/* Additional Images Section */}
+              <div>
+                <label className='text-sm font-medium flex items-center justify-between'>
+                  <span className='text-muted-foreground'>
+                    Additional Images (Optional)
+                  </span>
+                  <span className='text-xs text-muted-foreground'>
+                    {additionalImages.length}/5 images
+                  </span>
+                </label>
+
+                {additionalImages.length > 0 && (
+                  <div className='mt-2 space-y-2'>
+                    <div className='grid grid-cols-2 gap-2'>
+                      {additionalImages.map((image, index) => (
+                        <div key={index} className='relative border rounded overflow-hidden group'>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={image}
+                            alt={`Additional image ${index + 1}`}
+                            className='w-full h-24 object-cover'
+                          />
+                          <button
+                            type='button'
+                            onClick={() => handleRemoveAdditionalImage(index)}
+                            className='absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity'
+                            aria-label='Remove image'
+                          >
+                            <X className='w-3 h-3' />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className='flex gap-2'>
+                      {additionalImages.length < 5 && (
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={() => multipleFileInputRef.current?.click()}
+                          disabled={isCapturingScreenshot}
+                          className='text-xs'
+                        >
+                          <Camera className='w-3 h-3 mr-1' />
+                          Add More
+                        </Button>
+                      )}
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={handleClearAllAdditionalImages}
+                        className='text-xs text-destructive hover:text-destructive'
+                      >
+                        <X className='w-3 h-3 mr-1' />
+                        Clear All
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {additionalImages.length === 0 && (
+                  <div className='mt-1 p-4 border-2 border-dashed border-muted-foreground/25 rounded-lg text-center'>
+                    <div className='text-muted-foreground mb-2'>
+                      <p className='text-sm mb-1'>
+                        Add up to 5 additional images
+                      </p>
+                      <p className='text-xs'>
+                        Screenshots, error messages, mockups, etc.
+                      </p>
+                    </div>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() => multipleFileInputRef.current?.click()}
+                      disabled={isCapturingScreenshot}
+                      className='text-xs'
+                    >
+                      <Camera className='w-3 h-3 mr-1' />
+                      {isCapturingScreenshot ? 'Processing...' : 'Add Images'}
+                    </Button>
+                  </div>
+                )}
+              </div>
 
               <div className='flex gap-2'>
                 <Button

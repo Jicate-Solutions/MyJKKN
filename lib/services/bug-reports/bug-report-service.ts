@@ -17,6 +17,7 @@ export interface CreateBugReportPayload {
   page_url: string;
   description: string;
   screenshot_data_url?: string;
+  additional_images_data_urls?: string[]; // Multiple additional images
   console_logs?: any[];
   metadata?: object;
 }
@@ -76,7 +77,11 @@ export class BugReportService {
         throw new Error('Failed to create bug report - no data returned.');
       }
 
-      // 2. If a screenshot is provided, upload it and update the report
+      // 2. Upload main screenshot and additional images
+      let screenshotUrl: string | null = null;
+      const attachmentUrls: string[] = [];
+
+      // Upload primary screenshot
       if (payload.screenshot_data_url) {
         try {
           const screenshotFile = dataURLtoFile(
@@ -94,31 +99,69 @@ export class BugReportService {
 
           if (uploadError) {
             logger.error('bug-reports', 'Screenshot upload error', uploadError);
-            // Don't fail the whole operation, just log the error
             logger.warn('bug-reports', 'Continuing without screenshot');
           } else {
             const { data: urlData } = supabase.storage
               .from(BUG_REPORTS_BUCKET)
               .getPublicUrl(filePath);
-
-            const updateQuery: any = (supabase as any).from('bug_reports');
-            const { data: updatedReport, error: updateError } = await updateQuery
-              .update({ screenshot_url: urlData.publicUrl })
-              .eq('id', newReport.id)
-              .select()
-              .single();
-
-            if (updateError) {
-              logger.error('bug-reports', 'Update error', updateError);
-              // Don't fail the whole operation, return the original report
-              logger.warn('bug-reports', 'Returning report without screenshot URL');
-            } else {
-              return updatedReport as BugReport;
-            }
+            screenshotUrl = urlData.publicUrl;
           }
         } catch (screenshotError) {
           logger.error('bug-reports', 'Screenshot processing error', screenshotError);
-          // Continue without screenshot
+        }
+      }
+
+      // Upload additional images
+      if (payload.additional_images_data_urls && payload.additional_images_data_urls.length > 0) {
+        for (let i = 0; i < payload.additional_images_data_urls.length; i++) {
+          try {
+            const imageDataUrl = payload.additional_images_data_urls[i];
+            const imageFile = dataURLtoFile(
+              imageDataUrl,
+              `additional-${i + 1}.png`
+            );
+            const filePath = `${newReport.id}/additional-${i + 1}.png`;
+
+            const { error: uploadError } = await (supabase as any).storage
+              .from(BUG_REPORTS_BUCKET)
+              .upload(filePath, imageFile, {
+                cacheControl: '3600',
+                upsert: false
+              });
+
+            if (uploadError) {
+              logger.error('bug-reports', `Additional image ${i + 1} upload error`, uploadError);
+            } else {
+              const { data: urlData } = supabase.storage
+                .from(BUG_REPORTS_BUCKET)
+                .getPublicUrl(filePath);
+              attachmentUrls.push(urlData.publicUrl);
+            }
+          } catch (imageError) {
+            logger.error('bug-reports', `Additional image ${i + 1} processing error`, imageError);
+          }
+        }
+      }
+
+      // Update report with all image URLs
+      if (screenshotUrl || attachmentUrls.length > 0) {
+        const updateData: any = {};
+        if (screenshotUrl) updateData.screenshot_url = screenshotUrl;
+        if (attachmentUrls.length > 0) updateData.attachment_urls = attachmentUrls;
+
+        const updateQuery: any = (supabase as any).from('bug_reports');
+        const { data: updatedReport, error: updateError } = await updateQuery
+          .update(updateData)
+          .eq('id', newReport.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          logger.error('bug-reports', 'Update error', updateError);
+          logger.warn('bug-reports', 'Returning report without image URLs');
+          return newReport;
+        } else {
+          return updatedReport as BugReport;
         }
       }
 

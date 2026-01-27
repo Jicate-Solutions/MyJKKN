@@ -217,39 +217,67 @@ export function AcademicYearForm({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Institution</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={
-                        !isSuperAdmin || loadingInstitutions || isEditing
-                      }
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select institution' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent className='max-h-60 overflow-y-auto'>
-                        {institutions.map((institution) => (
-                          <SelectItem
-                            key={institution.id}
-                            value={institution.id}
-                          >
-                            {institution.name} ({institution.counselling_code})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                    {!isSuperAdmin && (
-                      <p className='text-xs text-muted-foreground'>
-                        Institution is automatically set based on your profile
-                      </p>
-                    )}
-                    {isEditing && (
-                      <p className='text-xs text-muted-foreground'>
-                        Institution cannot be changed when editing
-                      </p>
+                    {!isSuperAdmin || isEditing ? (
+                      // For non-super admins or when editing, show static text
+                      <div className='flex flex-col gap-1'>
+                        <div className='flex h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm'>
+                          {loadingInstitutions ? (
+                            <span className='text-muted-foreground'>Loading...</span>
+                          ) : (
+                            (() => {
+                              const selectedInstitution = institutions.find(
+                                (inst) => inst.id === field.value
+                              );
+                              return selectedInstitution ? (
+                                <span>
+                                  {selectedInstitution.name} ({selectedInstitution.counselling_code})
+                                </span>
+                              ) : (
+                                <span className='text-muted-foreground'>
+                                  {field.value ? 'Institution not found' : 'No institution assigned'}
+                                </span>
+                              );
+                            })()
+                          )}
+                        </div>
+                        <FormMessage />
+                        {!isSuperAdmin && !isEditing && (
+                          <p className='text-xs text-muted-foreground'>
+                            Institution is automatically set based on your profile
+                          </p>
+                        )}
+                        {isEditing && (
+                          <p className='text-xs text-muted-foreground'>
+                            Institution cannot be changed when editing
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      // For super admins creating new years, show dropdown
+                      <>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          disabled={loadingInstitutions}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder='Select institution' />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
+                            {institutions.map((institution) => (
+                              <SelectItem
+                                key={institution.id}
+                                value={institution.id}
+                              >
+                                {institution.name} ({institution.counselling_code})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </>
                     )}
                   </FormItem>
                 )}

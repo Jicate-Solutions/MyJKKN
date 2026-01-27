@@ -300,25 +300,60 @@ export default function BugReportDetailPage() {
               </CardContent>
             </Card>
 
-            {/* Screenshot */}
-            {bugReport.screenshot_url && (
+            {/* Screenshots & Attachments */}
+            {(bugReport.screenshot_url || (bugReport.attachment_urls && bugReport.attachment_urls.length > 0)) && (
               <Card>
                 <CardHeader>
                   <CardTitle className='flex items-center gap-2'>
                     <Monitor className='w-5 h-5' />
-                    Screenshot
+                    Screenshots & Attachments
+                    {bugReport.attachment_urls && bugReport.attachment_urls.length > 0 && (
+                      <span className='text-xs text-muted-foreground'>
+                        ({(bugReport.screenshot_url ? 1 : 0) + bugReport.attachment_urls.length} {(bugReport.screenshot_url ? 1 : 0) + bugReport.attachment_urls.length === 1 ? 'image' : 'images'})
+                      </span>
+                    )}
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className='relative rounded-lg overflow-hidden border bg-muted'>
-                    <Image
-                      src={bugReport.screenshot_url}
-                      alt='Bug report screenshot'
-                      width={800}
-                      height={600}
-                      className='w-full h-auto max-h-96 object-contain'
-                    />
-                  </div>
+                <CardContent className='space-y-4'>
+                  {/* Primary Screenshot */}
+                  {bugReport.screenshot_url && (
+                    <div>
+                      <label className='text-sm font-medium text-muted-foreground mb-2 block'>
+                        Primary Screenshot
+                      </label>
+                      <div className='relative rounded-lg overflow-hidden border bg-muted'>
+                        <Image
+                          src={bugReport.screenshot_url}
+                          alt='Bug report screenshot'
+                          width={800}
+                          height={600}
+                          className='w-full h-auto max-h-96 object-contain'
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Additional Images */}
+                  {bugReport.attachment_urls && bugReport.attachment_urls.length > 0 && (
+                    <div>
+                      <label className='text-sm font-medium text-muted-foreground mb-2 block'>
+                        Additional Images ({bugReport.attachment_urls.length})
+                      </label>
+                      <div className='grid grid-cols-2 gap-3'>
+                        {bugReport.attachment_urls.map((url, index) => (
+                          <div key={index} className='relative rounded-lg overflow-hidden border bg-muted'>
+                            <Image
+                              src={url}
+                              alt={`Additional screenshot ${index + 1}`}
+                              width={400}
+                              height={300}
+                              className='w-full h-auto max-h-48 object-contain'
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}

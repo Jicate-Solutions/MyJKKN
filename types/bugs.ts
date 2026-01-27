@@ -22,6 +22,7 @@ export interface BugReport {
   description: string;
   category?: BugReportCategory | null;
   screenshot_url?: string | null;
+  attachment_urls?: string[] | null; // Array of additional image URLs
   console_logs?: any[] | null;
   status: BugReportStatus;
   resolved_at?: string | null;
