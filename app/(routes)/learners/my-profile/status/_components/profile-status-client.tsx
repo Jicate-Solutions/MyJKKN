@@ -65,28 +65,28 @@ export function ProfileStatusClient({ learnerId }: ProfileStatusClientProps) {
     switch (status) {
       case 'pending':
         return (
-          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
+          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700">
             <Clock className="mr-1 h-3 w-3" />
             Pending
           </Badge>
         );
       case 'approved':
         return (
-          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700">
             <CheckCircle2 className="mr-1 h-3 w-3" />
             Approved
           </Badge>
         );
       case 'rejected':
         return (
-          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300">
+          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700">
             <XCircle className="mr-1 h-3 w-3" />
             Rejected
           </Badge>
         );
       case 'cancelled':
         return (
-          <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
+          <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
             Cancelled
           </Badge>
         );
@@ -98,13 +98,13 @@ export function ProfileStatusClient({ learnerId }: ProfileStatusClientProps) {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'pending':
-        return <Clock className="h-10 w-10 text-yellow-600" />;
+        return <Clock className="h-10 w-10 text-yellow-600 dark:text-yellow-500" />;
       case 'approved':
-        return <CheckCircle2 className="h-10 w-10 text-green-600" />;
+        return <CheckCircle2 className="h-10 w-10 text-green-600 dark:text-green-500" />;
       case 'rejected':
-        return <XCircle className="h-10 w-10 text-red-600" />;
+        return <XCircle className="h-10 w-10 text-red-600 dark:text-red-500" />;
       default:
-        return <FileText className="h-10 w-10 text-gray-600" />;
+        return <FileText className="h-10 w-10 text-gray-600 dark:text-gray-400" />;
     }
   };
 
@@ -183,52 +183,52 @@ export function ProfileStatusClient({ learnerId }: ProfileStatusClientProps) {
       {/* Summary Cards */}
       {requests.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <Card className="border-l-4 border-l-yellow-500 hover:shadow-lg transition-shadow">
+          <Card className="border-l-4 border-l-yellow-500 dark:border-l-yellow-600 hover:shadow-lg transition-shadow">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-muted-foreground">Pending Review</p>
-                  <p className="text-3xl font-bold text-yellow-600">
+                  <p className="text-3xl font-bold text-yellow-600 dark:text-yellow-500">
                     {requests.filter((r) => r.request_status === 'pending').length}
                   </p>
                   <p className="text-xs text-muted-foreground">Awaiting approval</p>
                 </div>
-                <div className="h-14 w-14 rounded-full bg-yellow-100 flex items-center justify-center">
-                  <Clock className="h-7 w-7 text-yellow-600" />
+                <div className="h-14 w-14 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
+                  <Clock className="h-7 w-7 text-yellow-600 dark:text-yellow-500" />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-l-4 border-l-green-500 hover:shadow-lg transition-shadow">
+          <Card className="border-l-4 border-l-green-500 dark:border-l-green-600 hover:shadow-lg transition-shadow">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-muted-foreground">Approved</p>
-                  <p className="text-3xl font-bold text-green-600">
+                  <p className="text-3xl font-bold text-green-600 dark:text-green-500">
                     {requests.filter((r) => r.request_status === 'approved').length}
                   </p>
                   <p className="text-xs text-muted-foreground">Successfully updated</p>
                 </div>
-                <div className="h-14 w-14 rounded-full bg-green-100 flex items-center justify-center">
-                  <CheckCircle2 className="h-7 w-7 text-green-600" />
+                <div className="h-14 w-14 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                  <CheckCircle2 className="h-7 w-7 text-green-600 dark:text-green-500" />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-l-4 border-l-red-500 hover:shadow-lg transition-shadow sm:col-span-2 lg:col-span-1">
+          <Card className="border-l-4 border-l-red-500 dark:border-l-red-600 hover:shadow-lg transition-shadow sm:col-span-2 lg:col-span-1">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-muted-foreground">Rejected</p>
-                  <p className="text-3xl font-bold text-red-600">
+                  <p className="text-3xl font-bold text-red-600 dark:text-red-500">
                     {requests.filter((r) => r.request_status === 'rejected').length}
                   </p>
                   <p className="text-xs text-muted-foreground">Needs revision</p>
                 </div>
-                <div className="h-14 w-14 rounded-full bg-red-100 flex items-center justify-center">
-                  <XCircle className="h-7 w-7 text-red-600" />
+                <div className="h-14 w-14 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                  <XCircle className="h-7 w-7 text-red-600 dark:text-red-500" />
                 </div>
               </div>
             </CardContent>
@@ -271,9 +271,9 @@ export function ProfileStatusClient({ learnerId }: ProfileStatusClientProps) {
                 key={request.id}
                 className={cn(
                   'hover:shadow-lg transition-all cursor-pointer border-l-4',
-                  request.request_status === 'pending' && 'border-l-yellow-500 hover:border-l-yellow-600',
-                  request.request_status === 'approved' && 'border-l-green-500 hover:border-l-green-600',
-                  request.request_status === 'rejected' && 'border-l-red-500 hover:border-l-red-600'
+                  request.request_status === 'pending' && 'border-l-yellow-500 dark:border-l-yellow-600 hover:border-l-yellow-600 dark:hover:border-l-yellow-500',
+                  request.request_status === 'approved' && 'border-l-green-500 dark:border-l-green-600 hover:border-l-green-600 dark:hover:border-l-green-500',
+                  request.request_status === 'rejected' && 'border-l-red-500 dark:border-l-red-600 hover:border-l-red-600 dark:hover:border-l-red-500'
                 )}
                 onClick={() => router.push(`/learners/my-profile/status/${request.id}`)}
               >
@@ -342,8 +342,8 @@ export function ProfileStatusClient({ learnerId }: ProfileStatusClientProps) {
                         {request.review_comments && (
                           <div className={cn(
                             'p-3 rounded-lg text-sm',
-                            request.request_status === 'approved' && 'bg-green-50 border border-green-200',
-                            request.request_status === 'rejected' && 'bg-red-50 border border-red-200'
+                            request.request_status === 'approved' && 'bg-green-50 border border-green-200 dark:bg-green-900/20 dark:border-green-800',
+                            request.request_status === 'rejected' && 'bg-red-50 border border-red-200 dark:bg-red-900/20 dark:border-red-800'
                           )}>
                             <p className="font-medium text-xs uppercase tracking-wide mb-1 text-muted-foreground">
                               Reviewer Comments:

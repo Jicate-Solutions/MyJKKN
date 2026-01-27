@@ -12,6 +12,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AlumniTableServer } from './_components/alumni-table-server';
 import { AlumniFilters } from './_components/alumni-filters';
+import { AlumniSearchWrapper } from './_components/alumni-search-wrapper';
 import { alumniSearchParamsSchema } from './_components/data-table-schema';
 import { getAlumni } from './_data/get-alumni';
 import { TableSkeleton } from '@/components/Loading';
@@ -63,6 +64,11 @@ async function AlumniContent({
 
   return (
     <>
+      {/* Advanced Search */}
+      <div className="mb-4">
+        <AlumniSearchWrapper statusFilter={statusFilter as any} />
+      </div>
+
       {/* Filters (Client Component) */}
       <AlumniFilters searchParams={parsedParams} statusFilter={statusFilter as any} />
 

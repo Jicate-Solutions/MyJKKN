@@ -214,7 +214,7 @@ export function AlumniTableServer({
           enableDateFilter: false,
           enableExport: false,
           enableRowSelection: true,
-          searchPlaceholder: 'Search by name, email, roll number, or register number...',
+          enableSearch: false, // Disabled - using custom advanced search instead
         }}
         renderToolbarContent={renderCustomToolbar}
       />

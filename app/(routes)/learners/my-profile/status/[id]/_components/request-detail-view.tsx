@@ -39,21 +39,21 @@ export function RequestDetailView({ request }: RequestDetailViewProps) {
     switch (status) {
       case 'pending':
         return (
-          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
+          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700">
             <Clock className="mr-1 h-3 w-3" />
             Pending Review
           </Badge>
         );
       case 'approved':
         return (
-          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700">
             <CheckCircle2 className="mr-1 h-3 w-3" />
             Approved
           </Badge>
         );
       case 'rejected':
         return (
-          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300">
+          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700">
             <XCircle className="mr-1 h-3 w-3" />
             Rejected
           </Badge>

@@ -15,6 +15,7 @@ import { Plus, Upload } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProfilesTableServer } from './_components/profiles-table-server';
 import { ProfilesFilters } from './_components/profiles-filters';
+import { ProfilesSearchWrapper } from './_components/profiles-search-wrapper';
 import { profilesSearchParamsSchema } from './_components/data-table-schema';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { BulkUploadProfilesDialogEnhanced } from './_components/bulk-upload-profiles-dialog-enhanced';
@@ -110,6 +111,13 @@ async function ProfilesContent({
 
   return (
     <>
+      {/* Advanced Search - Hidden for students */}
+      {!isStudent && (
+        <div className="mb-4">
+          <ProfilesSearchWrapper statusFilter={statusFilter as any} />
+        </div>
+      )}
+
       {/* Filters (Client Component) - Hidden for students */}
       {!isStudent && (
         <ProfilesFilters searchParams={parsedParams} statusFilter={statusFilter as any} />

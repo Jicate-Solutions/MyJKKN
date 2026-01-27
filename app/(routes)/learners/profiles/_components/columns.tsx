@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { format } from 'date-fns';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import type { LearnerProfile } from '@/types/learner-profile';
@@ -15,10 +15,31 @@ import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-bad
 import { DataTableRowActions } from './row-actions';
 
 /**
+ * Check if email is using personal domain (gmail, yahoo, etc.) instead of institutional
+ */
+function isPersonalEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+
+  const personalDomains = [
+    '@gmail.com',
+    '@yahoo.com',
+    '@hotmail.com',
+    '@outlook.com',
+    '@rediffmail.com',
+    '@live.com',
+    '@mail.com'
+  ];
+
+  return personalDomains.some(domain => email.toLowerCase().includes(domain));
+}
+
+/**
  * College Email Cell with Copy Button
+ * Shows warning styling for personal emails (gmail, yahoo, etc.)
  */
 function CollegeEmailCell({ email }: { email: string | null | undefined }) {
   const [copied, setCopied] = useState(false);
+  const isPersonal = isPersonalEmail(email);
 
   const handleCopy = async () => {
     if (!email) return;
@@ -37,13 +58,40 @@ function CollegeEmailCell({ email }: { email: string | null | undefined }) {
     return <div className="text-sm text-muted-foreground">N/A</div>;
   }
 
+  // Personal email (Gmail, Yahoo, etc.) - show with red background
+  if (isPersonal) {
+    return (
+      <div className="flex items-center gap-2 w-full bg-red-600 text-white px-2 py-1.5 rounded-md -mx-2">
+        <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+        <span className="text-sm font-medium whitespace-normal break-all" title={`⚠️ Personal email detected: ${email}`}>
+          {email}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 p-0 flex-shrink-0 hover:bg-red-700 text-white"
+          onClick={handleCopy}
+          title="Copy email to clipboard"
+        >
+          {copied ? (
+            <Check className="h-3 w-3" />
+          ) : (
+            <Copy className="h-3 w-3" />
+          )}
+        </Button>
+      </div>
+    );
+  }
+
+  // Institutional email - normal display
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 w-full">
       <Button
         variant="ghost"
         size="sm"
         className="h-6 w-6 p-0 flex-shrink-0"
         onClick={handleCopy}
+        title="Copy email to clipboard"
       >
         {copied ? (
           <Check className="h-3 w-3 text-green-500" />
@@ -51,7 +99,9 @@ function CollegeEmailCell({ email }: { email: string | null | undefined }) {
           <Copy className="h-3 w-3" />
         )}
       </Button>
-      <span className="text-sm">{email}</span>
+      <span className="text-sm whitespace-normal break-all" title={email}>
+        {email}
+      </span>
     </div>
   );
 }
@@ -133,7 +183,7 @@ export const profileColumns: ColumnDef<LearnerProfile>[] = [
     },
     size: 280,
     minSize: 250,
-    maxSize: 320,
+    maxSize: 450,
   },
   // 5. Institution
   {
