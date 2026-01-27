@@ -16,8 +16,10 @@ const createReportSchema = z.object({
     .optional()
     .default('bug'),
   screenshot_data_url: z.string().optional(),
+  additional_images_data_urls: z.array(z.string()).max(5, { message: 'Maximum 5 additional images allowed' }).optional(), // NEW: Multiple images
   console_logs: z.array(z.any()).optional(),
-  metadata: z.record(z.any()).optional()
+  metadata: z.record(z.any()).optional(),
+  log_summary: z.any().optional()
 });
 
 export async function POST(request: Request) {
@@ -259,6 +261,7 @@ export async function POST(request: Request) {
     );
 
     // Handle screenshot upload if provided
+    let screenshotUrl: string | null = null;
     if (validatedData.screenshot_data_url) {
       // Add screenshot upload task
       tasks.push(
@@ -289,20 +292,8 @@ export async function POST(request: Request) {
               .from(BUG_REPORTS_BUCKET)
               .getPublicUrl(filePath);
 
-            // Update report with screenshot URL
-            const { data: updatedReport, error: updateError } = await supabase
-              .from('bug_reports')
-              .update({ screenshot_url: urlData.publicUrl })
-              .eq('id', newReport.id)
-              .select()
-              .single();
-
-            if (updateError) {
-              logger.error('bug-reports/api', 'Update error', updateError);
-              return null;
-            }
-
-            return updatedReport;
+            screenshotUrl = urlData.publicUrl;
+            return screenshotUrl;
           } catch (error) {
             logger.error('bug-reports/api', 'Screenshot processing error', error);
             return null;
@@ -311,22 +302,116 @@ export async function POST(request: Request) {
       );
     }
 
+    // Handle additional images upload if provided
+    const attachmentUrls: string[] = [];
+    if (validatedData.additional_images_data_urls && validatedData.additional_images_data_urls.length > 0) {
+      // Add additional images upload task
+      tasks.push(
+        (async () => {
+          const uploadedUrls: string[] = [];
+
+          for (let i = 0; i < validatedData.additional_images_data_urls!.length; i++) {
+            try {
+              const imageDataUrl = validatedData.additional_images_data_urls![i];
+
+              // Determine file extension from data URL
+              const isJpeg = imageDataUrl.startsWith('data:image/jpeg');
+              const fileExtension = isJpeg ? 'jpg' : 'png';
+
+              const imageFile = dataURLtoFile(
+                imageDataUrl,
+                `additional-${i + 1}.${fileExtension}`
+              );
+              const filePath = `${newReport.id}/additional-${i + 1}.${fileExtension}`;
+
+              const { error: uploadError } = await supabase.storage
+                .from(BUG_REPORTS_BUCKET)
+                .upload(filePath, imageFile, {
+                  cacheControl: '3600',
+                  upsert: false
+                });
+
+              if (uploadError) {
+                logger.error('bug-reports/api', `Additional image ${i + 1} upload error`, uploadError);
+                continue; // Skip this image but continue with others
+              }
+
+              const { data: urlData } = supabase.storage
+                .from(BUG_REPORTS_BUCKET)
+                .getPublicUrl(filePath);
+
+              uploadedUrls.push(urlData.publicUrl);
+            } catch (error) {
+              logger.error('bug-reports/api', `Additional image ${i + 1} processing error`, error);
+              continue; // Skip this image but continue with others
+            }
+          }
+
+          return uploadedUrls;
+        })()
+      );
+    }
+
     // Execute all tasks in parallel
     const results = await Promise.allSettled(tasks);
 
-    // Check if screenshot upload was successful and return updated report
+    // Process results and update bug report with all image URLs
+    let finalScreenshotUrl: string | null = null;
+    let finalAttachmentUrls: string[] = [];
+
+    // Extract screenshot URL from results (index 1 if screenshot was uploaded)
     if (validatedData.screenshot_data_url && results.length > 1) {
       const screenshotResult = results[1];
       if (screenshotResult.status === 'fulfilled' && screenshotResult.value) {
+        finalScreenshotUrl = screenshotResult.value as string;
+      }
+    }
+
+    // Extract additional image URLs from results (index 2 if additional images were uploaded)
+    if (validatedData.additional_images_data_urls && validatedData.additional_images_data_urls.length > 0) {
+      const additionalImagesIndex = validatedData.screenshot_data_url ? 2 : 1;
+      if (results.length > additionalImagesIndex) {
+        const additionalImagesResult = results[additionalImagesIndex];
+        if (additionalImagesResult.status === 'fulfilled' && additionalImagesResult.value) {
+          finalAttachmentUrls = additionalImagesResult.value as string[];
+        }
+      }
+    }
+
+    // Update the bug report with all image URLs
+    if (finalScreenshotUrl || finalAttachmentUrls.length > 0) {
+      const updateData: any = {};
+      if (finalScreenshotUrl) updateData.screenshot_url = finalScreenshotUrl;
+      if (finalAttachmentUrls.length > 0) updateData.attachment_urls = finalAttachmentUrls;
+
+      const { data: updatedReport, error: updateError } = await supabase
+        .from('bug_reports')
+        .update(updateData)
+        .eq('id', newReport.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        logger.error('bug-reports/api', 'Failed to update report with image URLs', updateError);
+        // Return original report even if update failed
         return NextResponse.json(
           {
             success: true,
-            data: screenshotResult.value,
-            message: 'Bug report created successfully with screenshot'
+            data: newReport,
+            message: 'Bug report created successfully (images upload pending)'
           },
           { status: 201 }
         );
       }
+
+      return NextResponse.json(
+        {
+          success: true,
+          data: updatedReport,
+          message: `Bug report created successfully with ${finalScreenshotUrl ? 'screenshot' : ''}${finalScreenshotUrl && finalAttachmentUrls.length > 0 ? ' and ' : ''}${finalAttachmentUrls.length > 0 ? `${finalAttachmentUrls.length} additional image(s)` : ''}`
+        },
+        { status: 201 }
+      );
     }
 
     return NextResponse.json(

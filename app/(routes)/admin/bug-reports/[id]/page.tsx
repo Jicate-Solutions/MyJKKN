@@ -405,59 +405,111 @@ export default function BugReportDetailsPage() {
                 </CardContent>
               </Card>
 
-              {/* Screenshot Card */}
-              {report.screenshot_url && (
+              {/* Screenshots Card - Primary and Additional */}
+              {(report.screenshot_url || (report.attachment_urls && report.attachment_urls.length > 0)) && (
                 <Card>
                   <CardHeader>
                     <CardTitle className='flex items-center justify-between'>
                       <div className='flex items-center gap-2'>
                         <Monitor className='w-5 h-5' />
-                        Screenshot
-                      </div>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={handleDownloadScreenshot}
-                        disabled={isDownloading}
-                        className='flex items-center gap-2'
-                      >
-                        {isDownloading ? (
-                          <>
-                            <Loader2 className='w-4 h-4 animate-spin' />
-                            Downloading...
-                          </>
-                        ) : (
-                          <>
-                            <Download className='w-4 h-4' />
-                            Download
-                          </>
+                        Screenshots & Attachments
+                        {report.attachment_urls && report.attachment_urls.length > 0 && (
+                          <span className='text-xs text-muted-foreground'>
+                            ({(report.screenshot_url ? 1 : 0) + report.attachment_urls.length} {(report.screenshot_url ? 1 : 0) + report.attachment_urls.length === 1 ? 'image' : 'images'})
+                          </span>
                         )}
-                      </Button>
+                      </div>
+                      {report.screenshot_url && (
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={handleDownloadScreenshot}
+                          disabled={isDownloading}
+                          className='flex items-center gap-2'
+                        >
+                          {isDownloading ? (
+                            <>
+                              <Loader2 className='w-4 h-4 animate-spin' />
+                              Downloading...
+                            </>
+                          ) : (
+                            <>
+                              <Download className='w-4 h-4' />
+                              Download Primary
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <a
-                      href={report.screenshot_url}
-                      target='_blank'
-                      rel='noopener noreferrer'
-                    >
-                      <div className='relative rounded-lg overflow-hidden border bg-muted cursor-pointer hover:opacity-90 transition-opacity'>
-                        <Image
-                          src={report.screenshot_url}
-                          alt='Bug report screenshot'
-                          width={1200}
-                          height={800}
-                          className='w-full h-auto'
-                          style={{ maxHeight: '600px', objectFit: 'contain' }}
-                        />
-                        <div className='absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity'>
-                          <div className='flex items-center gap-2 rounded-md bg-white/90 px-4 py-2 text-sm font-medium text-slate-900 dark:bg-slate-900/90 dark:text-slate-50'>
-                            <ExternalLink className='h-4 w-4' />
-                            View in new tab
+                  <CardContent className='space-y-4'>
+                    {/* Primary Screenshot */}
+                    {report.screenshot_url && (
+                      <div>
+                        <label className='text-sm font-medium text-muted-foreground mb-2 block'>
+                          Primary Screenshot (Auto-captured)
+                        </label>
+                        <a
+                          href={report.screenshot_url}
+                          target='_blank'
+                          rel='noopener noreferrer'
+                        >
+                          <div className='relative rounded-lg overflow-hidden border bg-muted cursor-pointer hover:opacity-90 transition-opacity'>
+                            <Image
+                              src={report.screenshot_url}
+                              alt='Bug report screenshot'
+                              width={1200}
+                              height={800}
+                              className='w-full h-auto'
+                              style={{ maxHeight: '600px', objectFit: 'contain' }}
+                            />
+                            <div className='absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity'>
+                              <div className='flex items-center gap-2 rounded-md bg-white/90 px-4 py-2 text-sm font-medium text-slate-900 dark:bg-slate-900/90 dark:text-slate-50'>
+                                <ExternalLink className='h-4 w-4' />
+                                View in new tab
+                              </div>
+                            </div>
                           </div>
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Additional Images */}
+                    {report.attachment_urls && report.attachment_urls.length > 0 && (
+                      <div>
+                        <label className='text-sm font-medium text-muted-foreground mb-2 block'>
+                          Additional Images ({report.attachment_urls.length})
+                        </label>
+                        <div className='grid grid-cols-2 gap-3'>
+                          {report.attachment_urls.map((url, index) => (
+                            <a
+                              key={index}
+                              href={url}
+                              target='_blank'
+                              rel='noopener noreferrer'
+                              className='group'
+                            >
+                              <div className='relative rounded-lg overflow-hidden border bg-muted cursor-pointer hover:opacity-90 transition-opacity'>
+                                <Image
+                                  src={url}
+                                  alt={`Additional screenshot ${index + 1}`}
+                                  width={600}
+                                  height={400}
+                                  className='w-full h-auto'
+                                  style={{ maxHeight: '300px', objectFit: 'contain' }}
+                                />
+                                <div className='absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity'>
+                                  <div className='flex items-center gap-2 rounded-md bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-900 dark:bg-slate-900/90 dark:text-slate-50'>
+                                    <ExternalLink className='h-3 w-3' />
+                                    View #{index + 1}
+                                  </div>
+                                </div>
+                              </div>
+                            </a>
+                          ))}
                         </div>
                       </div>
-                    </a>
+                    )}
                   </CardContent>
                 </Card>
               )}
