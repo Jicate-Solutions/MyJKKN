@@ -102,11 +102,43 @@ export async function getLearnerProfiles(
       { count: 'exact' }
     );
 
-  // Apply filters
+  // Apply filters - Parse advanced search format
   if (search) {
-    query = query.or(
-      `first_name.ilike.%${search}%,last_name.ilike.%${search}%,application_id.ilike.%${search}%,roll_number.ilike.%${search}%,college_email.ilike.%${search}%`
-    );
+    // Check if this is the new advanced search format: "name:John|roll:123|email:test@example.com"
+    if (search.includes('|') || search.includes(':')) {
+      // Parse the search format
+      const searchParts = search.split('|');
+      const searchConditions: string[] = [];
+
+      searchParts.forEach(part => {
+        const [field, value] = part.split(':');
+        if (!field || !value) return;
+
+        const trimmedValue = value.trim();
+        if (!trimmedValue) return;
+
+        // Map field names to database columns
+        if (field === 'name') {
+          // Search in both first_name and last_name
+          searchConditions.push(`first_name.ilike.%${trimmedValue}%`);
+          searchConditions.push(`last_name.ilike.%${trimmedValue}%`);
+        } else if (field === 'roll') {
+          searchConditions.push(`roll_number.ilike.%${trimmedValue}%`);
+        } else if (field === 'email') {
+          searchConditions.push(`college_email.ilike.%${trimmedValue}%`);
+        }
+      });
+
+      // Apply the OR conditions if we have any
+      if (searchConditions.length > 0) {
+        query = query.or(searchConditions.join(','));
+      }
+    } else {
+      // Fallback to old search format (search all fields)
+      query = query.or(
+        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,application_id.ilike.%${search}%,roll_number.ilike.%${search}%,college_email.ilike.%${search}%`
+      );
+    }
   }
 
   if (lifecycle_status) {
@@ -164,9 +196,19 @@ export async function getLearnerProfiles(
   // Execute the main query
   const { data, error } = await query.range(from, to);
 
+  // Handle pagination range error gracefully
+  // PGRST103: "Requested range not satisfiable" - happens when offset > total rows
+  // This can occur when user navigates to page 2 but filters reduce results to 1 row
   if (error) {
-    console.error('[getLearnerProfiles] Error fetching profiles:', error);
-    throw new Error(`Failed to fetch learner profiles: ${error.message}`);
+    if (error.code === 'PGRST103') {
+      // Range not satisfiable - return empty data instead of throwing
+      // The count query below will return the correct total
+      console.warn('[getLearnerProfiles] Pagination range exceeds available rows, returning empty result');
+    } else {
+      // Other errors should still throw
+      console.error('[getLearnerProfiles] Error fetching profiles:', error);
+      throw new Error(`Failed to fetch learner profiles: ${error.message}`);
+    }
   }
 
   // Get accurate count with a separate simplified query
@@ -176,9 +218,40 @@ export async function getLearnerProfiles(
 
   // Apply the same filters as the main query
   if (search) {
-    countQuery = countQuery.or(
-      `first_name.ilike.%${search}%,last_name.ilike.%${search}%,application_id.ilike.%${search}%,roll_number.ilike.%${search}%,college_email.ilike.%${search}%`
-    );
+    // Check if this is the new advanced search format
+    if (search.includes('|') || search.includes(':')) {
+      // Parse the search format
+      const searchParts = search.split('|');
+      const searchConditions: string[] = [];
+
+      searchParts.forEach(part => {
+        const [field, value] = part.split(':');
+        if (!field || !value) return;
+
+        const trimmedValue = value.trim();
+        if (!trimmedValue) return;
+
+        // Map field names to database columns
+        if (field === 'name') {
+          searchConditions.push(`first_name.ilike.%${trimmedValue}%`);
+          searchConditions.push(`last_name.ilike.%${trimmedValue}%`);
+        } else if (field === 'roll') {
+          searchConditions.push(`roll_number.ilike.%${trimmedValue}%`);
+        } else if (field === 'email') {
+          searchConditions.push(`college_email.ilike.%${trimmedValue}%`);
+        }
+      });
+
+      // Apply the OR conditions if we have any
+      if (searchConditions.length > 0) {
+        countQuery = countQuery.or(searchConditions.join(','));
+      }
+    } else {
+      // Fallback to old search format
+      countQuery = countQuery.or(
+        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,application_id.ilike.%${search}%,roll_number.ilike.%${search}%,college_email.ilike.%${search}%`
+      );
+    }
   }
   if (lifecycle_status) {
     countQuery = countQuery.eq('lifecycle_status', lifecycle_status);

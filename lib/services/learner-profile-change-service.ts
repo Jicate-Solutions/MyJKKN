@@ -179,9 +179,12 @@ export class LearnerProfileChangeService {
         *,
         learner:learners_profiles(
           id, first_name, last_name, roll_number, college_email,
-          institution_id, department_id,
+          institution_id, degree_id, department_id, program_id, semester_id,
           institution:institutions(id, name),
-          department:departments(id, department_name)
+          degree:degrees(id, degree_name),
+          department:departments(id, department_name),
+          program:programs(id, program_name),
+          semester:semesters(id, semester_name, semester_code)
         ),
         submitter:profiles!submitted_by(id, full_name, email)
       `,

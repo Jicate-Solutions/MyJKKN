@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import {
@@ -12,7 +12,9 @@ import {
   Shield,
   User,
   UserCheck,
-  UserX
+  UserX,
+  Copy,
+  Check
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Profile } from '@/types/auth';
@@ -48,6 +50,46 @@ interface UserListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
   paginationLoading?: boolean;
+}
+
+/**
+ * Email Cell with Copy Button
+ */
+function EmailCopyCell({ email }: { email: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.preventDefault(); // Prevent navigation if inside a link
+    e.stopPropagation();
+
+    try {
+      await navigator.clipboard.writeText(email);
+      setCopied(true);
+      toast.success('Email copied to clipboard');
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      toast.error('Failed to copy email');
+    }
+  };
+
+  return (
+    <div className='flex items-center gap-1.5'>
+      <span className='text-sm text-muted-foreground'>{email}</span>
+      <Button
+        variant='ghost'
+        size='sm'
+        className='h-5 w-5 p-0 flex-shrink-0 hover:bg-muted'
+        onClick={handleCopy}
+        title='Copy email to clipboard'
+      >
+        {copied ? (
+          <Check className='h-3 w-3 text-green-500' />
+        ) : (
+          <Copy className='h-3 w-3' />
+        )}
+      </Button>
+    </div>
+  );
 }
 
 export function UserList({
@@ -196,9 +238,7 @@ export function UserList({
                 <span className='font-medium'>
                   {user.full_name || 'No name'}
                 </span>
-                <span className='text-sm text-muted-foreground'>
-                  {user.email}
-                </span>
+                <EmailCopyCell email={user.email} />
               </div>
             </Link>
           ) : (
@@ -214,9 +254,7 @@ export function UserList({
                 <span className='font-medium'>
                   {user.full_name || 'No name'}
                 </span>
-                <span className='text-sm text-muted-foreground'>
-                  {user.email}
-                </span>
+                <EmailCopyCell email={user.email} />
               </div>
             </div>
           );

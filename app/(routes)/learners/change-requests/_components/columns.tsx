@@ -80,7 +80,7 @@ export const changeRequestColumns: ColumnDef<ProfileChangeRequest>[] = [
   {
     accessorKey: 'learner.roll_number',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Roll Number" />
+      <DataTableColumnHeader column={column} title="Roll No." />
     ),
     cell: ({ row }) => {
       return (
@@ -119,7 +119,57 @@ export const changeRequestColumns: ColumnDef<ProfileChangeRequest>[] = [
     minSize: 180,
     maxSize: 250,
   },
-  // 4. Fields Changed
+  // 4. Institution & Degree (Combined)
+  {
+    accessorKey: 'learner.institution.name',
+    id: 'institution_degree',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Institution & Degree" />
+    ),
+    cell: ({ row }) => {
+      const institution = row.original.learner?.institution;
+      const degree = row.original.learner?.degree;
+      return (
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-medium">
+            {institution?.name || 'N/A'}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {degree?.degree_name || 'No degree'}
+          </span>
+        </div>
+      );
+    },
+    size: 220,
+    minSize: 200,
+    maxSize: 280,
+  },
+  // 5. Program & Semester (Combined)
+  {
+    accessorKey: 'learner.program.program_name',
+    id: 'program_semester',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Program & Semester" />
+    ),
+    cell: ({ row }) => {
+      const program = row.original.learner?.program;
+      const semester = row.original.learner?.semester;
+      return (
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-medium">
+            {program?.program_name || 'N/A'}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {semester?.semester_name || 'No semester'}
+          </span>
+        </div>
+      );
+    },
+    size: 220,
+    minSize: 200,
+    maxSize: 280,
+  },
+  // 6. Fields Changed
   {
     accessorKey: 'fields_summary',
     header: ({ column }) => (
@@ -133,7 +183,7 @@ export const changeRequestColumns: ColumnDef<ProfileChangeRequest>[] = [
     minSize: 200,
     maxSize: 300,
   },
-  // 5. Submitted
+  // 7. Submitted
   {
     accessorKey: 'submitted_at',
     header: ({ column }) => (
@@ -151,7 +201,7 @@ export const changeRequestColumns: ColumnDef<ProfileChangeRequest>[] = [
     minSize: 100,
     maxSize: 150,
   },
-  // 6. Actions
+  // 8. Actions
   {
     id: 'actions',
     header: ({ column }) => (

@@ -12,6 +12,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EnquiriesTableServer } from './_components/enquiries-table-server';
 import { EnquiriesFilters } from './_components/enquiries-filters';
+import { EnquiriesSearchWrapper } from './_components/enquiries-search-wrapper';
 import { enquiriesSearchParamsSchema } from './_components/data-table-schema';
 import { EnquiriesHeader } from './_components/enquiries-header';
 import { getEnquiries } from './_data/get-enquiries';
@@ -63,6 +64,11 @@ async function EnquiriesContent({
 
   return (
     <>
+      {/* Advanced Search */}
+      <div className="mb-4">
+        <EnquiriesSearchWrapper statusFilter={statusFilter as any} />
+      </div>
+
       {/* Filters (Client Component) */}
       <EnquiriesFilters searchParams={parsedParams} statusFilter={statusFilter as any} />
 
