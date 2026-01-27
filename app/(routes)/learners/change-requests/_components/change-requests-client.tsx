@@ -41,9 +41,9 @@ export function ChangeRequestsClient({ initialData }: ChangeRequestsClientProps)
     return data.filter((request) => {
       let matches = true;
 
-      // Search by name (first_name + last_name from learner_profile)
+      // Search by name (first_name + last_name from learner)
       if (nameQuery && searchOptions.searchFields.name) {
-        const fullName = `${request.learner_profile?.first_name || ''} ${request.learner_profile?.last_name || ''}`.toLowerCase();
+        const fullName = `${request.learner?.first_name || ''} ${request.learner?.last_name || ''}`.toLowerCase();
         const query = searchOptions.caseSensitive ? nameQuery : nameQuery.toLowerCase();
 
         if (searchOptions.exactMatch) {
@@ -55,7 +55,7 @@ export function ChangeRequestsClient({ initialData }: ChangeRequestsClientProps)
 
       // Search by roll number
       if (rollNumberQuery && searchOptions.searchFields.rollNumber) {
-        const rollNumber = (request.learner_profile?.roll_number || '').toLowerCase();
+        const rollNumber = (request.learner?.roll_number || '').toLowerCase();
         const query = searchOptions.caseSensitive ? rollNumberQuery : rollNumberQuery.toLowerCase();
 
         if (searchOptions.exactMatch) {
@@ -67,7 +67,7 @@ export function ChangeRequestsClient({ initialData }: ChangeRequestsClientProps)
 
       // Search by email
       if (emailQuery && searchOptions.searchFields.collegeEmail) {
-        const email = (request.learner_profile?.college_email || '').toLowerCase();
+        const email = (request.learner?.college_email || '').toLowerCase();
         const query = searchOptions.caseSensitive ? emailQuery : emailQuery.toLowerCase();
 
         if (searchOptions.exactMatch) {
