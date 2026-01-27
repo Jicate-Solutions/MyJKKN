@@ -177,6 +177,7 @@ export async function POST(request: NextRequest) {
       role: 'student',
       institution_id: learner.institution_id,
       department_id: learner.department_id,
+      learner_id: learner.id,
       profile_completed: true,
       is_active: true,
     });
