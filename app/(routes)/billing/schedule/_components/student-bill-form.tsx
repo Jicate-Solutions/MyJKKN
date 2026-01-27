@@ -10,7 +10,7 @@ import {
   Search,
   User,
   Building,
-  DollarSign,
+  IndianRupee,
   RefreshCw,
   Plus,
   Trash2,

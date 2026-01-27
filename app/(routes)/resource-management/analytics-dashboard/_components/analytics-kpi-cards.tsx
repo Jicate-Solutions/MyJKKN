@@ -9,7 +9,7 @@ import {
   Wrench,
   Users,
   TrendingUp,
-  DollarSign,
+  IndianRupee,
   Activity,
   CheckCircle
 } from 'lucide-react';
@@ -84,7 +84,7 @@ export function AnalyticsKPICards({ data, isLoading }: AnalyticsKPICardsProps) {
     {
       title: 'Total Revenue',
       value: `₹${(data?.financial.total_revenue || 0).toLocaleString()}`,
-      icon: DollarSign,
+      icon: IndianRupee,
       trend: '+18%',
       trendUp: true,
       description: 'This period'

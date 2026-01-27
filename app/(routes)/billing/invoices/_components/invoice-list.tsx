@@ -14,7 +14,7 @@ import {
   Calendar,
   User,
   Building,
-  DollarSign
+  IndianRupee
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -204,7 +204,7 @@ export function InvoiceList({
             <CardTitle className='text-sm font-medium'>
               Total Invoice Amount
             </CardTitle>
-            <DollarSign className='h-4 w-4 text-muted-foreground' />
+            <IndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold text-green-600'>

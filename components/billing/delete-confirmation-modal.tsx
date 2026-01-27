@@ -17,7 +17,6 @@ import {
   Trash2,
   Receipt,
   Users,
-  DollarSign,
   Clock,
   X
 } from 'lucide-react';

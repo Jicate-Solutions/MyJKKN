@@ -647,7 +647,7 @@ export function LeaderboardTable({ entries }: LeaderboardTableProps) {
 'use client';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { DollarSign, Gift } from 'lucide-react';
+import { IndianRupee, Gift } from 'lucide-react';
 import type { LeaderboardConfig } from '@your-org/shared/types/leaderboard';
 
 interface PrizeCardProps {
@@ -663,7 +663,7 @@ export function PrizeCard({ config }: PrizeCardProps) {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
-              <DollarSign className="h-5 w-5 text-green-600" />
+              <IndianRupee className="h-5 w-5 text-green-600" />
               Weekly Prize
             </CardTitle>
           </CardHeader>

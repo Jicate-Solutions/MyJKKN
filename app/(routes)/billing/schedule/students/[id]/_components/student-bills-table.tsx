@@ -16,7 +16,6 @@ import {
   CheckSquare,
   Square,
   ArrowLeft,
-  DollarSign,
   CreditCard,
   Filter,
   EllipsisVertical,
@@ -254,7 +253,7 @@ export function StudentBillsTable({
               </span>
               <div className='flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-xs sm:text-sm text-blue-700 dark:text-blue-300'>
                 <span className='flex items-center gap-1'>
-                  <DollarSign className='h-3 w-3' />
+                  <IndianRupee className='h-3 w-3' />
                   Total: {formatCurrency(totalSelectedAmount)}
                 </span>
                 <span className='flex items-center gap-1'>

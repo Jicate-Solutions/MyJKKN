@@ -48,7 +48,7 @@ import {
   Building,
   GraduationCap,
   Activity,
-  DollarSign,
+  IndianRupee,
   FileText,
   BarChart3,
   Zap,
@@ -139,7 +139,7 @@ export function DashboardWidget({
       billing: {
         gradient: 'from-yellow-500 to-orange-500',
         bgGradient: 'from-yellow-50 to-orange-50',
-        icon: DollarSign,
+        icon: IndianRupee,
         iconColor: 'text-yellow-600',
         ringColor: 'ring-yellow-200'
       },

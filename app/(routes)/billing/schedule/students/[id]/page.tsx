@@ -18,7 +18,7 @@ import {
   TrendingUp,
   TrendingDown,
   AlertCircle,
-  DollarSign,
+  IndianRupee,
   CreditCard
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -549,7 +549,7 @@ export default function StudentBillingDetailPage() {
               <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
                 Outstanding
               </CardTitle>
-              <DollarSign className='h-4 w-4 text-orange-600' />
+              <IndianRupee className='h-4 w-4 text-orange-600' />
             </CardHeader>
             <CardContent>
               <div className='text-xl sm:text-2xl font-bold text-orange-600'>
