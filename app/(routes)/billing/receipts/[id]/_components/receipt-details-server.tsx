@@ -155,7 +155,7 @@ export function ReceiptDetailsServer({ receipt }: ReceiptDetailsServerProps) {
                   </div>
                   {receipt.payment_reference_number && (
                     <div className='flex justify-between'>
-                      <span>Reference:</span>
+                      <span>Transaction ID:</span>
                       <span className='font-medium font-mono text-sm'>
                         {receipt.payment_reference_number}
                       </span>

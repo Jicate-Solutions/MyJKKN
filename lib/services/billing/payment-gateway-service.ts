@@ -134,11 +134,57 @@ export class PaymentGatewayService {
       const institutionId = institutionIds[0];
 
       // Calculate total amount to pay
-      const totalAmount = bills.reduce((sum, bill) => {
-        const balance = bill.balance_amount ?? bill.final_amount ?? bill.total_amount ?? 0;
-        return sum + Number(balance);
-      }, 0);
+      let totalAmount = 0;
+      const transactionItemsData: { bill_id: string; amount: number }[] = [];
 
+      for (const bill of bills) {
+        const balance = bill.balance_amount ?? bill.final_amount ?? bill.total_amount ?? 0;
+        let amountForThisBill = Number(balance);
+
+        // If custom amounts provided, use them
+        if (sessionData.bill_amounts && sessionData.bill_amounts[bill.id]) {
+          amountForThisBill = Number(sessionData.bill_amounts[bill.id]);
+
+          // VALIDATION: Custom amount must not exceed balance
+          if (amountForThisBill > balance) {
+            logger.warn('billing/payment-gateway', 'Custom amount exceeds balance', {
+              bill_id: bill.id,
+              custom_amount: amountForThisBill,
+              balance,
+            });
+            return {
+              success: false,
+              error: {
+                error: 'INVALID_AMOUNT',
+                message: `Amount for bill ${bill.id} (₹${amountForThisBill}) exceeds balance (₹${balance})`,
+              },
+            };
+          }
+
+          // VALIDATION: Custom amount must be positive
+          if (amountForThisBill <= 0) {
+            logger.warn('billing/payment-gateway', 'Custom amount must be positive', {
+              bill_id: bill.id,
+              custom_amount: amountForThisBill,
+            });
+            return {
+              success: false,
+              error: {
+                error: 'INVALID_AMOUNT',
+                message: `Amount for bill ${bill.id} must be greater than 0`,
+              },
+            };
+          }
+        }
+
+        totalAmount += amountForThisBill;
+        transactionItemsData.push({
+          bill_id: bill.id,
+          amount: amountForThisBill,
+        });
+      }
+
+      // VALIDATION: Total amount must be positive
       if (totalAmount <= 0) {
         return {
           success: false,
@@ -195,11 +241,11 @@ export class PaymentGatewayService {
         throw transactionError;
       }
 
-      // Step 5: Create transaction items
-      const transactionItems = bills.map((bill) => ({
+      // Step 5: Create transaction items with calculated amounts
+      const transactionItems = transactionItemsData.map((item) => ({
         transaction_id: transaction.id,
-        bill_id: bill.id,
-        amount: Number(bill.balance_amount ?? bill.final_amount ?? bill.total_amount ?? 0),
+        bill_id: item.bill_id,
+        amount: item.amount,
       }));
 
       const { error: itemsError } = await supabase

@@ -10,7 +10,6 @@ import {
   Search,
   User,
   Building,
-  IndianRupee,
   RefreshCw,
   Plus,
   Trash2,
@@ -840,6 +839,8 @@ export function StudentBillForm({
                                       parseFloat(e.target.value) || 0
                                     )
                                   }
+                                  onWheel={(e) => e.currentTarget.blur()}
+                                  className='[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
                                 />
                               </FormControl>
                               <FormMessage />
@@ -866,6 +867,8 @@ export function StudentBillForm({
                                       parseFloat(e.target.value) || 0
                                     )
                                   }
+                                  onWheel={(e) => e.currentTarget.blur()}
+                                  className='[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
                                 />
                               </FormControl>
                               <FormMessage />
@@ -1010,6 +1013,8 @@ export function StudentBillForm({
                                   parseInt(e.target.value) || undefined
                                 )
                               }
+                              onWheel={(e) => e.currentTarget.blur()}
+                              className='[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
                             />
                           </FormControl>
                           <FormDescription>

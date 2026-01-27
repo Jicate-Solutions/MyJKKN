@@ -53,6 +53,7 @@ export interface PaymentTransactionItem {
 export interface CreatePaymentSessionDto {
   student_id: string;
   bill_ids: string[];
+  bill_amounts?: Record<string, number>;  // Optional: Custom amounts per bill { bill_id: amount }
   return_url?: string;
   cancel_url?: string;
 }

@@ -23,21 +23,25 @@ import type { CreatePaymentSessionDto } from '@/types/payment-gateway';
 interface OnlinePaymentButtonProps {
   studentId: string;
   billIds: string[];
+  billAmounts?: Record<string, number>;  // Optional: Custom amounts per bill
   totalAmount: number;
   disabled?: boolean;
   className?: string;
   variant?: 'default' | 'outline' | 'secondary' | 'ghost' | 'link';
   size?: 'default' | 'sm' | 'lg' | 'icon';
+  onSuccess?: () => void;  // Optional: Callback after successful payment initiation
 }
 
 export function OnlinePaymentButton({
   studentId,
   billIds,
+  billAmounts,
   totalAmount,
   disabled = false,
   className,
   variant = 'default',
   size = 'default',
+  onSuccess,
 }: OnlinePaymentButtonProps) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const { openPaymentGateway, isOpening } = useOpenPaymentGateway();
@@ -52,9 +56,15 @@ export function OnlinePaymentButton({
     const paymentData: CreatePaymentSessionDto = {
       student_id: studentId,
       bill_ids: billIds,
+      bill_amounts: billAmounts,  // Include custom amounts if provided
     };
 
     await openPaymentGateway(paymentData);
+
+    // Call onSuccess callback if provided
+    if (onSuccess) {
+      onSuccess();
+    }
   };
 
   const isDisabled = disabled || isOpening || billIds.length === 0 || totalAmount <= 0;
