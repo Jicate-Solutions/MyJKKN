@@ -11,7 +11,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, FieldErrors } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Form } from '@/components/ui/form';
@@ -322,6 +322,85 @@ function getLocationIdByName(
     return '';
   }
 }
+
+/**
+ * Mapping of form fields to their respective tabs
+ * Used for auto-switching tabs on validation errors
+ */
+const fieldToTabMap: Record<string, string> = {
+  // Basic Details
+  enquiry_date: 'basic-details',
+  first_name: 'basic-details',
+  last_name: 'basic-details',
+  date_of_birth: 'basic-details',
+  gender: 'basic-details',
+  religion: 'basic-details',
+  community: 'basic-details',
+  caste: 'basic-details',
+  aadhar_number: 'basic-details',
+  blood_group: 'basic-details',
+  student_photo_url: 'basic-details',
+  admission_year: 'basic-details',
+  
+  // Family (Basic Details)
+  father_name: 'basic-details',
+  father_occupation: 'basic-details',
+  father_mobile: 'basic-details',
+  mother_name: 'basic-details',
+  mother_occupation: 'basic-details',
+  mother_mobile: 'basic-details',
+  annual_income: 'basic-details',
+
+  // Academic Information
+  last_school: 'academic-information',
+  board_of_study: 'academic-information',
+  tenth_marks: 'academic-information',
+  twelfth_marks: 'academic-information',
+  neet_roll_number: 'academic-information',
+  neet_score: 'academic-information',
+  medical_cutoff_marks: 'academic-information',
+  engineering_cutoff_marks: 'academic-information',
+  counseling_applied: 'academic-information',
+  counseling_number: 'academic-information',
+  scholarship_type: 'academic-information',
+  quota: 'academic-information',
+  category: 'academic-information',
+  entry_type: 'academic-information',
+
+  // Course Selection
+  institution_id: 'course-selection',
+  degree_id: 'course-selection',
+  department_id: 'course-selection',
+  program_id: 'course-selection',
+  academic_year_id: 'course-selection',
+  semester_id: 'course-selection',
+  section_id: 'course-selection',
+  roll_number: 'course-selection',
+  register_number: 'course-selection',
+  college_email: 'course-selection',
+  regulation_id: 'course-selection',
+  batch_id: 'course-selection',
+
+  // Contact Details
+  student_mobile: 'contact-details',
+  student_email: 'contact-details',
+  permanent_address_street: 'contact-details',
+  permanent_address_taluk: 'contact-details',
+  permanent_address_district: 'contact-details',
+  permanent_address_state: 'contact-details',
+  permanent_address_pin_code: 'contact-details',
+
+  // Accommodation Preferences
+  accommodation_type: 'accommodation-preferences',
+  hostel_type: 'accommodation-preferences',
+  food_type: 'accommodation-preferences',
+  bus_required: 'accommodation-preferences',
+  bus_route: 'accommodation-preferences',
+  bus_pickup_location: 'accommodation-preferences',
+  reference_type: 'accommodation-preferences',
+  reference_name: 'accommodation-preferences',
+  reference_contact: 'accommodation-preferences',
+};
 
 /**
  * EnquiryForm Component
@@ -875,6 +954,32 @@ export function EnquiryForm({
     }
   };
 
+  // Handle form validation errors (triggered by react-hook-form)
+  const onInvalid = (errors: FieldErrors<EnquiryFormValues>) => {
+    const errorKeys = Object.keys(errors);
+    if (errorKeys.length > 0) {
+      const firstErrorField = errorKeys[0];
+      const tabId = fieldToTabMap[firstErrorField] || fieldToTabMap[firstErrorField.split('.')[0]]; // Handle nested fields
+      
+      if (tabId) {
+        setActiveTab(tabId);
+        
+        // Find tab label
+        const tabLabel = ALL_TABS.find(t => t.id === tabId)?.label || 'the relevant tab';
+        
+        const errorCount = Object.keys(errors).length;
+        toast.error(
+          `Validation Failed: Please check ${tabLabel}.\nFound ${errorCount} error${errorCount > 1 ? 's' : ''}.`,
+          { duration: 4000 }
+        );
+        
+        console.log('[enquiry-form] Form validation failed:', errors);
+      } else {
+        toast.error('Please check the form for errors.');
+      }
+    }
+  };
+
   // Submit form (with validation)
   const onSubmit = async (values: EnquiryFormValues) => {
     // Prevent double-click
@@ -882,35 +987,20 @@ export function EnquiryForm({
       return;
     }
 
-    // Check for form validation errors from zodResolver
-    if (Object.keys(form.formState.errors).length > 0) {
-      console.error('[enquiry-form] Form validation errors:', form.formState.errors);
-
-      const errorFields = Object.entries(form.formState.errors)
-        .map(([field, error]) => `• ${field}: ${error.message}`)
-        .slice(0, 10); // Show max 10 errors
-
-      toast.error(
-        `Validation errors found:\n\n${errorFields.join('\n')}\n\n${
-          Object.keys(form.formState.errors).length > 10
-            ? '... and more. Please check all tabs.'
-            : 'Please check the highlighted fields.'
-        }`,
-        {
-          duration: 8000,
-          style: {
-            maxWidth: '500px',
-            whiteSpace: 'pre-line'
-          }
-        }
-      );
-      return;
-    }
-
     // Validate required fields
     const validation = requiredFieldsSchema.safeParse(values);
     if (!validation.success) {
       const errors = validation.error.flatten().fieldErrors;
+      const errorKeys = Object.keys(errors);
+      
+      // Auto-switch to tab with first error
+      if (errorKeys.length > 0) {
+        const firstErrorField = errorKeys[0];
+        const tabId = fieldToTabMap[firstErrorField];
+        if (tabId) {
+          setActiveTab(tabId);
+        }
+      }
 
       // Create user-friendly field names
       const fieldNames: Record<string, { label: string; tab: string }> = {
@@ -1066,7 +1156,7 @@ export function EnquiryForm({
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
         {/* Profile Completion Indicator */}
         {canAutoActivate && (
           <Alert variant={isProfileComplete ? 'default' : 'default'} className={isProfileComplete ? 'border-green-500 bg-green-50' : 'border-blue-500 bg-blue-50'}>
@@ -1125,69 +1215,69 @@ export function EnquiryForm({
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="w-full flex h-auto p-1 overflow-x-auto">
-            {formTabs.map((tab) => (
-              <TabsTrigger 
-                key={tab.id} 
-                value={tab.id}
-                className="flex-1 min-w-[140px]"
-              >
+        <TabsList className="w-full flex justify-start h-auto p-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+          {formTabs.map((tab) => (
+            <TabsTrigger
+              key={tab.id}
+              value={tab.id}
+              className="flex-shrink-0 min-w-fit sm:min-w-[100px] md:flex-1 md:min-w-[140px] text-xs sm:text-sm px-3 py-2 whitespace-nowrap"
+            >
                 {tab.label}
               </TabsTrigger>
             ))}
           </TabsList>
 
-          <TabsContent value="basic-details" className="space-y-4">
-            <Card className="p-6">
-              <BasicDetailsSection 
-                form={form} 
-                onImageFileChange={setPendingImageFile} 
+          <TabsContent value="basic-details" className="space-y-4 mt-4">
+            <Card className="p-3 sm:p-4 md:p-6">
+              <BasicDetailsSection
+                form={form}
+                onImageFileChange={setPendingImageFile}
                 isStudentView={isStudentView}
               />
             </Card>
           </TabsContent>
 
-          <TabsContent value="academic-information" className="space-y-4">
-            <Card className="p-6">
+          <TabsContent value="academic-information" className="space-y-4 mt-4">
+            <Card className="p-3 sm:p-4 md:p-6">
               <AcademicInformationSection form={form} />
             </Card>
           </TabsContent>
 
-          <TabsContent value="course-selection" className="space-y-4">
-            <Card className="p-6">
+          <TabsContent value="course-selection" className="space-y-4 mt-4">
+            <Card className="p-3 sm:p-4 md:p-6">
               <CourseSelectionSection form={form} />
             </Card>
           </TabsContent>
 
-          <TabsContent value="contact-details" className="space-y-4">
-            <Card className="p-6">
+          <TabsContent value="contact-details" className="space-y-4 mt-4">
+            <Card className="p-3 sm:p-4 md:p-6">
               <ContactDetailsSection form={form} />
             </Card>
           </TabsContent>
 
-          <TabsContent value="accommodation-preferences" className="space-y-4">
-            <Card className="p-6">
+          <TabsContent value="accommodation-preferences" className="space-y-4 mt-4">
+            <Card className="p-3 sm:p-4 md:p-6">
               <AccommodationPreferencesSection form={form} isStudentView={isStudentView} />
             </Card>
           </TabsContent>
         </Tabs>
 
         {/* Form Actions - Navigation Buttons */}
-        <div className="flex flex-col-reverse items-center justify-between gap-4 pt-4 border-t sm:flex-row">
+        <div className="flex flex-col-reverse items-stretch justify-between gap-3 sm:gap-4 pt-4 border-t sm:flex-row sm:items-center">
           {/* Left side - Cancel button */}
           <Button
             type="button"
             variant="outline"
             onClick={handleCancelClick}
             disabled={isSubmitting || isSavingDraft}
-            className="w-full sm:w-auto"
+            className="w-full sm:w-auto text-sm sm:text-base py-2"
           >
-            <X className="mr-2 h-4 w-4" />
+            <X className="mr-1 sm:mr-2 h-4 w-4" />
             Cancel
           </Button>
 
           {/* Right side - Navigation and Action buttons */}
-          <div className="flex flex-col-reverse items-center gap-2 w-full sm:flex-row sm:w-auto">
+          <div className="flex flex-col-reverse items-stretch gap-2 w-full sm:flex-row sm:w-auto sm:items-center">
             {/* Previous Button - Show on all tabs except first */}
             {!isFirstTab && (
               <Button
@@ -1195,9 +1285,9 @@ export function EnquiryForm({
                 variant="outline"
                 onClick={goToPreviousTab}
                 disabled={isSubmitting || isSavingDraft}
-                className="w-full sm:w-auto"
+                className="w-full sm:w-auto text-sm sm:text-base py-2"
               >
-                <ChevronLeft className="mr-2 h-4 w-4" />
+                <ChevronLeft className="mr-1 sm:mr-2 h-4 w-4" />
                 Previous
               </Button>
             )}
@@ -1209,11 +1299,12 @@ export function EnquiryForm({
                 variant="outline"
                 onClick={handleSaveDraft}
                 disabled={isSubmitting || isSavingDraft}
-                className="w-full sm:w-auto"
+                className="w-full sm:w-auto text-sm sm:text-base py-2"
               >
-                {isSavingDraft && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                <Save className="mr-2 h-4 w-4" />
-                Save Draft
+                {isSavingDraft && <Loader2 className="mr-1 sm:mr-2 h-4 w-4 animate-spin" />}
+                {!isSavingDraft && <Save className="mr-1 sm:mr-2 h-4 w-4" />}
+                <span className="hidden xs:inline">Save Draft</span>
+                <span className="xs:hidden">Draft</span>
               </Button>
             )}
 
@@ -1223,20 +1314,21 @@ export function EnquiryForm({
                 type="button"
                 onClick={handleSaveAndNext}
                 disabled={isSubmitting || isSavingDraft}
-                className="w-full sm:w-auto"
+                className="w-full sm:w-auto text-sm sm:text-base py-2"
               >
-                {isSavingDraft && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                <Save className="mr-2 h-4 w-4" />
-                Save & Next
-                <ChevronRight className="ml-2 h-4 w-4" />
+                {isSavingDraft && <Loader2 className="mr-1 sm:mr-2 h-4 w-4 animate-spin" />}
+                {!isSavingDraft && <Save className="mr-1 sm:mr-2 h-4 w-4" />}
+                <span className="hidden xs:inline">Save & Next</span>
+                <span className="xs:hidden">Next</span>
+                <ChevronRight className="ml-1 sm:ml-2 h-4 w-4" />
               </Button>
             )}
 
             {/* Submit Button - Show only on last tab */}
             {isLastTab && (
-              <Button type="submit" disabled={isSubmitting || isSavingDraft} className="w-full sm:w-auto">
-                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                <Send className="mr-2 h-4 w-4" />
+              <Button type="submit" disabled={isSubmitting || isSavingDraft} className="w-full sm:w-auto text-sm sm:text-base py-2">
+                {isSubmitting && <Loader2 className="mr-1 sm:mr-2 h-4 w-4 animate-spin" />}
+                {!isSubmitting && <Send className="mr-1 sm:mr-2 h-4 w-4" />}
                 {submitLabel || (learner
                   ? (learner.lifecycle_status === 'active' || learner.lifecycle_status === 'inactive' || learner.lifecycle_status === 'exited' || learner.lifecycle_status === 'graduated'
                       ? 'Update Profile'
