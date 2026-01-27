@@ -473,8 +473,6 @@ export function UserList({
     <DataTable
       columns={columns}
       data={users}
-      searchPlaceholder='Search users...'
-      filterColumn='email'
       permissions={{
         module: 'users',
         actions: {
