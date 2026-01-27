@@ -17,6 +17,7 @@ import { Profile } from '@/types/auth';
 import { Button } from '@/components/ui/button';
 import { UserList } from './user-list';
 import { UserFiltersComponent } from './user-filters';
+import { UserAdvancedSearch, type UserSearchFilters } from './user-advanced-search';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
 import { Download } from 'lucide-react';
@@ -36,6 +37,7 @@ export function UsersClientWrapper({
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<Profile[]>([]);
   const [stats] = useState<UserStats>(initialStats); // Use initial stats from server
+  const [advancedSearchFilters, setAdvancedSearchFilters] = useState<UserSearchFilters | null>(null);
   const [filters, setFilters] = useState<UserFilters>({
     page: 1,
     limit: 10
@@ -65,6 +67,35 @@ export function UsersClientWrapper({
           fetchFilters.institution = initialProfile.institution_id;
         }
 
+        // Apply advanced search filters if present
+        if (advancedSearchFilters) {
+          const { fullNameQuery, emailQuery, phoneQuery, searchOptions } = advancedSearchFilters;
+
+          // Build combined search query based on active fields
+          const searchParts: string[] = [];
+
+          if (fullNameQuery && searchOptions.searchFields.fullName) {
+            searchParts.push(`name:${fullNameQuery}`);
+          }
+          if (emailQuery && searchOptions.searchFields.email) {
+            searchParts.push(`email:${emailQuery}`);
+          }
+          if (phoneQuery && searchOptions.searchFields.phoneNumber) {
+            searchParts.push(`phone:${phoneQuery}`);
+          }
+
+          // Combine search parts with separator
+          if (searchParts.length > 0) {
+            fetchFilters.search = searchParts.join('|');
+          }
+
+          // Store search options for backend (if needed in future)
+          // For now, we'll apply exact match and case sensitive on client side if needed
+        } else {
+          // Clear search when no advanced filters
+          delete fetchFilters.search;
+        }
+
         // Fetch users with filters (dynamic - not cached)
         const response = await UserService.getUsers(fetchFilters);
         setUsers(response.data);
@@ -77,7 +108,7 @@ export function UsersClientWrapper({
         setPaginationLoading(false);
       }
     },
-    [filters, initialProfile]
+    [filters, initialProfile, advancedSearchFilters]
   );
 
   // Fetch users on mount and filter changes
@@ -108,6 +139,25 @@ export function UsersClientWrapper({
       page: 1 // Reset to first page when page size changes
     }));
   };
+
+  // Handle advanced search
+  const handleAdvancedSearch = useCallback((searchFilters: UserSearchFilters) => {
+    setAdvancedSearchFilters(searchFilters);
+    setFilters((prev) => ({
+      ...prev,
+      page: 1 // Reset to first page when searching
+    }));
+  }, []);
+
+  // Handle clear advanced search
+  const handleClearAdvancedSearch = useCallback(() => {
+    setAdvancedSearchFilters(null);
+    setFilters((prev) => ({
+      ...prev,
+      page: 1, // Reset to first page when clearing
+      search: undefined // Clear search from filters
+    }));
+  }, []);
 
   if (error) {
     return (
@@ -171,6 +221,14 @@ export function UsersClientWrapper({
       {/* User List Card (dynamic content) */}
       <Card>
         <CardContent className='p-6'>
+          {/* Advanced Search */}
+          <div className='mb-6'>
+            <UserAdvancedSearch
+              onSearch={handleAdvancedSearch}
+              onClear={handleClearAdvancedSearch}
+            />
+          </div>
+
           <UserFiltersComponent
             filters={filters}
             onFilterChange={handleFilterChange}

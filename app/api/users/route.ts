@@ -544,7 +544,36 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
+      // Parse advanced search format: "name:John|email:test@test.com|phone:123"
+      const searchParts = search.split('|');
+      let hasAdvancedSearch = false;
+
+      searchParts.forEach((part) => {
+        const colonIndex = part.indexOf(':');
+        if (colonIndex > 0) {
+          const field = part.substring(0, colonIndex);
+          const value = part.substring(colonIndex + 1).trim();
+
+          if (value) {
+            hasAdvancedSearch = true;
+            if (field === 'name') {
+              // Search in full_name field
+              query = query.ilike('full_name', `%${value}%`);
+            } else if (field === 'email') {
+              // Search in email field
+              query = query.ilike('email', `%${value}%`);
+            } else if (field === 'phone') {
+              // Search in phone_number field
+              query = query.ilike('phone_number', `%${value}%`);
+            }
+          }
+        }
+      });
+
+      // Fallback to simple search if format doesn't match
+      if (!hasAdvancedSearch) {
+        query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
+      }
     }
 
     // Apply pagination

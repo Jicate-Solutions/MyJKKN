@@ -21,6 +21,7 @@ import { UserRolesService } from '@/lib/services/users/user-roles-service';
 import toast from 'react-hot-toast';
 import { UserFilters } from '@/types/users';
 import { UserFiltersComponent } from '../_components/user-filters';
+import { UserAdvancedSearch, type UserSearchFilters } from '../_components/user-advanced-search';
 
 export default function RolesPage() {
   const router = useRouter();
@@ -29,6 +30,7 @@ export default function RolesPage() {
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<Profile[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [advancedSearchFilters, setAdvancedSearchFilters] = useState<UserSearchFilters | null>(null);
   const [filters, setFilters] = useState<UserFilters>({
     page: 1,
     limit: 10
@@ -78,7 +80,36 @@ export default function RolesPage() {
         } else {
           setIsLoading(true);
         }
-        const response = await UserService.getUsers(filters);
+
+        const fetchFilters: UserFilters = { ...filters };
+
+        // Apply advanced search filters if present
+        if (advancedSearchFilters) {
+          const { fullNameQuery, emailQuery, phoneQuery, searchOptions } = advancedSearchFilters;
+
+          // Build combined search query based on active fields
+          const searchParts: string[] = [];
+
+          if (fullNameQuery && searchOptions.searchFields.fullName) {
+            searchParts.push(`name:${fullNameQuery}`);
+          }
+          if (emailQuery && searchOptions.searchFields.email) {
+            searchParts.push(`email:${emailQuery}`);
+          }
+          if (phoneQuery && searchOptions.searchFields.phoneNumber) {
+            searchParts.push(`phone:${phoneQuery}`);
+          }
+
+          // Combine search parts with separator
+          if (searchParts.length > 0) {
+            fetchFilters.search = searchParts.join('|');
+          }
+        } else {
+          // Clear search when no advanced filters
+          delete fetchFilters.search;
+        }
+
+        const response = await UserService.getUsers(fetchFilters);
         setUsers(response.data);
         setMetadata(response.metadata);
       } catch (err) {
@@ -89,7 +120,7 @@ export default function RolesPage() {
         setPaginationLoading(false);
       }
     },
-    [filters]
+    [filters, advancedSearchFilters]
   );
 
   // Update useEffect to depend on filters
@@ -219,6 +250,25 @@ export default function RolesPage() {
     }));
   };
 
+  // Handle advanced search
+  const handleAdvancedSearch = useCallback((searchFilters: UserSearchFilters) => {
+    setAdvancedSearchFilters(searchFilters);
+    setFilters((prev) => ({
+      ...prev,
+      page: 1 // Reset to first page when searching
+    }));
+  }, []);
+
+  // Handle clear advanced search
+  const handleClearAdvancedSearch = useCallback(() => {
+    setAdvancedSearchFilters(null);
+    setFilters((prev) => ({
+      ...prev,
+      page: 1, // Reset to first page when clearing
+      search: undefined // Clear search from filters
+    }));
+  }, []);
+
   if (!isSuperAdmin) {
     return (
       <ContentLayout title='Roles & Permissions'>
@@ -262,6 +312,14 @@ export default function RolesPage() {
 
         <Card>
           <CardContent className='p-6'>
+            {/* Advanced Search */}
+            <div className='mb-6'>
+              <UserAdvancedSearch
+                onSearch={handleAdvancedSearch}
+                onClear={handleClearAdvancedSearch}
+              />
+            </div>
+
             <UserFiltersComponent
               filters={filters}
               onFilterChange={handleFilterChange}

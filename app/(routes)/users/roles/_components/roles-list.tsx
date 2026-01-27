@@ -511,8 +511,6 @@ export function RolesList({
       <DataTable
         columns={columns}
         data={users}
-        searchPlaceholder="Search users..."
-        filterColumn="email"
         permissions={{
           module: 'roles',
           actions: {
