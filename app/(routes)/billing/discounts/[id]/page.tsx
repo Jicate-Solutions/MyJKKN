@@ -10,7 +10,6 @@ import {
   FileText,
   User,
   Calendar,
-  DollarSign,
   Percent
 } from 'lucide-react';
 import { format } from 'date-fns';

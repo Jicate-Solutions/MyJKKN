@@ -17,7 +17,7 @@ import {
   Download,
   FileText,
   Users,
-  DollarSign
+  IndianRupee
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -123,7 +123,7 @@ export function OutstandingReportTab({
             <CardTitle className='text-sm font-medium'>
               Total Outstanding
             </CardTitle>
-            <DollarSign className='h-4 w-4 text-muted-foreground' />
+            <IndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold text-orange-600'>

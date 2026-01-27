@@ -2,21 +2,16 @@
 
 import { useState, useMemo } from 'react';
 import {
-  Calendar,
   FileText,
   Receipt,
   Percent,
   RefreshCw,
-  TrendingUp,
-  TrendingDown,
   Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
-  DollarSign
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,

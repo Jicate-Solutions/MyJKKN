@@ -17,7 +17,7 @@ import {
   AlertCircle,
   Download,
   CreditCard,
-  DollarSign,
+  IndianRupee,
   Receipt
 } from 'lucide-react';
 import {
@@ -212,7 +212,7 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
             <CardTitle className='text-sm font-medium'>
               Total Refund Amount
             </CardTitle>
-            <DollarSign className='h-4 w-4 text-muted-foreground' />
+            <IndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold text-red-600'>
@@ -226,7 +226,7 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
             <CardTitle className='text-sm font-medium'>
               Net Refund Amount
             </CardTitle>
-            <DollarSign className='h-4 w-4 text-muted-foreground' />
+            <IndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold text-orange-600'>

@@ -5,7 +5,7 @@
  * Displays a single message in the AI Query chat with analytics dashboard styling
  */
 
-import { Bot, User, Loader2, CheckCircle, TrendingUp, Users, DollarSign, BarChart3, AlertTriangle, CheckCircle2, XCircle, Info } from 'lucide-react';
+import { Bot, User, Loader2, CheckCircle, TrendingUp, Users, IndianRupee, BarChart3, AlertTriangle, CheckCircle2, XCircle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

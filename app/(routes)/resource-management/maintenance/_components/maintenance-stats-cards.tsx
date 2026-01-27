@@ -6,7 +6,7 @@ import {
   CheckCircle2,
   Clock,
   AlertTriangle,
-  DollarSign,
+  IndianRupee,
   Timer
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -63,7 +63,7 @@ export function MaintenanceStatsCards({
     {
       title: 'Total Cost',
       value: `₹${stats?.total_cost?.toLocaleString() || 0}`,
-      icon: DollarSign,
+      icon: IndianRupee,
       color: 'text-purple-600',
       bgColor: 'bg-purple-50',
       borderColor: 'border-purple-200',

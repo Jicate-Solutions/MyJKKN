@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BeatLoader } from 'react-spinners';
 import {
-  DollarSign,
+  IndianRupee,
   Users,
   FileText,
   TrendingUp,
@@ -108,7 +108,7 @@ export function DashboardMetrics({
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
             <CardTitle className='text-sm font-medium'>Amount Billed</CardTitle>
-            <DollarSign className='h-4 w-4 text-muted-foreground' />
+            <IndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold text-blue-600'>

@@ -13,7 +13,7 @@ import {
   User,
   Building,
   Calendar,
-  DollarSign,
+  IndianRupee,
   RefreshCw,
   GraduationCap,
   BookOpen
@@ -196,7 +196,7 @@ export const columns: ColumnDef<StudentBill>[] = [
 
       return (
         <div className='flex items-center gap-2'>
-          <DollarSign className='h-4 w-4 text-muted-foreground' />
+          <IndianRupee className='h-4 w-4 text-muted-foreground' />
           <div>
             <div className='font-medium'>
               {formatCurrency(bill.final_amount)}

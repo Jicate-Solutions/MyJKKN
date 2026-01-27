@@ -9,7 +9,7 @@ import {
   CalendarIcon,
   Users,
   Building,
-  DollarSign,
+  IndianRupee,
   Search,
   Plus,
   Trash2
@@ -372,7 +372,7 @@ export default function BulkCreateBillsPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className='flex items-center gap-2'>
-                      <DollarSign className='h-5 w-5' />
+                      <IndianRupee className='h-5 w-5' />
                       Amount Details
                     </CardTitle>
                   </CardHeader>
