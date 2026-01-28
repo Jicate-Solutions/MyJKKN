@@ -97,6 +97,55 @@ body {
   .theme {
     --animate-aurora: aurora 8s ease-in-out infinite alternate;
   }
+
+  /* Glassmorphism Design System */
+  :root {
+    /* Glass backgrounds - Light mode */
+    --glass-primary: hsla(150, 78%, 26%, 0.1);
+    --glass-secondary: hsla(47.9, 95.8%, 53.1%, 0.1);
+    --glass-card: hsla(0, 0%, 100%, 0.7);
+    --glass-card-hover: hsla(0, 0%, 100%, 0.85);
+
+    /* Glass borders */
+    --glass-border-light: hsla(0, 0%, 100%, 0.2);
+    --glass-border-strong: hsla(0, 0%, 100%, 0.3);
+
+    /* Multi-layer shadows for depth */
+    --glass-shadow-sm: 0 2px 8px -2px rgba(0, 0, 0, 0.1),
+                       0 4px 16px -4px rgba(0, 0, 0, 0.05);
+    --glass-shadow-md: 0 4px 16px -4px rgba(0, 0, 0, 0.12),
+                       0 8px 32px -8px rgba(0, 0, 0, 0.08);
+    --glass-shadow-lg: 0 8px 32px -8px rgba(0, 0, 0, 0.15),
+                       0 16px 64px -16px rgba(0, 0, 0, 0.1);
+    --glass-shadow-xl: 0 12px 48px -12px rgba(0, 0, 0, 0.2),
+                       0 24px 96px -24px rgba(0, 0, 0, 0.15);
+  }
+
+  .dark {
+    /* Glass backgrounds - Dark mode */
+    --glass-primary: hsla(150, 70%, 35%, 0.15);
+    --glass-secondary: hsla(48, 32.6%, 17.5%, 0.2);
+    --glass-card: hsla(222.2, 84%, 4.9%, 0.6);
+    --glass-card-hover: hsla(222.2, 84%, 4.9%, 0.75);
+
+    /* Glass borders */
+    --glass-border-light: hsla(255, 255%, 255%, 0.1);
+    --glass-border-strong: hsla(255, 255%, 255%, 0.2);
+
+    /* Enhanced shadows for dark mode */
+    --glass-shadow-sm: 0 2px 8px -2px rgba(0, 0, 0, 0.3),
+                       0 4px 16px -4px rgba(0, 0, 0, 0.2),
+                       inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+    --glass-shadow-md: 0 4px 16px -4px rgba(0, 0, 0, 0.4),
+                       0 8px 32px -8px rgba(0, 0, 0, 0.3),
+                       inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+    --glass-shadow-lg: 0 8px 32px -8px rgba(0, 0, 0, 0.5),
+                       0 16px 64px -16px rgba(0, 0, 0, 0.4),
+                       inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+    --glass-shadow-xl: 0 12px 48px -12px rgba(0, 0, 0, 0.6),
+                       0 24px 96px -24px rgba(0, 0, 0, 0.5),
+                       inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+  }
 }
 
 @layer base {
@@ -285,5 +334,62 @@ body {
     background-position: 0% 50%;
     transform: rotate(-5deg) scale(0.9);
     }
+  }
+}
+
+/* Glassmorphism utility classes */
+@layer utilities {
+  .glass-card {
+    @apply backdrop-blur-xl bg-white/70 dark:bg-black/40;
+    @apply border border-white/20 dark:border-white/10;
+    box-shadow: var(--glass-shadow-md);
+  }
+
+  .glass-card-hover {
+    @apply hover:bg-white/85 dark:hover:bg-black/50;
+    @apply hover:shadow-[var(--glass-shadow-lg)];
+    @apply transition-all duration-500;
+  }
+
+  .glass-button {
+    @apply backdrop-blur-sm bg-white/70 dark:bg-black/40;
+    @apply border-white/30 dark:border-white/20;
+    @apply hover:bg-white/90 dark:hover:bg-black/60;
+    box-shadow: var(--glass-shadow-sm);
+  }
+}
+
+/* Glassmorphism animations */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes glass-float {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-10px) scale(1.05); }
+}
+
+.animate-shimmer { animation: shimmer 2s infinite; }
+.animate-glass-float { animation: glass-float 3s ease-in-out infinite; }
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar { width: 8px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, hsla(150, 70%, 60%, 0.3), hsla(150, 70%, 40%, 0.5));
+  border-radius: 4px;
+  backdrop-filter: blur(8px);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, hsla(150, 70%, 60%, 0.5), hsla(150, 70%, 40%, 0.7));
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

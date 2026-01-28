@@ -58,7 +58,8 @@ import {
   Sparkles,
   Bot,
   UserCircle,
-  FileCheck
+  FileCheck,
+  Briefcase
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
@@ -171,6 +172,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/leaves/settings': 'academic.leaves.manage',
   '/academic/leaves/settings/types': 'academic.leaves.manage',
   '/academic/leaves/settings/workflows': 'academic.leaves.manage',
+
+  // Leave/OnDuty Application System (NEW - 2026-01-28)
+  '/academic/leave-onduty/approvals': 'academic.leave_onduty.approve',
+  '/academic/leave-onduty/settings': 'academic.leave_onduty.manage',
+  '/academic/leave-onduty/reports': 'academic.leave_onduty.reports',
+  '/learners/leave-onduty/apply': 'learners.leave_onduty.apply',
+  '/learners/leave-onduty/my-applications': 'learners.leave_onduty.view',
+
   '/academic/staff-planning': 'academic.staff.planning.view',
   '/academic/timetables': 'academic.timetables.view',
   '/academic/timetables/templates': 'academic.timetables.templates.view',
@@ -522,6 +531,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          href: '/academic/leave-onduty',
+          label: 'Leave/OnDuty Applications',
+          active: pathname.startsWith('/academic/leave-onduty'),
+          icon: Briefcase,
+          submenus: [
+            {
+              href: '/academic/leave-onduty/approvals',
+              label: 'Approvals',
+              active: pathname === '/academic/leave-onduty/approvals'
+            },
+            {
+              href: '/academic/leave-onduty/settings',
+              label: 'Workflow Settings',
+              active: pathname === '/academic/leave-onduty/settings'
+            },
+            {
+              href: '/academic/leave-onduty/reports',
+              label: 'Reports',
+              active: pathname === '/academic/leave-onduty/reports'
+            }
+          ]
+        },
+        {
           href: '/academic/staff-planning',
           label: 'Staff Planning',
           active: pathname === '/academic/staff-planning',
@@ -634,6 +666,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/learners/my-profile',
           icon: Users,
           submenus: []
+        },
+        {
+          href: '/learners/leave-onduty',
+          label: 'Leave/OnDuty',
+          active: pathname.startsWith('/learners/leave-onduty'),
+          icon: Briefcase,
+          submenus: [
+            {
+              href: '/learners/leave-onduty/apply',
+              label: 'Apply',
+              active: pathname === '/learners/leave-onduty/apply'
+            },
+            {
+              href: '/learners/leave-onduty/my-applications',
+              label: 'My Applications',
+              active: pathname === '/learners/leave-onduty/my-applications'
+            }
+          ]
         },
 
         // Admin Features

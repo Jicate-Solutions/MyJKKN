@@ -350,6 +350,8 @@ const fieldToTabMap: Record<string, string> = {
   mother_occupation: 'basic-details',
   mother_mobile: 'basic-details',
   annual_income: 'basic-details',
+  roll_number: 'basic-details',
+  register_number: 'basic-details',
 
   // Academic Information
   last_school: 'academic-information',
@@ -375,8 +377,6 @@ const fieldToTabMap: Record<string, string> = {
   academic_year_id: 'course-selection',
   semester_id: 'course-selection',
   section_id: 'course-selection',
-  roll_number: 'course-selection',
-  register_number: 'course-selection',
   college_email: 'course-selection',
   regulation_id: 'course-selection',
   batch_id: 'course-selection',

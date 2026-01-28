@@ -28,7 +28,7 @@ export interface AttendanceStudent {
 export interface ConsolidatedAttendanceStudent {
   student_id: string;
   section_id: string; // Stores section at time of marking - preserves history
-  status: 'Present' | 'Absent';
+  status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
   marked_at: string;
 }
 
@@ -72,7 +72,7 @@ export interface StudentAttendance {
   student_id: string;
   timetable_slot_id: string;
   attendance_date: string; // YYYY-MM-DD format
-  status: 'Present' | 'Absent';
+  status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
   marked_by: string;
   institution_id: string;
   created_at: string;
@@ -148,13 +148,13 @@ export interface CreateStudentAttendanceDto {
   student_id: string;
   timetable_slot_id: string;
   attendance_date: string;
-  status: 'Present' | 'Absent';
+  status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
   marked_by: string;
   institution_id: string;
 }
 
 export interface UpdateStudentAttendanceDto {
-  status: 'Present' | 'Absent';
+  status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
   marked_by: string;
 }
 
@@ -204,7 +204,7 @@ export interface AttendanceFilters {
   section_id?: string;
   attendance_date?: string;
   timetable_slot_id?: string;
-  status?: 'Present' | 'Absent';
+  status?: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
   page?: number;
   limit?: number;
 }
@@ -226,7 +226,7 @@ export interface AttendanceRosterStudent {
   last_name?: string;
   roll_number?: string;
   student_photo_url?: string;
-  status: 'Present' | 'Absent';
+  status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
   attendance_id?: string; // If attendance record exists
   section?: {
     id: string;
@@ -472,4 +472,60 @@ export interface ConsolidationReportListResponse {
     limit: number;
     totalPages: number;
   };
+}
+
+// =====================================================
+// ONDUTY STATUS SUPPORT
+// =====================================================
+// Created: 2026-01-28
+// Purpose: Helper types and utilities for OnDuty attendance status
+
+/**
+ * Attendance status type with OnDuty support
+ */
+export type AttendanceStatus = 'Present' | 'Absent' | 'OnDuty';
+
+/**
+ * Attendance statistics with OnDuty breakdown
+ */
+export interface AttendanceStatistics {
+  total_periods: number;
+  present: number;
+  absent: number;
+  onduty: number;
+  total_present_including_onduty: number; // Present + OnDuty (counts as present)
+  attendance_percentage: number; // (Present + OnDuty) / Total * 100
+}
+
+/**
+ * Helper function to calculate attendance statistics
+ * OnDuty is counted as Present for percentage calculations
+ */
+export function calculateAttendanceStatistics(
+  attendance: ConsolidatedAttendanceStudent[]
+): AttendanceStatistics {
+  const stats = {
+    total_periods: attendance.length,
+    present: attendance.filter((a) => a.status === 'Present').length,
+    absent: attendance.filter((a) => a.status === 'Absent').length,
+    onduty: attendance.filter((a) => a.status === 'OnDuty').length,
+    total_present_including_onduty: 0,
+    attendance_percentage: 0,
+  };
+
+  stats.total_present_including_onduty = stats.present + stats.onduty;
+
+  if (stats.total_periods > 0) {
+    stats.attendance_percentage =
+      (stats.total_present_including_onduty / stats.total_periods) * 100;
+  }
+
+  return stats;
+}
+
+/**
+ * Helper to determine if a status counts as present
+ */
+export function countsAsPresent(status: AttendanceStatus): boolean {
+  return status === 'Present' || status === 'OnDuty';
 }
