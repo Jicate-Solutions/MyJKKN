@@ -301,18 +301,6 @@ export const userKeys = {
 };
 
 // ============================================
-// Dashboard Keys
-// ============================================
-export const dashboardKeys = {
-  all: ['dashboard'] as const,
-  organization: (institutionId?: string) =>
-    [...dashboardKeys.all, 'organization', institutionId] as const,
-  user: (userId?: string) => [...dashboardKeys.all, 'user', userId] as const,
-  widgets: (dashboardId?: string) =>
-    [...dashboardKeys.all, 'widgets', dashboardId] as const
-};
-
-// ============================================
 // Resource Management Keys
 // ============================================
 export const resourceKeys = {
@@ -356,7 +344,6 @@ export const queryKeys = {
   academic: academicKeys,
   admissions: admissionKeys,
   users: userKeys,
-  dashboard: dashboardKeys,
   resources: resourceKeys
 } as const;
 

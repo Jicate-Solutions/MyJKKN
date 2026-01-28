@@ -788,30 +788,6 @@ ALTER TABLE subcategories
     ON DELETE CASCADE;
 
 -- ================================================================================
--- SECTION 13: DASHBOARD MODULE TABLES
--- ================================================================================
-
--- DASHBOARD_CONFIGURATIONS TABLE
-ALTER TABLE dashboard_configurations
-    ADD CONSTRAINT fk_dashboard_config_user
-    FOREIGN KEY (user_id)
-    REFERENCES profiles(id)
-    ON DELETE CASCADE;
-
--- DASHBOARD_WIDGETS TABLE
-ALTER TABLE dashboard_widgets
-    ADD CONSTRAINT fk_dashboard_widgets_config
-    FOREIGN KEY (configuration_id)
-    REFERENCES dashboard_configurations(id)
-    ON DELETE CASCADE;
-
-ALTER TABLE dashboard_widgets
-    ADD CONSTRAINT fk_dashboard_widgets_type
-    FOREIGN KEY (widget_type_id)
-    REFERENCES dashboard_widget_types(id)
-    ON DELETE CASCADE;
-
--- ================================================================================
 -- SECTION 14: API & ACTIVITY MODULE TABLES
 -- ================================================================================
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { LearnerProfile } from '@/types/learner-profile';
 import { usePendingChangeRequest } from '@/hooks/learner-profile/use-change-request';
 import { useCreateChangeRequest } from '@/hooks/learner-profile/use-change-request-mutations';
@@ -10,6 +10,9 @@ import { ProfileView } from './profile-view';
 import { Button } from '@/components/ui/button';
 import { EnquiryForm } from '../../enquiries/_components/enquiry-form';
 import ChangeRequestDialog from './change-request-dialog';
+import { ProfileCompletionIndicator } from './profile-completion-indicator';
+import { ProfileCompletionCard } from './profile-completion-card';
+import { calculateProfileCompletion } from '@/lib/utils/profile-completion';
 
 interface ProfilePageContentProps {
   learner: LearnerProfile;
@@ -21,6 +24,7 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
   const [isEditing, setIsEditing] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [changedFields, setChangedFields] = useState<Record<string, { old: any; new: any }>>({});
+  const [showCompletionCard, setShowCompletionCard] = useState(false);
 
   // Query for pending change request
   const { data: pendingRequest } = usePendingChangeRequest(learner.id);
@@ -30,6 +34,28 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
 
   // Determine if user can edit (no pending request)
   const canEdit = !pendingRequest;
+
+  // Calculate profile completion (memoized)
+  const profileCompletion = useMemo(() => {
+    return calculateProfileCompletion(learner);
+  }, [learner]);
+
+  // Toggle and scroll to completion card
+  const handleViewDetails = () => {
+    setShowCompletionCard(true);
+    // Use setTimeout to ensure the card is rendered before scrolling
+    setTimeout(() => {
+      const card = document.getElementById('profile-completion-card');
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  };
+
+  // Close completion card
+  const handleCloseCompletionCard = () => {
+    setShowCompletionCard(false);
+  };
 
   // Handle edit button click
   const handleEdit = () => {
@@ -152,12 +178,28 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
   if (pendingRequest && pendingRequest.request_status === 'pending') {
     return (
       <div className="space-y-6">
+        <ProfileCompletionIndicator
+          percentage={profileCompletion.overallPercentage}
+          completed={profileCompletion.completed}
+          total={profileCompletion.totalRequired}
+          onViewDetails={handleViewDetails}
+        />
+
         <PendingChangesBanner
           requestId={pendingRequest.id}
           status={pendingRequest.request_status}
           submittedAt={pendingRequest.created_at}
           reviewComments={pendingRequest.review_comments}
         />
+
+        {showCompletionCard && (
+          <ProfileCompletionCard
+            completion={profileCompletion}
+            canEdit={false}
+            onEdit={handleEdit}
+            onClose={handleCloseCompletionCard}
+          />
+        )}
 
         <ProfileComparisonView
           currentData={learner}
@@ -172,13 +214,19 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
   if (isEditing) {
     return (
       <div className="space-y-6">
+        <ProfileCompletionIndicator
+          percentage={profileCompletion.overallPercentage}
+          completed={profileCompletion.completed}
+          total={profileCompletion.totalRequired}
+        />
+
         <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-2xl font-bold tracking-tight">Edit Profile</h2>
           <Button variant="outline" onClick={handleCancelEdit} className="w-full sm:w-auto">
             Cancel Editing
           </Button>
         </div>
-        
+
         <EnquiryForm
           learner={learner}
           visibleTabs={['basic-details', 'academic-information', 'contact-details', 'accommodation-preferences']}
@@ -202,5 +250,25 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
   }
 
   // Default: show profile view
-  return <ProfileView learner={learner} canEdit={canEdit} onEdit={handleEdit} />;
+  return (
+    <div className="space-y-6">
+      <ProfileCompletionIndicator
+        percentage={profileCompletion.overallPercentage}
+        completed={profileCompletion.completed}
+        total={profileCompletion.totalRequired}
+        onViewDetails={handleViewDetails}
+      />
+
+      {showCompletionCard && (
+        <ProfileCompletionCard
+          completion={profileCompletion}
+          canEdit={canEdit}
+          onEdit={handleEdit}
+          onClose={handleCloseCompletionCard}
+        />
+      )}
+
+      <ProfileView learner={learner} canEdit={canEdit} onEdit={handleEdit} />
+    </div>
+  );
 }

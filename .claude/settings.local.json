@@ -204,7 +204,8 @@
       "Skill(superpowers:systematic-debugging)",
       "Skill(supabase-postgres-best-practices)",
       "Bash(git clone:*)",
-      "Bash(supabase --version:*)"
+      "Bash(supabase --version:*)",
+      "Bash(lsof:*)"
     ],
     "deny": [],
     "ask": []

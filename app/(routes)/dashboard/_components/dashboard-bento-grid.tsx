@@ -30,37 +30,38 @@ export function DashboardBentoGrid({ currentUser }: DashboardBentoGridProps) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
         >
-          {/* Enhanced background animations - confetti effect */}
-          {Array.from({ length: 8 }).map((_, i) => (
+          {/* Enhanced background animations - floating bubbles with parallax */}
+          {Array.from({ length: 12 }).map((_, i) => (
             <motion.div
               key={i}
-              className={`absolute rounded-full opacity-${
-                Math.random() > 0.5 ? '30' : '20'
-              } blur-sm`}
+              className='absolute rounded-full backdrop-blur-sm'
               style={{
-                width: `${Math.random() * 15 + 8}px`,
-                height: `${Math.random() * 15 + 8}px`,
+                width: `${Math.random() * 20 + 10}px`,
+                height: `${Math.random() * 20 + 10}px`,
                 top: `${Math.random() * 100}%`,
                 left: `${Math.random() * 100}%`,
-                backgroundColor: [
-                  '#10b981',
-                  '#059669',
-                  '#047857',
-                  '#065f46',
-                  '#6ee7b7'
-                ][Math.floor(Math.random() * 5)]
+                background: `radial-gradient(circle, ${
+                  [
+                    'rgba(16, 185, 129, 0.3)',
+                    'rgba(5, 150, 105, 0.3)',
+                    'rgba(4, 120, 87, 0.3)',
+                    'rgba(6, 95, 70, 0.3)',
+                    'rgba(110, 231, 183, 0.3)'
+                  ][Math.floor(Math.random() * 5)]
+                }, transparent)`,
+                boxShadow: '0 0 20px rgba(16, 185, 129, 0.2)'
               }}
               animate={{
-                y: [0, Math.random() * -80 - 40],
-                x: [0, (Math.random() - 0.5) * 80],
-                opacity: [0.7, 0],
-                scale: [0, 1, 0.5]
+                y: [0, Math.random() * -100 - 50],
+                x: [0, (Math.random() - 0.5) * 100],
+                opacity: [0.6, 0],
+                scale: [0, 1.5, 0.5]
               }}
               transition={{
-                duration: Math.random() * 8 + 8,
+                duration: Math.random() * 10 + 10,
                 repeat: Infinity,
                 ease: 'easeInOut',
-                repeatDelay: Math.random() * 4
+                repeatDelay: Math.random() * 5
               }}
             />
           ))}
@@ -130,15 +131,15 @@ export function DashboardBentoGrid({ currentUser }: DashboardBentoGridProps) {
             dashboard today.
           </motion.p>
 
-          {/* Digital Clock */}
+          {/* Digital Clock with Glass Effect */}
           <motion.div
             className='mt-2 sm:mt-3 lg:mt-4'
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 1.1, duration: 0.5 }}
           >
-            <div className='rounded-lg px-3 sm:px-4 py-2 sm:py-3 flex justify-between items-center'>
-              <div className='text-lg sm:text-xl lg:text-2xl font-mono font-bold text-green-700 dark:text-green-300 tabular-nums'>
+            <div className='backdrop-blur-sm bg-white/30 dark:bg-black/20 rounded-xl px-3 sm:px-4 py-2 sm:py-3 border border-white/30 dark:border-white/20 shadow-[var(--glass-shadow-sm)]'>
+              <div className='text-lg sm:text-xl lg:text-2xl font-mono font-bold text-green-700 dark:text-green-300 tabular-nums mb-1'>
                 {currentDate.toLocaleTimeString('en-US', {
                   hour12: false,
                   hour: '2-digit',
@@ -146,7 +147,7 @@ export function DashboardBentoGrid({ currentUser }: DashboardBentoGridProps) {
                   second: '2-digit'
                 })}
               </div>
-              <div className='text-xs sm:text-sm font-medium text-green-600 dark:text-green-400 mt-1'>
+              <div className='text-xs sm:text-sm font-medium text-green-600 dark:text-green-400'>
                 {currentDate.toLocaleDateString('en-US', {
                   weekday: 'long',
                   year: 'numeric',

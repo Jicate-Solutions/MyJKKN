@@ -88,6 +88,42 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
         />
       </div>
 
+      {/* Academic IDs - Show in Student View */}
+      {isStudentView && (
+        <div className="space-y-4 border-t pt-4">
+          <h3 className="text-lg font-semibold">Academic Identification</h3>
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="roll_number"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Roll Number</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Enter your roll number" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="register_number"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Register Number</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Enter your register number" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Enquiry Date and Admission Year - Hidden in Student View */}
       {!isStudentView && (
         <div className="grid gap-4 grid-cols-1 md:grid-cols-2">

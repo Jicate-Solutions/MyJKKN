@@ -322,21 +322,7 @@ CREATE TRIGGER set_subcategory_updated_at BEFORE UPDATE ON subcategories
     FOR EACH ROW EXECUTE FUNCTION update_subcategory_updated_at();
 
 -- ================================================================================
--- SECTION 13: DASHBOARD MODULE TRIGGERS
--- ================================================================================
-
--- Dashboard configuration triggers
-CREATE TRIGGER update_dashboard_configurations_updated_at BEFORE UPDATE ON dashboard_configurations
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_dashboard_widgets_updated_at BEFORE UPDATE ON dashboard_widgets
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_dashboard_widget_types_updated_at BEFORE UPDATE ON dashboard_widget_types
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- ================================================================================
--- SECTION 14: API KEY MODULE TRIGGERS
+-- SECTION 13: API KEY MODULE TRIGGERS (Previously SECTION 14)
 -- ================================================================================
 
 -- API key timestamp triggers
