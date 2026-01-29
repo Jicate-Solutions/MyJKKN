@@ -79,6 +79,73 @@ export class LeaveOndutyAttendanceIntegrationService {
   ): Promise<void> {
     const supabase = getSupabase();
 
+    console.log('[attendance-integration] Updating attendance for date:', {
+      date,
+      section_id: application.section_id,
+      learner_id: application.learner_id,
+      periods,
+      newStatus
+    });
+
+    // Get timetable to map period IDs to slot IDs
+    console.log('[attendance-integration] Fetching timetable for section:', application.section_id);
+
+    // Note: Use limit(1).single() instead of maybeSingle() because there might be multiple active timetables
+    // We'll use the most recent one
+    const { data: timetable, error: timetableError } = await supabase
+      .from('timetables')
+      .select('timetable_data')
+      .eq('section_id', application.section_id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (timetableError) {
+      console.error('[attendance-integration] Error fetching timetable:', timetableError);
+      return;
+    }
+
+    console.log('[attendance-integration] Timetable result:', {
+      found: !!timetable,
+      has_data: !!timetable?.timetable_data
+    });
+
+    if (!timetable?.timetable_data) {
+      console.warn('[attendance-integration] No active timetable found for section');
+      return;
+    }
+
+    // Map period IDs to slot IDs
+    const periodToSlotMap = new Map<string, string>();
+    const timetableData = timetable.timetable_data;
+
+    for (const day in timetableData) {
+      for (const periodId in timetableData[day]) {
+        const slot = timetableData[day][periodId];
+        if (slot.slot_id) {
+          periodToSlotMap.set(periodId, slot.slot_id);
+        }
+      }
+    }
+
+    console.log('[attendance-integration] Period to slot mapping:', Array.from(periodToSlotMap.entries()));
+
+    // Convert period IDs to slot IDs
+    const slotIds = periods
+      .map(periodId => periodToSlotMap.get(periodId))
+      .filter(Boolean) as string[];
+
+    console.log('[attendance-integration] Converted periods to slots:', {
+      original_periods: periods,
+      mapped_slots: slotIds
+    });
+
+    if (slotIds.length === 0) {
+      console.warn('[attendance-integration] No slot IDs found for selected periods');
+      return;
+    }
+
     // Find attendance record for this date and section
     const { data: attendanceRecord, error: findError } = await supabase
       .from('student_attendance')
@@ -88,40 +155,59 @@ export class LeaveOndutyAttendanceIntegrationService {
       .maybeSingle();
 
     if (findError) {
-      console.error('Error finding attendance record:', findError);
+      console.error('[attendance-integration] Error finding attendance record:', findError);
       return;
     }
 
     if (!attendanceRecord) {
-      console.warn('No attendance record found for date:', date);
+      console.warn('[attendance-integration] No attendance record found for date:', date);
       return;
     }
+
+    console.log('[attendance-integration] Found attendance record:', {
+      record_id: attendanceRecord.id,
+      available_periods: Object.keys(attendanceRecord.attendance_data || {})
+    });
 
     // Get current attendance data (JSONB)
     const attendanceData = { ...attendanceRecord.attendance_data };
     let updated = false;
 
-    // Update each period
-    for (const periodSlotId of periods) {
-      if (attendanceData[periodSlotId]?.students) {
-        const students = attendanceData[periodSlotId].students;
+    // Update each slot (now using mapped slot IDs instead of period IDs)
+    for (const slotId of slotIds) {
+      console.log('[attendance-integration] Checking slot:', slotId, 'exists:', !!attendanceData[slotId]);
+
+      if (attendanceData[slotId]?.students) {
+        const students = attendanceData[slotId].students;
+        console.log('[attendance-integration] Slot has', students.length, 'students');
+
         const studentIndex = students.findIndex(
           (s: any) => s.student_id === application.learner_id
         );
 
+        console.log('[attendance-integration] Student found at index:', studentIndex);
+
         if (studentIndex !== -1) {
           const oldStatus = students[studentIndex].status;
+
+          console.log('[attendance-integration] Student current status:', {
+            old_status: oldStatus,
+            new_status: newStatus,
+            needs_update: oldStatus !== newStatus
+          });
 
           // Only update if status is different
           if (oldStatus !== newStatus) {
             students[studentIndex].status = newStatus;
             students[studentIndex].marked_at = new Date().toISOString();
 
+            console.log('[attendance-integration] Status updated, creating audit record');
+
             // Create audit record
             await this.createAttendanceUpdateAudit({
               application_id: application.id,
               attendance_record_id: attendanceRecord.id,
-              period_slot_id: periodSlotId,
+              period_slot_id: slotId,
               student_id: application.learner_id,
               old_status: oldStatus,
               new_status: newStatus,
@@ -130,12 +216,18 @@ export class LeaveOndutyAttendanceIntegrationService {
 
             updated = true;
           }
+        } else {
+          console.warn('[attendance-integration] Student not found in slot students list');
         }
+      } else {
+        console.warn('[attendance-integration] Slot not found in attendance data');
       }
     }
 
     // Save updated attendance if changes were made
     if (updated) {
+      console.log('[attendance-integration] Saving updated attendance record');
+
       const { error: updateError } = await supabase
         .from('student_attendance')
         .update({
@@ -145,9 +237,13 @@ export class LeaveOndutyAttendanceIntegrationService {
         .eq('id', attendanceRecord.id);
 
       if (updateError) {
-        console.error('Error updating attendance:', updateError);
+        console.error('[attendance-integration] Error updating attendance:', updateError);
         throw new Error(`Failed to update attendance: ${updateError.message}`);
       }
+
+      console.log('[attendance-integration] Attendance record saved successfully');
+    } else {
+      console.warn('[attendance-integration] No updates were made for this date');
     }
   }
 

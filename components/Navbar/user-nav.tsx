@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { User, Settings, LayoutDashboard, LogOut } from 'lucide-react';
+import { LogOut, Sun, Moon, Monitor } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import { useAuth } from '@/hooks/use-auth';
 import { AuthService } from '@/lib/auth/auth-service';
 import { Button } from '@/components/ui/button';
@@ -19,11 +19,17 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { CustomRole } from '@/types/auth';
-import { TrophyIcon, ClipboardListIcon } from '@/components/icons';
 
 export function UserNav() {
   const { profile } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [roleName, setRoleName] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  // Prevent hydration mismatch for theme
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const fetchRoleName = async () => {
@@ -96,46 +102,49 @@ export function UserNav() {
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuGroup>
-          <DropdownMenuItem asChild>
-            <Link href='/' className='flex items-center cursor-pointer'>
-              <LayoutDashboard className='mr-2 h-4 w-4' />
-              Dashboard
-            </Link>
-          </DropdownMenuItem>
+        {mounted && (
+          <>
+            <DropdownMenuLabel className='text-xs text-muted-foreground'>
+              Theme
+            </DropdownMenuLabel>
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                onClick={() => setTheme('light')}
+                className='flex items-center cursor-pointer'
+              >
+                <Sun className='mr-2 h-4 w-4' />
+                <span>Light</span>
+                {theme === 'light' && (
+                  <span className='ml-auto text-primary'>✓</span>
+                )}
+              </DropdownMenuItem>
 
-          <DropdownMenuItem asChild>
-            <Link href='/profile' className='flex items-center cursor-pointer'>
-              <User className='mr-2 h-4 w-4' />
-              Profile
-            </Link>
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
+              <DropdownMenuItem
+                onClick={() => setTheme('dark')}
+                className='flex items-center cursor-pointer'
+              >
+                <Moon className='mr-2 h-4 w-4' />
+                <span>Dark</span>
+                {theme === 'dark' && (
+                  <span className='ml-auto text-primary'>✓</span>
+                )}
+              </DropdownMenuItem>
 
-        <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setTheme('system')}
+                className='flex items-center cursor-pointer'
+              >
+                <Monitor className='mr-2 h-4 w-4' />
+                <span>System</span>
+                {theme === 'system' && (
+                  <span className='ml-auto text-primary'>✓</span>
+                )}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
 
-        <DropdownMenuGroup>
-          <DropdownMenuItem asChild>
-            <Link
-              href='/my-bug-reports'
-              className='flex items-center cursor-pointer'
-            >
-              <ClipboardListIcon className='mr-2 h-4 w-4' />
-              My Bug Reports
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link
-              href='/bug-leaderboard'
-              className='flex items-center cursor-pointer'
-            >
-              <TrophyIcon className='mr-2 h-4 w-4' />
-              Bug Leaderboard
-            </Link>
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-
-        <DropdownMenuSeparator />
+            <DropdownMenuSeparator />
+          </>
+        )}
 
         <DropdownMenuItem
           className='text-red-600 cursor-pointer'

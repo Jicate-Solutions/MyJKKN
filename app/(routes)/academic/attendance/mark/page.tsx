@@ -53,6 +53,10 @@ import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-gr
 import { PracticalAttendanceSelector } from './_components/practical-attendance-selector';
 import type { SubdivisionGroup, PeriodMode, PracticalConfig } from '@/types/academics';
 import { cn } from '@/lib/utils';
+// Updated: 2026-01-29 - Leave/OnDuty attendance integration
+import { LeaveOndutyAttendanceCheckService } from '@/lib/services/academic/leave-onduty-attendance-check-service';
+import { StudentLeaveIndicatorCompact } from './_components/student-leave-indicator';
+import type { ApprovedLeaveInfo } from '@/lib/services/academic/leave-onduty-attendance-check-service';
 
 export default function AttendanceMarkPage() {
   const router = useRouter();
@@ -116,6 +120,10 @@ export default function AttendanceMarkPage() {
   // Updated: 2025-01-16 - Leave block checking state
   const [leaveBlockInfo, setLeaveBlockInfo] = useState<LeaveBlockInfo | null>(null);
   const [checkingLeave, setCheckingLeave] = useState(false);
+
+  // Updated: 2026-01-29 - Approved leave/onduty checking state
+  const [approvedLeaveMap, setApprovedLeaveMap] = useState<Map<string, ApprovedLeaveInfo>>(new Map());
+  const [loadingApprovedLeave, setLoadingApprovedLeave] = useState(false);
 
   const { saveConsolidatedAttendance } = useConsolidatedAttendance();
 
@@ -661,6 +669,69 @@ export default function AttendanceMarkPage() {
     practicalSelection
   ]);
 
+  // Updated: 2026-01-29 - Check for approved leave/onduty applications
+  useEffect(() => {
+    const loadApprovedLeave = async () => {
+      // Wait for required parameters
+      if (!sectionId || !date || !periodId || students.length === 0) {
+        return;
+      }
+
+      try {
+        setLoadingApprovedLeave(true);
+
+        logger.dev('academic/attendance/mark', 'Checking approved leave', {
+          sectionId,
+          date,
+          periodId
+        });
+
+        const approvedLeave = await LeaveOndutyAttendanceCheckService
+          .getApprovedLeaveForAttendance(
+            sectionId,
+            date,
+            [periodId]
+          );
+
+        // Create map for quick lookup
+        const leaveMap = new Map<string, ApprovedLeaveInfo>();
+        for (const leave of approvedLeave) {
+          leaveMap.set(leave.learner_id, leave);
+        }
+
+        setApprovedLeaveMap(leaveMap);
+
+        logger.info('academic/attendance/mark', 'Loaded approved leave', {
+          count: approvedLeave.length,
+          students: Array.from(leaveMap.keys())
+        });
+
+        // Pre-fill attendance status based on approved leave
+        if (leaveMap.size > 0 && !existingAttendance) {
+          setAttendanceData((prev) => {
+            const updated = { ...prev };
+            for (const [studentId, leaveInfo] of leaveMap.entries()) {
+              // Only update if student hasn't been manually marked yet
+              if (updated[studentId] === 'Present') {
+                updated[studentId] = leaveInfo.category === 'leave' ? 'Absent' : 'Present';
+              }
+            }
+            return updated;
+          });
+
+          toast.success(`Pre-filled attendance for ${leaveMap.size} student(s) with approved leave/onduty`);
+        }
+      } catch (error) {
+        logger.error('academic/attendance/mark', 'Error loading approved leave', error);
+        // Don't show error toast - this is optional functionality
+      } finally {
+        setLoadingApprovedLeave(false);
+      }
+    };
+
+    loadApprovedLeave();
+  }, [sectionId, date, periodId, students, existingAttendance]);
+
   // Check for existing attendance after context is loaded
   useEffect(() => {
     const checkExistingAttendance = async () => {
@@ -1007,10 +1078,31 @@ export default function AttendanceMarkPage() {
   }
 
   // Toggle attendance status
+  // Updated: 2026-01-29 - Check approved leave before toggling
   const toggleAttendance = (studentId: string) => {
+    const newStatus = attendanceData[studentId] === 'Present' ? 'Absent' : 'Present';
+    const leaveInfo = approvedLeaveMap.get(studentId);
+
+    if (leaveInfo) {
+      const suggestedStatus = leaveInfo.category === 'leave' ? 'Absent' : 'Present';
+
+      if (newStatus !== suggestedStatus) {
+        const confirmed = window.confirm(
+          `⚠️ Warning: This student has approved ${leaveInfo.category} (${leaveInfo.subcategory}).\n\n` +
+          `Suggested status: ${suggestedStatus}\n` +
+          `You're trying to mark as: ${newStatus}\n\n` +
+          `Are you sure you want to override the approved ${leaveInfo.category}?`
+        );
+
+        if (!confirmed) {
+          return; // Don't change status
+        }
+      }
+    }
+
     setAttendanceData((prev) => ({
       ...prev,
-      [studentId]: prev[studentId] === 'Present' ? 'Absent' : 'Present'
+      [studentId]: newStatus
     }));
   };
 
@@ -2221,9 +2313,17 @@ export default function AttendanceMarkPage() {
 
                       {/* Student Info */}
                       <div className='w-full'>
-                        <h3 className='font-semibold text-gray-900 dark:text-gray-100 text-sm leading-tight'>
-                          {student.first_name} {student.last_name}
-                        </h3>
+                        <div className='flex items-center justify-center gap-2'>
+                          <h3 className='font-semibold text-gray-900 dark:text-gray-100 text-sm leading-tight'>
+                            {student.first_name} {student.last_name}
+                          </h3>
+                          {/* Updated: 2026-01-29 - Show leave indicator if student has approved leave */}
+                          {approvedLeaveMap.has(student.id) && (
+                            <StudentLeaveIndicatorCompact
+                              leaveInfo={approvedLeaveMap.get(student.id)!}
+                            />
+                          )}
+                        </div>
                         <p className='text-xs text-gray-600 dark:text-gray-400 mt-1 font-medium'>
                           Roll: {student.roll_number || 'N/A'}
                         </p>

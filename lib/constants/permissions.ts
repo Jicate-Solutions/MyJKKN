@@ -403,6 +403,22 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'Leave/OnDuty Application System',
+    key: 'leave_onduty',
+    permissions: [
+      // Academic/Admin Permissions
+      { key: 'academic.leave_onduty.approve', label: 'View & Process Approvals (Academic)' },
+      { key: 'academic.leave_onduty.manage', label: 'Manage Workflow Settings (Academic)' },
+      { key: 'academic.leave_onduty.reports', label: 'View Reports & Analytics (Academic)' },
+
+      // Learner/Student Permissions
+      { key: 'learners.leave_onduty.apply', label: 'Apply for Leave/OnDuty (Students)' },
+      { key: 'learners.leave_onduty.view', label: 'View My Applications (Students)' },
+      { key: 'learners.leave_onduty.edit', label: 'Edit My Applications (Students)' },
+      { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' }
+    ]
+  },
+  {
     name: 'System',
     key: 'system',
     permissions: [

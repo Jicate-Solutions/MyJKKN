@@ -222,9 +222,20 @@ export class LearnerProfileService {
   }
 
   /**
-   * Sync profile is_active status based on learner lifecycle_status
-   * Rule: Only 'active' lifecycle_status should have is_active = true
-   * All other statuses (enquiry, pending, approved, rejected, waitlisted, inactive, exited, graduated, alumni) → is_active = false
+   * Sync profile with learner data (ENHANCED)
+   * Updated: 2026-01-28 - Fixed email sync and added comprehensive field sync
+   *
+   * Syncs the following fields from learner to profile:
+   * - email (from college_email)
+   * - role (always 'student')
+   * - is_active (based on lifecycle_status)
+   * - learner_id (link to learner record)
+   * - institution_id, department_id (organizational context)
+   *
+   * Lookup Strategy:
+   * 1. Try to find profile by email (learnerProfile.college_email)
+   * 2. If not found, try by learner_id link (handles email changes)
+   * 3. If still not found, skip sync (no profile exists yet)
    */
   private static async syncProfileStatus(
     learnerId: string,
@@ -239,44 +250,113 @@ export class LearnerProfileService {
     const supabase = createClientSupabaseClient();
 
     try {
-      // Find profile by email
-      const { data: profile, error: profileError } = (await supabase
+      // STEP 1: Find profile by email (NEW email after update)
+      let profile: UserProfile | null = null;
+      let lookupMethod = '';
+
+      const { data: profileByEmail, error: emailError } = (await supabase
         .from('profiles')
-        .select('id, is_active')
+        .select('id, email, role, is_active, learner_id, institution_id, department_id')
         .eq('email', learnerProfile.college_email)
         .maybeSingle()) as { data: UserProfile | null; error: any };
 
-      if (profileError) {
-        console.error('[learner-profile-service] Error finding profile:', profileError);
+      if (emailError) {
+        console.error('[learner-profile-service] Error finding profile by email:', emailError);
         return;
       }
 
+      if (profileByEmail) {
+        profile = profileByEmail;
+        lookupMethod = 'email';
+      } else {
+        // STEP 2: Fallback - Find profile by learner_id (handles email changes)
+        console.log(`[learner-profile-service] Profile not found by email ${learnerProfile.college_email}, trying learner_id lookup`);
+
+        const { data: profileByLearnerId, error: learnerIdError } = (await supabase
+          .from('profiles')
+          .select('id, email, role, is_active, learner_id, institution_id, department_id')
+          .eq('learner_id', learnerId)
+          .maybeSingle()) as { data: UserProfile | null; error: any };
+
+        if (learnerIdError) {
+          console.error('[learner-profile-service] Error finding profile by learner_id:', learnerIdError);
+          return;
+        }
+
+        if (profileByLearnerId) {
+          profile = profileByLearnerId;
+          lookupMethod = 'learner_id';
+        }
+      }
+
+      // STEP 3: If no profile found by either method, skip sync
       if (!profile) {
-        console.log(`[learner-profile-service] No profile found for ${learnerProfile.college_email}, skipping sync`);
+        console.log(`[learner-profile-service] No profile found for learner ${learnerId} (email: ${learnerProfile.college_email}), skipping sync`);
         return;
       }
 
-      // Determine correct is_active state based on lifecycle_status
-      const shouldBeActive = learnerProfile.lifecycle_status === 'active';
+      // STEP 4: Determine what needs to be updated
+      const updates: Record<string, any> = {};
 
-      // Only update if different from current state
+      // Check email (handles email changes from old -> new)
+      if (profile.email !== learnerProfile.college_email) {
+        updates.email = learnerProfile.college_email;
+        console.log(`[learner-profile-service] Email change detected: ${profile.email} → ${learnerProfile.college_email}`);
+      }
+
+      // Check role (should always be 'student' for learners)
+      if (profile.role !== 'student') {
+        updates.role = 'student';
+        console.log(`[learner-profile-service] Role correction needed: ${profile.role} → student`);
+      }
+
+      // Check is_active (based on lifecycle_status)
+      const shouldBeActive = learnerProfile.lifecycle_status === 'active';
       if (profile.is_active !== shouldBeActive) {
+        updates.is_active = shouldBeActive;
+        console.log(`[learner-profile-service] Status sync needed: is_active=${profile.is_active} → ${shouldBeActive} (lifecycle_status: ${learnerProfile.lifecycle_status})`);
+      }
+
+      // Check learner_id link (ensure profile is linked to learner)
+      if (!profile.learner_id || profile.learner_id !== learnerId) {
+        updates.learner_id = learnerId;
+        console.log(`[learner-profile-service] Learner link needed: ${profile.learner_id || 'null'} → ${learnerId}`);
+      }
+
+      // Check institution_id
+      if (learnerProfile.institution_id && profile.institution_id !== learnerProfile.institution_id) {
+        updates.institution_id = learnerProfile.institution_id;
+      }
+
+      // Check department_id
+      if (learnerProfile.department_id && profile.department_id !== learnerProfile.department_id) {
+        updates.department_id = learnerProfile.department_id;
+      }
+
+      // STEP 5: Apply updates if any changes needed
+      if (Object.keys(updates).length > 0) {
+        console.log(`[learner-profile-service] Syncing profile (found by ${lookupMethod}):`, {
+          profileId: profile.id,
+          learnerId,
+          changes: Object.keys(updates),
+          updates
+        });
+
         const updateQuery: any = supabase.from('profiles');
         const { error: updateError } = await updateQuery
-          .update({ is_active: shouldBeActive })
+          .update({
+            ...updates,
+            updated_at: new Date().toISOString()
+          })
           .eq('id', profile.id);
 
         if (updateError) {
-          console.error('[learner-profile-service] Error updating profile is_active:', updateError);
+          console.error('[learner-profile-service] Error updating profile:', updateError);
         } else {
-          console.log(
-            `[learner-profile-service] Synced profile is_active to ${shouldBeActive} for ${learnerProfile.college_email} (lifecycle_status: ${learnerProfile.lifecycle_status})`
-          );
+          console.log(`[learner-profile-service] ✓ Successfully synced ${Object.keys(updates).length} field(s) for profile ${profile.id}`);
         }
       } else {
-        console.log(
-          `[learner-profile-service] Profile is_active already ${shouldBeActive} for ${learnerProfile.college_email}, no update needed`
-        );
+        console.log(`[learner-profile-service] ✓ Profile already in sync (found by ${lookupMethod}), no updates needed`);
       }
     } catch (error) {
       console.error('[learner-profile-service] Error in syncProfileStatus:', error);

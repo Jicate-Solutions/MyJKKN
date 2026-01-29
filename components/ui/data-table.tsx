@@ -238,6 +238,16 @@ interface DataTableProps<TData, TValue> {
     onPageSizeChange?: (pageSize: number) => void;
     isLoading?: boolean; // Optional loading state for pagination operations
   };
+
+  /**
+   * External row selection state for controlled component
+   */
+  rowSelection?: Record<string, boolean>;
+  
+  /**
+   * External handler for row selection changes
+   */
+  onRowSelectionChange?: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
 }
 
 export function DataTable<TData, TValue>({
@@ -256,7 +266,9 @@ export function DataTable<TData, TValue>({
   onRefresh,
   showRefresh = true,
   onSearch,
-  serverSidePagination
+  serverSidePagination,
+  rowSelection: externalRowSelection,
+  onRowSelectionChange: externalOnRowSelectionChange,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
@@ -265,10 +277,23 @@ export function DataTable<TData, TValue>({
   const [globalFilter, setGlobalFilter] = React.useState('');
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({});
-  const [rowSelection, setRowSelection] = React.useState({});
+  
+  // Internal selection state
+  const [internalRowSelection, setInternalRowSelection] = React.useState({});
+
+  // Use external state if provided, otherwise use internal state
+  const rowSelection = externalRowSelection !== undefined ? externalRowSelection : internalRowSelection;
+  const setRowSelection = externalOnRowSelectionChange !== undefined ? externalOnRowSelectionChange : setInternalRowSelection;
+
   const [bulkActionDialogOpen, setBulkActionDialogOpen] = React.useState(false);
   const [bulkActionLoading, setBulkActionLoading] = React.useState(false);
   const [refreshLoading, setRefreshLoading] = React.useState(false);
+
+  // Pagination state for client-side pagination
+  const [pagination, setPagination] = React.useState({
+    pageIndex: 0,
+    pageSize: 10,
+  });
 
   // Debounce search for server-side filtering
   React.useEffect(() => {
@@ -476,6 +501,7 @@ export function DataTable<TData, TValue>({
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
     onGlobalFilterChange: setGlobalFilter,
+    onPaginationChange: serverSidePagination ? undefined : setPagination,
     globalFilterFn: globalFilterFn as any,
     manualPagination: !!serverSidePagination,
     manualFiltering: !!serverSidePagination,
@@ -493,10 +519,7 @@ export function DataTable<TData, TValue>({
             pageIndex: serverSidePagination.currentPage - 1,
             pageSize: serverSidePagination.pageSize
           }
-        : {
-            pageIndex: 0,
-            pageSize: 10
-          }
+        : pagination
     }
   });
 
@@ -514,10 +537,10 @@ export function DataTable<TData, TValue>({
   // Current pagination state - use server-side if available, otherwise client-side
   const currentPageIndex = serverSidePagination
     ? serverSidePagination.currentPage - 1
-    : table.getState().pagination?.pageIndex ?? 0;
+    : pagination.pageIndex;
   const currentPageSize = serverSidePagination
     ? serverSidePagination.pageSize
-    : table.getState().pagination?.pageSize ?? 10;
+    : pagination.pageSize;
   const currentTotalPages = serverSidePagination
     ? serverSidePagination.totalPages
     : table.getPageCount();
@@ -533,7 +556,11 @@ export function DataTable<TData, TValue>({
     if (serverSidePagination?.onPageSizeChange) {
       serverSidePagination.onPageSizeChange(newSize);
     } else {
-      table.setPageSize(newSize);
+      // Reset to first page when changing page size
+      setPagination({
+        pageIndex: 0,
+        pageSize: newSize,
+      });
     }
   };
 
