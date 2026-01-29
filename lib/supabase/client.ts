@@ -1,6 +1,6 @@
 import { createBrowserClient } from '@supabase/ssr';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/types/database.types';
+import type { Database } from '@/types/supabase';
 
 // Define a type alias for the browser client
 export type TypedSupabaseClient = SupabaseClient<Database>;
