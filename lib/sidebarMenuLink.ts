@@ -536,7 +536,7 @@ export function GetPages(pathname: string): MenuGroup[] {
         },
         {
           href: '/academic/leave-onduty',
-          label: 'Leave/OnDuty Applications',
+          label: 'Leave/OnDuty',
           active: pathname.startsWith('/academic/leave-onduty'),
           icon: Briefcase,
           submenus: [
