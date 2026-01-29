@@ -16,6 +16,7 @@ import {
   Bell,
   Settings,
   TabletSmartphone,
+  Bug,
   LucideIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -38,12 +39,13 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   'Applications': TabletSmartphone,
   'Application Management': TabletSmartphone,
   'Organization Management': Building,
-  'Learners Management': GraduationCap,
+  'Learners': GraduationCap,
   'Facilitators Management': Users,
   'Academic Management': CalendarClock,
   'Resource Management': Package,
   'Admissions Management': ClipboardCheck,
-  'Billing Management': FileText,
+  'Accounts': FileText,
+  'Bugs': Bug,
   'Administration': Bell,
   'System': Settings
 };
@@ -416,9 +418,10 @@ export function BottomNavbar() {
               id="more"
               icon={MoreHorizontal}
               label="More"
-              isActive={isMoreMenuOpen}
+              isActive={true} // Always show as active/highlighted
               hasSubmenu={true}
-              badgeCount={moreNavGroups.length}
+              hideIndicator={true} // Remove underline
+              customColor="text-rose-700" // Dark rose color
               onClick={handleMoreClick}
             />
           )}

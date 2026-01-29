@@ -30,7 +30,9 @@ export class LeaveOndutyFlowService {
    */
   static async getApplicableFlow(applicationContext: {
     institution_id: string;
+    degree_id: string | null;
     department_id: string | null;
+    program_id: string | null;
     semester_id: string | null;
     category: string;
     sub_category: string;
@@ -39,7 +41,9 @@ export class LeaveOndutyFlowService {
 
     const { data, error } = await supabase.rpc('get_applicable_approval_flow', {
       p_institution_id: applicationContext.institution_id,
+      p_degree_id: applicationContext.degree_id,
       p_department_id: applicationContext.department_id,
+      p_program_id: applicationContext.program_id,
       p_semester_id: applicationContext.semester_id,
       p_category: applicationContext.category,
       p_sub_category: applicationContext.sub_category,
@@ -117,9 +121,10 @@ export class LeaveOndutyFlowService {
 
   /**
    * Get flows by institution with filters
+   * If institutionId is empty/null, returns all flows (for super admin)
    */
   static async getFlowsByInstitution(
-    institutionId: string,
+    institutionId: string | null | undefined,
     filters?: FlowFilters
   ): Promise<LeaveOndutyApprovalFlow[]> {
     const supabase = getSupabase();
@@ -130,15 +135,24 @@ export class LeaveOndutyFlowService {
         `
         *,
         institution:institutions(id, name),
+        degree:degrees(id, degree_name),
         department:departments(id, department_name),
+        program:programs(id, program_name),
         semester:semesters(id, semester_name),
         creator:profiles(id, full_name)
       `
       )
-      .eq('institution_id', institutionId)
       .order('created_at', { ascending: false });
 
+    // Filter by institution if provided (super admin can view all by not providing institutionId)
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
     // Apply filters
+    if (filters?.institution_id) {
+      query = query.eq('institution_id', filters.institution_id);
+    }
     if (filters?.department_id) {
       query = query.eq('department_id', filters.department_id);
     }
@@ -173,7 +187,9 @@ export class LeaveOndutyFlowService {
         `
         *,
         institution:institutions(id, name),
+        degree:degrees(id, degree_name),
         department:departments(id, department_name),
+        program:programs(id, program_name),
         semester:semesters(id, semester_name),
         creator:profiles(id, full_name)
       `
@@ -287,6 +303,7 @@ export class LeaveOndutyFlowService {
 
   /**
    * Validate flow steps
+   * Updated to work with custom roles from custom_roles table
    */
   private static validateFlowSteps(steps: any[]): ValidationResult {
     // Check for duplicate step orders
@@ -308,17 +325,34 @@ export class LeaveOndutyFlowService {
         };
       }
 
-      if (!['faculty', 'hod', 'principal'].includes(step.role)) {
+      // Validate role_id (UUID from custom_roles table)
+      if (!step.role_id || typeof step.role_id !== 'string' || step.role_id.trim().length === 0) {
         return {
           valid: false,
-          error: 'Invalid approver role. Must be "faculty", "hod", or "principal"',
+          error: 'Each step must have a valid role selected',
         };
       }
 
-      if (!['assigned_faculty', 'department', 'institution'].includes(step.scope)) {
+      // Validate role_name
+      if (!step.role_name || typeof step.role_name !== 'string' || step.role_name.trim().length === 0) {
         return {
           valid: false,
-          error: 'Invalid scope. Must be "assigned_faculty", "department", or "institution"',
+          error: 'Each step must have a role name',
+        };
+      }
+
+      // Validate approver_ids (must be array, can be empty initially but should have at least one user)
+      if (!Array.isArray(step.approver_ids)) {
+        return {
+          valid: false,
+          error: 'Approver IDs must be an array',
+        };
+      }
+
+      if (step.approver_ids.length === 0) {
+        return {
+          valid: false,
+          error: 'Each step must have at least one approver selected',
         };
       }
 
@@ -328,17 +362,10 @@ export class LeaveOndutyFlowService {
           error: 'is_required must be a boolean value',
         };
       }
-
-      if (!step.description || step.description.trim().length === 0) {
-        return {
-          valid: false,
-          error: 'Each step must have a description',
-        };
-      }
     }
 
     // Ensure steps are ordered consecutively starting from 1
-    const sortedOrders = stepOrders.sort((a, b) => a - b);
+    const sortedOrders = [...stepOrders].sort((a, b) => a - b);
     for (let i = 0; i < sortedOrders.length; i++) {
       if (sortedOrders[i] !== i + 1) {
         return {

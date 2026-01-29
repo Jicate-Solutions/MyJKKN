@@ -12,9 +12,11 @@
  * @route /academic/leave-onduty/reports
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAllLeaveOndutyApplications } from '@/hooks/academic/use-leave-onduty';
 import { ApplicationFilters } from '@/types/leave-onduty';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -56,9 +58,19 @@ import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 export default function LeaveOndutyReportsPage() {
-  const { profile } = useAuth();
+  const router = useRouter();
+  const { profile, isLoading: authLoading } = useAuth();
+  const { can, isLoading: permissionsLoading } = usePermissions();
   const [dateFrom, setDateFrom] = useState<Date>(startOfMonth(subMonths(new Date(), 1)));
   const [dateTo, setDateTo] = useState<Date>(endOfMonth(new Date()));
+
+  // Permission check - redirect if unauthorized
+  // CRITICAL: Wait for both auth AND permissions to finish loading before checking
+  useEffect(() => {
+    if (!authLoading && !permissionsLoading && !can('academic.leave_onduty.reports')) {
+      router.replace('/');
+    }
+  }, [authLoading, permissionsLoading, can, router]);
 
   const filters: ApplicationFilters = {
     institution_id: profile?.institution_id || '',

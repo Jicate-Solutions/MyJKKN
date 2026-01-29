@@ -856,4 +856,65 @@ When updating any SQL file:
 
 ---
 
+### **2026-01-28: Learner-Profile Sync Enhancement**
+
+**Issue**: College email updates in `learners_profiles` didn't sync to `profiles` table, roles stuck as 'guest', no mismatch detection.
+
+**Solution**: Three-layer fix for comprehensive synchronization:
+
+1. **Enhanced Service Layer** (`lib/services/learner-profile-service.ts`):
+   - Smart profile lookup (by email, then learner_id fallback)
+   - Syncs ALL fields: email, role, is_active, learner_id, institution_id, department_id
+   - Comprehensive logging for debugging
+
+2. **Database Triggers** (AUTO-SYNC):
+   - `trg_sync_learner_email_to_profile`: Auto-syncs college_email changes
+   - `trg_sync_learner_status_to_profile`: Auto-syncs lifecycle_status to is_active
+   - Handles orphaned profile linking
+
+3. **Diagnostic & Repair Tools**:
+   - `scripts/debug-learner-profile-sync.ts`: Detect mismatches
+   - `scripts/repair-learner-profile-sync.ts`: Auto-fix issues
+   - `scripts/LEARNER_PROFILE_SYNC_GUIDE.md`: Complete usage guide
+
+**Database Changes**:
+```sql
+-- New Functions (02_functions.sql)
+CREATE FUNCTION sync_learner_email_to_profile() -- Syncs email, role, org data
+CREATE FUNCTION sync_learner_status_to_profile() -- Syncs is_active status
+
+-- New Triggers (04_triggers.sql)
+CREATE TRIGGER trg_sync_learner_email_to_profile -- On INSERT/UPDATE college_email
+CREATE TRIGGER trg_sync_learner_status_to_profile -- On UPDATE lifecycle_status
+```
+
+**Results**:
+- ✅ Email changes automatically sync to profiles table
+- ✅ User roles correctly set to 'student'
+- ✅ Orphaned profiles automatically linked
+- ✅ is_active status always matches lifecycle_status
+- ✅ Comprehensive logging and diagnostics
+- ✅ Automatic repair tools available
+
+**Usage**:
+```bash
+# Detect issues
+npx tsx scripts/debug-learner-profile-sync.ts
+
+# Fix issues (dry run first)
+npx tsx scripts/repair-learner-profile-sync.ts --dry-run
+npx tsx scripts/repair-learner-profile-sync.ts
+```
+
+**Files Updated**:
+- `lib/services/learner-profile-service.ts` (Enhanced syncProfileStatus function)
+- `supabase/setup/02_functions.sql` (Added 2 sync functions)
+- `supabase/setup/04_triggers.sql` (Added 2 triggers, total: 75)
+- `scripts/debug-learner-profile-sync.ts` (NEW - Diagnostic tool)
+- `scripts/repair-learner-profile-sync.ts` (NEW - Repair tool)
+- `scripts/LEARNER_PROFILE_SYNC_GUIDE.md` (NEW - Complete guide)
+- `docs/fixes/2026-01/2026-01-28-FIX-learner-profile-sync-issues.md` (NEW - Root cause analysis)
+
+---
+
 **Remember: ONE file per object type, NO duplicates, ALWAYS update existing files!**

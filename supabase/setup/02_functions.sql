@@ -1851,6 +1851,146 @@ END;
 $$;
 
 -- ================================================================================
+-- SECTION 7.5: LEARNER PROFILE SYNC FUNCTIONS
+-- Created: 2026-01-28 - Auto-sync learner college_email changes to profiles table
+-- ================================================================================
+
+-- Sync learner college_email changes to profiles table
+-- This ensures when admin updates college_email in learners_profiles,
+-- the corresponding profiles.email is automatically updated
+-- Handles: Email changes, orphaned profiles, proper role assignment
+CREATE OR REPLACE FUNCTION public.sync_learner_email_to_profile()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+  existing_profile_id UUID;
+  old_email TEXT;
+  new_email TEXT;
+BEGIN
+  -- Handle both INSERT and UPDATE cases
+  IF TG_OP = 'INSERT' THEN
+    old_email := NULL;
+    new_email := NEW.college_email;
+  ELSE
+    old_email := OLD.college_email;
+    new_email := NEW.college_email;
+  END IF;
+
+  -- Only sync if college_email exists and changed
+  IF new_email IS NOT NULL AND new_email != '' THEN
+    IF TG_OP = 'INSERT' OR (old_email IS DISTINCT FROM new_email) THEN
+
+      -- Find profile by learner_id (more reliable than email for updates)
+      SELECT id INTO existing_profile_id
+      FROM profiles
+      WHERE learner_id = NEW.id
+      LIMIT 1;
+
+      IF existing_profile_id IS NOT NULL THEN
+        -- Profile found by learner_id - update it
+        UPDATE profiles
+        SET
+          email = new_email,
+          role = 'student', -- Ensure role is correct
+          institution_id = COALESCE(NEW.institution_id, institution_id),
+          department_id = COALESCE(NEW.department_id, department_id),
+          updated_at = NOW()
+        WHERE id = existing_profile_id;
+
+        IF TG_OP = 'UPDATE' THEN
+          RAISE NOTICE 'Synced profile % email from % to % for learner %',
+            existing_profile_id, old_email, new_email, NEW.id;
+        ELSE
+          RAISE NOTICE 'Synced profile % for new learner % with email %',
+            existing_profile_id, NEW.id, new_email;
+        END IF;
+      ELSE
+        -- No profile found by learner_id
+        -- Try to find orphaned profile by email and link it
+        SELECT id INTO existing_profile_id
+        FROM profiles
+        WHERE email = new_email
+          AND learner_id IS NULL
+          AND role = 'student'
+        LIMIT 1;
+
+        IF existing_profile_id IS NOT NULL THEN
+          -- Found orphaned profile - link it to this learner
+          UPDATE profiles
+          SET
+            learner_id = NEW.id,
+            role = 'student',
+            institution_id = COALESCE(NEW.institution_id, institution_id),
+            department_id = COALESCE(NEW.department_id, department_id),
+            updated_at = NOW()
+          WHERE id = existing_profile_id;
+
+          RAISE NOTICE 'Linked orphaned profile % to learner % (email: %)',
+            existing_profile_id, NEW.id, new_email;
+        ELSE
+          -- No existing profile - will be created when user is activated
+          RAISE NOTICE 'No existing profile for learner % (email: %), will be created on activation',
+            NEW.id, new_email;
+        END IF;
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION sync_learner_email_to_profile IS
+'Auto-syncs learner college_email changes to profiles table. Handles email updates, orphaned profiles, and ensures role is student.';
+
+-- Sync learner lifecycle_status changes to profile is_active
+-- This ensures user can only log in when learner is active
+CREATE OR REPLACE FUNCTION public.sync_learner_status_to_profile()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+  existing_profile_id UUID;
+  should_be_active BOOLEAN;
+BEGIN
+  -- Only sync if lifecycle_status changed
+  IF OLD.lifecycle_status IS DISTINCT FROM NEW.lifecycle_status THEN
+
+    -- Only 'active' learners should have active profiles
+    should_be_active := (NEW.lifecycle_status = 'active');
+
+    -- Find profile by learner_id
+    SELECT id INTO existing_profile_id
+    FROM profiles
+    WHERE learner_id = NEW.id
+    LIMIT 1;
+
+    IF existing_profile_id IS NOT NULL THEN
+      -- Update is_active status
+      UPDATE profiles
+      SET
+        is_active = should_be_active,
+        updated_at = NOW()
+      WHERE id = existing_profile_id;
+
+      RAISE NOTICE 'Synced profile % is_active to % for learner % (lifecycle_status: % -> %)',
+        existing_profile_id, should_be_active, NEW.id, OLD.lifecycle_status, NEW.lifecycle_status;
+    ELSE
+      RAISE NOTICE 'No profile found for learner % to sync lifecycle_status change', NEW.id;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION sync_learner_status_to_profile IS
+'Auto-syncs learner lifecycle_status changes to profiles.is_active. Only active learners can log in.';
+
+-- ================================================================================
 -- SECTION 8: ADMISSION MODULE FUNCTIONS
 -- ================================================================================
 

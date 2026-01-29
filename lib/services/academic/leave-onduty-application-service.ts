@@ -53,7 +53,7 @@ export class LeaveOndutyApplicationService {
     }
 
     // Validate application data
-    const validation = await this.validateApplicationData(data, learner.section_id);
+    const validation = await this.validateApplicationData(data, learner.section_id, learner.semester_id);
     if (!validation.valid) {
       throw new Error(validation.error || 'Validation failed');
     }
@@ -71,6 +71,7 @@ export class LeaveOndutyApplicationService {
     // Detect periods based on period_type
     const periodDetection = await this.getPeriodsForDate(
       learner.section_id,
+      learner.semester_id,
       data.start_date,
       data.period_type
     );
@@ -308,7 +309,8 @@ export class LeaveOndutyApplicationService {
    */
   static async validateApplicationData(
     data: ApplicationFormData,
-    sectionId: string
+    sectionId: string,
+    semesterId: string
   ): Promise<ValidationResult> {
     // Validate date range
     const startDate = new Date(data.start_date);
@@ -393,6 +395,7 @@ export class LeaveOndutyApplicationService {
     // Validate timetable exists for selected dates
     const timetableValidation = await this.validateTimetableExists(
       sectionId,
+      semesterId,
       data.start_date
     );
     if (!timetableValidation.valid) {
@@ -443,14 +446,16 @@ export class LeaveOndutyApplicationService {
   ): Promise<AvailableDateInfo[]> {
     const supabase = getSupabase();
 
-    // Get active timetable for section
+    // Get active timetable for section (use maybeSingle to handle 0 rows gracefully)
     const { data: timetable } = await supabase
       .from('timetables')
       .select('*')
       .eq('section_id', sectionId)
       .eq('semester_id', semesterId)
       .eq('is_active', true)
-      .single();
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     const dates: AvailableDateInfo[] = [];
     const start = new Date(startDate);
@@ -478,20 +483,47 @@ export class LeaveOndutyApplicationService {
    */
   static async getPeriodsForDate(
     sectionId: string,
+    semesterId: string,
     date: string,
     periodType: string
   ): Promise<PeriodDetectionResult> {
     const supabase = getSupabase();
 
-    // Get active timetable for section
+    console.log('[LeaveOndutyService.getPeriodsForDate] Input:', {
+      sectionId,
+      semesterId,
+      date,
+      periodType,
+    });
+
+    // Get active timetable for section AND semester (use maybeSingle to handle 0 rows gracefully)
     const { data: timetable, error: timetableError } = await supabase
       .from('timetables')
       .select('*')
       .eq('section_id', sectionId)
+      .eq('semester_id', semesterId)
       .eq('is_active', true)
-      .single();
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (timetableError || !timetable) {
+    console.log('[LeaveOndutyService.getPeriodsForDate] Timetable query result:', {
+      timetable: timetable ? { id: timetable.id, section_id: timetable.section_id, semester_id: timetable.semester_id, is_active: timetable.is_active } : null,
+      timetableError,
+      timetableDataKeys: timetable?.timetable_data ? Object.keys(timetable.timetable_data) : [],
+    });
+
+    if (timetableError) {
+      console.log('[LeaveOndutyService.getPeriodsForDate] Query error:', timetableError);
+      return {
+        valid: false,
+        periods: [],
+        error: 'Failed to fetch timetable',
+      };
+    }
+
+    if (!timetable) {
+      console.log('[LeaveOndutyService.getPeriodsForDate] No timetable found for section/semester');
       return {
         valid: false,
         periods: [],
@@ -500,27 +532,150 @@ export class LeaveOndutyApplicationService {
     }
 
     const timetableData = timetable.timetable_data || {};
-    const allPeriods = Object.keys(timetableData);
 
-    if (allPeriods.length === 0) {
+    // Get day of week from selected date
+    const selectedDate = new Date(date);
+    const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+    const dayOfWeek = dayNames[selectedDate.getDay()];
+
+    console.log('[LeaveOndutyService.getPeriodsForDate] Date analysis:', {
+      date,
+      selectedDate: selectedDate.toISOString(),
+      dayOfWeek,
+      timetableDataKeys: Object.keys(timetableData),
+    });
+
+    // Extract periods for the specific day from timetable_data
+    // Structure: { [day]: { [periodSlotId]: slotData } }
+    let dayPeriods: Record<string, any> = {};
+
+    // Check if timetable_data is day-based structure
+    if (timetableData[dayOfWeek] && typeof timetableData[dayOfWeek] === 'object') {
+      dayPeriods = timetableData[dayOfWeek];
+    } else if (Array.isArray(timetableData)) {
+      // Array format - filter by day
+      timetableData.forEach((slot: any, index: number) => {
+        if (slot.day === dayOfWeek) {
+          const slotId = slot.slot_id || `slot-${index}`;
+          dayPeriods[slotId] = slot;
+        }
+      });
+    } else if (timetableData.slots && Array.isArray(timetableData.slots)) {
+      // Object with slots array
+      timetableData.slots.forEach((slot: any, index: number) => {
+        if (slot.day === dayOfWeek) {
+          const slotId = slot.slot_id || `slot-${index}`;
+          dayPeriods[slotId] = slot;
+        }
+      });
+    } else {
+      // Fallback: use all data if structure is different
+      dayPeriods = timetableData;
+    }
+
+    const allPeriodIds = Object.keys(dayPeriods);
+
+    console.log('[LeaveOndutyService.getPeriodsForDate] Day periods:', {
+      dayOfWeek,
+      allPeriodsCount: allPeriodIds.length,
+      allPeriodIds,
+      samplePeriod: allPeriodIds.length > 0 ? dayPeriods[allPeriodIds[0]] : null,
+    });
+
+    if (allPeriodIds.length === 0) {
       return {
         valid: false,
         periods: [],
-        error: 'No classes scheduled for this date',
+        error: `No classes scheduled for ${dayOfWeek}`,
+        timetable: {},
       };
     }
+
+    // Enrich periods with details from periods and courses tables
+    // The key in dayPeriods is the period_id from the periods table
+    // Each slot has course_id which we need to look up
+    const courseIds = [...new Set(
+      allPeriodIds
+        .map(periodId => dayPeriods[periodId]?.course_id)
+        .filter(Boolean)
+    )];
+
+    // Batch fetch period details (period_name, start_time, end_time)
+    const { data: periodsData, error: periodsError } = await supabase
+      .from('periods')
+      .select('id, period_name, start_time, end_time, is_break')
+      .in('id', allPeriodIds);
+
+    if (periodsError) {
+      console.warn('[LeaveOndutyService.getPeriodsForDate] Error fetching periods:', periodsError);
+    }
+
+    // Batch fetch course details (course_name, course_code)
+    let coursesData: any[] = [];
+    if (courseIds.length > 0) {
+      const { data: courses, error: coursesError } = await supabase
+        .from('courses')
+        .select('id, course_name, course_code')
+        .in('id', courseIds);
+
+      if (coursesError) {
+        console.warn('[LeaveOndutyService.getPeriodsForDate] Error fetching courses:', coursesError);
+      } else {
+        coursesData = courses || [];
+      }
+    }
+
+    // Create lookup maps with proper typing
+    const periodMap = new Map<string, { id: string; period_name: string; start_time: string; end_time: string; is_break: boolean }>(
+      (periodsData || []).map((p: any) => [p.id, p])
+    );
+    const courseMap = new Map<string, { id: string; course_name: string; course_code: string }>(
+      coursesData.map((c: any) => [c.id, c])
+    );
+
+    console.log('[LeaveOndutyService.getPeriodsForDate] Enrichment data:', {
+      periodsFound: periodsData?.length || 0,
+      coursesFound: coursesData.length,
+      periodMapKeys: Array.from(periodMap.keys()),
+      courseMapKeys: Array.from(courseMap.keys()),
+    });
+
+    // Enrich dayPeriods with period and course details
+    const enrichedPeriods: Record<string, any> = {};
+    for (const periodId of allPeriodIds) {
+      const slot = dayPeriods[periodId];
+      const periodInfo = periodMap.get(periodId);
+      const courseInfo = slot?.course_id ? courseMap.get(slot.course_id) : null;
+
+      enrichedPeriods[periodId] = {
+        ...slot,
+        // Add period details
+        period_id: periodId,
+        period_name: periodInfo?.period_name || 'Period',
+        start_time: periodInfo?.start_time || '',
+        end_time: periodInfo?.end_time || '',
+        is_break: periodInfo?.is_break || false,
+        // Add course details
+        course_name: courseInfo?.course_name || '',
+        course_code: courseInfo?.course_code || '',
+      };
+    }
+
+    console.log('[LeaveOndutyService.getPeriodsForDate] Enriched periods:', {
+      sampleEnriched: allPeriodIds.length > 0 ? enrichedPeriods[allPeriodIds[0]] : null,
+    });
 
     let selectedPeriods: string[] = [];
 
     switch (periodType) {
       case 'fullday':
-        selectedPeriods = allPeriods;
+        selectedPeriods = allPeriodIds;
         break;
 
       case 'forenoon':
-        selectedPeriods = allPeriods.filter((slotId) => {
-          const period = timetableData[slotId];
-          if (!period.start_time) return false;
+        selectedPeriods = allPeriodIds.filter((periodId) => {
+          const period = enrichedPeriods[periodId];
+          if (!period?.start_time) return false;
           const startTime = this.parseTime(period.start_time);
           const forenoonStart = this.parseTime(
             DEFAULT_VALIDATION_RULES.periods.forenoonStart
@@ -533,9 +688,9 @@ export class LeaveOndutyApplicationService {
         break;
 
       case 'afternoon':
-        selectedPeriods = allPeriods.filter((slotId) => {
-          const period = timetableData[slotId];
-          if (!period.start_time) return false;
+        selectedPeriods = allPeriodIds.filter((periodId) => {
+          const period = enrichedPeriods[periodId];
+          if (!period?.start_time) return false;
           const startTime = this.parseTime(period.start_time);
           const afternoonStart = this.parseTime(
             DEFAULT_VALIDATION_RULES.periods.afternoonStart
@@ -549,7 +704,7 @@ export class LeaveOndutyApplicationService {
 
       case 'periodwise':
         // For periodwise, return all periods for manual selection
-        selectedPeriods = allPeriods;
+        selectedPeriods = allPeriodIds;
         break;
 
       default:
@@ -563,7 +718,7 @@ export class LeaveOndutyApplicationService {
     return {
       valid: true,
       periods: selectedPeriods,
-      timetable: timetableData,
+      timetable: enrichedPeriods,
     };
   }
 
@@ -580,6 +735,7 @@ export class LeaveOndutyApplicationService {
    */
   private static async validateTimetableExists(
     sectionId: string,
+    semesterId: string,
     date: string
   ): Promise<ValidationResult> {
     const supabase = getSupabase();
@@ -588,10 +744,20 @@ export class LeaveOndutyApplicationService {
       .from('timetables')
       .select('id, timetable_data')
       .eq('section_id', sectionId)
+      .eq('semester_id', semesterId)
       .eq('is_active', true)
-      .single();
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (error || !timetable) {
+    if (error) {
+      return {
+        valid: false,
+        error: 'Failed to verify timetable. Please try again.',
+      };
+    }
+
+    if (!timetable) {
       return {
         valid: false,
         error: 'No active timetable found for your section. Please contact administrator.',

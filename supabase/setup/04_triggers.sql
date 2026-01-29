@@ -513,6 +513,33 @@ COMMENT ON TRIGGER trigger_auto_link_profile_to_approved_learner ON profiles IS
 'Auto-links new profiles to approved learners on first login. Includes institution/department from learner.';
 
 -- ================================================================================
+-- SECTION 8: LEARNER PROFILE SYNC TRIGGERS
+-- Created: 2026-01-28 - Auto-sync learner changes to profiles table
+-- ================================================================================
+
+-- Sync learner college_email changes to profiles table
+-- Runs on both INSERT and UPDATE to handle new learners and email changes
+DROP TRIGGER IF EXISTS trg_sync_learner_email_to_profile ON public.learners_profiles;
+CREATE TRIGGER trg_sync_learner_email_to_profile
+  AFTER INSERT OR UPDATE OF college_email ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION sync_learner_email_to_profile();
+
+COMMENT ON TRIGGER trg_sync_learner_email_to_profile ON learners_profiles IS
+'Auto-syncs college_email changes from learners to profiles. Handles email updates and orphaned profile linking.';
+
+-- Sync learner lifecycle_status changes to profile is_active
+-- Ensures users can only log in when learner status is active
+DROP TRIGGER IF EXISTS trg_sync_learner_status_to_profile ON public.learners_profiles;
+CREATE TRIGGER trg_sync_learner_status_to_profile
+  AFTER UPDATE OF lifecycle_status ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION sync_learner_status_to_profile();
+
+COMMENT ON TRIGGER trg_sync_learner_status_to_profile ON learners_profiles IS
+'Auto-syncs lifecycle_status changes to profile is_active. Only active learners can log in.';
+
+-- ================================================================================
 -- End of Triggers File
--- Total Triggers: 73
+-- Total Triggers: 75 (Updated: 2026-01-28)
 -- ================================================================================

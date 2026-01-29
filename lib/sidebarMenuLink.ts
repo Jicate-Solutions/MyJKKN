@@ -96,6 +96,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
 
+  // Bug Reports (Student Self-Service)
+  '/my-bug-reports': 'learners.bug_reports.view',
+  '/bug-leaderboard': 'learners.bug_reports.view',
+
   // User Management
   '/users': 'users.view',
   '/users/dashboard': 'users.dashboard.view',
@@ -643,7 +647,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'Learners Management',
+      groupLabel: 'Learners',
       menus: [
         // Learner Portal (Student Self-Service) - Only for role='student'
         {
@@ -668,22 +672,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          href: '/learners/leave-onduty',
+          href: '/learners/leave-onduty/my-applications',
           label: 'Leave/OnDuty',
           active: pathname.startsWith('/learners/leave-onduty'),
           icon: Briefcase,
-          submenus: [
-            {
-              href: '/learners/leave-onduty/apply',
-              label: 'Apply',
-              active: pathname === '/learners/leave-onduty/apply'
-            },
-            {
-              href: '/learners/leave-onduty/my-applications',
-              label: 'My Applications',
-              active: pathname === '/learners/leave-onduty/my-applications'
-            }
-          ]
+          submenus: []
         },
 
         // Admin Features
@@ -747,88 +740,12 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
 
-    {
-      groupLabel: 'Resource Management',
-      menus: [
-        {
-          href: '/resource-management/analytics-dashboard',
-          label: 'Dashboard',
-          active: pathname.startsWith(
-            '/resource-management/analytics-dashboard'
-          ),
-          icon: LayoutGrid,
-          submenus: []
-        },
-        {
-          href: '/resource-management/categories',
-          label: 'Categories',
-          active: pathname === '',
-          icon: FolderTree,
-          submenus: [
-            {
-              href: '/resource-management/categories',
-              label: 'Parent categories',
-              active: pathname === '/resource-management/categories'
-            },
-            {
-              href: '/resource-management/categories/sub-categories',
-              label: 'Sub categories',
-              active:
-                pathname === '/resource-management/categories/sub-categories'
-            }
-          ]
-        },
-
-        {
-          href: '/resource-management/resources',
-          label: 'Resources',
-          active: pathname.startsWith('/resource-management/resources'),
-          icon: Package,
-          submenus: []
-        },
-        {
-          href: '/resource-management/reservations',
-          label: 'Reservations',
-          active: pathname.startsWith('/resource-management/reservations'),
-          icon: Calendar,
-          submenus: [
-            {
-              href: '/resource-management/reservations',
-              label: 'All Reservations',
-              active: pathname === '/resource-management/reservations'
-            },
-            {
-              href: '/resource-management/reservations/my-reservations',
-              label: 'My Reservations',
-              active:
-                pathname === '/resource-management/reservations/my-reservations'
-            }
-          ]
-        },
-        {
-          href: '/resource-management/reservations/approvals',
-          label: 'Approvals',
-          active: pathname.startsWith(
-            '/resource-management/reservations/approvals'
-          ),
-          icon: CheckSquare,
-          submenus: []
-        },
-        {
-          href: '/resource-management/maintenance',
-          label: 'Maintenance',
-          active: pathname.startsWith('/resource-management/maintenance'),
-          icon: Wrench,
-          submenus: []
-        }
-      ]
-    },
 
     // NEW: Unified Learners Module (Will replace old modules)
   
 
     {
-      groupLabel: 'Billing Management',
+      groupLabel: 'Accounts',
       menus: [
         {
           href: '/billing/categories',
@@ -916,6 +833,83 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Reports',
           active: pathname.startsWith('/billing/reports'),
           icon: BarChart,
+          submenus: []
+        }
+      ]
+    },
+    
+    {
+      groupLabel: 'Resource Management',
+      menus: [
+        {
+          href: '/resource-management/analytics-dashboard',
+          label: 'Dashboard',
+          active: pathname.startsWith(
+            '/resource-management/analytics-dashboard'
+          ),
+          icon: LayoutGrid,
+          submenus: []
+        },
+        {
+          href: '/resource-management/categories',
+          label: 'Categories',
+          active: pathname === '',
+          icon: FolderTree,
+          submenus: [
+            {
+              href: '/resource-management/categories',
+              label: 'Parent categories',
+              active: pathname === '/resource-management/categories'
+            },
+            {
+              href: '/resource-management/categories/sub-categories',
+              label: 'Sub categories',
+              active:
+                pathname === '/resource-management/categories/sub-categories'
+            }
+          ]
+        },
+
+        {
+          href: '/resource-management/resources',
+          label: 'Resources',
+          active: pathname.startsWith('/resource-management/resources'),
+          icon: Package,
+          submenus: []
+        },
+        {
+          href: '/resource-management/reservations',
+          label: 'Reservations',
+          active: pathname.startsWith('/resource-management/reservations'),
+          icon: Calendar,
+          submenus: [
+            {
+              href: '/resource-management/reservations',
+              label: 'All Reservations',
+              active: pathname === '/resource-management/reservations'
+            },
+            {
+              href: '/resource-management/reservations/my-reservations',
+              label: 'My Reservations',
+              active:
+                pathname === '/resource-management/reservations/my-reservations'
+            }
+          ]
+        },
+        {
+          href: '/resource-management/reservations/approvals',
+          label: 'Approvals',
+          active: pathname.startsWith(
+            '/resource-management/reservations/approvals'
+          ),
+          icon: CheckSquare,
+          submenus: []
+        },
+        {
+          href: '/resource-management/maintenance',
+          label: 'Maintenance',
+          active: pathname.startsWith('/resource-management/maintenance'),
+          icon: Wrench,
           submenus: []
         }
       ]
@@ -1021,8 +1015,8 @@ export function GetRoleBasedPages(
     return allMenus.map((group) => ({
       ...group,
       menus: group.menus.filter((menu) => {
-        // Hide student portal pages (my-*) from super admin
-        if (menu.href.includes('/learners/my-')) {
+        // Hide student portal pages (my-* and leave-onduty) from super admin
+        if (menu.href.includes('/learners/my-') || menu.href === '/learners/leave-onduty/my-applications') {
           return false;
         }
         return true;
@@ -1088,6 +1082,17 @@ export function GetRoleBasedPages(
             return false; // Hide from non-super admin users
           }
 
+          // Special case: Student portal pages (my-* and leave-onduty) are ONLY for students
+          // This check must come BEFORE the submenus check
+          if (
+            menu.href.includes('/learners/my-') ||
+            menu.href === '/learners/leave-onduty/my-applications' ||
+            menu.href === '/my-bug-reports' ||
+            menu.href === '/bug-leaderboard'
+          ) {
+            return userRole.role_key === 'student';
+          }
+
           // Special handling for parent menus with submenus
           if (menu.submenus.length > 0) {
             // Show parent if any submenu is accessible
@@ -1098,11 +1103,6 @@ export function GetRoleBasedPages(
                 userRole.permissions[requiredPermission] === true
               );
             });
-          }
-
-          // Special case: Student portal pages (my-*) are ONLY for students
-          if (menu.href.includes('/learners/my-')) {
-            return userRole.role_key === 'student';
           }
 
           // Check if user has permission for this menu
@@ -1143,6 +1143,11 @@ export function GetRoleBasedPages(
             // Hide "Student Search" submenu for students
             if (isStudent && submenu.href === '/billing/schedule/students') {
               return false;
+            }
+
+            // Student portal submenus (leave-onduty) are shown for students without permission check
+            if (isStudent && submenu.href.startsWith('/learners/leave-onduty')) {
+              return true;
             }
 
             return userRole.permissions[requiredPermission] === true;
