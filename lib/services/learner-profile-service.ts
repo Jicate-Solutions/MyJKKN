@@ -304,11 +304,7 @@ export class LearnerProfileService {
         console.log(`[learner-profile-service] Email change detected: ${profile.email} → ${learnerProfile.college_email}`);
       }
 
-      // Check role (should always be 'student' for learners)
-      if (profile.role !== 'student') {
-        updates.role = 'student';
-        console.log(`[learner-profile-service] Role correction needed: ${profile.role} → student`);
-      }
+      // Role check removed - roles are now managed via user_roles table (multi-role support)
 
       // Check is_active (based on lifecycle_status)
       const shouldBeActive = learnerProfile.lifecycle_status === 'active';
@@ -318,18 +314,19 @@ export class LearnerProfileService {
       }
 
       // Check learner_id link (ensure profile is linked to learner)
-      if (!profile.learner_id || profile.learner_id !== learnerId) {
+      const profileAny = profile as any;
+      if (!profileAny.learner_id || profileAny.learner_id !== learnerId) {
         updates.learner_id = learnerId;
-        console.log(`[learner-profile-service] Learner link needed: ${profile.learner_id || 'null'} → ${learnerId}`);
+        console.log(`[learner-profile-service] Learner link needed: ${profileAny.learner_id || 'null'} → ${learnerId}`);
       }
 
       // Check institution_id
-      if (learnerProfile.institution_id && profile.institution_id !== learnerProfile.institution_id) {
+      if (learnerProfile.institution_id && profileAny.institution_id !== learnerProfile.institution_id) {
         updates.institution_id = learnerProfile.institution_id;
       }
 
       // Check department_id
-      if (learnerProfile.department_id && profile.department_id !== learnerProfile.department_id) {
+      if (learnerProfile.department_id && profileAny.department_id !== learnerProfile.department_id) {
         updates.department_id = learnerProfile.department_id;
       }
 
