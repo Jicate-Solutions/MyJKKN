@@ -37,7 +37,7 @@ export function AtRiskStudentsWidget({ isVisible }: AtRiskStudentsWidgetProps) {
       title='At-Risk Students'
       icon={AlertTriangle}
       isLoading={isLoading}
-      error={error?.message || 'Failed to load at-risk students'}
+      error={error?.message}
       className='col-span-1 sm:col-span-2 lg:col-span-2'
     >
       <div className='space-y-3'>

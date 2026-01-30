@@ -35,7 +35,7 @@ export function RecentActivityWidget({ isVisible }: RecentActivityWidgetProps) {
       title='Recent Activity'
       icon={Activity}
       isLoading={isLoading}
-      error={error?.message || 'Failed to load recent activity'}
+      error={error?.message}
       className='col-span-1 sm:col-span-2 lg:col-span-1'
     >
       <div className='space-y-3'>

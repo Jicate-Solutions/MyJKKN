@@ -1,6 +1,9 @@
 'use client';
 
 import { AttendanceWidget } from '../widgets/student/attendance-widget';
+import { TimetableTodayWidget } from '../widgets/student/timetable-today-widget';
+import { BillingWidget } from '../widgets/student/billing-widget';
+import { MyCelebrationWidget } from '../widgets/student/my-celebration-widget';
 import { CelebrationsTodayWidget } from '../widgets/shared/celebrations-today-widget';
 
 interface StudentDashboardProps {
@@ -27,10 +30,21 @@ export default function StudentDashboard({
           isVisible={visibilityMap.student_attendance ?? true}
         />
 
-        {/* TODO: Add remaining widgets in subsequent tasks */}
-        {/* - TimetableTodayWidget */}
-        {/* - BillingWidget */}
-        {/* - MyCelebrationWidget */}
+        <TimetableTodayWidget
+          studentId={studentId}
+          sectionId={sectionId}
+          isVisible={visibilityMap.student_timetable_today ?? true}
+        />
+
+        <BillingWidget
+          studentId={studentId}
+          isVisible={visibilityMap.student_billing ?? true}
+        />
+
+        <MyCelebrationWidget
+          userId={userId}
+          isVisible={visibilityMap.my_celebration_countdown ?? true}
+        />
 
         {/* This spans 2 columns on tablet+ */}
         <CelebrationsTodayWidget

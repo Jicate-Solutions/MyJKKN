@@ -37,7 +37,7 @@ export class StudentDashboardService {
 
     // Get student's section to query attendance
     const { data: student, error: studentError } = await supabase
-      .from('students')
+      .from('learners_profiles')
       .select('section_id')
       .eq('id', studentId)
       .single();
