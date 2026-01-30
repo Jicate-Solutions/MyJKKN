@@ -46,6 +46,13 @@ export class CelebrationService {
       return { birthdays: [], workAnniversaries: [] };
     }
 
+    // Super admins may not have an institution_id - skip celebrations for them
+    // or in the future, allow them to see all institutions' celebrations
+    if (!userProfile.institution_id) {
+      logger.info('dashboard/celebrations', 'No institution_id for user, skipping celebrations', { userId, role });
+      return { birthdays: [], workAnniversaries: [] };
+    }
+
     const today = new Date();
     const todayMonth = today.getMonth() + 1;
     const todayDay = today.getDate();
