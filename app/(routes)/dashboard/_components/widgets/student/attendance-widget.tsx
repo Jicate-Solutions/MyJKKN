@@ -5,23 +5,25 @@ import { Calendar, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { useStudentAttendance } from '@/hooks/dashboard/use-student-dashboard';
 
 interface AttendanceWidgetProps {
-  present: number;
-  absent: number;
-  total: number;
-  isLoading?: boolean;
-  error?: string | null;
+  studentId: string;
+  isVisible: boolean;
 }
 
 export function AttendanceWidget({
-  present,
-  absent,
-  total,
-  isLoading = false,
-  error = null,
+  studentId,
+  isVisible,
 }: AttendanceWidgetProps) {
   const router = useRouter();
+  const { data, isLoading, error } = useStudentAttendance(studentId);
+
+  if (!isVisible) return null;
+
+  const present = data?.present || 0;
+  const absent = data?.absent || 0;
+  const total = data?.total || 0;
 
   const percentage = total > 0 ? Math.round((present / total) * 100) : 0;
 
@@ -38,7 +40,7 @@ export function AttendanceWidget({
     return ['#dc2626', '#94a3b8']; // red, gray
   };
 
-  const data = [
+  const chartData = [
     { name: 'Present', value: present },
     { name: 'Absent', value: absent },
   ];
@@ -54,7 +56,7 @@ export function AttendanceWidget({
       title="My Attendance"
       icon={Calendar}
       isLoading={isLoading}
-      error={error}
+      error={error ? error.message : null}
       onClick={handleClick}
     >
       <div className="space-y-4">
@@ -65,7 +67,7 @@ export function AttendanceWidget({
             <ResponsiveContainer width={120} height={120}>
               <PieChart>
                 <Pie
-                  data={data}
+                  data={chartData}
                   cx="50%"
                   cy="50%"
                   innerRadius={35}
@@ -138,7 +140,7 @@ export function AttendanceWidget({
             <span>Good standing</span>
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-1 text-xs text-red-600">
+          <div className="flex-1 flex items-center justify-center gap-1 text-xs text-red-600">
             <TrendingDown className="h-3 w-3" />
             <span>Needs improvement</span>
           </div>

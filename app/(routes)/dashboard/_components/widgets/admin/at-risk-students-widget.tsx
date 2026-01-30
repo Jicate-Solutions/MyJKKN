@@ -1,9 +1,9 @@
 'use client';
 
 import { AlertTriangle, TrendingDown, DollarSign } from 'lucide-react';
-import { WidgetContainer } from '../../widget-container';
 import { useAtRiskStudents } from '@/hooks/dashboard/use-admin-dashboard';
 import { Badge } from '@/components/ui/badge';
+import { WidgetContainer } from '../shared/widget-container';
 
 interface AtRiskStudentsWidgetProps {
   isVisible: boolean;
@@ -37,7 +37,7 @@ export function AtRiskStudentsWidget({ isVisible }: AtRiskStudentsWidgetProps) {
       title='At-Risk Students'
       icon={AlertTriangle}
       isLoading={isLoading}
-      error={error}
+      error={error?.message || 'Failed to load at-risk students'}
       className='col-span-1 sm:col-span-2 lg:col-span-2'
     >
       <div className='space-y-3'>
