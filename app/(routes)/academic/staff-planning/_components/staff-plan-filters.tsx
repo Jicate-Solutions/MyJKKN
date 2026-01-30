@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { RotateCcw } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { RotateCcw, CalendarCheck } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -20,6 +22,7 @@ import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { StaffPlanningSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
 import { logger } from '@/lib/utils/enhanced-logger';
+import type { AcademicYear } from '@/types/academics';
 
 interface StaffPlanFiltersProps {
   searchParams: StaffPlanningSearchParams;
@@ -47,12 +50,11 @@ export function StaffPlanFilters({
   const [semesters, setSemesters] = useState<
     Array<{ id: string; semester_name: string }>
   >([]);
-  const [academicYears, setAcademicYears] = useState<
-    Array<{ id: string; academic_year_name: string }>
-  >([]);
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [courses, setCourses] = useState<
     Array<{ id: string; course_code: string; course_name: string }>
   >([]);
+  const [currentAcademicYear, setCurrentAcademicYear] = useState<AcademicYear | null>(null);
   const [loading, setLoading] = useState(false);
   const { isSuperAdmin, userProfile } = usePermissions();
 
@@ -88,6 +90,37 @@ export function StaffPlanFilters({
     onFilterChange,
     loading
   ]);
+
+  // Fetch current academic year when institution is selected
+  useEffect(() => {
+    async function loadCurrentAcademicYear() {
+      if (searchParams.institution_id && userProfile?.institution_id) {
+        try {
+          const allYears = await AcademicYearService.getAcademicYearsByInstitution(
+            searchParams.institution_id
+          );
+
+          // Find current academic year based on today's date
+          const today = new Date();
+          const current = allYears.find((year) => {
+            const startDate = new Date(year.start_date);
+            const endDate = new Date(year.end_date);
+            return today >= startDate && today <= endDate && year.is_active;
+          });
+
+          setCurrentAcademicYear(current || null);
+
+          // Auto-set current academic year filter if not already set
+          if (current && !searchParams.academic_year_id) {
+            onFilterChange('academic_year_id', current.id);
+          }
+        } catch (error) {
+          logger.error('academic/staff-planning', 'Error loading current academic year', error);
+        }
+      }
+    }
+    loadCurrentAcademicYear();
+  }, [searchParams.institution_id, userProfile, searchParams.academic_year_id, onFilterChange]);
 
   useEffect(() => {
     async function loadDegrees() {
@@ -208,8 +241,72 @@ export function StaffPlanFilters({
     searchParams.isActive
   );
 
+  // Determine if we're showing all years or a specific year
+  const showingAllYears = !searchParams.academic_year_id;
+  const selectedYear = academicYears.find((year) => year.id === searchParams.academic_year_id);
+
   return (
     <div className='space-y-4'>
+      {/* Academic Year Quick Switcher - Prominent Section */}
+      {searchParams.institution_id && academicYears.length > 0 && (
+        <div className='rounded-lg border border-blue-200 bg-blue-50 p-4'>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+            <div className='flex items-center gap-2'>
+              <CalendarCheck className='h-5 w-5 text-blue-600' />
+              <Label className='text-sm font-medium text-blue-900'>Academic Year Filter:</Label>
+              {currentAcademicYear && searchParams.academic_year_id === currentAcademicYear.id && (
+                <Badge variant='default' className='bg-green-600'>
+                  Current Year
+                </Badge>
+              )}
+              {showingAllYears && (
+                <Badge variant='secondary'>All Years</Badge>
+              )}
+              {selectedYear && searchParams.academic_year_id !== currentAcademicYear?.id && (
+                <Badge variant='outline'>{selectedYear.academic_year_name}</Badge>
+              )}
+            </div>
+
+            <div className='flex items-center gap-2'>
+              <Select
+                value={searchParams.academic_year_id || 'all'}
+                onValueChange={(value) => {
+                  onFilterChange('academic_year_id', value === 'all' ? undefined : value);
+                }}
+              >
+                <SelectTrigger className='w-full bg-white sm:w-[220px]'>
+                  <SelectValue placeholder='Select academic year' />
+                </SelectTrigger>
+                <SelectContent className='max-h-60 overflow-y-auto'>
+                  <SelectItem value='all'>All Academic Years</SelectItem>
+                  {academicYears.map((year) => (
+                    <SelectItem key={year.id} value={year.id}>
+                      <div className='flex items-center gap-2'>
+                        {year.academic_year_name}
+                        {currentAcademicYear?.id === year.id && (
+                          <span className='text-xs text-green-600'>(Current)</span>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {!showingAllYears && (
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => onFilterChange('academic_year_id', undefined)}
+                  className='text-blue-600 hover:text-blue-700'
+                >
+                  Show All Years
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
         <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
           {isSuperAdmin && (
@@ -345,26 +442,6 @@ export function StaffPlanFilters({
             {semesters.map((semester) => (
               <SelectItem key={semester.id} value={semester.id}>
                 {semester.semester_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={searchParams.academic_year_id || 'all'}
-          onValueChange={(value) => {
-            onFilterChange('academic_year_id', value === 'all' ? undefined : value);
-          }}
-          disabled={!searchParams.institution_id}
-        >
-          <SelectTrigger className='w-full sm:w-[180px]'>
-            <SelectValue placeholder='Select academic year' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Academic Years</SelectItem>
-            {academicYears.map((year) => (
-              <SelectItem key={year.id} value={year.id}>
-                {year.academic_year_name}
               </SelectItem>
             ))}
           </SelectContent>
