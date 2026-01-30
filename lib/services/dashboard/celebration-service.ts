@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export interface Celebration {
   id: string;
@@ -8,8 +9,6 @@ export interface Celebration {
   age?: number;
   years?: number;
   role: string;
-  department?: string;
-  institution?: string;
   avatar_url?: string;
   days_until: number;
 }
@@ -31,13 +30,19 @@ export class CelebrationService {
     const supabase = createClientSupabaseClient();
 
     // Get user's institution for scoping
-    const { data: userProfile } = await supabase
+    const { data: userProfile, error: profileError } = await supabase
       .from('profiles')
       .select('institution_id, department_id')
       .eq('id', userId)
       .single();
 
+    if (profileError) {
+      logger.error('dashboard/celebrations', 'Failed to fetch user profile', profileError);
+      return { birthdays: [], workAnniversaries: [] };
+    }
+
     if (!userProfile) {
+      logger.warn('dashboard/celebrations', 'No user profile found', { userId });
       return { birthdays: [], workAnniversaries: [] };
     }
 
@@ -48,13 +53,15 @@ export class CelebrationService {
     const birthdays: Celebration[] = [];
 
     // Get staff birthdays
-    const { data: staffBirthdays } = await supabase
+    const { data: staffBirthdays, error: staffError } = await supabase
       .from('staff')
       .select('id, full_name, date_of_birth, avatar_url, department_id, staff_category')
       .eq('institution_id', userProfile.institution_id)
       .not('date_of_birth', 'is', null);
 
-    if (staffBirthdays) {
+    if (staffError) {
+      logger.error('dashboard/celebrations', 'Failed to fetch staff birthdays', staffError);
+    } else if (staffBirthdays) {
       staffBirthdays.forEach((staff) => {
         const dob = new Date(staff.date_of_birth!);
         if (dob.getMonth() + 1 === todayMonth && dob.getDate() === todayDay) {
@@ -75,14 +82,16 @@ export class CelebrationService {
 
     // Get student birthdays (only if faculty/admin)
     if (role !== 'student') {
-      const { data: studentBirthdays } = await supabase
+      const { data: studentBirthdays, error: studentError } = await supabase
         .from('learners_profiles')
         .select('id, full_name, date_of_birth, avatar_url, section_id')
         .eq('institution_id', userProfile.institution_id)
         .eq('lifecycle_status', 'active')
         .not('date_of_birth', 'is', null);
 
-      if (studentBirthdays) {
+      if (studentError) {
+        logger.error('dashboard/celebrations', 'Failed to fetch student birthdays', studentError);
+      } else if (studentBirthdays) {
         studentBirthdays.forEach((student) => {
           const dob = new Date(student.date_of_birth!);
           if (dob.getMonth() + 1 === todayMonth && dob.getDate() === todayDay) {
@@ -105,13 +114,15 @@ export class CelebrationService {
     // Get work anniversaries (staff only)
     const workAnniversaries: Celebration[] = [];
 
-    const { data: staffAnniversaries } = await supabase
+    const { data: staffAnniversaries, error: anniversaryError } = await supabase
       .from('staff')
       .select('id, full_name, joining_date, avatar_url, staff_category')
       .eq('institution_id', userProfile.institution_id)
       .not('joining_date', 'is', null);
 
-    if (staffAnniversaries) {
+    if (anniversaryError) {
+      logger.error('dashboard/celebrations', 'Failed to fetch staff work anniversaries', anniversaryError);
+    } else if (staffAnniversaries) {
       staffAnniversaries.forEach((staff) => {
         const joinDate = new Date(staff.joining_date!);
         if (joinDate.getMonth() + 1 === todayMonth && joinDate.getDate() === todayDay) {
@@ -146,10 +157,15 @@ export class CelebrationService {
     const celebrations: Celebration[] = [];
     const today = new Date();
 
-    const { data: staff } = await supabase
+    const { data: staff, error: staffError } = await supabase
       .from('staff')
       .select('id, full_name, date_of_birth, joining_date, avatar_url, staff_category')
       .eq('institution_id', institutionId);
+
+    if (staffError) {
+      logger.error('dashboard/celebrations', 'Failed to fetch staff for upcoming celebrations', staffError);
+      return [];
+    }
 
     if (staff) {
       staff.forEach((person) => {
@@ -205,25 +221,35 @@ export class CelebrationService {
   static async getMyNextCelebration(userId: string): Promise<Celebration | null> {
     const supabase = createClientSupabaseClient();
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role, institution_id')
       .eq('id', userId)
       .single();
 
-    if (!profile) return null;
+    if (profileError) {
+      logger.error('dashboard/celebrations', 'Failed to fetch profile for next celebration', profileError);
+      return null;
+    }
+
+    if (!profile) {
+      logger.warn('dashboard/celebrations', 'No profile found for user', { userId });
+      return null;
+    }
 
     const today = new Date();
     const celebrations: Celebration[] = [];
 
     if (profile.role === 'student') {
-      const { data: student } = await supabase
+      const { data: student, error: studentError } = await supabase
         .from('learners_profiles')
         .select('id, full_name, date_of_birth')
         .eq('profile_id', userId)
         .single();
 
-      if (student?.date_of_birth) {
+      if (studentError) {
+        logger.error('dashboard/celebrations', 'Failed to fetch student profile for celebration', studentError);
+      } else if (student?.date_of_birth) {
         const dob = new Date(student.date_of_birth);
         const thisYearBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
         let daysUntil = Math.ceil((thisYearBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
@@ -244,13 +270,15 @@ export class CelebrationService {
         });
       }
     } else {
-      const { data: staff } = await supabase
+      const { data: staff, error: staffError } = await supabase
         .from('staff')
         .select('id, full_name, date_of_birth, joining_date, staff_category')
         .eq('profile_id', userId)
         .single();
 
-      if (staff) {
+      if (staffError) {
+        logger.error('dashboard/celebrations', 'Failed to fetch staff profile for celebration', staffError);
+      } else if (staff) {
         if (staff.date_of_birth) {
           const dob = new Date(staff.date_of_birth);
           const thisYearBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
