@@ -55,7 +55,7 @@ export class CelebrationService {
     // Get staff birthdays
     const { data: staffBirthdays, error: staffError } = await supabase
       .from('staff')
-      .select('id, full_name, date_of_birth, avatar_url, department_id, staff_category')
+      .select('id, first_name, last_name, date_of_birth, profile_picture, department_id, category_id')
       .eq('institution_id', userProfile.institution_id)
       .not('date_of_birth', 'is', null);
 
@@ -66,14 +66,15 @@ export class CelebrationService {
         const dob = new Date(staff.date_of_birth!);
         if (dob.getMonth() + 1 === todayMonth && dob.getDate() === todayDay) {
           const age = today.getFullYear() - dob.getFullYear();
+          const fullName = [staff.first_name, staff.last_name].filter(Boolean).join(' ');
           birthdays.push({
             id: staff.id,
-            name: staff.full_name,
+            name: fullName || 'Unknown',
             type: 'birthday',
             date: staff.date_of_birth!,
             age,
-            role: staff.staff_category || 'Staff',
-            avatar_url: staff.avatar_url,
+            role: 'Staff',
+            avatar_url: staff.profile_picture || undefined,
             days_until: 0
           });
         }
@@ -84,7 +85,7 @@ export class CelebrationService {
     if (role !== 'student') {
       const { data: studentBirthdays, error: studentError } = await supabase
         .from('learners_profiles')
-        .select('id, full_name, date_of_birth, avatar_url, section_id')
+        .select('id, first_name, last_name, date_of_birth, student_photo_url, section_id')
         .eq('institution_id', userProfile.institution_id)
         .eq('lifecycle_status', 'active')
         .not('date_of_birth', 'is', null);
@@ -96,14 +97,15 @@ export class CelebrationService {
           const dob = new Date(student.date_of_birth!);
           if (dob.getMonth() + 1 === todayMonth && dob.getDate() === todayDay) {
             const age = today.getFullYear() - dob.getFullYear();
+            const fullName = [student.first_name, student.last_name].filter(Boolean).join(' ');
             birthdays.push({
               id: student.id,
-              name: student.full_name,
+              name: fullName || 'Unknown',
               type: 'birthday',
               date: student.date_of_birth!,
               age,
               role: 'Student',
-              avatar_url: student.avatar_url,
+              avatar_url: student.student_photo_url || undefined,
               days_until: 0
             });
           }
@@ -116,26 +118,27 @@ export class CelebrationService {
 
     const { data: staffAnniversaries, error: anniversaryError } = await supabase
       .from('staff')
-      .select('id, full_name, joining_date, avatar_url, staff_category')
+      .select('id, first_name, last_name, date_of_joining, profile_picture, category_id')
       .eq('institution_id', userProfile.institution_id)
-      .not('joining_date', 'is', null);
+      .not('date_of_joining', 'is', null);
 
     if (anniversaryError) {
       logger.error('dashboard/celebrations', 'Failed to fetch staff work anniversaries', anniversaryError);
     } else if (staffAnniversaries) {
       staffAnniversaries.forEach((staff) => {
-        const joinDate = new Date(staff.joining_date!);
+        const joinDate = new Date(staff.date_of_joining!);
         if (joinDate.getMonth() + 1 === todayMonth && joinDate.getDate() === todayDay) {
           const years = today.getFullYear() - joinDate.getFullYear();
           if (years > 0) {
+            const fullName = [staff.first_name, staff.last_name].filter(Boolean).join(' ');
             workAnniversaries.push({
               id: staff.id,
-              name: staff.full_name,
+              name: fullName || 'Unknown',
               type: 'work_anniversary',
-              date: staff.joining_date!,
+              date: staff.date_of_joining!,
               years,
-              role: staff.staff_category || 'Staff',
-              avatar_url: staff.avatar_url,
+              role: 'Staff',
+              avatar_url: staff.profile_picture || undefined,
               days_until: 0
             });
           }
@@ -159,7 +162,7 @@ export class CelebrationService {
 
     const { data: staff, error: staffError } = await supabase
       .from('staff')
-      .select('id, full_name, date_of_birth, joining_date, avatar_url, staff_category')
+      .select('id, first_name, last_name, date_of_birth, date_of_joining, profile_picture, category_id')
       .eq('institution_id', institutionId);
 
     if (staffError) {
@@ -169,6 +172,8 @@ export class CelebrationService {
 
     if (staff) {
       staff.forEach((person) => {
+        const fullName = [person.first_name, person.last_name].filter(Boolean).join(' ');
+
         // Check birthday
         if (person.date_of_birth) {
           const dob = new Date(person.date_of_birth);
@@ -178,20 +183,20 @@ export class CelebrationService {
           if (daysUntil > 0 && daysUntil <= days) {
             celebrations.push({
               id: person.id,
-              name: person.full_name,
+              name: fullName || 'Unknown',
               type: 'birthday',
               date: person.date_of_birth,
               age: today.getFullYear() - dob.getFullYear(),
-              role: person.staff_category || 'Staff',
-              avatar_url: person.avatar_url,
+              role: 'Staff',
+              avatar_url: person.profile_picture || undefined,
               days_until: daysUntil
             });
           }
         }
 
         // Check work anniversary
-        if (person.joining_date) {
-          const joinDate = new Date(person.joining_date);
+        if (person.date_of_joining) {
+          const joinDate = new Date(person.date_of_joining);
           const thisYearAnniversary = new Date(today.getFullYear(), joinDate.getMonth(), joinDate.getDate());
           const daysUntil = Math.ceil((thisYearAnniversary.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
           const years = today.getFullYear() - joinDate.getFullYear();
@@ -199,12 +204,12 @@ export class CelebrationService {
           if (daysUntil > 0 && daysUntil <= days && years > 0) {
             celebrations.push({
               id: person.id,
-              name: person.full_name,
+              name: fullName || 'Unknown',
               type: 'work_anniversary',
-              date: person.joining_date,
+              date: person.date_of_joining,
               years,
-              role: person.staff_category || 'Staff',
-              avatar_url: person.avatar_url,
+              role: 'Staff',
+              avatar_url: person.profile_picture || undefined,
               days_until: daysUntil
             });
           }
@@ -243,8 +248,8 @@ export class CelebrationService {
     if (profile.role === 'student') {
       const { data: student, error: studentError } = await supabase
         .from('learners_profiles')
-        .select('id, full_name, date_of_birth')
-        .eq('profile_id', userId)
+        .select('id, first_name, last_name, date_of_birth')
+        .eq('user_id', userId)
         .single();
 
       if (studentError) {
@@ -259,9 +264,10 @@ export class CelebrationService {
           daysUntil = Math.ceil((nextYearBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
         }
 
+        const fullName = [student.first_name, student.last_name].filter(Boolean).join(' ');
         celebrations.push({
           id: student.id,
-          name: student.full_name,
+          name: fullName || 'Unknown',
           type: 'birthday',
           date: student.date_of_birth,
           age: today.getFullYear() - dob.getFullYear(),
@@ -272,13 +278,15 @@ export class CelebrationService {
     } else {
       const { data: staff, error: staffError } = await supabase
         .from('staff')
-        .select('id, full_name, date_of_birth, joining_date, staff_category')
-        .eq('profile_id', userId)
+        .select('id, first_name, last_name, date_of_birth, date_of_joining, category_id')
+        .eq('user_id', userId)
         .single();
 
       if (staffError) {
         logger.error('dashboard/celebrations', 'Failed to fetch staff profile for celebration', staffError);
       } else if (staff) {
+        const fullName = [staff.first_name, staff.last_name].filter(Boolean).join(' ');
+
         if (staff.date_of_birth) {
           const dob = new Date(staff.date_of_birth);
           const thisYearBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
@@ -291,17 +299,17 @@ export class CelebrationService {
 
           celebrations.push({
             id: staff.id,
-            name: staff.full_name,
+            name: fullName || 'Unknown',
             type: 'birthday',
             date: staff.date_of_birth,
             age: today.getFullYear() - dob.getFullYear(),
-            role: staff.staff_category || 'Staff',
+            role: 'Staff',
             days_until: daysUntil
           });
         }
 
-        if (staff.joining_date) {
-          const joinDate = new Date(staff.joining_date);
+        if (staff.date_of_joining) {
+          const joinDate = new Date(staff.date_of_joining);
           const thisYearAnniversary = new Date(today.getFullYear(), joinDate.getMonth(), joinDate.getDate());
           let daysUntil = Math.ceil((thisYearAnniversary.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
           const years = today.getFullYear() - joinDate.getFullYear();
@@ -314,11 +322,11 @@ export class CelebrationService {
           if (years > 0) {
             celebrations.push({
               id: staff.id,
-              name: staff.full_name,
+              name: fullName || 'Unknown',
               type: 'work_anniversary',
-              date: staff.joining_date,
+              date: staff.date_of_joining,
               years,
-              role: staff.staff_category || 'Staff',
+              role: 'Staff',
               days_until: daysUntil
             });
           }
