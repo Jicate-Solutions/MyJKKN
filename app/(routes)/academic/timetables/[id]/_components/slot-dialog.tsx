@@ -1219,18 +1219,21 @@ export function SlotDialog({
                         )}
                       </SelectContent>
                     </Select>
-                    {/* Updated: 2025-12-01 - Only show warning if no staff available for selected course */}
-                    {!isUsingStaffPlanningData && courses?.length > 0 && courseAssignedStaff?.length === 0 && !existingSlotStaff?.length && (
-                      <p className='text-xs text-amber-600'>
-                        ⚠️ No staff planning found for semester &quot;
+                    {/* Updated: 2026-01-30 - Show warning when no staff planning exists */}
+                    {!isUsingStaffPlanningData && courses?.length === 0 && (
+                      <p className='text-xs text-red-600'>
+                        ❌ No staff planning found for semester &quot;
                         {timetable?.semesters?.semester_name ||
                           timetable?.semester_id}
-                        &quot;. Showing all available courses.
+                        &quot; and academic year &quot;
+                        {timetable?.academic_year?.academic_year_name ||
+                          timetable?.academic_year_id}
+                        &quot;. Please create a staff plan first or clone an existing plan to this academic year.
                       </p>
                     )}
-                    {(isUsingStaffPlanningData || courseAssignedStaff?.length > 0 || existingSlotStaff?.length > 0) && (
+                    {isUsingStaffPlanningData && courses?.length > 0 && (
                       <p className='text-xs text-green-600'>
-                        ✓ Showing courses for semester
+                        ✓ Showing courses from staff planning for semester
                         &quot;
                         {timetable?.semesters?.semester_name ||
                           timetable?.semester_id}

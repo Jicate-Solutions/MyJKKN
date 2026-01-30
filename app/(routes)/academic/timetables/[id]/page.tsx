@@ -336,37 +336,34 @@ export default function TimetableDetailPage({
   const courseMappings = courseMappingsQuery.data?.data || [];
 
   // Computed values for courses and staff to use in slot creation
-  // Use staff planning data if available, otherwise fall back to filtered courses based on mappings
+  // Fixed: 2026-01-30 - ONLY use staff planning data, no fallback to all courses
+  // This ensures timetables only use courses/staff that have been properly planned
   const courses = useMemo(() => {
-    // If staff planning courses are available, use them
+    // Only return staff planning courses - no fallback
+    // If no staff planning exists for this semester/academic year, return empty
     if (staffPlanningCourses.length > 0) {
       return staffPlanningCourses;
     }
 
-    // Fixed: 2025-12-31 - Filter allCourses by course mappings to show only relevant courses
-    // Extract course IDs from course mappings for this timetable's program/department/semester
-    const mappedCourseIds = new Set(courseMappings.map(mapping => mapping.course_id));
-
-    // Filter allCourses to only include courses with valid mappings
-    const filteredCourses = allCourses.filter(course => mappedCourseIds.has(course.id));
-
-    logger.info('academic/timetables', 'Filtering courses by mappings', {
-      totalCourses: allCourses.length,
-      mappedCourses: mappedCourseIds.size,
-      filteredCourses: filteredCourses.length,
+    // No staff planning found - return empty array (user must create staff plan first)
+    logger.warn('academic/timetables', 'No staff planning courses found - returning empty', {
       timetableProgram: timetable?.program_id,
       timetableDepartment: timetable?.department_id,
-      timetableSemester: timetable?.semester_id
+      timetableSemester: timetable?.semester_id,
+      timetableAcademicYear: timetable?.academic_year_id
     });
 
-    return filteredCourses;
-  }, [staffPlanningCourses, allCourses, courseMappings, timetable]);
+    return [];
+  }, [staffPlanningCourses, timetable]);
 
-  // Fixed: 2025-11-07 - Merge staff from existing slot when editing
+  // Fixed: 2026-01-30 - ONLY use staff planning data, no fallback to all staff
+  // This ensures timetables only use staff that have been properly planned
   const staff = useMemo(() => {
-    const baseStaff = staffPlanningStaff.length > 0 ? staffPlanningStaff : allStaff;
+    // Only use staff planning staff - no fallback to allStaff
+    const baseStaff = staffPlanningStaff.length > 0 ? staffPlanningStaff : [];
 
     // If editing an existing slot, merge in any staff that are assigned but not in staff planning
+    // This allows viewing/editing existing slots even if staff planning was removed
     if (slotDialog.isOpen && slotDialog.data.selectedSlot) {
       const existingSlot = slotDialog.data.selectedSlot;
 
@@ -384,7 +381,7 @@ export default function TimetableDetailPage({
     }
 
     return baseStaff;
-  }, [staffPlanningStaff, allStaff, slotDialog.isOpen, slotDialog.data.selectedSlot]);
+  }, [staffPlanningStaff, slotDialog.isOpen, slotDialog.data.selectedSlot]);
 
   // ===================================
   // Filter sections by semester for slot dialog
