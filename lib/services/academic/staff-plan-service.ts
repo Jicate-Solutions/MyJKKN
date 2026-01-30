@@ -26,6 +26,7 @@ export interface CloneStaffPlanResult {
   message: string;
   excludedStaffCount?: number;
   excludedCourseCount?: number;
+  clonedCount?: number;
 }
 
 export class StaffPlanService {
@@ -703,6 +704,13 @@ export class StaffPlanService {
   }
 
   static async getStaffPlan(id: string): Promise<StaffPlan> {
+    // Validate id parameter
+    if (!id || id === 'undefined' || id === 'null') {
+      const error = new Error(`Invalid staff plan ID: ${id}`);
+      logger.error('academic/staff-planning', 'Invalid ID provided to getStaffPlan', { id });
+      throw error;
+    }
+
     try {
       interface StaffPlanWithRelations extends StaffPlan {
         institution?: { id: string; name: string } | null;
@@ -1141,7 +1149,8 @@ export class StaffPlanService {
         newPlanId: newPlan.id,
         message: `Staff plan cloned successfully. ${clonedCount} course assignments copied.`,
         excludedStaffCount: excludedStaffIds.size,
-        excludedCourseCount: excludedCourseIds.size
+        excludedCourseCount: excludedCourseIds.size,
+        clonedCount
       };
     } catch (error) {
       logger.error('academic/staff-planning', 'Error cloning staff plan to new year', error);

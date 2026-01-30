@@ -48,6 +48,13 @@ export function StaffPlanDetailsPage({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Validate ID before attempting to load
+    if (!id || id === 'undefined' || id === 'null') {
+      setError('Invalid staff plan ID');
+      setLoading(false);
+      return;
+    }
+
     async function loadData() {
       try {
         setLoading(true);
