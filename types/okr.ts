@@ -1,0 +1,862 @@
+// ============================================================================
+// MyJKKN OKR Management Module - TypeScript Types
+// Version: 1.0
+// Created: 2026-01-15
+// ============================================================================
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+/**
+ * OKR Tier determines the complexity and number of sections in the form
+ * - tier_1: Full (11 sections) - For major initiatives, organization/institution level
+ * - tier_2: Core (6 sections) - For department-level quarterly objectives
+ * - tier_3: Simple (3 sections) - For individual goals
+ */
+export type OKRTier = 'tier_1' | 'tier_2' | 'tier_3';
+// Organization level is for group-wide OKRs (JKKN Institutions level, above individual institutions)
+export type OKRLevel = 'organization' | 'institution' | 'department' | 'individual';
+export type OKRCycleType = 'annual' | 'quarterly' | 'semester';
+export type OKRStatus = 'draft' | 'active' | 'completed' | 'archived';
+export type KRStatus = 'not_started' | 'on_track' | 'at_risk' | 'behind' | 'blocked' | 'completed';
+export type KRDataSource = 'manual' | 'auto';
+export type DependencyType = 'external' | 'internal' | 'resource' | 'budget';
+export type DependencyStatus = 'pending' | 'in_progress' | 'completed' | 'blocked';
+export type UpdateSource = 'auto' | 'manual';
+export type UserBadge = 'green' | 'yellow' | 'red' | 'blocked';
+export type RiskLevel = 'high' | 'medium' | 'low';
+export type MilestoneType = '50_percent' | '75_percent' | '100_percent' | 'exceeded';
+
+// ============================================================================
+// TIER SECTION MAPPING
+// ============================================================================
+
+/**
+ * Maps OKR tiers to their required form sections
+ * - tier_1: Full complexity (11 sections) for organization/institution level initiatives
+ * - tier_2: Core complexity (6 sections) for department-level objectives
+ * - tier_3: Simple (3 sections) for individual goals
+ */
+export const TIER_SECTIONS = {
+  tier_1: ['basic', 'strategic', 'kpis', 'keyResults', 'stakeholders', 'dependencies', 'tasks', 'risks', 'resources', 'milestones', 'contingency'],
+  tier_2: ['basic', 'goals', 'keyResults', 'parentAlignment', 'team', 'successCriteria'],
+  tier_3: ['basic', 'keyResults', 'notes']
+} as const;
+
+export type TierSectionKey = keyof typeof TIER_SECTIONS;
+export type TierSections = typeof TIER_SECTIONS[TierSectionKey][number];
+
+// ============================================================================
+// EXTENDED DATA TYPES (for ai_integration_notes JSON structure)
+// ============================================================================
+
+/**
+ * Extended OKR data stored in ai_integration_notes JSON field
+ * Contains tier-specific fields beyond the base OKRObjective columns
+ */
+export interface OKRExtendedData {
+  // Tier 1 & 2 common fields
+  vision_alignment?: string;
+  mission_alignment?: string;
+  stakeholder_impact?: string;
+
+  // Tier 1 specific
+  success_kpis?: Array<{
+    metric_name: string;
+    target: string;
+    measurement_frequency: 'daily' | 'weekly' | 'monthly' | 'quarterly';
+  }>;
+  stakeholders?: Array<{
+    name: string;
+    role: string;
+    involvement_type: 'sponsor' | 'owner' | 'contributor' | 'consulted' | 'informed';
+  }>;
+  dependencies?: Array<{
+    title: string;
+    description: string;
+    dependency_type: 'external' | 'internal' | 'resource' | 'budget';
+    required_by_date?: string;
+  }>;
+  tasks?: Array<{
+    title: string;
+    description?: string;
+    deadline?: string;
+    responsible?: string;
+    accountable?: string;
+  }>;
+  risks?: Array<{
+    description: string;
+    likelihood: 'low' | 'medium' | 'high';
+    impact: 'low' | 'medium' | 'high';
+    mitigation_strategy: string;
+  }>;
+  resources?: {
+    budget?: string;
+    people?: string;
+    tools?: string;
+    external_support?: string;
+  };
+  milestones?: Array<{
+    title: string;
+    target_date: string;
+    description?: string;
+  }>;
+  contingency?: {
+    plan: string;
+    alternative?: string;
+    escalation?: string;
+  };
+
+  // Tier 2 specific
+  department_goals?: string;
+  team_members?: Array<{
+    name: string;
+    role: string;
+  }>;
+  success_criteria?: string[];
+
+  // Tier 3 specific
+  notes?: string;
+}
+
+// ============================================================================
+// CORE TYPES
+// ============================================================================
+
+export interface OKRObjective {
+  id: string;
+  title: string;
+  description: string | null;
+  rationale: string | null;
+  tier: OKRTier;
+  level: OKRLevel;
+  owner_id: string;
+  parent_objective_id: string | null;
+  institution_id: string | null; // null for organization-level OKRs
+  department_id: string | null;
+  cycle_type: OKRCycleType;
+  start_date: string;
+  end_date: string;
+  status: OKRStatus;
+  overall_progress: number;
+  ai_integration_notes: string | null;
+  created_by: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  owner?: OKRUser;
+  parent_objective?: OKRObjective;
+  key_results?: OKRKeyResult[];
+  dependencies?: OKRDependency[];
+  tasks?: OKRTask[];
+  risks?: OKRRisk[];
+  institution?: { id: string; name: string };
+  department?: { id: string; department_name: string };
+}
+
+export interface OKRKeyResult {
+  id: string;
+  objective_id: string;
+  title: string;
+  description: string | null;
+  start_value: number;  // Database column name
+  target_value: number;
+  current_value: number;
+  unit: string;
+  deadline: string;
+  data_source: KRDataSource;
+  data_source_config: Record<string, unknown> | null;  // Database column name
+  progress_percentage: number;  // Database column name
+  status: KRStatus;
+  measured_by: string | null;
+  last_synced_at: string | null;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  objective?: OKRObjective;
+  updates?: OKRKRUpdate[];
+}
+
+export interface OKRCheckIn {
+  id: string;
+  user_id: string;
+  week_number: number;
+  year: number;
+  check_in_date: string | null;
+  due_date: string;
+  is_completed: boolean;
+  is_overdue: boolean;
+  days_overdue: number;
+  overall_notes: string | null;
+  blocker_flagged: boolean;
+  blocker_description: string | null;
+  blocker_assigned_to: string | null;
+  blocker_resolved: boolean;
+  blocker_resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  user?: OKRUser;
+  kr_updates?: OKRKRUpdate[];
+}
+
+export interface OKRKRUpdate {
+  id: string;
+  key_result_id: string;
+  check_in_id: string;
+  previous_value: number;
+  new_value: number;
+  source: UpdateSource;
+  exception_flagged: boolean;
+  exception_note: string | null;
+  auto_calculated: boolean;
+  created_at: string;
+  // Relations
+  key_result?: OKRKeyResult;
+  check_in?: OKRCheckIn;
+}
+
+// Simplified KR update history for display
+export interface OKRKRUpdateHistory {
+  id: string;
+  check_in_date: string;
+  check_in_value: number;
+  previous_value: number;
+  notes?: string | null;
+  source: UpdateSource;
+}
+
+export interface OKRDependency {
+  id: string;
+  objective_id: string;
+  title: string;
+  description: string | null;
+  dependency_type: DependencyType;
+  owner_user_id: string | null;
+  owner_department_id: string | null;
+  required_by_date: string | null;
+  status: DependencyStatus;
+  resolution_notes: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  owner_user?: OKRUser;
+  owner_department?: { id: string; department_name: string };
+}
+
+export interface OKRTask {
+  id: string;
+  objective_id: string;
+  key_result_id: string | null;
+  title: string;
+  description: string | null;
+  deadline: string | null;
+  responsible_id: string | null;
+  accountable_id: string | null;
+  consulted_ids: string[];
+  informed_ids: string[];
+  status: string;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  responsible?: OKRUser;
+  accountable?: OKRUser;
+}
+
+export interface OKRRisk {
+  id: string;
+  objective_id: string;
+  description: string;
+  likelihood: RiskLevel;
+  impact: RiskLevel;
+  mitigation_strategy: string;
+  owner_id: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  owner?: OKRUser;
+}
+
+export interface OKRCompliance {
+  id: string;
+  user_id: string;
+  week_number: number;
+  year: number;
+  check_in_required: boolean;
+  check_in_completed: boolean;
+  completion_date: string | null;
+  is_blocked: boolean;
+  blocked_at: string | null;
+  blocked_reason: string | null;
+  escalation_sent: boolean;
+  escalation_date: string | null;
+  escalation_to: string | null;
+  unblocked_at: string | null;
+  grace_period_end: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OKRUserStatus {
+  id: string;
+  user_id: string;
+  current_badge: UserBadge;
+  consecutive_on_track_weeks: number;
+  consecutive_missed_weeks: number;
+  last_check_in_date: string | null;
+  next_check_in_due: string | null;
+  total_objectives: number;
+  on_track_count: number;
+  at_risk_count: number;
+  behind_count: number;
+  blocked_count: number;
+  updated_at: string;
+}
+
+// ============================================================================
+// LEARNER-SPECIFIC TYPES
+// ============================================================================
+
+export interface LearnerCoreOKR {
+  id: string;
+  institution_id: string;
+  department_id: string | null;
+  program_id: string | null;
+  semester: string | null;
+  kr_title: string;
+  kr_description: string | null;
+  baseline_value: number;
+  target_value: number;
+  unit: string;
+  auto_source_module: string;
+  auto_source_query: string;
+  auto_source_config: Record<string, unknown> | null;
+  is_active: boolean;
+  order_index: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LearnerOKRAssignment {
+  id: string;
+  learner_id: string;
+  core_okr_id: string;
+  academic_year: string;
+  semester: string;
+  current_value: number;
+  progress: number;
+  status: KRStatus;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  core_okr?: LearnerCoreOKR;
+  learner?: OKRUser;
+}
+
+export interface LearnerElectiveOKR {
+  id: string;
+  learner_id: string;
+  title: string;
+  description: string | null;
+  why_matters: string | null;
+  baseline_value: number | null;
+  target_value: number | null;
+  current_value: number;
+  unit: string | null;
+  deadline: string;
+  progress: number;
+  status: KRStatus;
+  is_active: boolean;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================================
+// MILESTONE & CELEBRATION TYPES
+// ============================================================================
+
+export interface OKRMilestone {
+  id: string;
+  objective_id: string | null;
+  key_result_id: string | null;
+  user_id: string;
+  milestone_type: MilestoneType;
+  achieved_at: string;
+  celebration_type: string | null;
+  recognition_notes: string | null;
+  is_announced: boolean;
+  announced_at: string | null;
+  created_at: string;
+  // Relations
+  objective?: OKRObjective;
+  key_result?: OKRKeyResult;
+  user?: OKRUser;
+}
+
+// ============================================================================
+// AUTO-TRACKING TYPES
+// ============================================================================
+
+export interface OKRAutoTrackSource {
+  id: string;
+  source_module: string;
+  metric_name: string;
+  metric_key: string;
+  description: string | null;
+  query_template: string;
+  default_unit: string;
+  refresh_frequency: 'realtime' | 'hourly' | 'daily' | 'weekly';
+  is_active: boolean;
+  created_at: string;
+}
+
+// ============================================================================
+// USER TYPE (Minimal for OKR context)
+// ============================================================================
+
+export interface OKRUser {
+  id: string;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  full_name?: string;
+  avatar_url?: string;
+}
+
+// ============================================================================
+// DTO TYPES (Data Transfer Objects)
+// ============================================================================
+
+export interface CreateOKRObjectiveDTO {
+  title: string;
+  description?: string;
+  rationale?: string;
+  tier: OKRTier;
+  level: OKRLevel;
+  parent_objective_id?: string;
+  institution_id?: string; // Optional - null for organization-level OKRs
+  department_id?: string;
+  cycle_type: OKRCycleType;
+  start_date: string;
+  end_date: string;
+  ai_integration_notes?: string;
+}
+
+export interface UpdateOKRObjectiveDTO {
+  title?: string;
+  description?: string;
+  rationale?: string;
+  status?: OKRStatus;
+  ai_integration_notes?: string;
+}
+
+export interface CreateOKRKeyResultDTO {
+  objective_id: string;
+  title: string;
+  description?: string;
+  start_value: number;
+  target_value: number;
+  unit: string;
+  deadline: string;
+  data_source: KRDataSource;
+  data_source_config?: Record<string, unknown>;
+  measured_by?: string;
+  order_index?: number;
+}
+
+export interface UpdateOKRKeyResultDTO {
+  title?: string;
+  description?: string;
+  current_value?: number;
+  target_value?: number;
+  deadline?: string;
+  measured_by?: string;
+}
+
+export interface CreateOKRCheckInDTO {
+  objective_ids?: string[];
+  kr_updates: {
+    key_result_id: string;
+    new_value: number;
+    exception_flagged?: boolean;
+    exception_note?: string;
+  }[];
+  overall_notes?: string;
+  blocker_flagged?: boolean;
+  blocker_description?: string;
+  blocker_assigned_to?: string;
+}
+
+export interface CreateLearnerElectiveOKRDTO {
+  title: string;
+  description?: string;
+  why_matters?: string;
+  baseline_value?: number;
+  target_value?: number;
+  unit?: string;
+  deadline: string;
+}
+
+export interface CreateOKRDependencyDTO {
+  objective_id: string;
+  title: string;
+  description?: string;
+  dependency_type: DependencyType;
+  owner_user_id?: string;
+  owner_department_id?: string;
+  required_by_date?: string;
+}
+
+export interface CreateOKRTaskDTO {
+  objective_id: string;
+  key_result_id?: string;
+  title: string;
+  description?: string;
+  deadline?: string;
+  responsible_id?: string;
+  accountable_id?: string;
+  consulted_ids?: string[];
+  informed_ids?: string[];
+}
+
+export interface CreateOKRRiskDTO {
+  objective_id: string;
+  description: string;
+  likelihood: RiskLevel;
+  impact: RiskLevel;
+  mitigation_strategy: string;
+  owner_id?: string;
+}
+
+// ============================================================================
+// FILTER TYPES
+// ============================================================================
+
+export interface OKRObjectiveFilters {
+  owner_id?: string;
+  institution_id?: string;
+  department_id?: string;
+  tier?: OKRTier;
+  level?: OKRLevel;
+  status?: OKRStatus;
+  cycle_type?: OKRCycleType;
+  parent_objective_id?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface OKRCheckInFilters {
+  user_id?: string;
+  week_number?: number;
+  year?: number;
+  is_completed?: boolean;
+  is_overdue?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface OKRTeamFilters {
+  manager_id?: string;
+  institution_id?: string;
+  department_id?: string;
+  include_blocked?: boolean;
+}
+
+// ============================================================================
+// RESPONSE TYPES
+// ============================================================================
+
+export interface OKRListResponse<T> {
+  data: T[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+export interface OKRTeamSummary {
+  manager_id: string;
+  total_objectives: number;
+  on_track: number;
+  at_risk: number;
+  behind: number;
+  blocked_users: number;
+  overdue_checkins: number;
+  team_members: OKRTeamMember[];
+}
+
+export interface OKRTeamMember {
+  user_id: string;
+  user: OKRUser;
+  objectives_count: number;
+  average_progress: number;
+  last_check_in_date: string | null;
+  badge: UserBadge;
+  is_blocked: boolean;
+}
+
+export interface OKRNeedsAttention {
+  type: 'overdue_checkin' | 'at_risk_okr' | 'blocked_dependency' | 'missed_deadline';
+  user?: OKRUser;
+  objective?: OKRObjective;
+  key_result?: OKRKeyResult;
+  dependency?: OKRDependency;
+  message: string;
+  days_overdue?: number;
+  progress?: number;
+}
+
+export interface OKRCascadeNode {
+  id: string;
+  title: string;
+  tier: OKRTier;
+  level: OKRLevel;
+  overall_progress: number;
+  owner_id: string;
+  owner?: OKRUser;
+  parent_objective_id: string | null;
+  depth: number;
+  path: string[];
+  key_results?: OKRKeyResult[];
+  children?: OKRCascadeNode[];
+}
+
+export interface OKRDashboardStats {
+  total_objectives: number;
+  active_objectives: number;
+  completed_objectives: number;
+  on_track_count: number;
+  at_risk_count: number;
+  behind_count: number;
+  blocked_count: number;
+  avg_progress: number;
+  check_in_completion_rate: number;
+  auto_tracked_krs: number;
+  manual_krs: number;
+}
+
+export interface OKRAvailableKPI {
+  source_module: string;
+  metric_name: string;
+  metric_key: string;
+  description: string | null;
+  default_unit: string;
+}
+
+// ============================================================================
+// WIDGET TYPES (for Dashboard)
+// ============================================================================
+
+export interface OKRDashboardWidget {
+  type: 'team_summary' | 'my_okrs' | 'needs_attention' | 'cascade_tree' | 'compliance_status';
+  data: unknown;
+}
+
+export interface OKRComplianceWidget {
+  user_id: string;
+  current_week: number;
+  is_blocked: boolean;
+  last_check_in: string | null;
+  next_due: string | null;
+  consecutive_completed: number;
+  consecutive_missed: number;
+}
+
+// ============================================================================
+// NOTIFICATION TYPES
+// ============================================================================
+
+export type OKRNotificationType =
+  | 'weekly_reminder'        // Friday 9 AM - Time to check-in
+  | 'deadline_warning'       // Sunday 3 PM - 2 hours left
+  | 'overdue_alert'          // Monday 9 AM - Check-in overdue
+  | 'manager_escalation'     // Team member blocked
+  | 'milestone_celebration'  // 50%, 75%, 100% milestone
+  | 'badge_change'           // Green -> Yellow, etc.
+  | 'blocker_resolved'       // Your blocker was resolved
+  | 'dependency_update'      // Dependency status changed
+  | 'kr_auto_updated';       // Auto-tracked KR updated
+
+export interface OKRNotification {
+  type: OKRNotificationType;
+  user_id: string;
+  title: string;
+  message: string;
+  data: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface OKRNotificationPayload {
+  type: OKRNotificationType;
+  user_id: string;
+  title: string;
+  body: string;
+  url?: string;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  metadata?: {
+    okr_notification_type?: OKRNotificationType;
+    week_number?: number;
+    year?: number;
+    objective_id?: string;
+    key_result_id?: string;
+    milestone_type?: MilestoneType;
+    old_badge?: UserBadge;
+    new_badge?: UserBadge;
+    consecutive_missed?: number;
+    [key: string]: any;
+  };
+}
+
+export interface OKRUserNotification {
+  id: string;
+  notification_id: string;
+  user_id: string;
+  read_at: string | null;
+  created_at: string;
+  notification: {
+    id: string;
+    title: string;
+    body: string;
+    url: string | null;
+    icon: string | null;
+    priority: 'low' | 'normal' | 'high' | 'urgent';
+    category: string;
+    metadata: Record<string, any> | null;
+    sent_at: string;
+  };
+}
+
+// ============================================================================
+// SOCIAL FEATURES TYPES (Comments, Reactions, Attachments)
+// ============================================================================
+
+export type OKREntityType = 'objective' | 'key_result' | 'check_in';
+export type OKRReactionType = 'like' | 'celebrate' | 'support' | 'insightful' | 'concern' | 'question';
+
+export interface OKRComment {
+  id: string;
+  entity_type: OKREntityType;
+  entity_id: string;
+  content: string;
+  parent_comment_id: string | null;
+  author_id: string;
+  mentioned_user_ids: string[];
+  is_edited: boolean;
+  edited_at: string | null;
+  is_deleted: boolean;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  author?: OKRUser;
+  replies?: OKRComment[];
+}
+
+export interface OKRReaction {
+  id: string;
+  entity_type: OKREntityType | 'comment';
+  entity_id: string;
+  reaction_type: OKRReactionType;
+  user_id: string;
+  created_at: string;
+}
+
+export interface OKRReactionSummary {
+  reaction_type: OKRReactionType;
+  count: number;
+  user_has_reacted: boolean;
+  user_ids: string[];
+}
+
+export interface OKRAttachment {
+  id: string;
+  entity_type: OKREntityType | 'comment';
+  entity_id: string;
+  file_name: string;
+  file_type: string;
+  file_size: number | null;
+  storage_path: string | null;
+  external_url: string | null;
+  description: string | null;
+  thumbnail_path: string | null;
+  uploaded_by: string;
+  created_at: string;
+  // Relations
+  uploader?: OKRUser;
+}
+
+export interface CreateOKRCommentDTO {
+  entity_type: OKREntityType;
+  entity_id: string;
+  content: string;
+  parent_comment_id?: string;
+}
+
+export interface CreateOKRAttachmentDTO {
+  entity_type: OKREntityType | 'comment';
+  entity_id: string;
+  file_name: string;
+  external_url: string;
+  description?: string;
+}
+
+// ============================================================================
+// ANALYTICS & DASHBOARD CHART TYPES
+// ============================================================================
+
+export interface OKRTrendDataPoint {
+  date: string;
+  week: number;
+  progress: number;
+  on_track: number;
+  at_risk: number;
+  behind: number;
+  blocked: number;
+}
+
+export interface OKRDepartmentComparison {
+  department_id: string;
+  department_name: string;
+  total_objectives: number;
+  avg_progress: number;
+  on_track_percentage: number;
+  check_in_rate: number;
+  blocked_users: number;
+}
+
+export interface OKRProjection {
+  objective_id: string;
+  title: string;
+  current_progress: number;
+  projected_progress: number;
+  days_remaining: number;
+  daily_rate_needed: number;
+  current_daily_rate: number;
+  status: 'on_track' | 'at_risk' | 'unlikely';
+}
+
+export interface OKRAnalyticsSummary {
+  total_objectives: number;
+  active_objectives: number;
+  avg_progress: number;
+  check_in_compliance_rate: number;
+  blocked_users_count: number;
+  milestones_achieved_this_week: number;
+  at_risk_objectives: number;
+  trend_direction: 'up' | 'down' | 'stable';
+  trend_percentage: number;
+}
