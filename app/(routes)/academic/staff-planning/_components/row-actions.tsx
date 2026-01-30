@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -30,6 +31,7 @@ import { StaffPlan } from '@/types/staff-planning';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { CloneStaffPlanDialog } from './clone-staff-plan-dialog';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -42,6 +44,7 @@ export function DataTableRowActions<TData>({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
+  const [isCloneDialogOpen, setIsCloneDialogOpen] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewStaffPlan =
@@ -118,6 +121,14 @@ export function DataTableRowActions<TData>({
             <DropdownMenuShortcut>⌘E</DropdownMenuShortcut>
           </DropdownMenuItem>
 
+          <DropdownMenuItem
+            disabled={!canEditStaffPlan}
+            onClick={() => setIsCloneDialogOpen(true)}
+          >
+            <Copy className='mr-2 h-4 w-4' />
+            Clone to New Year
+          </DropdownMenuItem>
+
           <DropdownMenuSeparator />
 
           <AlertDialogTrigger asChild disabled={!canDeleteStaffPlan}>
@@ -155,6 +166,18 @@ export function DataTableRowActions<TData>({
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
+
+      <CloneStaffPlanDialog
+        open={isCloneDialogOpen}
+        onOpenChange={setIsCloneDialogOpen}
+        sourcePlan={staffPlan}
+        onSuccess={() => {
+          toast.success('Staff plan cloned successfully');
+          queryClient.invalidateQueries({ queryKey: ['staff-plans'] });
+          router.refresh();
+          setIsCloneDialogOpen(false);
+        }}
+      />
     </AlertDialog>
   );
 }
