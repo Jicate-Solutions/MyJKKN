@@ -1339,8 +1339,9 @@ export function SlotDialog({
                       <p className='text-xs text-red-600'>
                         ❌ No staff assigned to this course in staff planning
                         for semester &quot;
-                        {timetable?.semester_id}&quot;. Please assign staff in
-                        Staff Planning module first.
+                        {timetable?.semesters?.semester_name || timetable?.semester?.semester_name || 'Unknown Semester'}
+                        &quot; ({timetable?.academic_year?.academic_year_name || 'Unknown Year'}).
+                        Please assign staff in Staff Planning module first.
                       </p>
                     )}
                     {displayStaff?.length > 0 && (
@@ -1414,7 +1415,7 @@ export function SlotDialog({
                           !loadingFilteredSections && (
                             <div className='text-center py-4 text-gray-500 text-sm'>
                               <div className='mb-1'>
-                                No sections found for {timetable?.semester_id}
+                                No sections found for {timetable?.semesters?.semester_name || timetable?.semester?.semester_name || 'this semester'}
                               </div>
                               <div className='text-xs text-gray-400'>
                                 Please create sections for this semester first
@@ -1758,7 +1759,7 @@ export function SlotDialog({
                                   <div className='text-center py-2 text-gray-500 text-xs'>
                                     <div className='mb-1'>
                                       No sections available for{' '}
-                                      {timetable?.semester_id}
+                                      {timetable?.semesters?.semester_name || timetable?.semester?.semester_name || 'this semester'}
                                     </div>
                                     <div className='text-xs text-gray-400'>
                                       Create sections for this semester first
