@@ -5,6 +5,7 @@ import {
 } from '@/lib/auth/api-institution-filter';
 import { TimetableStaffSyncService } from './timetable-staff-sync-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { AcademicYearService } from './academic-year-service';
 import type {
   StaffPlan,
   CreateStaffPlanDto,
@@ -12,6 +13,20 @@ import type {
   StaffPlanListResponse,
   StaffPlanCourse
 } from '@/types/staff-planning';
+
+export interface CloneStaffPlanOptions {
+  adjustDates?: boolean;
+  preserveInactive?: boolean;
+  copyAllAssignments?: boolean;
+}
+
+export interface CloneStaffPlanResult {
+  success: boolean;
+  newPlanId?: string;
+  message: string;
+  excludedStaffCount?: number;
+  excludedCourseCount?: number;
+}
 
 export class StaffPlanService {
   private static supabase = createClientSupabaseClient();
@@ -939,6 +954,265 @@ export class StaffPlanService {
     } catch (error) {
       logger.error('academic/staff-planning', 'Error fetching consolidated staff plan', error);
       throw error;
+    }
+  }
+
+  /**
+   * Clone a staff plan to a new academic year
+   * @param sourcePlanId ID of the staff plan to clone
+   * @param targetAcademicYearId ID of the target academic year
+   * @param options Clone options
+   * @returns Result object with success status and details
+   */
+  static async cloneStaffPlanToNewYear(
+    sourcePlanId: string,
+    targetAcademicYearId: string,
+    options: CloneStaffPlanOptions = {}
+  ): Promise<CloneStaffPlanResult> {
+    try {
+      // Default options
+      const {
+        adjustDates = true,
+        preserveInactive = false,
+        copyAllAssignments = true
+      } = options;
+
+      // 1. Get the source staff plan with all details
+      const sourcePlan = await this.getStaffPlan(sourcePlanId);
+      if (!sourcePlan) {
+        return {
+          success: false,
+          message: 'Source staff plan not found'
+        };
+      }
+
+      // 2. Get target academic year details
+      const targetAcademicYear = await AcademicYearService.getAcademicYear(
+        targetAcademicYearId
+      );
+      if (!targetAcademicYear) {
+        return {
+          success: false,
+          message: 'Target academic year not found'
+        };
+      }
+
+      // 3. Check if a staff plan already exists for this hierarchy in target year
+      interface ExistingPlanCheck {
+        id: string;
+        is_active: boolean;
+      }
+
+      const { data: existingPlans, error: checkError } = (await this.supabase
+        .from('staff_plans')
+        .select('id, is_active')
+        .eq('institution_id', sourcePlan.institution_id)
+        .eq('program_id', sourcePlan.program_id)
+        .eq('semester_id', sourcePlan.semester_id)
+        .eq('academic_year_id', targetAcademicYearId)) as {
+          data: ExistingPlanCheck[] | null;
+          error: any;
+        };
+
+      if (checkError) throw checkError;
+
+      if (existingPlans && existingPlans.length > 0) {
+        return {
+          success: false,
+          message: 'A staff plan already exists for this semester in the target academic year'
+        };
+      }
+
+      // 4. Calculate new dates if adjustDates is enabled
+      let newStartDate = sourcePlan.start_date;
+      let newEndDate = sourcePlan.end_date;
+
+      if (adjustDates) {
+        newStartDate = targetAcademicYear.start_date;
+        newEndDate = targetAcademicYear.end_date;
+      }
+
+      // 5. Create new staff plan
+      const newPlanData: CreateStaffPlanDto = {
+        institution_id: sourcePlan.institution_id,
+        degree_id: sourcePlan.degree_id,
+        department_id: sourcePlan.department_id,
+        program_id: sourcePlan.program_id,
+        semester_id: sourcePlan.semester_id,
+        academic_year_id: targetAcademicYearId,
+        start_date: newStartDate,
+        end_date: newEndDate,
+        is_active: sourcePlan.is_active,
+        courses: [] // Will add courses separately
+      };
+
+      const query: any = this.supabase.from('staff_plans');
+      const { data: newPlan, error: createError } = await query
+        .insert([newPlanData])
+        .select()
+        .single();
+
+      if (createError) throw createError;
+
+      // 6. Clone course assignments
+      let clonedCount = 0;
+      let excludedStaffCount = 0;
+      let excludedCourseCount = 0;
+
+      if (sourcePlan.courses && sourcePlan.courses.length > 0) {
+        // Get all staff IDs to check if they're still active
+        const staffIds = [...new Set(sourcePlan.courses.map(c => c.staff_id))];
+        const courseIds = [...new Set(sourcePlan.courses.map(c => c.course_id))];
+
+        // Check active staff
+        const { data: activeStaff, error: staffError } = await this.supabase
+          .from('staff')
+          .select('id')
+          .in('id', staffIds)
+          .eq('is_active', true);
+
+        if (staffError) throw staffError;
+
+        const activeStaffIds = new Set(activeStaff?.map(s => s.id) || []);
+
+        // Check active courses
+        const { data: activeCourses, error: courseError } = await this.supabase
+          .from('courses')
+          .select('id')
+          .in('id', courseIds)
+          .eq('is_active', true);
+
+        if (courseError) throw courseError;
+
+        const activeCourseIds = new Set(activeCourses?.map(c => c.id) || []);
+
+        // Filter assignments based on options
+        const assignmentsToClone = sourcePlan.courses.filter(assignment => {
+          const staffActive = activeStaffIds.has(assignment.staff_id);
+          const courseActive = activeCourseIds.has(assignment.course_id);
+
+          if (!staffActive) excludedStaffCount++;
+          if (!courseActive) excludedCourseCount++;
+
+          if (copyAllAssignments) {
+            return staffActive && courseActive;
+          } else if (!preserveInactive) {
+            return staffActive && courseActive;
+          }
+          return true;
+        });
+
+        // Insert cloned assignments
+        if (assignmentsToClone.length > 0) {
+          const clonedAssignments = assignmentsToClone.map(assignment => ({
+            staff_plan_id: newPlan.id,
+            course_id: assignment.course_id,
+            staff_id: assignment.staff_id,
+            staff_type: assignment.staff_type
+          }));
+
+          const insertQuery: any = this.supabase.from('staff_plan_courses');
+          const { error: insertError } = await insertQuery.insert(clonedAssignments);
+
+          if (insertError) throw insertError;
+
+          clonedCount = clonedAssignments.length;
+        }
+      }
+
+      logger.info('academic/staff-planning', 'Staff plan cloned successfully', {
+        sourceId: sourcePlanId,
+        newId: newPlan.id,
+        targetYear: targetAcademicYearId,
+        clonedAssignments: clonedCount
+      });
+
+      return {
+        success: true,
+        newPlanId: newPlan.id,
+        message: `Staff plan cloned successfully. ${clonedCount} course assignments copied.`,
+        excludedStaffCount,
+        excludedCourseCount
+      };
+    } catch (error) {
+      logger.error('academic/staff-planning', 'Error cloning staff plan to new year', error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
+  }
+
+  /**
+   * Clone all staff plans for a semester to a new academic year
+   * @param institutionId Institution ID
+   * @param programId Program ID
+   * @param semesterId Semester ID
+   * @param sourceAcademicYearId Source academic year ID
+   * @param targetAcademicYearId Target academic year ID
+   * @param options Clone options
+   * @returns Array of results for each cloned plan
+   */
+  static async cloneSemesterToNewYear(
+    institutionId: string,
+    programId: string,
+    semesterId: string,
+    sourceAcademicYearId: string,
+    targetAcademicYearId: string,
+    options: CloneStaffPlanOptions = {}
+  ): Promise<CloneStaffPlanResult[]> {
+    try {
+      // Get all staff plans for the source semester
+      const { data: sourcePlans, error } = await this.supabase
+        .from('staff_plans')
+        .select('id')
+        .eq('institution_id', institutionId)
+        .eq('program_id', programId)
+        .eq('semester_id', semesterId)
+        .eq('academic_year_id', sourceAcademicYearId);
+
+      if (error) throw error;
+
+      if (!sourcePlans || sourcePlans.length === 0) {
+        return [
+          {
+            success: false,
+            message: 'No staff plans found for the source semester'
+          }
+        ];
+      }
+
+      // Clone each plan
+      const results: CloneStaffPlanResult[] = [];
+      for (const plan of sourcePlans) {
+        const result = await this.cloneStaffPlanToNewYear(
+          plan.id,
+          targetAcademicYearId,
+          options
+        );
+        results.push(result);
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      logger.info('academic/staff-planning', 'Semester cloning completed', {
+        institution: institutionId,
+        program: programId,
+        semester: semesterId,
+        sourceYear: sourceAcademicYearId,
+        targetYear: targetAcademicYearId,
+        total: sourcePlans.length,
+        successful: successCount
+      });
+
+      return results;
+    } catch (error) {
+      logger.error('academic/staff-planning', 'Error cloning semester to new year', error);
+      return [
+        {
+          success: false,
+          message: error instanceof Error ? error.message : 'Unknown error occurred'
+        }
+      ];
     }
   }
 
