@@ -482,7 +482,9 @@ export function SlotDialog({
           ...(timetable?.department_id ? {
             department_id: timetable.department_id
           } : {}),
-          ...(timetable?.program_id ? { program_id: timetable.program_id } : {})
+          ...(timetable?.program_id ? { program_id: timetable.program_id } : {}),
+          // Added: 2026-01-30 - Filter by academic year to show only staff from current timetable's academic year
+          ...(timetable?.academic_year_id ? { academic_year_id: timetable.academic_year_id } : {})
         };
 
         const assignedStaff = await StaffPlanService.getStaffAssignedToCourse(
@@ -533,7 +535,9 @@ export function SlotDialog({
           ...(timetable?.department_id ? {
             department_id: timetable.department_id
           } : {}),
-          ...(timetable?.program_id ? { program_id: timetable.program_id } : {})
+          ...(timetable?.program_id ? { program_id: timetable.program_id } : {}),
+          // Added: 2026-01-30 - Filter by academic year to show only staff from current timetable's academic year
+          ...(timetable?.academic_year_id ? { academic_year_id: timetable.academic_year_id } : {})
         };
 
         const assignedStaff = await StaffPlanService.getStaffAssignedToCourse(
@@ -669,7 +673,9 @@ export function SlotDialog({
           ...(timetable?.department_id ? {
             department_id: timetable.department_id
           } : {}),
-          ...(timetable?.program_id ? { program_id: timetable.program_id } : {})
+          ...(timetable?.program_id ? { program_id: timetable.program_id } : {}),
+          // Added: 2026-01-30 - Filter by academic year to show only staff from current timetable's academic year
+          ...(timetable?.academic_year_id ? { academic_year_id: timetable.academic_year_id } : {})
         };
 
         // Get staff for all courses and combine into unique list
