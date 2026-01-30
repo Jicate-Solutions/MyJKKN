@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { DashboardBentoGrid } from './_components/dashboard-bento-grid';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 import StudentDashboard from './_components/dashboards/student-dashboard';
+import AdminDashboard from './_components/dashboards/admin-dashboard';
 import { redirect } from 'next/navigation';
 
 export default async function DashboardPage() {
@@ -165,11 +166,12 @@ async function RoleBasedDashboard() {
 
     case 'admin':
     case 'super_admin': {
-      // TODO: Implement AdminDashboard in next task
       return (
-        <div className='text-center py-8 text-muted-foreground'>
-          Admin dashboard coming soon...
-        </div>
+        <AdminDashboard
+          userId={user.id}
+          role={profile.role}
+          visibilityMap={visibilityMap}
+        />
       );
     }
 
