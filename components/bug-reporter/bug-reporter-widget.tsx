@@ -1024,7 +1024,7 @@ export function BugReporterWidget() {
               disabled={isCapturingScreenshot}
               className={`fixed ${
                 isMobileDevice() ? 'bottom-24 right-2' : 'bottom-4 right-4'
-              } z-[60] bg-red-600 hover:bg-red-700 rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget`}
+              } z-[95] bg-red-600 hover:bg-red-700 rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget`}
               variant='outline'
             >
               {isCapturingScreenshot ? (
