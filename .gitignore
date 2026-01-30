@@ -45,3 +45,6 @@ next-env.d.ts
 nul
 tmpclaude-b3ce-cwd
 tmpclaude-*
+
+# git worktrees
+.worktrees/
