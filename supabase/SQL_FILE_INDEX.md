@@ -69,6 +69,7 @@ When updating any SQL file:
 | API             | api_keys                                                                                                                                                                                                                | 1     | ✅                          |
 | User Management | profiles, users, user_institution_access, custom_roles                                                                                                                                                                  | 4     | ✅                          |
 | Dashboard       | dashboard_configurations, dashboard_widgets, dashboard_widget_types                                                                                                                                                     | 3     | ✅                          |
+| Dashboard System | user_dashboard_preferences, dashboard_widgets                                                                                                                                                           | 2     | ✅ Personalized role-based widgets |
 | **Engagement Analytics** | **user_sessions, daily_engagement_metrics, student_engagement_scores, mv_engagement_overview (materialized view)** | **4** | **✅ Complete - Advanced student engagement tracking** |
 | Child App Auth  | ~~child_app_analytics, child_app_auth_codes_bucket, child_app_unified_sessions~~ (REMOVED 2025-01-20)                                                                                                     | 0     | ❌ Dropped - moved to auth server                          |
 | LTI Integration | lti_tools, lti_launches, lti_grades                                                                                                                                                                                         | 3     | ✅ Complete - MATLAB integration |
@@ -185,6 +186,41 @@ When updating any SQL file:
 ```
 
 ## 📝 Change Log
+
+### 2026-01-30: Personalized Dashboard System
+
+- **Migration**: `migrations/20260130140000_create_dashboard_tables.sql` ✅ **APPLIED**
+
+  **Purpose**: Personalized role-based dashboard system with customizable widget visibility per user
+
+  **Tables Created**:
+  - `user_dashboard_preferences` - Widget visibility preferences per user/role
+    - Fields: user_id, role, widget_id, is_visible, created_at, updated_at
+    - Composite primary key: (user_id, role, widget_id)
+    - Indexes: user_role index, widget_id index
+  - `dashboard_widgets` - Registry of available widgets per role
+    - Fields: widget_id, role, title, description, category, default_visible, display_order
+    - Composite primary key: (widget_id, role)
+    - Indexes: role index, category index
+
+  **Features**:
+  - ✅ Role-based widget registry (student, faculty, leadership, admin)
+  - ✅ Per-user widget visibility preferences
+  - ✅ Customizable dashboard settings dialog
+  - ✅ Widget grouping by category (Academic, Finance, Community, etc.)
+  - ✅ Reset to defaults functionality
+  - ✅ Optimistic UI updates
+  - ✅ Mobile-responsive design
+
+  **Application Layer**:
+  - Service: `lib/services/dashboard/dashboard-preferences-service.ts`
+  - Hooks: `hooks/dashboard/use-dashboard-preferences.ts`
+  - Components:
+    - `app/(routes)/dashboard/_components/dashboard-settings-dialog.tsx`
+    - `app/(routes)/dashboard/_components/widget-visibility-settings.tsx`
+    - `app/(routes)/dashboard/_components/widget-registry.ts`
+
+  **Remaining Work**: Phases 2-6 (additional widgets, drag-and-drop, analytics, performance)
 
 ### 2025-01-19: Advanced Engagement Analytics System ⭐ NEW
 
