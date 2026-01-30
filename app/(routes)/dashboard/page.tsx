@@ -3,6 +3,8 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { DashboardBentoGrid } from './_components/dashboard-bento-grid';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
+import StudentDashboard from './_components/dashboards/student-dashboard';
+import { redirect } from 'next/navigation';
 
 export default async function DashboardPage() {
   console.log('[Dashboard Page] 🏠 Dashboard page loaded');
@@ -20,6 +22,11 @@ export default async function DashboardPage() {
         {/* BentoGrid Section - Server rendered with Suspense */}
         <Suspense fallback={<LoadingSkeleton />}>
           <BentoGridSection />
+        </Suspense>
+
+        {/* Role-Based Dashboard Section - Server rendered with Suspense */}
+        <Suspense fallback={<LoadingSkeleton />}>
+          <RoleBasedDashboard />
         </Suspense>
       </div>
     </ContentLayout>
@@ -57,4 +64,122 @@ async function BentoGridSection() {
       <DashboardBentoGrid currentUser={currentUser} />
     </div>
   );
+}
+
+/**
+ * Role-Based Dashboard Section - Async Server Component
+ */
+async function RoleBasedDashboard() {
+  const supabase = await createServerSupabaseClient();
+
+  // Get current user
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect('/login');
+  }
+
+  // Get user profile with role
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, role')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile) {
+    redirect('/login');
+  }
+
+  // Fetch dashboard preferences
+  const { data: preferences } = await supabase
+    .from('user_dashboard_preferences')
+    .select('widget_id, is_visible')
+    .eq('user_id', user.id);
+
+  // Build visibility map from preferences
+  const visibilityMap: Record<string, boolean> = {};
+  if (preferences && preferences.length > 0) {
+    preferences.forEach((pref) => {
+      visibilityMap[pref.widget_id] = pref.is_visible;
+    });
+  }
+
+  // Route to role-specific dashboard
+  switch (profile.role) {
+    case 'student': {
+      // Fetch learner profile to get student_id and section_id
+      const { data: learner } = await supabase
+        .from('learners_profiles')
+        .select('id, section_id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!learner) {
+        console.error('[Dashboard] Student role but no learner profile found');
+        return (
+          <div className='text-center py-8 text-muted-foreground'>
+            Student profile not found. Please contact administration.
+          </div>
+        );
+      }
+
+      if (!learner.section_id) {
+        console.warn('[Dashboard] Student has no section assigned');
+        return (
+          <div className='text-center py-8 text-muted-foreground'>
+            No section assigned. Please contact administration.
+          </div>
+        );
+      }
+
+      return (
+        <StudentDashboard
+          userId={user.id}
+          studentId={learner.id}
+          sectionId={learner.section_id}
+          role={profile.role}
+          visibilityMap={visibilityMap}
+        />
+      );
+    }
+
+    case 'faculty': {
+      // TODO: Implement FacultyDashboard in next task
+      return (
+        <div className='text-center py-8 text-muted-foreground'>
+          Faculty dashboard coming soon...
+        </div>
+      );
+    }
+
+    case 'leadership': {
+      // TODO: Implement LeadershipDashboard in next task
+      return (
+        <div className='text-center py-8 text-muted-foreground'>
+          Leadership dashboard coming soon...
+        </div>
+      );
+    }
+
+    case 'admin':
+    case 'super_admin': {
+      // TODO: Implement AdminDashboard in next task
+      return (
+        <div className='text-center py-8 text-muted-foreground'>
+          Admin dashboard coming soon...
+        </div>
+      );
+    }
+
+    default: {
+      console.error('[Dashboard] Unknown role:', profile.role);
+      return (
+        <div className='text-center py-8 text-muted-foreground'>
+          Dashboard not available for your role.
+        </div>
+      );
+    }
+  }
 }
