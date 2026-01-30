@@ -87,14 +87,8 @@ export function BulkCloneStaffPlanDialog({
     },
   });
 
-  React.useEffect(() => {
-    if (open && institutionId) {
-      fetchAcademicYears();
-      fetchSemesters();
-    }
-  }, [open, institutionId]);
-
-  const fetchAcademicYears = async () => {
+  // Fix Issue 1: Wrap fetch functions with useCallback to fix exhaustive-deps
+  const fetchAcademicYears = React.useCallback(async () => {
     try {
       const { data } = await AcademicYearService.getAcademicYears({
         institution_id: institutionId,
@@ -107,9 +101,9 @@ export function BulkCloneStaffPlanDialog({
     } catch (error) {
       logger.error('academic/staff-planning', 'Error fetching academic years', error);
     }
-  };
+  }, [institutionId]);
 
-  const fetchSemesters = async () => {
+  const fetchSemesters = React.useCallback(async () => {
     try {
       const { data } = await SemesterService.getSemesters({
         institution_id: institutionId,
@@ -123,9 +117,29 @@ export function BulkCloneStaffPlanDialog({
     } catch (error) {
       logger.error('academic/staff-planning', 'Error fetching semesters', error);
     }
-  };
+  }, [institutionId]);
+
+  // Fetch data when dialog opens
+  React.useEffect(() => {
+    if (open && institutionId) {
+      fetchAcademicYears();
+      fetchSemesters();
+    }
+  }, [open, institutionId, fetchAcademicYears, fetchSemesters]);
+
+  // Fix Issue 2: Reset form and state when dialog closes (from any source)
+  React.useEffect(() => {
+    if (!open) {
+      setCloneResults([]);
+      setCloneProgress(0);
+      form.reset();
+    }
+  }, [open, form]);
 
   const onSubmit = async (values: BulkCloneFormValues) => {
+    // Fix Issue 3: Prevent double submission
+    if (isLoading) return;
+
     try {
       setIsLoading(true);
       setCloneProgress(0);
