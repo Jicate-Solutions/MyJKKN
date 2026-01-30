@@ -5,7 +5,7 @@ import { SidebarToggle } from './sidebar-toggle';
 import { Menu } from '../Navbar/menu';
 import { useSidebarToggle } from '@/hooks/use-sidebar-toggle';
 import Link from 'next/link';
-import { SiPhpmyadmin } from 'react-icons/si';
+import Image from 'next/image';
 
 const Sidebar = () => {
   const sidebars = useStore(useSidebarToggle, (state) => state);
@@ -31,16 +31,23 @@ const Sidebar = () => {
           asChild
         >
           <Link href='/' className='flex items-center gap-2'>
-            <SiPhpmyadmin className='w-8 h-8 mr-1 text-sidebar-primary' />
+            <Image
+              src='/logo.png'
+              alt='MYJKKN Logo'
+              width={32}
+              height={32}
+              className='mr-1 rounded-sm'
+            />
             <h1
               className={cn(
-                'font-semibold text-lg whitespace-nowrap transition-[transform,opacity,display] ease-in-out duration-300 text-sidebar-foreground',
+                'font-bold text-md text-green-700 whitespace-nowrap transition-[transform,opacity,display] ease-in-out duration-300',
+                'text-sidebar-foreground',
                 sidebars?.isOpen === false
                   ? '-translate-x-96 opacity-0 hidden'
                   : 'translate-x-0 opacity-100'
               )}
             >
-              MyJKKN
+              MYJKKN
             </h1>
           </Link>
         </Button>
