@@ -17,7 +17,7 @@ import type {
 export interface CloneStaffPlanOptions {
   adjustDates?: boolean;
   preserveInactive?: boolean;
-  copyAllAssignments?: boolean;
+  excludeInactiveAssignments?: boolean;
 }
 
 export interface CloneStaffPlanResult {
@@ -974,7 +974,7 @@ export class StaffPlanService {
       const {
         adjustDates = true,
         preserveInactive = false,
-        copyAllAssignments = true
+        excludeInactiveAssignments = true
       } = options;
 
       // 1. Get the source staff plan with all details
@@ -1056,8 +1056,8 @@ export class StaffPlanService {
 
       // 6. Clone course assignments
       let clonedCount = 0;
-      let excludedStaffCount = 0;
-      let excludedCourseCount = 0;
+      const excludedStaffIds = new Set<string>();
+      const excludedCourseIds = new Set<string>();
 
       if (sourcePlan.courses && sourcePlan.courses.length > 0) {
         // Get all staff IDs to check if they're still active
@@ -1091,15 +1091,24 @@ export class StaffPlanService {
           const staffActive = activeStaffIds.has(assignment.staff_id);
           const courseActive = activeCourseIds.has(assignment.course_id);
 
-          if (!staffActive) excludedStaffCount++;
-          if (!courseActive) excludedCourseCount++;
+          // Track unique excluded staff and courses
+          if (!staffActive) excludedStaffIds.add(assignment.staff_id);
+          if (!courseActive) excludedCourseIds.add(assignment.course_id);
 
-          if (copyAllAssignments) {
-            return staffActive && courseActive;
-          } else if (!preserveInactive) {
-            return staffActive && courseActive;
+          // Logic:
+          // - preserveInactive=true: Copy ALL assignments (active and inactive)
+          // - excludeInactiveAssignments=true: Copy ONLY assignments with active staff AND courses
+          // - Both false: Copy only active staff/courses (default behavior)
+          if (preserveInactive) {
+            return true; // Copy everything including inactive
           }
-          return true;
+
+          if (excludeInactiveAssignments) {
+            return staffActive && courseActive; // Only copy if both are active
+          }
+
+          // Default: copy only if both are active
+          return staffActive && courseActive;
         });
 
         // Insert cloned assignments
@@ -1131,8 +1140,8 @@ export class StaffPlanService {
         success: true,
         newPlanId: newPlan.id,
         message: `Staff plan cloned successfully. ${clonedCount} course assignments copied.`,
-        excludedStaffCount,
-        excludedCourseCount
+        excludedStaffCount: excludedStaffIds.size,
+        excludedCourseCount: excludedCourseIds.size
       };
     } catch (error) {
       logger.error('academic/staff-planning', 'Error cloning staff plan to new year', error);
