@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -58,19 +58,36 @@ export function StaffPlanFilters({
   const [loading, setLoading] = useState(false);
   const { isSuperAdmin, userProfile } = usePermissions();
 
+  // Memoize onFilterChange to prevent stale closures in effects
+  const stableOnFilterChange = useCallback(onFilterChange, [onFilterChange]);
+
   useEffect(() => {
+    const abortController = new AbortController();
+    let isMounted = true;
+
     async function loadInstitutions() {
       try {
         setLoading(true);
         const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
+        if (isMounted) {
+          setInstitutions(data);
+        }
       } catch (error) {
-        logger.error('academic/staff-planning', 'Error loading institutions', error);
+        if (isMounted && !abortController.signal.aborted) {
+          logger.error('academic/staff-planning', 'Error loading institutions', error);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
     loadInstitutions();
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, []);
 
   // Auto-set institution filter for non-super admin users
@@ -81,24 +98,31 @@ export function StaffPlanFilters({
       !searchParams.institution_id &&
       !loading
     ) {
-      onFilterChange('institution_id', userProfile.institution_id);
+      stableOnFilterChange('institution_id', userProfile.institution_id);
     }
   }, [
     userProfile,
     isSuperAdmin,
     searchParams.institution_id,
-    onFilterChange,
+    stableOnFilterChange,
     loading
   ]);
 
-  // Fetch current academic year when institution is selected
+  // Fetch academic years and determine current year when institution is selected
   useEffect(() => {
-    async function loadCurrentAcademicYear() {
-      if (searchParams.institution_id && userProfile?.institution_id) {
+    const abortController = new AbortController();
+    let isMounted = true;
+
+    async function loadAcademicYears() {
+      if (searchParams.institution_id) {
         try {
           const allYears = await AcademicYearService.getAcademicYearsByInstitution(
             searchParams.institution_id
           );
+
+          if (!isMounted || abortController.signal.aborted) return;
+
+          setAcademicYears(allYears);
 
           // Find current academic year based on today's date
           const today = new Date();
@@ -111,123 +135,187 @@ export function StaffPlanFilters({
           setCurrentAcademicYear(current || null);
 
           // Auto-set current academic year filter if not already set
-          if (current && !searchParams.academic_year_id) {
-            onFilterChange('academic_year_id', current.id);
+          if (current && !searchParams.academic_year_id && userProfile?.institution_id) {
+            stableOnFilterChange('academic_year_id', current.id);
           }
         } catch (error) {
-          logger.error('academic/staff-planning', 'Error loading current academic year', error);
+          if (isMounted && !abortController.signal.aborted) {
+            logger.error('academic/staff-planning', 'Error loading academic years', error);
+          }
+        }
+      } else {
+        if (isMounted) {
+          setAcademicYears([]);
+          setCurrentAcademicYear(null);
         }
       }
     }
-    loadCurrentAcademicYear();
-  }, [searchParams.institution_id, userProfile, searchParams.academic_year_id, onFilterChange]);
+    loadAcademicYears();
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
+  }, [searchParams.institution_id, userProfile, searchParams.academic_year_id, stableOnFilterChange]);
 
   useEffect(() => {
+    const abortController = new AbortController();
+    let isMounted = true;
+
     async function loadDegrees() {
       if (searchParams.institution_id) {
         try {
           const data = await DegreeService.getDegreesByInstitution(
             searchParams.institution_id
           );
-          setDegrees(data);
+          if (isMounted && !abortController.signal.aborted) {
+            setDegrees(data);
+          }
         } catch (error) {
-          logger.error('academic/staff-planning', 'Error loading degrees', error);
+          if (isMounted && !abortController.signal.aborted) {
+            logger.error('academic/staff-planning', 'Error loading degrees', error);
+          }
         }
       } else {
-        setDegrees([]);
+        if (isMounted) {
+          setDegrees([]);
+        }
       }
     }
     loadDegrees();
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, [searchParams.institution_id]);
 
   useEffect(() => {
+    const abortController = new AbortController();
+    let isMounted = true;
+
     async function loadDepartments() {
       if (searchParams.degree_id) {
         try {
           const data = await DepartmentService.getDepartmentsByDegree(
             searchParams.degree_id
           );
-          setDepartments(data);
+          if (isMounted && !abortController.signal.aborted) {
+            setDepartments(data);
+          }
         } catch (error) {
-          logger.error('academic/staff-planning', 'Error loading departments', error);
+          if (isMounted && !abortController.signal.aborted) {
+            logger.error('academic/staff-planning', 'Error loading departments', error);
+          }
         }
       } else {
-        setDepartments([]);
+        if (isMounted) {
+          setDepartments([]);
+        }
       }
     }
     loadDepartments();
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, [searchParams.degree_id]);
 
   useEffect(() => {
+    const abortController = new AbortController();
+    let isMounted = true;
+
     async function loadPrograms() {
       if (searchParams.department_id) {
         try {
           const data = await ProgramService.getProgramsByDepartment(
             searchParams.department_id
           );
-          setPrograms(data);
+          if (isMounted && !abortController.signal.aborted) {
+            setPrograms(data);
+          }
         } catch (error) {
-          logger.error('academic/staff-planning', 'Error loading programs', error);
+          if (isMounted && !abortController.signal.aborted) {
+            logger.error('academic/staff-planning', 'Error loading programs', error);
+          }
         }
       } else {
-        setPrograms([]);
+        if (isMounted) {
+          setPrograms([]);
+        }
       }
     }
     loadPrograms();
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, [searchParams.department_id]);
 
   useEffect(() => {
+    const abortController = new AbortController();
+    let isMounted = true;
+
     async function loadSemesters() {
       if (searchParams.program_id) {
         try {
           const data = await SemesterService.getSemestersByProgram(
             searchParams.program_id
           );
-          setSemesters(data);
+          if (isMounted && !abortController.signal.aborted) {
+            setSemesters(data);
+          }
         } catch (error) {
-          logger.error('academic/staff-planning', 'Error loading semesters', error);
+          if (isMounted && !abortController.signal.aborted) {
+            logger.error('academic/staff-planning', 'Error loading semesters', error);
+          }
         }
       } else {
-        setSemesters([]);
+        if (isMounted) {
+          setSemesters([]);
+        }
       }
     }
     loadSemesters();
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, [searchParams.program_id]);
 
   useEffect(() => {
-    async function loadAcademicYears() {
-      if (searchParams.institution_id) {
-        try {
-          const data = await AcademicYearService.getAcademicYearsByInstitution(
-            searchParams.institution_id
-          );
-          setAcademicYears(data);
-        } catch (error) {
-          logger.error('academic/staff-planning', 'Error loading academic years', error);
-        }
-      } else {
-        setAcademicYears([]);
-      }
-    }
-    loadAcademicYears();
-  }, [searchParams.institution_id]);
+    const abortController = new AbortController();
+    let isMounted = true;
 
-  useEffect(() => {
     async function loadCourses() {
       if (searchParams.institution_id) {
         try {
           const data = await StaffPlanService.getCoursesByInstitution(
             searchParams.institution_id
           );
-          setCourses(data);
+          if (isMounted && !abortController.signal.aborted) {
+            setCourses(data);
+          }
         } catch (error) {
-          logger.error('academic/staff-planning', 'Error loading courses', error);
+          if (isMounted && !abortController.signal.aborted) {
+            logger.error('academic/staff-planning', 'Error loading courses', error);
+          }
         }
       } else {
-        setCourses([]);
+        if (isMounted) {
+          setCourses([]);
+        }
       }
     }
     loadCourses();
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, [searchParams.institution_id]);
 
   const hasActiveFilters = !!(
