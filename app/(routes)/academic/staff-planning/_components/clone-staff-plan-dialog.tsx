@@ -33,10 +33,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-
-import { StaffPlanningService } from "@/lib/services/academic/staff-planning-service";
-import type { StaffPlan } from "@/types/academic/staff-planning";
-import type { AcademicYear } from "@/types/academic";
+import { StaffPlan } from "@/types/staff-planning";
+import { AcademicYear } from "@/types/academics";
+import { StaffPlanService } from "@/lib/services/academic/staff-plan-service";
+import { AcademicYearService } from "@/lib/services/academic/academic-year-service";
 
 // Form validation schema
 const cloneStaffPlanSchema = z.object({
@@ -75,15 +75,21 @@ export function CloneStaffPlanDialog({
 
   // Fetch academic years when dialog opens
   React.useEffect(() => {
-    if (open) {
+    if (open && sourcePlan?.institution_id) {
       loadAcademicYears();
     }
-  }, [open]);
+  }, [open, sourcePlan?.institution_id]);
 
   const loadAcademicYears = async () => {
+    // Guard against invalid sourcePlan
+    if (!sourcePlan?.institution_id) {
+      toast.error("Invalid staff plan: missing institution");
+      return;
+    }
+
     setIsLoadingYears(true);
     try {
-      const years = await StaffPlanningService.getAcademicYears(
+      const years = await AcademicYearService.getAcademicYearsByInstitution(
         sourcePlan.institution_id
       );
       // Filter out the source academic year
@@ -100,27 +106,35 @@ export function CloneStaffPlanDialog({
   };
 
   const onSubmit = async (values: CloneStaffPlanFormValues) => {
+    // Validate sourcePlan before proceeding
+    if (!sourcePlan?.id) {
+      toast.error("Invalid staff plan selected");
+      return;
+    }
+
     try {
-      const result = await StaffPlanningService.cloneStaffPlan(
+      const result = await StaffPlanService.cloneStaffPlanToNewYear(
         sourcePlan.id,
         values.target_academic_year_id,
         {
-          adjust_dates: values.adjust_dates,
-          preserve_inactive: values.preserve_inactive,
+          adjustDates: values.adjust_dates,
+          preserveInactive: values.preserve_inactive,
         }
       );
 
       // Show appropriate toast based on result
-      if (result.skipped_count > 0) {
+      const skippedCount = (result.excludedStaffCount || 0) + (result.excludedCourseCount || 0);
+      
+      if (skippedCount > 0) {
         toast.info(
-          `Plan cloned successfully. ${result.skipped_count} inactive assignment(s) skipped.`,
+          `Plan cloned successfully. ${skippedCount} inactive assignment(s) skipped.`,
           {
-            description: `Created ${result.cloned_count} assignment(s)`,
+            description: `Created ${result.clonedCount} assignment(s)`,
           }
         );
       } else {
         toast.success("Staff plan cloned successfully", {
-          description: `Created ${result.cloned_count} assignment(s)`,
+          description: `Created ${result.clonedCount} assignment(s)`,
         });
       }
 
@@ -135,7 +149,7 @@ export function CloneStaffPlanDialog({
 
       // Navigate to the new plan
       router.push(
-        `/academic/staff-planning/${result.new_plan_id}?cloned=true`
+        `/academic/staff-planning/${result.newPlanId}?cloned=true`
       );
     } catch (error) {
       console.error("[staff-planning] Failed to clone staff plan:", error);
@@ -165,17 +179,26 @@ export function CloneStaffPlanDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Source plan details */}
-          <div className="rounded-lg border bg-muted/50 p-3 space-y-1">
-            <p className="text-sm font-medium">Source Plan</p>
-            <p className="text-sm text-muted-foreground">
-              {sourcePlan.plan_name}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Academic Year: {sourcePlan.academic_year?.year_name}
-            </p>
+        {/* Error state for invalid sourcePlan */}
+        {!sourcePlan?.id ? (
+          <div className="p-4 text-center space-y-2">
+            <p className="text-sm text-destructive">Invalid staff plan selected</p>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
           </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Source plan details */}
+            <div className="rounded-lg border bg-muted/50 p-3 space-y-1">
+              <p className="text-sm font-medium">Source Plan</p>
+              <p className="text-sm text-muted-foreground">
+                {sourcePlan.program?.program_name} - {sourcePlan.semester?.semester_name}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Academic Year: {sourcePlan.academic_year?.academic_year_name}
+              </p>
+            </div>
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -208,7 +231,7 @@ export function CloneStaffPlanDialog({
                         ) : (
                           academicYears.map((year) => (
                             <SelectItem key={year.id} value={year.id}>
-                              {year.year_name}
+                              {year.academic_year_name}
                             </SelectItem>
                           ))
                         )}
@@ -292,6 +315,7 @@ export function CloneStaffPlanDialog({
             </form>
           </Form>
         </div>
+        )}
       </DialogContent>
     </Dialog>
   );
