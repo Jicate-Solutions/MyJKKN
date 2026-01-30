@@ -5,7 +5,7 @@ import { columns } from './columns';
 import type { StaffPlanningSearchParams } from './data-table-schema';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon } from 'lucide-react';
+import { Plus, TrashIcon, CopyPlus } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { StaffPlan } from '@/types/staff-planning';
@@ -25,6 +25,7 @@ import {
   AlertDialogTrigger
 } from '@/components/ui/alert-dialog';
 import { useState } from 'react';
+import { BulkCloneStaffPlanDialog } from './bulk-clone-dialog';
 
 interface StaffPlanningDataTableProps {
   search: StaffPlanningSearchParams;
@@ -42,6 +43,7 @@ export function StaffPlanningDataTable({
     null
   );
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showBulkCloneDialog, setShowBulkCloneDialog] = useState(false);
 
   const {
     canAccess,
@@ -168,14 +170,25 @@ export function StaffPlanningDataTable({
   }) => (
     <div className='flex items-center gap-2'>
       {canCreateStaffPlan && (
-        <Button
-          onClick={() => router.push('/academic/staff-planning/new')}
-          size='sm'
-          className='h-8'
-        >
-          <Plus className='mr-2 h-4 w-4' />
-          Create Staff Plan
-        </Button>
+        <>
+          <Button
+            onClick={() => router.push('/academic/staff-planning/new')}
+            size='sm'
+            className='h-8'
+          >
+            <Plus className='mr-2 h-4 w-4' />
+            Create Staff Plan
+          </Button>
+          <Button
+            variant='outline'
+            onClick={() => setShowBulkCloneDialog(true)}
+            size='sm'
+            className='h-8'
+          >
+            <CopyPlus className='mr-2 h-4 w-4' />
+            Bulk Clone
+          </Button>
+        </>
       )}
       {canDeleteStaffPlan && props.selectedRows.length > 0 && (
         <Button
@@ -286,6 +299,16 @@ export function StaffPlanningDataTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulk Clone Dialog */}
+      <BulkCloneStaffPlanDialog
+        open={showBulkCloneDialog}
+        onOpenChange={setShowBulkCloneDialog}
+        institutionId={userProfile?.institution_id || ''}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['staff-plans'] });
+        }}
+      />
     </>
   );
 }
