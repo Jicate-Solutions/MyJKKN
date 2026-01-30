@@ -89,10 +89,11 @@ export class AdminDashboardService {
       .from('learners_profiles')
       .select(`
         id,
-        full_name,
-        student_id,
+        first_name,
+        last_name,
+        roll_number,
         institution:institutions(name),
-        section:sections(name)
+        section:sections(section_name)
       `)
       .eq('lifecycle_status', 'active')
       .limit(limit);
@@ -103,15 +104,18 @@ export class AdminDashboardService {
     }
 
     // For now, return basic data - enhance with attendance/billing data
-    return (students || []).map(s => ({
-      id: s.id,
-      name: s.full_name,
-      student_id: s.student_id || 'N/A',
-      attendance_percentage: 65, // TODO: Calculate from attendance data
-      pending_fees: 0, // TODO: Calculate from billing data
-      institution_name: (s.institution as any)?.name || 'N/A',
-      section_name: (s.section as any)?.name || 'N/A',
-      risk_level: 'medium' as const
-    }));
+    return (students || []).map(s => {
+      const fullName = [s.first_name, s.last_name].filter(Boolean).join(' ');
+      return {
+        id: s.id,
+        name: fullName || 'Unknown',
+        student_id: s.roll_number || 'N/A',
+        attendance_percentage: 65, // TODO: Calculate from attendance data
+        pending_fees: 0, // TODO: Calculate from billing data
+        institution_name: (s.institution as any)?.name || 'N/A',
+        section_name: (s.section as any)?.section_name || 'N/A',
+        risk_level: 'medium' as const
+      };
+    });
   }
 }
