@@ -125,8 +125,8 @@ export function DataTableRowActions<TData>({
             disabled={!canEditStaffPlan}
             onClick={() => setIsCloneDialogOpen(true)}
           >
-            <Copy className='mr-2 h-4 w-4' />
-            Clone to New Year
+            
+            Clone Plan
           </DropdownMenuItem>
 
           <DropdownMenuSeparator />

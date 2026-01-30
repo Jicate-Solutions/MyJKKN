@@ -177,7 +177,8 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
     department_id: sectionFilterDepartment,
     program_id: sectionFilterProgram,
     semester_id: sectionFilterSemester,
-    isActive: true
+    isActive: true,
+    limit: 1000 // Fixed: 2025-01-30 - Fetch all sections for leave management
   });
 
   const degrees = (degreesQuery.data?.data || []) as Degree[];

@@ -181,8 +181,14 @@ CREATE POLICY "academic_years_insert_by_role" ON academic_years
                 p.role IN ('super_admin', 'admin')
                 OR (cr.permissions->>'academic.years.create')::boolean = true
             )
+            AND (
+                -- Super admins can create for any institution
+                p.role = 'super_admin'
+                OR
+                -- Other users must create for their own institution
+                institution_id = get_current_user_institution_id()
+            )
         )
-        AND institution_id = get_current_user_institution_id()
     );
 
 CREATE POLICY "academic_years_update_by_role" ON academic_years
@@ -195,8 +201,14 @@ CREATE POLICY "academic_years_update_by_role" ON academic_years
                 p.role IN ('super_admin', 'admin')
                 OR (cr.permissions->>'academic.years.edit')::boolean = true
             )
+            AND (
+                -- Super admins can update any institution's data
+                p.role = 'super_admin'
+                OR
+                -- Other users can only update their own institution's data
+                institution_id = get_current_user_institution_id()
+            )
         )
-        AND institution_id = get_current_user_institution_id()
     );
 
 CREATE POLICY "academic_years_delete_by_role" ON academic_years
@@ -209,8 +221,14 @@ CREATE POLICY "academic_years_delete_by_role" ON academic_years
                 p.role IN ('super_admin', 'admin')
                 OR (cr.permissions->>'academic.years.delete')::boolean = true
             )
+            AND (
+                -- Super admins can delete any institution's data
+                p.role = 'super_admin'
+                OR
+                -- Other users can only delete their own institution's data
+                institution_id = get_current_user_institution_id()
+            )
         )
-        AND institution_id = get_current_user_institution_id()
     );
 
 -- DEGREES TABLE (Optimized policies)

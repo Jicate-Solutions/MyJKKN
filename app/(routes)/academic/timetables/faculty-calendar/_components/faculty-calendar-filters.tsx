@@ -96,7 +96,8 @@ export function FacultyCalendarFilters({
     institution_id: localFilters.institution_id,
     program_id: localFilters.program_id,
     semester_id: localFilters.semester_id,
-    isActive: true
+    isActive: true,
+    limit: 1000 // Fixed: 2025-01-30 - Fetch all sections for faculty calendar
   });
   const { data: staffData } = useStaff({
     institution_id: localFilters.institution_id,
