@@ -46,11 +46,13 @@ export class CelebrationService {
       return { birthdays: [], workAnniversaries: [] };
     }
 
-    // Super admins may not have an institution_id - skip celebrations for them
-    // or in the future, allow them to see all institutions' celebrations
+    // Super admins may not have an institution_id - allow them to see all institutions' celebrations
     if (!userProfile.institution_id) {
-      logger.info('dashboard/celebrations', 'No institution_id for user, skipping celebrations', { userId, role });
-      return { birthdays: [], workAnniversaries: [] };
+      if (role !== 'super_admin' && role !== 'admin') {
+        logger.info('dashboard/celebrations', 'No institution_id for user, skipping celebrations', { userId, role });
+        return { birthdays: [], workAnniversaries: [] };
+      }
+      // If super_admin/admin, proceed without institution filter (show all)
     }
 
     const today = new Date();
@@ -60,11 +62,16 @@ export class CelebrationService {
     const birthdays: Celebration[] = [];
 
     // Get staff birthdays
-    const { data: staffBirthdays, error: staffError } = await supabase
+    let staffQuery = supabase
       .from('staff')
       .select('id, first_name, last_name, date_of_birth, profile_picture, department_id, category_id')
-      .eq('institution_id', userProfile.institution_id)
       .not('date_of_birth', 'is', null);
+
+    if (userProfile.institution_id) {
+      staffQuery = staffQuery.eq('institution_id', userProfile.institution_id);
+    }
+
+    const { data: staffBirthdays, error: staffError } = await staffQuery;
 
     if (staffError) {
       logger.error('dashboard/celebrations', 'Failed to fetch staff birthdays', staffError);
@@ -90,12 +97,17 @@ export class CelebrationService {
 
     // Get student birthdays (only if faculty/admin)
     if (role !== 'student') {
-      const { data: studentBirthdays, error: studentError } = await supabase
+      let studentQuery = supabase
         .from('learners_profiles')
         .select('id, first_name, last_name, date_of_birth, student_photo_url, section_id')
-        .eq('institution_id', userProfile.institution_id)
         .eq('lifecycle_status', 'active')
         .not('date_of_birth', 'is', null);
+
+      if (userProfile.institution_id) {
+        studentQuery = studentQuery.eq('institution_id', userProfile.institution_id);
+      }
+
+      const { data: studentBirthdays, error: studentError } = await studentQuery;
 
       if (studentError) {
         logger.error('dashboard/celebrations', 'Failed to fetch student birthdays', studentError);
@@ -123,11 +135,16 @@ export class CelebrationService {
     // Get work anniversaries (staff only)
     const workAnniversaries: Celebration[] = [];
 
-    const { data: staffAnniversaries, error: anniversaryError } = await supabase
+    let anniversaryQuery = supabase
       .from('staff')
       .select('id, first_name, last_name, date_of_joining, profile_picture, category_id')
-      .eq('institution_id', userProfile.institution_id)
       .not('date_of_joining', 'is', null);
+
+    if (userProfile.institution_id) {
+      anniversaryQuery = anniversaryQuery.eq('institution_id', userProfile.institution_id);
+    }
+
+    const { data: staffAnniversaries, error: anniversaryError } = await anniversaryQuery;
 
     if (anniversaryError) {
       logger.error('dashboard/celebrations', 'Failed to fetch staff work anniversaries', anniversaryError);
@@ -235,7 +252,7 @@ export class CelebrationService {
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role, institution_id')
+      .select('role, institution_id, learner_id')
       .eq('id', userId)
       .single();
 
@@ -253,10 +270,15 @@ export class CelebrationService {
     const celebrations: Celebration[] = [];
 
     if (profile.role === 'student') {
+      if (!profile.learner_id) {
+        logger.warn('dashboard/celebrations', 'Student profile not linked to learner record', { userId });
+        return null;
+      }
+
       const { data: student, error: studentError } = await supabase
         .from('learners_profiles')
         .select('id, first_name, last_name, date_of_birth')
-        .eq('user_id', userId)
+        .eq('id', profile.learner_id)
         .single();
 
       if (studentError) {

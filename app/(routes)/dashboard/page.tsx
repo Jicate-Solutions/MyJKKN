@@ -85,7 +85,7 @@ async function RoleBasedDashboard() {
   // Get user profile with role
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, role')
+    .select('id, role, learner_id')
     .eq('id', user.id)
     .single();
 
@@ -110,15 +110,24 @@ async function RoleBasedDashboard() {
   // Route to role-specific dashboard
   switch (profile.role) {
     case 'student': {
+      if (!profile.learner_id) {
+        console.error('[Dashboard] Student role but no learner_id assigned to profile');
+        return (
+          <div className='text-center py-8 text-muted-foreground'>
+            Student profile not linked. Please contact administration.
+          </div>
+        );
+      }
+
       // Fetch learner profile to get student_id and section_id
       const { data: learner } = await supabase
         .from('learners_profiles')
         .select('id, section_id')
-        .eq('user_id', user.id)
+        .eq('id', profile.learner_id)
         .single();
 
       if (!learner) {
-        console.error('[Dashboard] Student role but no learner profile found');
+        console.error('[Dashboard] Student role but no learner profile found for id:', profile.learner_id);
         return (
           <div className='text-center py-8 text-muted-foreground'>
             Student profile not found. Please contact administration.
