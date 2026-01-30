@@ -1040,8 +1040,8 @@ export class StaffPlanService {
         newEndDate = targetAcademicYear.end_date;
       }
 
-      // 5. Create new staff plan
-      const newPlanData: CreateStaffPlanDto = {
+      // 5. Create new staff plan (courses are stored separately in staff_plan_courses table)
+      const newPlanData = {
         institution_id: sourcePlan.institution_id,
         degree_id: sourcePlan.degree_id,
         department_id: sourcePlan.department_id,
@@ -1050,8 +1050,8 @@ export class StaffPlanService {
         academic_year_id: targetAcademicYearId,
         start_date: newStartDate,
         end_date: newEndDate,
-        is_active: sourcePlan.is_active,
-        courses: [] // Will add courses separately
+        is_active: sourcePlan.is_active
+        // Note: courses are not a column in staff_plans, they're in staff_plan_courses table
       };
 
       const query: any = this.supabase.from('staff_plans');
