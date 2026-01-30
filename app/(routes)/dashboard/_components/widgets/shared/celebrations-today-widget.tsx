@@ -5,33 +5,28 @@ import { PartyPopper, Cake, Award } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-
-interface Celebration {
-  id: string;
-  name: string;
-  type: 'birthday' | 'work_anniversary';
-  avatarUrl?: string;
-  yearsOfService?: number;
-}
+import { useCelebrationsToday } from '@/hooks/dashboard/use-celebrations';
+import { Celebration } from '@/lib/services/dashboard/celebration-service';
 
 interface CelebrationsTodayWidgetProps {
-  birthdays: Celebration[];
-  workAnniversaries: Celebration[];
-  isLoading?: boolean;
-  error?: string | null;
+  userId: string;
+  role: string;
+  isVisible: boolean;
 }
 
 export function CelebrationsTodayWidget({
-  birthdays,
-  workAnniversaries,
-  isLoading = false,
-  error = null,
+  userId,
+  role,
+  isVisible,
 }: CelebrationsTodayWidgetProps) {
+  const { data, isLoading, error } = useCelebrationsToday(userId, role);
+
+  const birthdays = data?.birthdays || [];
+  const workAnniversaries = data?.workAnniversaries || [];
   const totalCelebrations = birthdays.length + workAnniversaries.length;
 
-  // Auto-hide when no celebrations
-  if (!isLoading && !error && totalCelebrations === 0) {
+  // Auto-hide when no celebrations or if widget is set to hidden
+  if (!isVisible || (!isLoading && !error && totalCelebrations === 0)) {
     return null;
   }
 
@@ -63,7 +58,7 @@ export function CelebrationsTodayWidget({
       title="Today's Celebrations"
       icon={PartyPopper}
       isLoading={isLoading}
-      error={error}
+      error={error ? error.message : null}
       doubleSpan={true}
     >
       <div className="space-y-4">
@@ -84,7 +79,7 @@ export function CelebrationsTodayWidget({
               animate="visible"
               className="space-y-2 max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
             >
-              {birthdays.map((person, idx) => (
+              {birthdays.map((person: Celebration, idx: number) => (
                 <motion.div
                   key={person.id}
                   variants={itemVariants}
@@ -93,7 +88,7 @@ export function CelebrationsTodayWidget({
                 >
                   <div className="flex items-center gap-3">
                     <Avatar className="h-8 w-8 sm:h-10 sm:w-10 border-2 border-pink-300 dark:border-pink-700">
-                      <AvatarImage src={person.avatarUrl} alt={person.name} />
+                      <AvatarImage src={person.avatar_url} alt={person.name} />
                       <AvatarFallback className="bg-gradient-to-br from-pink-400 to-purple-400 text-white text-xs">
                         {getInitials(person.name)}
                       </AvatarFallback>
@@ -137,7 +132,7 @@ export function CelebrationsTodayWidget({
               animate="visible"
               className="space-y-2 max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
             >
-              {workAnniversaries.map((person, idx) => (
+              {workAnniversaries.map((person: Celebration, idx: number) => (
                 <motion.div
                   key={person.id}
                   variants={itemVariants}
@@ -146,7 +141,7 @@ export function CelebrationsTodayWidget({
                 >
                   <div className="flex items-center gap-3">
                     <Avatar className="h-8 w-8 sm:h-10 sm:w-10 border-2 border-amber-300 dark:border-amber-700">
-                      <AvatarImage src={person.avatarUrl} alt={person.name} />
+                      <AvatarImage src={person.avatar_url} alt={person.name} />
                       <AvatarFallback className="bg-gradient-to-br from-amber-400 to-orange-400 text-white text-xs">
                         {getInitials(person.name)}
                       </AvatarFallback>
@@ -156,7 +151,7 @@ export function CelebrationsTodayWidget({
                         {person.name}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {person.yearsOfService} {person.yearsOfService === 1 ? 'year' : 'years'} of service 🎉
+                        {person.years} {person.years === 1 ? 'year' : 'years'} of service 🎉
                       </p>
                     </div>
                   </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { Activity, Clock } from 'lucide-react';
-import { WidgetContainer } from '../../widget-container';
+import { WidgetContainer } from '../shared/widget-container';
 import { useRecentActivity } from '@/hooks/dashboard/use-admin-dashboard';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -35,7 +35,7 @@ export function RecentActivityWidget({ isVisible }: RecentActivityWidgetProps) {
       title='Recent Activity'
       icon={Activity}
       isLoading={isLoading}
-      error={error}
+      error={error?.message || 'Failed to load recent activity'}
       className='col-span-1 sm:col-span-2 lg:col-span-1'
     >
       <div className='space-y-3'>

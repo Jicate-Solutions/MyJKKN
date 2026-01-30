@@ -1,7 +1,7 @@
 'use client';
 
 import { Building2, Users, GraduationCap, Briefcase } from 'lucide-react';
-import { WidgetContainer } from '../../widget-container';
+import { WidgetContainer } from '../shared/widget-container';
 import { useSystemOverview } from '@/hooks/dashboard/use-admin-dashboard';
 
 interface SystemOverviewWidgetProps {
@@ -49,7 +49,7 @@ export function SystemOverviewWidget({ isVisible }: SystemOverviewWidgetProps) {
       title='System Overview'
       icon={Building2}
       isLoading={isLoading}
-      error={error}
+      error={error?.message || 'Failed to load system overview'}
       className='col-span-1 sm:col-span-2 lg:col-span-3'
     >
       <div className='grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
