@@ -1292,6 +1292,7 @@ export class StaffPlanService {
       semester_id?: string;
       department_id?: string;
       program_id?: string;
+      academic_year_id?: string; // Added: 2026-01-30 - Filter by academic year
       is_active?: boolean;
     }
   ): Promise<
@@ -1327,6 +1328,7 @@ export class StaffPlanService {
             semester_id,
             department_id,
             program_id,
+            academic_year_id,
             is_active
           )
         `
@@ -1384,6 +1386,13 @@ export class StaffPlanService {
           if (
             filters?.program_id &&
             assignment.staff_plan.program_id !== filters.program_id
+          ) {
+            return;
+          }
+          // Added: 2026-01-30 - Filter by academic year
+          if (
+            filters?.academic_year_id &&
+            assignment.staff_plan.academic_year_id !== filters.academic_year_id
           ) {
             return;
           }
