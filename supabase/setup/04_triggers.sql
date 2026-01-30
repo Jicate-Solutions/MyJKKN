@@ -139,10 +139,6 @@ CREATE TRIGGER trigger_refunds_refresh_summary AFTER INSERT OR UPDATE OR DELETE 
 -- SECTION 4: ACADEMIC MODULE TRIGGERS
 -- ================================================================================
 
--- Auto-populate academic year institution
-CREATE TRIGGER trigger_auto_populate_academic_year_institution BEFORE INSERT ON academic_years
-    FOR EACH ROW EXECUTE FUNCTION auto_populate_academic_year_institution();
-
 -- Institution ID auto-population triggers
 CREATE TRIGGER trg_degrees_set_institution_id BEFORE INSERT ON degrees
     FOR EACH ROW EXECUTE FUNCTION set_degree_institution_id();

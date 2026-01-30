@@ -101,7 +101,8 @@ export function PendingAttendanceHierarchyFilters({
     degree_id: filters.degreeId || undefined,
     program_id: filters.programId || undefined,
     department_id: filters.departmentId || undefined,
-    semester_id: filters.semesterId || undefined
+    semester_id: filters.semesterId || undefined,
+    limit: 1000 // Fixed: 2025-01-30 - Fetch all sections for pending attendance dashboard
   });
   const sections = sectionsData?.data ?? [];
 

@@ -160,7 +160,7 @@ export function NotificationForm() {
     semester_id: selectedSemesterId,
     isActive: true,
     page: 1,
-    limit: 100
+    limit: 1000 // Fixed: 2025-01-30 - Increased from 100 to fetch all sections for notifications
   });
 
   const institutions = institutionsData || [];
