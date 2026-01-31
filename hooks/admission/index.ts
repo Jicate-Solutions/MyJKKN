@@ -1,0 +1,481 @@
+// Admission Module Hooks
+// These are placeholder hooks - full implementation needed
+
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+
+// Re-export from use-consultants for convenience
+export { useSourcePerformance } from './use-consultants';
+
+// ============================================
+// LEADS HOOKS
+// ============================================
+
+export function useAdmissionLeads(filters?: any) {
+  const query = useQuery({
+    queryKey: ['admission-leads', filters],
+    queryFn: async () => {
+      // TODO: Implement with LeadService
+      return { data: [], metadata: { total: 0, page: 1, limit: 10, totalPages: 0 } };
+    },
+    enabled: true
+  });
+
+  return {
+    leads: query.data?.data || [],
+    total: query.data?.metadata?.total || 0,
+    totalPages: query.data?.metadata?.totalPages || 0,
+    isLoading: query.isLoading,
+    refetch: query.refetch
+  };
+}
+
+export function useLeadMutations() {
+  const queryClient = useQueryClient();
+
+  const createLead = useMutation({
+    mutationFn: async (data: any) => {
+      // TODO: Implement with LeadService
+      toast.success('Lead created successfully');
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+    }
+  });
+
+  const updateLead = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      // TODO: Implement with LeadService
+      toast.success('Lead updated successfully');
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    }
+  });
+
+  const deleteLead = useMutation({
+    mutationFn: async (id: string) => {
+      // TODO: Implement with LeadService
+      toast.success('Lead deleted successfully');
+      return id;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+    }
+  });
+
+  const updateStage = useMutation({
+    mutationFn: async ({ leadId, stage }: { leadId: string; stage: string }) => {
+      toast.success('Lead stage updated');
+      return { leadId, stage };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    }
+  });
+
+  const toggleHotLead = useMutation({
+    mutationFn: async ({ leadId, isHot }: { leadId: string; isHot: boolean }) => {
+      toast.success(isHot ? 'Marked as hot lead' : 'Removed hot lead status');
+      return { leadId, isHot };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    }
+  });
+
+  const togglePriority = useMutation({
+    mutationFn: async ({ leadId, isPriority }: { leadId: string; isPriority: boolean }) => {
+      toast.success(isPriority ? 'Marked as priority' : 'Removed priority status');
+      return { leadId, isPriority };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    }
+  });
+
+  const addTag = useMutation({
+    mutationFn: async ({ leadId, tag }: { leadId: string; tag: string }) => {
+      toast.success('Tag added');
+      return { leadId, tag };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    }
+  });
+
+  const removeTag = useMutation({
+    mutationFn: async ({ leadId, tag }: { leadId: string; tag: string }) => {
+      toast.success('Tag removed');
+      return { leadId, tag };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    }
+  });
+
+  const createLeadWithProfile = useMutation({
+    mutationFn: async (data: any) => {
+      // TODO: Implement with LeadService - creates lead with student profile
+      toast.success('Lead created with profile successfully');
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+    }
+  });
+
+  return { createLead, updateLead, deleteLead, updateStage, toggleHotLead, togglePriority, addTag, removeTag, createLeadWithProfile };
+}
+
+// ============================================
+// APPLICATIONS HOOKS
+// ============================================
+
+export function useAdmissionApplications(filters?: any) {
+  const query = useQuery({
+    queryKey: ['admission-applications', filters],
+    queryFn: async () => {
+      // TODO: Implement with ApplicationService
+      return { data: [], metadata: { total: 0, page: 1, limit: 10, totalPages: 0 } };
+    },
+    enabled: true
+  });
+
+  return {
+    applications: query.data?.data || [],
+    total: query.data?.metadata?.total || 0,
+    totalPages: query.data?.metadata?.totalPages || 0,
+    isLoading: query.isLoading,
+    refetch: query.refetch,
+    ...query
+  };
+}
+
+export function useApplicationMutations() {
+  const queryClient = useQueryClient();
+
+  const createApplication = useMutation({
+    mutationFn: async (data: any) => {
+      toast.success('Application created successfully');
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
+    }
+  });
+
+  const updateApplication = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      toast.success('Application updated successfully');
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
+    }
+  });
+
+  return { createApplication, updateApplication };
+}
+
+// ============================================
+// COMMUNICATION HOOKS
+// ============================================
+
+export function useCommunicationChannels(institutionId?: string) {
+  const query = useQuery({
+    queryKey: ['communication-channels', institutionId],
+    queryFn: async () => {
+      // TODO: Implement
+      return [];
+    },
+    enabled: !!institutionId
+  });
+
+  return {
+    channels: query.data || [],
+    isLoading: query.isLoading
+  };
+}
+
+export function useMessageTemplates(filters?: any) {
+  const query = useQuery({
+    queryKey: ['message-templates', filters],
+    queryFn: async () => {
+      // TODO: Implement
+      return { data: [], total: 0 };
+    }
+  });
+
+  return {
+    templates: query.data?.data || [],
+    total: query.data?.total || 0,
+    isLoading: query.isLoading,
+    refetch: query.refetch
+  };
+}
+
+export function useCommunicationMutations() {
+  const queryClient = useQueryClient();
+
+  const sendMessage = useMutation({
+    mutationFn: async (data: any) => {
+      toast.success('Message sent successfully');
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lead-communication-history'] });
+    }
+  });
+
+  const scheduleMessage = useMutation({
+    mutationFn: async (data: any) => {
+      toast.success('Message scheduled successfully');
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lead-communication-history'] });
+    }
+  });
+
+  return { sendMessage, scheduleMessage };
+}
+
+// ============================================
+// ANALYTICS HOOKS
+// ============================================
+
+export function useCounselorPerformance(institutionId?: string, dateRange?: any) {
+  const query = useQuery({
+    queryKey: ['counselor-performance', institutionId, dateRange],
+    queryFn: async () => {
+      // TODO: Implement
+      return [];
+    },
+    enabled: !!institutionId
+  });
+
+  // Destructure to avoid spread overwriting custom error
+  const { error: queryError, ...restQuery } = query;
+
+  return {
+    ...restQuery,
+    counselors: query.data || [],
+    isLoading: query.isLoading,
+    error: queryError?.message || null,
+    refetch: query.refetch
+  };
+}
+
+export function useSourceROI(filters?: any) {
+  return useQuery({
+    queryKey: ['source-roi', filters],
+    queryFn: async () => {
+      // TODO: Implement
+      return [];
+    }
+  });
+}
+
+// ============================================
+// DASHBOARD HOOKS
+// ============================================
+
+export function useAdmissionDashboard(filters?: any) {
+  const query = useQuery({
+    queryKey: ['admission-dashboard', filters],
+    queryFn: async () => {
+      // TODO: Implement
+      return {
+        summary: {
+          totalLeads: 0,
+          newLeads: 0,
+          convertedLeads: 0,
+          pendingFollowups: 0,
+          todayFollowups: 0,
+          conversionRate: 0
+        },
+        funnel: []
+      };
+    }
+  });
+
+  return {
+    summary: query.data?.summary || {
+      totalLeads: 0,
+      newLeads: 0,
+      convertedLeads: 0,
+      pendingFollowups: 0,
+      todayFollowups: 0,
+      conversionRate: 0
+    },
+    funnel: query.data?.funnel || [],
+    isLoading: query.isLoading,
+    refetchAll: query.refetch,
+    ...query
+  };
+}
+
+export function useDashboardSummary(institutionId?: string) {
+  const query = useQuery({
+    queryKey: ['dashboard-summary', institutionId],
+    queryFn: async () => {
+      // TODO: Implement
+      return {
+        totalLeads: 0,
+        newLeads: 0,
+        convertedLeads: 0,
+        pendingFollowups: 0,
+        todayFollowups: 0,
+        conversionRate: 0
+      };
+    },
+    enabled: !!institutionId
+  });
+
+  return {
+    summary: query.data || {
+      totalLeads: 0,
+      newLeads: 0,
+      convertedLeads: 0,
+      pendingFollowups: 0,
+      todayFollowups: 0,
+      conversionRate: 0
+    },
+    isLoading: query.isLoading,
+    refetch: query.refetch
+  };
+}
+
+export function useFunnelSummary(institutionId?: string) {
+  const query = useQuery({
+    queryKey: ['funnel-summary', institutionId],
+    queryFn: async () => {
+      // TODO: Implement
+      return {
+        total: 0,
+        byStage: {} as Record<string, number>,
+        hotLeads: 0,
+        priorityLeads: 0,
+        stages: []
+      };
+    },
+    enabled: !!institutionId
+  });
+
+  return {
+    funnel: query.data || {
+      total: 0,
+      byStage: {} as Record<string, number>,
+      hotLeads: 0,
+      priorityLeads: 0,
+      stages: []
+    },
+    isLoading: query.isLoading
+  };
+}
+
+export function useFunnelAnalyticsDashboard(filters?: any) {
+  const query = useQuery({
+    queryKey: ['funnel-analytics-dashboard', filters],
+    queryFn: async () => {
+      // TODO: Implement
+      return {
+        enhanced: [],
+        dropOff: [],
+        stuckLeads: [],
+        bottlenecks: []
+      };
+    }
+  });
+
+  return {
+    enhanced: query.data?.enhanced || [],
+    dropOff: query.data?.dropOff || [],
+    stuckLeads: query.data?.stuckLeads || [],
+    bottlenecks: query.data?.bottlenecks || [],
+    isLoading: query.isLoading,
+    refetchAll: query.refetch,
+    ...query
+  };
+}
+
+// ============================================
+// SINGLE LEAD HOOKS
+// ============================================
+
+export function useAdmissionLead(id: string) {
+  const query = useQuery({
+    queryKey: ['admission-lead', id],
+    queryFn: async () => {
+      // TODO: Implement
+      return null;
+    },
+    enabled: !!id
+  });
+
+  return {
+    lead: query.data,
+    isLoading: query.isLoading,
+    refetch: query.refetch
+  };
+}
+
+export function useLeadTimeline(leadId: string) {
+  const query = useQuery({
+    queryKey: ['lead-timeline', leadId],
+    queryFn: async () => {
+      // TODO: Implement
+      return [];
+    },
+    enabled: !!leadId
+  });
+
+  return {
+    timeline: query.data || [],
+    isLoading: query.isLoading
+  };
+}
+
+export function useLeadCommunicationHistory(leadId: string) {
+  const query = useQuery({
+    queryKey: ['lead-communication-history', leadId],
+    queryFn: async () => {
+      // TODO: Implement
+      return [];
+    },
+    enabled: !!leadId
+  });
+
+  return {
+    history: query.data || [],
+    isLoading: query.isLoading
+  };
+}
+
+export function useLeadAttributions(leadId: string) {
+  return useQuery({
+    queryKey: ['lead-attributions', leadId],
+    queryFn: async () => {
+      // TODO: Implement
+      return [];
+    },
+    enabled: !!leadId
+  });
+}
+
+export function useFunnelHistory(filters?: any) {
+  return useQuery({
+    queryKey: ['funnel-history', filters],
+    queryFn: async () => {
+      // TODO: Implement
+      return [];
+    }
+  });
+}

@@ -1,0 +1,765 @@
+'use client';
+
+import { useParams, useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import {
+  useAdmissionLead,
+  useLeadTimeline,
+  useLeadCommunicationHistory,
+  useLeadMutations,
+  useCommunicationMutations
+} from '@/hooks/admission';
+import {
+  ArrowLeft,
+  Flame,
+  Star,
+  Mail,
+  Phone,
+  MapPin,
+  Calendar,
+  Clock,
+  MessageSquare,
+  Activity,
+  Send,
+  User,
+  Target,
+  TrendingUp,
+  Tag,
+  MoreHorizontal,
+  Edit,
+  Trash2,
+  Loader2
+} from 'lucide-react';
+import Link from 'next/link';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
+import { AdmissionErrorBoundary } from '@/components/admission';
+
+const FUNNEL_STAGES = [
+  { value: 'new', label: 'New' },
+  { value: 'contacted', label: 'Contacted' },
+  { value: 'qualified', label: 'Qualified' },
+  { value: 'application_started', label: 'Application Started' },
+  { value: 'application_submitted', label: 'Application Submitted' },
+  { value: 'documents_pending', label: 'Documents Pending' },
+  { value: 'documents_verified', label: 'Documents Verified' },
+  { value: 'interview_scheduled', label: 'Interview Scheduled' },
+  { value: 'interview_completed', label: 'Interview Completed' },
+  { value: 'offer_sent', label: 'Offer Sent' },
+  { value: 'offer_accepted', label: 'Offer Accepted' },
+  { value: 'token_paid', label: 'Token Paid' },
+  { value: 'enrolled', label: 'Enrolled' },
+  { value: 'lost', label: 'Lost' }
+];
+
+function getStageColor(stage: string | null): string {
+  const colors: Record<string, string> = {
+    new: 'bg-blue-100 text-blue-800 border-blue-200',
+    contacted: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    qualified: 'bg-purple-100 text-purple-800 border-purple-200',
+    application_started: 'bg-pink-100 text-pink-800 border-pink-200',
+    application_submitted: 'bg-rose-100 text-rose-800 border-rose-200',
+    documents_pending: 'bg-orange-100 text-orange-800 border-orange-200',
+    documents_verified: 'bg-amber-100 text-amber-800 border-amber-200',
+    interview_scheduled: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    interview_completed: 'bg-lime-100 text-lime-800 border-lime-200',
+    offer_sent: 'bg-green-100 text-green-800 border-green-200',
+    offer_accepted: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    token_paid: 'bg-teal-100 text-teal-800 border-teal-200',
+    enrolled: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+    lost: 'bg-gray-100 text-gray-800 border-gray-200'
+  };
+  return colors[stage || 'new'] || 'bg-gray-100 text-gray-800 border-gray-200';
+}
+
+function formatActivityType(type: string): string {
+  const labels: Record<string, string> = {
+    stage_changed: 'Stage Changed',
+    assigned: 'Assigned to Counselor',
+    note_added: 'Note Added',
+    email_sent: 'Email Sent',
+    call_made: 'Call Made',
+    meeting_scheduled: 'Meeting Scheduled',
+    document_uploaded: 'Document Uploaded',
+    score_updated: 'Score Updated'
+  };
+  return labels[type] || type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+}
+
+function LeadDetailSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-4">
+        <Skeleton className="h-10 w-10 rounded-full" />
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <Skeleton className="h-5 w-24" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-64 w-full" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-5 w-20" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-64 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function TimelineItem({
+  activity
+}: {
+  activity: { id: string; activity_type: string; metadata: Record<string, unknown>; created_at: string };
+}) {
+  return (
+    <div className="flex gap-3 pb-4 border-b last:border-0 last:pb-0">
+      <div className="flex-shrink-0">
+        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium">{formatActivityType(activity.activity_type)}</p>
+        {activity.metadata && Object.keys(activity.metadata).length > 0 && (
+          <p className="text-xs text-muted-foreground mt-1">
+            {activity.metadata.old_stage && activity.metadata.new_stage
+              ? `${activity.metadata.old_stage} → ${activity.metadata.new_stage}`
+              : JSON.stringify(activity.metadata)}
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground mt-1">
+          {new Date(activity.created_at).toLocaleString()}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function CommunicationItem({
+  message
+}: {
+  message: {
+    id: string;
+    content: string;
+    status: string | null;
+    sent_at: string | null;
+    channel?: { channel_name: string; channel_type: string } | null;
+  };
+}) {
+  return (
+    <div className="flex gap-3 pb-4 border-b last:border-0 last:pb-0">
+      <div className="flex-shrink-0">
+        <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
+          <MessageSquare className="h-4 w-4 text-blue-600" />
+        </div>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium">
+            {message.channel?.channel_name || 'Message'}
+          </p>
+          <Badge variant="outline" className="text-xs">
+            {message.status || 'sent'}
+          </Badge>
+        </div>
+        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{message.content}</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          {message.sent_at ? new Date(message.sent_at).toLocaleString() : '-'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function LeadDetailPageContent() {
+  const params = useParams();
+  const router = useRouter();
+  const leadId = params.id as string;
+
+  const [newTag, setNewTag] = useState('');
+  const [showTagDialog, setShowTagDialog] = useState(false);
+
+  const { lead, isLoading: leadLoading, refetch } = useAdmissionLead(leadId);
+  const { timeline, isLoading: timelineLoading } = useLeadTimeline(leadId);
+  const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
+
+  const { updateStage, toggleHotLead, togglePriority, addTag, removeTag } = useLeadMutations();
+
+  const isLoading = leadLoading;
+
+  if (isLoading) {
+    return (
+      <PermissionGuard module="admission" action="view">
+        <ContentLayout title="Lead Details">
+          <LeadDetailSkeleton />
+        </ContentLayout>
+      </PermissionGuard>
+    );
+  }
+
+  if (!lead) {
+    return (
+      <PermissionGuard module="admission" action="view">
+        <ContentLayout title="Lead Not Found">
+          <Card>
+            <CardContent className="py-16 text-center">
+              <User className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+              <h2 className="text-xl font-semibold mb-2">Lead Not Found</h2>
+              <p className="text-muted-foreground mb-4">
+                The lead you&apos;re looking for doesn&apos;t exist or has been removed.
+              </p>
+              <Button asChild>
+                <Link href="/admission/leads">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Leads
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </ContentLayout>
+      </PermissionGuard>
+    );
+  }
+
+  const handleStageChange = (newStage: string) => {
+    updateStage.mutate(
+      { leadId, stage: newStage },
+      {
+        onSuccess: () => toast.success('Lead stage updated successfully'),
+        onError: () => toast.error('Failed to update lead stage')
+      }
+    );
+  };
+
+  const handleAddTag = () => {
+    if (newTag.trim()) {
+      addTag.mutate(
+        { leadId, tag: newTag.trim() },
+        {
+          onSuccess: () => {
+            toast.success('Tag added successfully');
+            setNewTag('');
+            setShowTagDialog(false);
+          },
+          onError: () => toast.error('Failed to add tag')
+        }
+      );
+    }
+  };
+
+  return (
+    <PermissionGuard module="admission" action="view">
+      <ContentLayout title="Lead Details">
+        <div className="space-y-6">
+          {/* Breadcrumb */}
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbLink href="/admission/leads">Leads</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{(lead as any).full_name || 'Unknown'}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+
+          {/* Header */}
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-4">
+              <Button variant="outline" size="icon" asChild>
+                <Link href="/admission/leads">
+                  <ArrowLeft className="h-4 w-4" />
+                </Link>
+              </Button>
+              <div>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-2xl font-bold">{(lead as any).full_name || 'Unknown'}</h1>
+                  <div className="flex gap-1">
+                    {lead.is_hot_lead && (
+                      <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                        <Flame className="h-3 w-3 mr-1" />
+                        Hot
+                      </Badge>
+                    )}
+                    {lead.is_priority && (
+                      <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                        <Star className="h-3 w-3 mr-1 fill-current" />
+                        Priority
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
+                  {(lead as any).email && (
+                    <span className="flex items-center gap-1">
+                      <Mail className="h-3 w-3" />
+                      {(lead as any).email}
+                    </span>
+                  )}
+                  {(lead as any).phone && (
+                    <span className="flex items-center gap-1">
+                      <Phone className="h-3 w-3" />
+                      {(lead as any).phone}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant={lead.is_hot_lead ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => toggleHotLead.mutate(
+                  { leadId, isHot: !lead.is_hot_lead },
+                  {
+                    onSuccess: () => toast.success(lead.is_hot_lead ? 'Removed from hot leads' : 'Marked as hot lead'),
+                    onError: () => toast.error('Failed to update hot lead status')
+                  }
+                )}
+              >
+                <Flame className="h-4 w-4 mr-1" />
+                {lead.is_hot_lead ? 'Hot' : 'Mark Hot'}
+              </Button>
+              <Button
+                variant={lead.is_priority ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => togglePriority.mutate(
+                  { leadId, isPriority: !lead.is_priority },
+                  {
+                    onSuccess: () => toast.success(lead.is_priority ? 'Removed from priority' : 'Marked as priority'),
+                    onError: () => toast.error('Failed to update priority status')
+                  }
+                )}
+              >
+                <Star className="h-4 w-4 mr-1" />
+                {lead.is_priority ? 'Priority' : 'Mark Priority'}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit Lead
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="text-destructive">
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete Lead
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+
+          {/* Stage Selector */}
+          <Card>
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium">Current Stage:</span>
+                  <Badge className={`${getStageColor(lead.stage)} border`} variant="outline">
+                    {lead.stage?.replace(/_/g, ' ') || 'New'}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Move to:</span>
+                  <Select
+                    value={lead.stage || 'new'}
+                    onValueChange={handleStageChange}
+                  >
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FUNNEL_STAGES.map((stage) => (
+                        <SelectItem key={stage.value} value={stage.value}>
+                          {stage.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Main Content */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column - Details & Tabs */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Score Cards */}
+              <div className="grid grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="py-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Combined Score</p>
+                        <p className="text-2xl font-bold">{lead.combined_score || 0}</p>
+                      </div>
+                      <Target className="h-8 w-8 text-primary opacity-50" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Engagement</p>
+                        <p className="text-2xl font-bold">{lead.engagement_score || 0}</p>
+                      </div>
+                      <TrendingUp className="h-8 w-8 text-blue-500 opacity-50" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Quality</p>
+                        <p className="text-2xl font-bold">{lead.quality_score || 0}</p>
+                      </div>
+                      <Star className="h-8 w-8 text-yellow-500 opacity-50" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Tabs */}
+              <Tabs defaultValue="activity" className="w-full">
+                <TabsList>
+                  <TabsTrigger value="activity">Activity</TabsTrigger>
+                  <TabsTrigger value="communication">Communication</TabsTrigger>
+                  <TabsTrigger value="details">Details</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="activity" className="mt-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Activity Timeline</CardTitle>
+                      <CardDescription>Recent activities for this lead</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {timelineLoading ? (
+                        <div className="space-y-4">
+                          {[1, 2, 3].map((i) => (
+                            <Skeleton key={i} className="h-16 w-full" />
+                          ))}
+                        </div>
+                      ) : timeline.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                          <p>No activity recorded yet</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {timeline.map((activity) => (
+                            <TimelineItem key={activity.id} activity={activity} />
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="communication" className="mt-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Communication History</CardTitle>
+                      <CardDescription>Messages sent to this lead</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {commLoading ? (
+                        <div className="space-y-4">
+                          {[1, 2, 3].map((i) => (
+                            <Skeleton key={i} className="h-16 w-full" />
+                          ))}
+                        </div>
+                      ) : communicationHistory.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                          <p>No messages sent yet</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {communicationHistory.map((message) => (
+                            <CommunicationItem key={message.id} message={message as any} />
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="details" className="mt-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Lead Details</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <dl className="grid grid-cols-2 gap-4">
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Full Name</dt>
+                          <dd className="font-medium">{(lead as any).full_name || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Email</dt>
+                          <dd className="font-medium">{(lead as any).email || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Phone</dt>
+                          <dd className="font-medium">{(lead as any).phone || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Alternate Phone</dt>
+                          <dd className="font-medium">{(lead as any).alternate_phone || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Date of Birth</dt>
+                          <dd className="font-medium">
+                            {(lead as any).date_of_birth
+                              ? new Date((lead as any).date_of_birth).toLocaleDateString()
+                              : '-'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Gender</dt>
+                          <dd className="font-medium">{(lead as any).gender || '-'}</dd>
+                        </div>
+                        <div className="col-span-2">
+                          <dt className="text-sm text-muted-foreground">Address</dt>
+                          <dd className="font-medium">
+                            {[(lead as any).city, (lead as any).state, (lead as any).country, (lead as any).pincode]
+                              .filter(Boolean)
+                              .join(', ') || '-'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">First Touch Source</dt>
+                          <dd className="font-medium">{(lead as any).first_touch_source || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Last Touch Source</dt>
+                          <dd className="font-medium">{(lead as any).last_touch_source || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Created</dt>
+                          <dd className="font-medium">
+                            {lead.created_at
+                              ? new Date(lead.created_at).toLocaleString()
+                              : '-'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Last Activity</dt>
+                          <dd className="font-medium">
+                            {lead.last_activity_at
+                              ? new Date(lead.last_activity_at).toLocaleString()
+                              : '-'}
+                          </dd>
+                        </div>
+                      </dl>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            </div>
+
+            {/* Right Column - Tags & Quick Info */}
+            <div className="space-y-6">
+              {/* Tags */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Tag className="h-4 w-4" />
+                      Tags
+                    </CardTitle>
+                    <Dialog open={showTagDialog} onOpenChange={setShowTagDialog}>
+                      <DialogTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          + Add
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Add Tag</DialogTitle>
+                          <DialogDescription>
+                            Add a tag to help categorize this lead
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="py-4">
+                          <Label htmlFor="tag">Tag Name</Label>
+                          <Input
+                            id="tag"
+                            value={newTag}
+                            onChange={(e) => setNewTag(e.target.value)}
+                            placeholder="e.g., engineering, scholarship"
+                            className="mt-2"
+                          />
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setShowTagDialog(false)}>
+                            Cancel
+                          </Button>
+                          <Button onClick={handleAddTag}>Add Tag</Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {lead.tags && lead.tags.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {lead.tags.map((tag) => (
+                        <Badge
+                          key={tag}
+                          variant="secondary"
+                          className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
+                          onClick={() => removeTag.mutate(
+                            { leadId, tag },
+                            {
+                              onSuccess: () => toast.success('Tag removed successfully'),
+                              onError: () => toast.error('Failed to remove tag')
+                            }
+                          )}
+                        >
+                          {tag}
+                          <span className="ml-1">×</span>
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No tags added</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Quick Info */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Quick Info</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Created</p>
+                      <p className="text-sm font-medium">
+                        {lead.created_at
+                          ? new Date(lead.created_at).toLocaleDateString()
+                          : '-'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Last Activity</p>
+                      <p className="text-sm font-medium">
+                        {lead.last_activity_at
+                          ? new Date(lead.last_activity_at).toLocaleDateString()
+                          : 'No activity'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Messages Sent</p>
+                      <p className="text-sm font-medium">{lead.total_messages_sent || 0}</p>
+                    </div>
+                  </div>
+                  {lead.assigned_counselor_id && (
+                    <div className="flex items-center gap-3">
+                      <User className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Assigned To</p>
+                        <p className="text-sm font-medium">
+                          {(lead as any).assigned_counselor?.full_name || 'Unknown'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+      </ContentLayout>
+    </PermissionGuard>
+  );
+}
+
+export default function LeadDetailPage() {
+  return (
+    <AdmissionErrorBoundary>
+      <LeadDetailPageContent />
+    </AdmissionErrorBoundary>
+  );
+}
