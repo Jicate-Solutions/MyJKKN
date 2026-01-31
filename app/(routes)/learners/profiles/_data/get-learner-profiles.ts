@@ -78,8 +78,8 @@ export async function getLearnerProfiles(
     academic_year_id,
     gender,
     is_profile_complete,
-    sortBy = 'created_at',
-    sortOrder = 'desc',
+    sortBy = 'first_name',
+    sortOrder = 'asc',
     learner_id // Added: For student self-view filtering
   } = params;
 

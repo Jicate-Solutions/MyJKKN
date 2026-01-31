@@ -61,8 +61,8 @@ export async function getAlumni(
     degree_id,
     department_id,
     program_id,
-    sortBy = 'created_at',
-    sortOrder = 'desc'
+    sortBy = 'first_name',
+    sortOrder = 'asc'
   } = params;
 
   // Build query - filter for graduated and alumni statuses
