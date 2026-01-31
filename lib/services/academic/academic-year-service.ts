@@ -308,7 +308,7 @@ export class AcademicYearService {
     }
   }
 
-  static async getAcademicYear(id: string): Promise<AcademicYear> {
+  static async getAcademicYear(id: string): Promise<AcademicYear | null> {
     try {
       const { data: academicYear, error } = await this.supabase
         .from('academic_years')
@@ -323,9 +323,19 @@ export class AcademicYearService {
           `
         )
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
-      if (error) throw error;
+      // Handle error but ignore PGRST116 (no rows found) - this can happen due to RLS or deleted records
+      if (error && error.code !== 'PGRST116') {
+        logger.error('academic/academic-years', 'Error fetching academic year', error);
+        throw error;
+      }
+
+      // Return null if academic year not found or not accessible (RLS blocked)
+      if (!academicYear) {
+        logger.warn('academic/academic-years', 'Academic year not found or not accessible', { id });
+        return null;
+      }
 
       return academicYear;
     } catch (error) {

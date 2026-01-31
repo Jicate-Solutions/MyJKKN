@@ -84,8 +84,8 @@ async function ProfilesContent({
   const is_profile_complete = searchParams.is_profile_complete
     ? searchParams.is_profile_complete === 'true'
     : undefined;
-  const sortBy = (searchParams.sort_by as string) || 'created_at';
-  const sortOrder = (searchParams.sort_order as 'asc' | 'desc') || 'desc';
+  const sortBy = (searchParams.sort_by as string) || 'first_name';
+  const sortOrder = (searchParams.sort_order as 'asc' | 'desc') || 'asc';
 
   // Fetch data on server with caching
   const { data: profiles, metadata } = await getLearnerProfiles({
@@ -190,15 +190,16 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
 
       <div className="space-y-6 mt-4">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+        <div className="space-y-4">
+          {/* Title Section */}
           <div>
             <h1 className="text-2xl font-bold py-1">{pageTitle}</h1>
             <p className="text-sm sm:text-base text-muted-foreground">{headerDescription}</p>
           </div>
 
-          {/* Bulk actions - Hidden for students */}
+          {/* Action Buttons - Hidden for students */}
           {!isStudent && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <CreateMissingProfilesButton />
               <BulkUploadProfilesDialogEnhanced />
               <BulkUploadLearnerImages institutionId={params.institution_id as string | undefined} />

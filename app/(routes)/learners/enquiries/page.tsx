@@ -44,8 +44,8 @@ async function EnquiriesContent({
   const institution_id = (searchParams.institution_id as string) || undefined;
   const degree_id = (searchParams.degree_id as string) || undefined;
   const department_id = (searchParams.department_id as string) || undefined;
-  const sortBy = (searchParams.sort_by as string) || 'created_at';
-  const sortOrder = (searchParams.sort_order as 'asc' | 'desc') || 'desc';
+  const sortBy = (searchParams.sort_by as string) || 'first_name';
+  const sortOrder = (searchParams.sort_order as 'asc' | 'desc') || 'asc';
 
   // Fetch data on server with caching
   const { data: enquiries, metadata } = await getEnquiries({
