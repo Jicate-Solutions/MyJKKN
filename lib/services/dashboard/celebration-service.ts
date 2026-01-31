@@ -305,11 +305,25 @@ export class CelebrationService {
         });
       }
     } else {
-      const { data: staff, error: staffError } = await supabase
-        .from('staff')
+      // Using explicit typing to avoid "Type instantiation is excessively deep" error
+      type StaffCelebrationData = {
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        date_of_birth: string | null;
+        date_of_joining: string | null;
+        category_id: string | null;
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const staffQuery = supabase.from('staff') as any;
+      const staffResult = await staffQuery
         .select('id, first_name, last_name, date_of_birth, date_of_joining, category_id')
         .eq('user_id', userId)
         .single();
+
+      const staff = staffResult.data as StaffCelebrationData | null;
+      const staffError = staffResult.error as Error | null;
 
       if (staffError) {
         logger.error('dashboard/celebrations', 'Failed to fetch staff profile for celebration', staffError);

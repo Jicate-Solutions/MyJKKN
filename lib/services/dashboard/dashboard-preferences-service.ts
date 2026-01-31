@@ -16,11 +16,12 @@ export class DashboardPreferencesService {
   ): Promise<Record<string, boolean>> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
       .from('user_dashboard_preferences')
       .select('widget_id, is_visible')
       .eq('user_id', userId)
-      .eq('role', role);
+      .eq('role', role) as { data: DashboardPreference[] | null; error: Error | null };
 
     if (error) {
       logger.error('dashboard/preferences', 'Failed to fetch preferences', error);
@@ -46,7 +47,8 @@ export class DashboardPreferencesService {
   ): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    const { error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any)
       .from('user_dashboard_preferences')
       .upsert({
         user_id: userId,
@@ -56,7 +58,7 @@ export class DashboardPreferencesService {
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'user_id,role,widget_id'
-      });
+      }) as { error: Error | null };
 
     if (error) {
       logger.error('dashboard/preferences', 'Failed to update preference', error);
@@ -70,11 +72,12 @@ export class DashboardPreferencesService {
   static async resetPreferences(userId: string, role: string): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    const { error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any)
       .from('user_dashboard_preferences')
       .delete()
       .eq('user_id', userId)
-      .eq('role', role);
+      .eq('role', role) as { error: Error | null };
 
     if (error) {
       logger.error('dashboard/preferences', 'Failed to reset preferences', error);
