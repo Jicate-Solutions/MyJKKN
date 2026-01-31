@@ -28,6 +28,26 @@ export class AuthService {
     }
   }
 
+  /**
+   * Sign in with email and password
+   * Only available when ENABLE_DEV_AUTH feature flag is enabled
+   * Used for testing different user roles on development sites
+   */
+  static async signInWithEmail(email: string, password: string) {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Email Sign-In Error:', error);
+      throw error;
+    }
+  }
+
   static async signOut() {
     try {
       // Log logout activity via API before signing out
