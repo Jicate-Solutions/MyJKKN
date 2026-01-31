@@ -235,14 +235,19 @@ export class AdmissionService {
               .single();
 
             if (fullAdmission) {
+              // Build full name with fallbacks to prevent null
+              const fullName = fullAdmission.first_name
+                ? `${fullAdmission.first_name} ${fullAdmission.last_name || ''}`.trim()
+                : (fullAdmission.applicant_name || 'Unknown Applicant');
+
               // Create student record in a non-blocking way
               const student = await StudentService.createStudentFromAdmission(
                 id,
                 fullAdmission.institution_id,
                 {
-                  full_name: fullAdmission.first_name ? `${fullAdmission.first_name} ${fullAdmission.last_name || ''}`.trim() : fullAdmission.applicant_name,
-                  email: fullAdmission.email || fullAdmission.student_email,
-                  phone: fullAdmission.phone || fullAdmission.student_mobile,
+                  full_name: fullName,
+                  email: fullAdmission.email || fullAdmission.student_email || null,
+                  phone: fullAdmission.phone || fullAdmission.student_mobile || '',
                   program_id: fullAdmission.program_id,
                   semester_id: fullAdmission.semester_id,
                   academic_year: fullAdmission.academic_year
@@ -421,6 +426,7 @@ export class AdmissionService {
       const userId = user?.id;
 
       // Update all admissions in batch
+      // NOTE: Select all fields (*) because we need them for student record creation
       const { data: updatedAdmissions, error: updateError } =
         await (this.supabase as any)
           .from('admissions')
@@ -430,7 +436,7 @@ export class AdmissionService {
             updated_at: new Date().toISOString()
           })
           .in('id', ids)
-          .select('id');
+          .select('*');
 
       if (updateError) {
         console.error('Error bulk updating admission status:', updateError);
@@ -472,13 +478,18 @@ export class AdmissionService {
         // Create student records for admissions that don't have one
         for (const admission of admissionsNeedingStudents) {
           try {
+            // Build full name with fallbacks to prevent null
+            const fullName = admission.first_name
+              ? `${admission.first_name} ${admission.last_name || ''}`.trim()
+              : (admission.applicant_name || 'Unknown Applicant');
+
             const student = await StudentService.createStudentFromAdmission(
               admission.id,
               admission.institution_id,
               {
-                full_name: admission.first_name ? `${admission.first_name} ${admission.last_name || ''}`.trim() : admission.applicant_name,
-                email: admission.email || admission.student_email,
-                phone: admission.phone || admission.student_mobile,
+                full_name: fullName,
+                email: admission.email || admission.student_email || null,
+                phone: admission.phone || admission.student_mobile || '',
                 program_id: admission.program_id,
                 semester_id: admission.semester_id,
                 academic_year: admission.academic_year
