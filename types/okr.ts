@@ -860,3 +860,313 @@ export interface OKRAnalyticsSummary {
   trend_direction: 'up' | 'down' | 'stable';
   trend_percentage: number;
 }
+
+// ============================================================================
+// METRIC REGISTRY TYPES (v2 - Universal Auto-Metrics)
+// ============================================================================
+
+/**
+ * Source type for metric data
+ * - db_query: Direct SQL query against Supabase tables
+ * - db_function: Stored procedure/function call
+ * - edge_function: Supabase Edge Function
+ * - external_api: External HTTP endpoint
+ * - computed: Computed from other metrics
+ */
+export type MetricSourceType = 'db_query' | 'db_function' | 'edge_function' | 'external_api' | 'computed';
+
+/**
+ * Value type for metrics
+ */
+export type MetricValueType = 'number' | 'percentage' | 'currency' | 'count' | 'ratio' | 'duration' | 'score';
+
+/**
+ * Scope at which a metric operates
+ */
+export type MetricScope = 'individual' | 'section' | 'department' | 'program' | 'institution' | 'organization';
+
+/**
+ * How often a metric should be refreshed
+ */
+export type MetricRefreshFrequency = 'realtime' | 'minute_5' | 'minute_15' | 'hourly' | 'daily' | 'weekly' | 'on_demand';
+
+/**
+ * Metric registry entry - defines a single auto-trackable metric
+ */
+export interface MetricRegistryEntry {
+  id: string;
+  metric_key: string;                            // Unique key: 'module.metric_name'
+  display_name: string;                          // Human-readable name
+  description: string | null;
+  module: string;                                // Source module: 'attendance', 'billing', etc.
+  category: string;                              // 'academic', 'financial', 'operational', etc.
+
+  // Applicability
+  applicable_roles: string[];                    // ['learner', 'faculty', 'admin', etc.]
+  applicable_scopes: MetricScope[];
+  requires_context: Record<string, boolean>;     // Required context params
+
+  // Source configuration
+  source_type: MetricSourceType;
+  source_config: MetricSourceConfig;             // Type-specific configuration
+
+  // Value configuration
+  value_type: MetricValueType;
+  unit: string;                                  // '%', 'INR', 'count', etc.
+  precision: number;                             // Decimal places
+  min_value: number | null;
+  max_value: number | null;
+  default_baseline: number;
+  default_target: number | null;
+
+  // Sync configuration
+  refresh_frequency: MetricRefreshFrequency;
+  cache_duration_seconds: number;
+  last_global_sync_at: string | null;
+
+  // Display
+  icon: string | null;
+  color: string | null;
+  display_format: string | null;                 // '{value}%', '₹{value}', etc.
+  chart_type: string;
+
+  // Metadata
+  is_active: boolean;
+  is_system: boolean;
+  tags: string[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Source configuration for database functions
+ */
+export interface DbFunctionSourceConfig {
+  function_name: string;
+  params?: Record<string, string>;               // Param mapping: {p_profile_id: "{{profile_id}}"}
+}
+
+/**
+ * Source configuration for database queries
+ */
+export interface DbQuerySourceConfig {
+  query: string;                                 // SQL with {{variable}} placeholders
+  params?: string[];                             // List of context params used
+}
+
+/**
+ * Source configuration for Edge Functions
+ */
+export interface EdgeFunctionSourceConfig {
+  function_name: string;
+  method?: 'GET' | 'POST';
+  params?: Record<string, unknown>;
+}
+
+/**
+ * Source configuration for External APIs
+ */
+export interface ExternalApiSourceConfig {
+  endpoint: string;                              // URL with {{variable}} placeholders
+  method?: 'GET' | 'POST' | 'PUT';
+  headers?: Record<string, string>;
+  params?: Record<string, unknown>;              // Query params or body
+  body?: Record<string, unknown>;
+  response_path?: string;                        // JSONPath to extract value: 'data.value'
+  auth_ref?: string;                             // Reference to okr_external_api_credentials
+}
+
+/**
+ * Source configuration for computed metrics
+ */
+export interface ComputedSourceConfig {
+  formula: string;                               // 'metric_a + metric_b'
+  dependencies: string[];                        // ['metric_a', 'metric_b']
+}
+
+/**
+ * Union type for all source configurations
+ */
+export type MetricSourceConfig =
+  | DbFunctionSourceConfig
+  | DbQuerySourceConfig
+  | EdgeFunctionSourceConfig
+  | ExternalApiSourceConfig
+  | ComputedSourceConfig
+  | Record<string, unknown>;
+
+/**
+ * Context passed to metric execution
+ */
+export interface MetricContext {
+  profile_id?: string;
+  institution_id?: string;
+  department_id?: string;
+  section_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  scope?: MetricScope;
+  start_date?: string;
+  end_date?: string;
+  [key: string]: unknown;                        // Extensible for future needs
+}
+
+/**
+ * Result of metric execution
+ */
+export interface MetricResult {
+  value: number | null;
+  raw_data?: Record<string, unknown>;
+  source_type: MetricSourceType;
+  executed_at: string;
+  was_cached: boolean;
+  execution_duration_ms?: number;
+  error?: string;
+}
+
+/**
+ * Filter for querying metrics from registry
+ */
+export interface MetricFilter {
+  module?: string;
+  category?: string;
+  roles?: string[];
+  scopes?: MetricScope[];
+  tags?: string[];
+  search?: string;
+  is_active?: boolean;
+}
+
+/**
+ * External API credentials for metric fetching
+ */
+export interface ExternalApiCredentials {
+  id: string;
+  api_name: string;
+  display_name: string;
+  description: string | null;
+  auth_type: 'api_key' | 'oauth2' | 'basic' | 'bearer' | 'custom';
+  auth_config: Record<string, unknown>;
+  base_url: string;
+  default_headers: Record<string, string>;
+  rate_limit_per_minute: number;
+  timeout_seconds: number;
+  is_active: boolean;
+  last_validated_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Result of bulk metric sync operation
+ */
+export interface BulkMetricSyncResult {
+  total: number;
+  synced: number;
+  failed: number;
+  cached: number;
+  results: Array<{
+    metric_key: string;
+    value: number | null;
+    error?: string;
+    was_cached: boolean;
+  }>;
+}
+
+/**
+ * Metric execution log entry
+ */
+export interface MetricExecutionLog {
+  id: string;
+  metric_key: string;
+  profile_id: string | null;
+  institution_id: string | null;
+  scope: MetricScope;
+  context_params: MetricContext;
+  executed_at: string;
+  execution_duration_ms: number;
+  source_type: MetricSourceType;
+  raw_result: Record<string, unknown> | null;
+  computed_value: number | null;
+  is_success: boolean;
+  error_message: string | null;
+  was_cached: boolean;
+  cache_key: string | null;
+}
+
+/**
+ * Cached metric value
+ */
+export interface MetricCache {
+  id: string;
+  metric_key: string;
+  cache_key: string;
+  profile_id: string | null;
+  institution_id: string | null;
+  scope: MetricScope;
+  context_hash: string;
+  value: number;
+  raw_data: Record<string, unknown> | null;
+  computed_at: string;
+  expires_at: string;
+  hit_count: number;
+  last_accessed_at: string;
+}
+
+/**
+ * DTO for creating a new metric in the registry
+ */
+export interface CreateMetricDTO {
+  metric_key: string;
+  display_name: string;
+  description?: string;
+  module: string;
+  category: string;
+  applicable_roles: string[];
+  applicable_scopes: MetricScope[];
+  requires_context?: Record<string, boolean>;
+  source_type: MetricSourceType;
+  source_config: MetricSourceConfig;
+  value_type?: MetricValueType;
+  unit?: string;
+  precision?: number;
+  min_value?: number;
+  max_value?: number;
+  default_baseline?: number;
+  default_target?: number;
+  refresh_frequency?: MetricRefreshFrequency;
+  cache_duration_seconds?: number;
+  icon?: string;
+  color?: string;
+  display_format?: string;
+  chart_type?: string;
+  tags?: string[];
+}
+
+/**
+ * Key Result with auto-metric configuration
+ */
+export interface AutoTrackedKeyResult extends OKRKeyResult {
+  data_source: 'auto';
+  data_source_config: {
+    metric_key: string;                          // Reference to metric registry
+    context_overrides?: Record<string, unknown>; // Override default context
+  };
+}
+
+/**
+ * Metric picker option for UI
+ */
+export interface MetricPickerOption {
+  metric_key: string;
+  display_name: string;
+  description: string | null;
+  module: string;
+  category: string;
+  unit: string;
+  default_target: number | null;
+  icon: string | null;
+  tags: string[];
+}

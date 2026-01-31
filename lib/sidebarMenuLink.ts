@@ -59,7 +59,16 @@ import {
   Bot,
   UserCircle,
   FileCheck,
-  Briefcase
+  Briefcase,
+  Handshake,
+  Target,
+  Phone,
+  DollarSign,
+  Send,
+  MessageSquarePlus,
+  Trophy,
+  FileSpreadsheet,
+  PhoneCall
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
@@ -287,7 +296,75 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/resource-management/maintenance': 'resources.maintenance.view',
   '/resource-management/analytics': 'resources.analytics.view',
   '/resource-management/analytics-dashboard': 'resources.analytics.view',
-  '/audit-trail': 'audit.view'
+  '/audit-trail': 'audit.view',
+
+  // Admission CRM Module
+  '/admission/dashboard': 'admission.dashboard.view',
+  '/admission/leads': 'admission.leads.view',
+  '/admission/leads/new': 'admission.leads.create',
+  '/admission/applications': 'admission.applications.view',
+  '/admission/analytics': 'admission.analytics.view',
+  '/admission/consultants': 'admission.consultants.view',
+  '/admission/consultants/new': 'admission.consultants.create',
+  '/admission/consultants/commissions': 'admission.consultants.commissions.view',
+  '/admission/consultants/rewards': 'admission.consultants.rewards.view',
+  '/admission/consultants/analytics': 'admission.consultants.analytics.view',
+  '/admission/counselors': 'admission.counselors.view',
+  '/admission/interviews': 'admission.interviews.view',
+  '/admission/gd-pi': 'admission.gd_pi.view',
+  '/admission/scholarships': 'admission.scholarships.view',
+  '/admission/loans': 'admission.loans.view',
+  '/admission/publishers': 'admission.publishers.view',
+  '/admission/sources': 'admission.sources.view',
+  '/admission/apply': 'admission.apply.view',
+  '/admission/templates': 'admission.templates.view',
+  '/admission/settings': 'admission.settings.view',
+  '/admission/workflows': 'admission.workflows.view',
+  '/admission/merit-list': 'admission.merit_list.view',
+  '/admission/seat-confirmation': 'admission.seat_confirmation.view',
+  '/admission/offer-letter': 'admission.offer_letter.view',
+  '/admission/documents': 'admission.documents.view',
+  '/admission/hostels': 'admission.hostels.view',
+  '/admission/feedback': 'admission.feedback.view',
+  '/admission/reminders': 'admission.reminders.view',
+  '/admission/screening-exam': 'admission.screening_exam.view',
+  '/admission/lateral-entry': 'admission.lateral_entry.view',
+  '/admission/re-engagement': 'admission.re_engagement.view',
+  '/admission/chatbot': 'admission.chatbot.view',
+  '/admission/parent-communication': 'admission.parent_communication.view',
+  '/admission/data-profiling': 'admission.data_profiling.view',
+  '/admission/deduplication': 'admission.deduplication.view',
+  '/admission/phone-validation': 'admission.phone_validation.view',
+  '/admission/scoring-rules': 'admission.scoring_rules.view',
+  '/admission/assignment-rules': 'admission.assignment_rules.view',
+  '/admission/status': 'admission.status.view',
+
+  // Consultant Portal (EC Self-Service)
+  '/consultant-portal': 'consultant_portal.view',
+  '/consultant-portal/leads': 'consultant_portal.leads.view',
+  '/consultant-portal/leads/submit': 'consultant_portal.leads.submit',
+  '/consultant-portal/commissions': 'consultant_portal.commissions.view',
+  '/consultant-portal/rewards': 'consultant_portal.rewards.view',
+  '/consultant-portal/profile': 'consultant_portal.profile.view',
+
+  // OKR Module
+  '/okr': 'okr.view',
+  '/okr/objectives': 'okr.objectives.view',
+  '/okr/objectives/new': 'okr.objectives.create',
+  '/okr/objectives/create': 'okr.objectives.create',
+  '/okr/objectives/[id]': 'okr.objectives.view',
+  '/okr/objectives/[id]/edit': 'okr.objectives.edit',
+  '/okr/check-in': 'okr.checkin.view',
+  '/okr/analytics': 'okr.analytics.view',
+  '/okr/team': 'okr.team.view',
+  '/okr/department': 'okr.department.view',
+  '/okr/organization': 'okr.organization.view',
+  '/okr/cascade': 'okr.cascade.view',
+  '/okr/manage': 'okr.manage.view',
+  '/okr/admin/compliance': 'okr.admin.view',
+  '/okr/elective': 'okr.elective.view',
+  '/okr/elective/[id]': 'okr.elective.view',
+  '/okr/elective/[id]/edit': 'okr.elective.edit'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -308,6 +385,157 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/ai-query',
           icon: Sparkles,
           submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Admission CRM',
+      menus: [
+        {
+          href: '/admission/dashboard',
+          label: 'Dashboard',
+          active: pathname === '/admission/dashboard',
+          icon: BarChart,
+          submenus: []
+        },
+        {
+          href: '/admission/leads',
+          label: 'Leads',
+          active: pathname.startsWith('/admission/leads'),
+          icon: Target,
+          submenus: [
+            {
+              href: '/admission/leads',
+              label: 'All Leads',
+              active: pathname === '/admission/leads'
+            },
+            {
+              href: '/admission/leads/new',
+              label: 'New Lead',
+              active: pathname === '/admission/leads/new'
+            }
+          ]
+        },
+        {
+          href: '/admission/applications',
+          label: 'Applications',
+          active: pathname.startsWith('/admission/applications'),
+          icon: FileText,
+          submenus: []
+        },
+        {
+          href: '/admission/consultants',
+          label: 'Education Consultants',
+          active: pathname.startsWith('/admission/consultants'),
+          icon: Handshake,
+          submenus: [
+            {
+              href: '/admission/consultants',
+              label: 'All Consultants',
+              active: pathname === '/admission/consultants'
+            },
+            {
+              href: '/admission/consultants/new',
+              label: 'Add Consultant',
+              active: pathname === '/admission/consultants/new'
+            },
+            {
+              href: '/admission/consultants/commissions',
+              label: 'Commissions',
+              active: pathname === '/admission/consultants/commissions'
+            },
+            {
+              href: '/admission/consultants/rewards',
+              label: 'Rewards',
+              active: pathname === '/admission/consultants/rewards'
+            },
+            {
+              href: '/admission/consultants/analytics',
+              label: 'Analytics',
+              active: pathname === '/admission/consultants/analytics'
+            }
+          ]
+        },
+        {
+          href: '/admission/interviews',
+          label: 'Interviews & GD-PI',
+          active: pathname.startsWith('/admission/interviews') || pathname.startsWith('/admission/gd-pi'),
+          icon: PhoneCall,
+          submenus: [
+            {
+              href: '/admission/interviews',
+              label: 'Interviews',
+              active: pathname === '/admission/interviews'
+            },
+            {
+              href: '/admission/gd-pi',
+              label: 'GD-PI',
+              active: pathname === '/admission/gd-pi'
+            }
+          ]
+        },
+        {
+          href: '/admission/scholarships',
+          label: 'Financial Aid',
+          active: pathname.startsWith('/admission/scholarships') || pathname.startsWith('/admission/loans'),
+          icon: DollarSign,
+          submenus: [
+            {
+              href: '/admission/scholarships',
+              label: 'Scholarships',
+              active: pathname === '/admission/scholarships'
+            },
+            {
+              href: '/admission/loans',
+              label: 'Education Loans',
+              active: pathname === '/admission/loans'
+            }
+          ]
+        },
+        {
+          href: '/admission/analytics',
+          label: 'Analytics',
+          active: pathname === '/admission/analytics',
+          icon: TrendingUp,
+          submenus: []
+        },
+        {
+          href: '/admission/settings',
+          label: 'Settings',
+          active: pathname.startsWith('/admission/settings') || pathname.startsWith('/admission/workflows'),
+          icon: Settings,
+          submenus: [
+            {
+              href: '/admission/settings',
+              label: 'General Settings',
+              active: pathname === '/admission/settings'
+            },
+            {
+              href: '/admission/workflows',
+              label: 'Workflows',
+              active: pathname === '/admission/workflows'
+            },
+            {
+              href: '/admission/templates',
+              label: 'Templates',
+              active: pathname === '/admission/templates'
+            },
+            {
+              href: '/admission/sources',
+              label: 'Lead Sources',
+              active: pathname === '/admission/sources'
+            },
+            {
+              href: '/admission/scoring-rules',
+              label: 'Scoring Rules',
+              active: pathname === '/admission/scoring-rules'
+            },
+            {
+              href: '/admission/assignment-rules',
+              label: 'Assignment Rules',
+              active: pathname === '/admission/assignment-rules'
+            }
+          ]
         }
       ]
     },
@@ -638,6 +866,92 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Facilitators List',
           active: pathname === '/staff/list',
           icon: Users,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'OKR & Performance',
+      menus: [
+        {
+          href: '/okr',
+          label: 'Dashboard',
+          active: pathname === '/okr',
+          icon: Target,
+          submenus: []
+        },
+        {
+          href: '/okr/objectives',
+          label: 'My Objectives',
+          active: pathname.startsWith('/okr/objectives'),
+          icon: Target,
+          submenus: [
+            {
+              href: '/okr/objectives',
+              label: 'All Objectives',
+              active: pathname === '/okr/objectives'
+            },
+            {
+              href: '/okr/objectives/new',
+              label: 'Create Objective',
+              active: pathname === '/okr/objectives/new' || pathname.startsWith('/okr/objectives/create')
+            }
+          ]
+        },
+        {
+          href: '/okr/check-in',
+          label: 'Check-ins',
+          active: pathname === '/okr/check-in',
+          icon: CheckSquare,
+          submenus: []
+        },
+        {
+          href: '/okr/team',
+          label: 'Team OKRs',
+          active: pathname === '/okr/team',
+          icon: Users,
+          submenus: []
+        },
+        {
+          href: '/okr/department',
+          label: 'Department OKRs',
+          active: pathname === '/okr/department',
+          icon: Building2,
+          submenus: []
+        },
+        {
+          href: '/okr/organization',
+          label: 'Organization OKRs',
+          active: pathname === '/okr/organization',
+          icon: Building,
+          submenus: []
+        },
+        {
+          href: '/okr/cascade',
+          label: 'Cascade View',
+          active: pathname === '/okr/cascade',
+          icon: FolderTree,
+          submenus: []
+        },
+        {
+          href: '/okr/analytics',
+          label: 'Analytics',
+          active: pathname === '/okr/analytics',
+          icon: BarChart,
+          submenus: []
+        },
+        {
+          href: '/okr/manage',
+          label: 'Manage OKRs',
+          active: pathname === '/okr/manage',
+          icon: Settings,
+          submenus: []
+        },
+        {
+          href: '/okr/admin/compliance',
+          label: 'Compliance',
+          active: pathname.startsWith('/okr/admin'),
+          icon: Shield,
           submenus: []
         }
       ]
