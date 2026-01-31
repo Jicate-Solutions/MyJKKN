@@ -1712,8 +1712,11 @@ export class ConsultantService {
     const consultantsByTier: Record<string, number> = {};
     const consultantsByType: Record<string, number> = {};
     activeConsultants.forEach((c) => {
-      consultantsByTier[c.tier] = (consultantsByTier[c.tier] || 0) + 1;
-      consultantsByType[c.consultant_type] = (consultantsByType[c.consultant_type] || 0) + 1;
+      // Handle null tier and consultant_type with defaults
+      const tier = c.tier || 'bronze';
+      const consultantType = c.consultant_type || 'individual';
+      consultantsByTier[tier] = (consultantsByTier[tier] || 0) + 1;
+      consultantsByType[consultantType] = (consultantsByType[consultantType] || 0) + 1;
     });
 
     // Get commission totals
@@ -1894,11 +1897,11 @@ export class ConsultantService {
       .select('id, name')
       .in('id', consultantIds);
 
-    const consultantMap = new Map(consultants?.map((c) => [c.id, c.name]) || []);
+    const consultantMap = new Map<string, string>(consultants?.map((c) => [c.id, c.name]) || []);
 
     const liabilityByConsultant = Object.entries(byConsultant).map(([id, amounts]) => ({
       consultant_id: id,
-      consultant_name: (consultantMap.get(id) as string) || 'Unknown',
+      consultant_name: consultantMap.get(id) || 'Unknown',
       pending_amount: amounts.pending,
       earned_amount: amounts.earned,
       approved_amount: amounts.approved,
@@ -2001,20 +2004,26 @@ export class ConsultantService {
         leads_to_next_tier: leadsToNextTier,
       },
       recent_leads:
-        recentLeads?.map((l) => ({
-          id: l.id,
-          name: (l.lead as { full_name: string })?.full_name || 'Unknown',
-          stage: (l.lead as { funnel_stage: string })?.funnel_stage || 'new',
-          submitted_at: l.created_at,
-        })) || [],
+        recentLeads?.map((l) => {
+          const lead = l.lead as { full_name?: string; funnel_stage?: string } | null;
+          return {
+            id: l.id,
+            name: lead?.full_name || 'Unknown',
+            stage: lead?.funnel_stage || 'new',
+            submitted_at: l.created_at,
+          };
+        }) || [],
       recent_transactions:
-        recentTransactions?.map((t) => ({
-          id: t.id,
-          lead_name: (t.lead as { full_name: string })?.full_name || 'Unknown',
-          amount: t.final_amount || 0,
-          status: t.status,
-          date: t.created_at,
-        })) || [],
+        recentTransactions?.map((t) => {
+          const lead = t.lead as { full_name?: string } | null;
+          return {
+            id: t.id,
+            lead_name: lead?.full_name || 'Unknown',
+            amount: t.final_amount || 0,
+            status: t.status || 'pending',
+            date: t.created_at,
+          };
+        }) || [],
       notifications: [], // Would need separate table
     };
   }

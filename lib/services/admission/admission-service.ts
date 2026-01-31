@@ -1059,12 +1059,15 @@ export class AdmissionService {
       const firstGraduateCounts = { 'First Graduate': 0, Regular: 0 };
 
       admissions?.forEach((admission: Admission) => {
-        genderCounts[admission.gender] =
-          (genderCounts[admission.gender] || 0) + 1;
-        religionCounts[admission.religion] =
-          (religionCounts[admission.religion] || 0) + 1;
-        communityCounts[admission.community] =
-          (communityCounts[admission.community] || 0) + 1;
+        // Handle null/undefined values with 'Not Specified' fallback
+        const gender = admission.gender || 'Not Specified';
+        const religion = admission.religion || 'Not Specified';
+        const community = admission.community || 'Not Specified';
+
+        genderCounts[gender] = (genderCounts[gender] || 0) + 1;
+        religionCounts[religion] = (religionCounts[religion] || 0) + 1;
+        communityCounts[community] = (communityCounts[community] || 0) + 1;
+
         if (admission.first_graduate) {
           firstGraduateCounts['First Graduate']++;
         } else {
@@ -1122,9 +1125,12 @@ export class AdmissionService {
       let neetCount = 0;
 
       admissions?.forEach((admission: Admission) => {
-        // Tenth marks
-        const tenthPct = parseFloat(admission.tenth_marks.percentage);
-        if (!isNaN(tenthPct)) {
+        // Tenth marks - handle both tenth_percentage and tenth_marks.percentage formats
+        const tenthValue = admission.tenth_percentage ??
+          (admission.tenth_marks as any)?.percentage ??
+          admission.percentage;
+        const tenthPct = typeof tenthValue === 'number' ? tenthValue : parseFloat(String(tenthValue));
+        if (!isNaN(tenthPct) && tenthPct > 0) {
           totalTenth += tenthPct;
           if (tenthPct <= 50) tenthMarksRanges['0-50']++;
           else if (tenthPct <= 60) tenthMarksRanges['51-60']++;
@@ -1134,9 +1140,11 @@ export class AdmissionService {
           else tenthMarksRanges['91-100']++;
         }
 
-        // Twelfth marks
-        const twelfthPct = parseFloat(admission.twelfth_marks.percentage);
-        if (!isNaN(twelfthPct)) {
+        // Twelfth marks - handle both twelfth_percentage and twelfth_marks.percentage formats
+        const twelfthValue = admission.twelfth_percentage ??
+          (admission.twelfth_marks as any)?.percentage;
+        const twelfthPct = typeof twelfthValue === 'number' ? twelfthValue : parseFloat(String(twelfthValue));
+        if (!isNaN(twelfthPct) && twelfthPct > 0) {
           totalTwelfth += twelfthPct;
           if (twelfthPct <= 50) twelfthMarksRanges['0-50']++;
           else if (twelfthPct <= 60) twelfthMarksRanges['51-60']++;
@@ -1293,8 +1301,9 @@ export class AdmissionService {
       const districtCounts: Record<string, number> = {};
 
       admissions?.forEach((admission: Admission) => {
-        const state = admission.permanent_address_state;
-        const district = admission.permanent_address_district;
+        // Handle both permanent_address_state and state field names, with null fallback
+        const state = admission.permanent_address_state || admission.state || 'Not Specified';
+        const district = admission.permanent_address_district || admission.city || 'Not Specified';
 
         stateCounts[state] = (stateCounts[state] || 0) + 1;
         districtCounts[district] = (districtCounts[district] || 0) + 1;
