@@ -987,9 +987,25 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/admin/bug-reports',
           label: 'Bug Reports',
-          active: pathname.startsWith('/admin/bug-reports'),
+          active: pathname.startsWith('/admin/bug-reports') || pathname.startsWith('/my-bug-reports') || pathname.startsWith('/bug-leaderboard'),
           icon: Bug,
-          submenus: []
+          submenus: [
+            {
+              href: '/my-bug-reports',
+              label: 'My Bug Reports',
+              active: pathname === '/my-bug-reports'
+            },
+            {
+              href: '/bug-leaderboard',
+              label: 'Bug Leaderboard',
+              active: pathname === '/bug-leaderboard'
+            },
+            {
+              href: '/admin/bug-reports',
+              label: 'All Bug Reports',
+              active: pathname === '/admin/bug-reports'
+            }
+          ]
         },
         {
           href: '/admin/ai-query-tools',
@@ -1016,6 +1032,7 @@ export function GetRoleBasedPages(
       ...group,
       menus: group.menus.filter((menu) => {
         // Hide student portal pages (my-* and leave-onduty) from super admin
+        // But allow bug report pages for all users including super admin
         if (menu.href.includes('/learners/my-') || menu.href === '/learners/leave-onduty/my-applications') {
           return false;
         }
@@ -1077,6 +1094,11 @@ export function GetRoleBasedPages(
           // Dashboard is always visible
           if (menu.href === '/') return true;
 
+          // Bug Reports menu is always visible for all users (common feature)
+          if (menu.href === '/admin/bug-reports' && menu.submenus.length > 0) {
+            return true;
+          }
+
           // Check if menu requires super admin
           if ((menu as any).requiresSuperAdmin) {
             return false; // Hide from non-super admin users
@@ -1086,9 +1108,7 @@ export function GetRoleBasedPages(
           // This check must come BEFORE the submenus check
           if (
             menu.href.includes('/learners/my-') ||
-            menu.href === '/learners/leave-onduty/my-applications' ||
-            menu.href === '/my-bug-reports' ||
-            menu.href === '/bug-leaderboard'
+            menu.href === '/learners/leave-onduty/my-applications'
           ) {
             return userRole.role_key === 'student';
           }
@@ -1137,6 +1157,12 @@ export function GetRoleBasedPages(
           }
 
           const filteredSubmenus = menu.submenus.filter((submenu) => {
+            // Bug report submenus: My Bug Reports and Leaderboard are always visible for all users
+            // But All Bug Reports (admin page) requires permission
+            if (submenu.href === '/my-bug-reports' || submenu.href === '/bug-leaderboard') {
+              return true;
+            }
+
             const requiredPermission = MENU_PERMISSIONS[submenu.href];
             if (!requiredPermission) return false; // Changed to false to be consistent
 

@@ -29,14 +29,14 @@ export function SystemOverviewWidget({ isVisible }: SystemOverviewWidgetProps) {
       bgColor: 'bg-purple-50'
     },
     {
-      label: 'Students',
+      label: 'Learners',
       value: overview?.total_students || 0,
       icon: GraduationCap,
       color: 'text-green-600',
       bgColor: 'bg-green-50'
     },
     {
-      label: 'Staff',
+      label: 'Facilitators',
       value: overview?.total_staff || 0,
       icon: Briefcase,
       color: 'text-orange-600',

@@ -11,6 +11,11 @@ export interface Celebration {
   role: string;
   avatar_url?: string;
   days_until: number;
+  institution_name?: string;
+  department_name?: string;
+  designation?: string;
+  section_name?: string;
+  program_name?: string;
 }
 
 export interface TodayCelebrations {
@@ -61,10 +66,15 @@ export class CelebrationService {
 
     const birthdays: Celebration[] = [];
 
-    // Get staff birthdays
-    let staffQuery = supabase
+    // Get staff birthdays with institution and department details
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let staffQuery = (supabase as any)
       .from('staff')
-      .select('id, first_name, last_name, date_of_birth, profile_picture, department_id, category_id')
+      .select(`
+        id, first_name, last_name, date_of_birth, profile_picture, designation,
+        institutions:institution_id (name),
+        departments:department_id (department_name)
+      `)
       .not('date_of_birth', 'is', null);
 
     if (userProfile.institution_id) {
@@ -76,7 +86,7 @@ export class CelebrationService {
     if (staffError) {
       logger.error('dashboard/celebrations', 'Failed to fetch staff birthdays', staffError);
     } else if (staffBirthdays) {
-      staffBirthdays.forEach((staff) => {
+      staffBirthdays.forEach((staff: any) => {
         const dob = new Date(staff.date_of_birth!);
         if (dob.getMonth() + 1 === todayMonth && dob.getDate() === todayDay) {
           const age = today.getFullYear() - dob.getFullYear();
@@ -87,19 +97,27 @@ export class CelebrationService {
             type: 'birthday',
             date: staff.date_of_birth!,
             age,
-            role: 'Staff',
+            role: 'Team Member',
             avatar_url: staff.profile_picture || undefined,
-            days_until: 0
+            days_until: 0,
+            institution_name: staff.institutions?.name || undefined,
+            department_name: staff.departments?.department_name || undefined,
+            designation: staff.designation || undefined,
           });
         }
       });
     }
 
-    // Get student birthdays (only if faculty/admin)
+    // Get student birthdays (only if faculty/admin) with section and program details
     if (role !== 'student') {
-      let studentQuery = supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let studentQuery = (supabase as any)
         .from('learners_profiles')
-        .select('id, first_name, last_name, date_of_birth, student_photo_url, section_id')
+        .select(`
+          id, first_name, last_name, date_of_birth, student_photo_url,
+          institutions:institution_id (name),
+          sections:section_id (section_name, programs:program_id (program_name))
+        `)
         .eq('lifecycle_status', 'active')
         .not('date_of_birth', 'is', null);
 
@@ -112,7 +130,7 @@ export class CelebrationService {
       if (studentError) {
         logger.error('dashboard/celebrations', 'Failed to fetch student birthdays', studentError);
       } else if (studentBirthdays) {
-        studentBirthdays.forEach((student) => {
+        studentBirthdays.forEach((student: any) => {
           const dob = new Date(student.date_of_birth!);
           if (dob.getMonth() + 1 === todayMonth && dob.getDate() === todayDay) {
             const age = today.getFullYear() - dob.getFullYear();
@@ -123,21 +141,29 @@ export class CelebrationService {
               type: 'birthday',
               date: student.date_of_birth!,
               age,
-              role: 'Student',
+              role: 'Learner',
               avatar_url: student.student_photo_url || undefined,
-              days_until: 0
+              days_until: 0,
+              institution_name: student.institutions?.name || undefined,
+              section_name: student.sections?.section_name || undefined,
+              program_name: student.sections?.programs?.program_name || undefined,
             });
           }
         });
       }
     }
 
-    // Get work anniversaries (staff only)
+    // Get work anniversaries (staff only) with institution and department details
     const workAnniversaries: Celebration[] = [];
 
-    let anniversaryQuery = supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let anniversaryQuery = (supabase as any)
       .from('staff')
-      .select('id, first_name, last_name, date_of_joining, profile_picture, category_id')
+      .select(`
+        id, first_name, last_name, date_of_joining, profile_picture, designation,
+        institutions:institution_id (name),
+        departments:department_id (department_name)
+      `)
       .not('date_of_joining', 'is', null);
 
     if (userProfile.institution_id) {
@@ -149,7 +175,7 @@ export class CelebrationService {
     if (anniversaryError) {
       logger.error('dashboard/celebrations', 'Failed to fetch staff work anniversaries', anniversaryError);
     } else if (staffAnniversaries) {
-      staffAnniversaries.forEach((staff) => {
+      staffAnniversaries.forEach((staff: any) => {
         const joinDate = new Date(staff.date_of_joining!);
         if (joinDate.getMonth() + 1 === todayMonth && joinDate.getDate() === todayDay) {
           const years = today.getFullYear() - joinDate.getFullYear();
@@ -161,9 +187,12 @@ export class CelebrationService {
               type: 'work_anniversary',
               date: staff.date_of_joining!,
               years,
-              role: 'Staff',
+              role: 'Team Member',
               avatar_url: staff.profile_picture || undefined,
-              days_until: 0
+              days_until: 0,
+              institution_name: staff.institutions?.name || undefined,
+              department_name: staff.departments?.department_name || undefined,
+              designation: staff.designation || undefined,
             });
           }
         }

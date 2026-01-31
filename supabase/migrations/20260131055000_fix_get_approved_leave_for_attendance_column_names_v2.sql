@@ -1,8 +1,12 @@
--- Create function to check approved leave/onduty applications for students
--- This function is used when marking attendance to check if students have pre-approved leave
--- Created: 2026-01-29
+-- Fix get_approved_leave_for_attendance function - column name mismatch
+-- Issue: Function references 'subcategory' but table has 'sub_category'
+-- Issue: Function expects TEXT[] for selected_periods but table has jsonb
+-- Created: 2026-01-31
 
--- Function to get approved leave/onduty applications for students on a specific date
+-- Drop the existing function first
+DROP FUNCTION IF EXISTS get_approved_leave_for_attendance(UUID, DATE, TEXT[]);
+
+-- Recreate the function with correct column names and types
 CREATE OR REPLACE FUNCTION get_approved_leave_for_attendance(
   p_section_id UUID,
   p_date DATE,
@@ -13,7 +17,7 @@ RETURNS TABLE (
   application_id UUID,
   category TEXT,
   subcategory TEXT,
-  selected_periods TEXT[],
+  selected_periods jsonb,
   start_date DATE,
   end_date DATE,
   reason TEXT,
@@ -27,8 +31,8 @@ BEGIN
   SELECT
     loa.learner_id,
     loa.id as application_id,
-    loa.category,
-    loa.subcategory,
+    loa.category::text,
+    loa.sub_category as subcategory,  -- FIX: use sub_category not subcategory
     loa.selected_periods,
     loa.start_date,
     loa.end_date,
@@ -43,7 +47,7 @@ BEGIN
     -- If specific periods are provided, check if any match
     AND (
       p_periods IS NULL
-      OR loa.selected_periods && p_periods  -- Array overlap operator
+      OR loa.selected_periods @> to_jsonb(p_periods)  -- FIX: Use jsonb containment
     );
 END;
 $$;

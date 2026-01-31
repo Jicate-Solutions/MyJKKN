@@ -43,6 +43,16 @@ export const columns: ColumnDef<AttendanceReport>[] = [
     maxSize: 130,
     cell: ({ row }) => {
       const report = row.original;
+      const isValidId = report?.id && !report.id.includes('%%drp:id:');
+
+      if (!isValidId) {
+        return (
+          <div className='font-medium text-muted-foreground'>
+            {format(new Date(report.attendance_date), 'MMM dd, yyyy')}
+          </div>
+        );
+      }
+
       return (
         <div className='font-medium hover:text-primary hover:underline'>
           <Link href={`/academic/attendance/reports/${report.id}`}>

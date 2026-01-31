@@ -133,11 +133,6 @@ export function StaffPlanFilters({
           });
 
           setCurrentAcademicYear(current || null);
-
-          // Auto-set current academic year filter if not already set
-          if (current && !searchParams.academic_year_id && userProfile?.institution_id) {
-            stableOnFilterChange('academic_year_id', current.id);
-          }
         } catch (error) {
           if (isMounted && !abortController.signal.aborted) {
             logger.error('academic/staff-planning', 'Error loading academic years', error);
