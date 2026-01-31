@@ -2,6 +2,7 @@
 // FEATURE FLAGS CONFIGURATION
 // ============================================
 // Created: 2025-01-18
+// Updated: 2026-01-31 - Added ENABLE_DEV_AUTH flag
 // Purpose: Gradual rollout of unified learners profiles module
 // ============================================
 
