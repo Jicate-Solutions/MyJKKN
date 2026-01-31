@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { OKRErrorBoundary } from '../../_components';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -61,6 +61,41 @@ export default function CreateElectiveOKRPage() {
   const [targetValue, setTargetValue] = useState<number>(100);
   const [unit, setUnit] = useState('');
   const [deadline, setDeadline] = useState(format(addMonths(new Date(), 3), 'yyyy-MM-dd'));
+
+  // ============================================================================
+  // E2E TESTING HELPER
+  // Exposes a global function for browser automation to fill the form
+  // ============================================================================
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+      // Define the test helper interface
+      interface TestFormData {
+        title?: string;
+        description?: string;
+        whyMatters?: string;
+        baselineValue?: number;
+        targetValue?: number;
+        unit?: string;
+        deadline?: string;
+      }
+
+      // Expose global function for E2E testing
+      (window as Window & { __TEST_FILL_OKR_FORM__?: (data: TestFormData) => void }).__TEST_FILL_OKR_FORM__ = (data: TestFormData) => {
+        if (data.title !== undefined) setTitle(data.title);
+        if (data.description !== undefined) setDescription(data.description);
+        if (data.whyMatters !== undefined) setWhyMatters(data.whyMatters);
+        if (data.baselineValue !== undefined) setBaselineValue(data.baselineValue);
+        if (data.targetValue !== undefined) setTargetValue(data.targetValue);
+        if (data.unit !== undefined) setUnit(data.unit);
+        if (data.deadline !== undefined) setDeadline(data.deadline);
+      };
+
+      // Cleanup on unmount
+      return () => {
+        delete (window as Window & { __TEST_FILL_OKR_FORM__?: unknown }).__TEST_FILL_OKR_FORM__;
+      };
+    }
+  }, []);
 
   // Compute validity for UI disable state
   const isValid = title.trim() && targetValue > 0 && deadline;
