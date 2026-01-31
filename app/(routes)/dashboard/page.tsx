@@ -164,6 +164,18 @@ async function RoleBasedDashboard() {
       );
     }
 
+    case 'hod': {
+      // FIX: 2026-01-31 - Added HOD role support
+      // HODs get admin dashboard access for department management
+      return (
+        <AdminDashboard
+          userId={user.id}
+          role={profile.role}
+          visibilityMap={visibilityMap}
+        />
+      );
+    }
+
     case 'leadership': {
       // TODO: Implement LeadershipDashboard in next task
       return (

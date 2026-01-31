@@ -122,7 +122,7 @@ export function getWidgetsByRole(role: string) {
     case 'hod':
       return LEADERSHIP_WIDGETS;
     case 'super_admin':
-    case 'administrator':
+    case 'admin':
       return ADMIN_WIDGETS;
     default:
       return [];

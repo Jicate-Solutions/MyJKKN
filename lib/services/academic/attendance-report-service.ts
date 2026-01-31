@@ -171,8 +171,19 @@ export class AttendanceReportService {
       const { data, error, count } = await query;
 
       if (error) {
-        logger.error('academic/attendance-reports', 'Error fetching reports', error);
+        logger.error('academic/attendance-reports', 'Error fetching reports', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          filters
+        });
         return { data: [], count: 0, error: error.message };
+      }
+
+      if (!data || data.length === 0) {
+        logger.info('academic/attendance-reports', 'No reports found', { filters, userRole });
+        return { data: [], count: 0, error: null };
       }
 
       // Fetch related data in batch for better performance

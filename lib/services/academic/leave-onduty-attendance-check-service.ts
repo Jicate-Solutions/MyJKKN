@@ -15,7 +15,7 @@ export interface ApprovedLeaveInfo {
   application_id: string;
   category: 'leave' | 'onduty';
   subcategory: string;
-  selected_periods: string[];
+  selected_periods: any; // jsonb - can be array or object
   start_date: string;
   end_date: string;
   reason: string;
@@ -44,6 +44,19 @@ export class LeaveOndutyAttendanceCheckService {
     const supabase = createClientSupabaseClient();
 
     try {
+      // Validate parameters
+      if (!sectionId || !date) {
+        console.warn('[leave-check] Missing required parameters:', { sectionId, date });
+        return [];
+      }
+
+      // Log the parameters being sent
+      console.log('[leave-check] Calling RPC with params:', {
+        p_section_id: sectionId,
+        p_date: date,
+        p_periods: periods || null
+      });
+
       // Call the database function
       const { data, error } = await supabase.rpc(
         'get_approved_leave_for_attendance',
@@ -55,7 +68,12 @@ export class LeaveOndutyAttendanceCheckService {
       );
 
       if (error) {
-        console.error('[leave-check] Error fetching approved leave:', error);
+        console.error('[leave-check] Error fetching approved leave:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
         throw error;
       }
 
@@ -64,8 +82,17 @@ export class LeaveOndutyAttendanceCheckService {
         ...item,
         attendance_status: item.category === 'leave' ? 'absent' : 'onduty'
       }));
-    } catch (error) {
-      console.error('[leave-check] Failed to get approved leave:', error);
+    } catch (error: any) {
+      console.error('[leave-check] Failed to get approved leave:', {
+        name: error?.name,
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+        code: error?.code,
+        sectionId,
+        date,
+        periods
+      });
       return [];
     }
   }
