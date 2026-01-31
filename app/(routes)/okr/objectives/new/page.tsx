@@ -157,7 +157,7 @@ export default function CreateElectiveOKRPage() {
         </Card>
 
         {/* Form */}
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} data-testid="okr-create-form">
           <Card>
             <CardContent className="pt-6 space-y-6">
               {/* Title */}
@@ -168,6 +168,7 @@ export default function CreateElectiveOKRPage() {
                 </Label>
                 <Input
                   id="title"
+                  data-testid="okr-title-input"
                   placeholder="e.g., Learn Python Programming"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -186,6 +187,7 @@ export default function CreateElectiveOKRPage() {
                 </Label>
                 <Textarea
                   id="description"
+                  data-testid="okr-description-input"
                   placeholder="Describe your goal in more detail..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -201,6 +203,7 @@ export default function CreateElectiveOKRPage() {
                 </Label>
                 <Textarea
                   id="whyMatters"
+                  data-testid="okr-why-matters-input"
                   placeholder="Why is achieving this goal important to you?"
                   value={whyMatters}
                   onChange={(e) => setWhyMatters(e.target.value)}
@@ -223,6 +226,7 @@ export default function CreateElectiveOKRPage() {
                     <Label htmlFor="baselineValue" className="text-foreground">Starting Value</Label>
                     <Input
                       id="baselineValue"
+                      data-testid="okr-baseline-input"
                       type="number"
                       value={baselineValue}
                       onChange={(e) => setBaselineValue(parseFloat(e.target.value) || 0)}
@@ -234,6 +238,7 @@ export default function CreateElectiveOKRPage() {
                     </Label>
                     <Input
                       id="targetValue"
+                      data-testid="okr-target-input"
                       type="number"
                       value={targetValue}
                       onChange={(e) => setTargetValue(parseFloat(e.target.value) || 0)}
@@ -243,6 +248,7 @@ export default function CreateElectiveOKRPage() {
                     <Label htmlFor="unit" className="text-foreground">Unit</Label>
                     <Input
                       id="unit"
+                      data-testid="okr-unit-input"
                       placeholder="e.g., %, hours, lessons"
                       value={unit}
                       onChange={(e) => setUnit(e.target.value)}
@@ -263,6 +269,7 @@ export default function CreateElectiveOKRPage() {
                 </Label>
                 <Input
                   id="deadline"
+                  data-testid="okr-deadline-input"
                   type="date"
                   value={deadline}
                   onChange={(e) => setDeadline(e.target.value)}
@@ -287,11 +294,12 @@ export default function CreateElectiveOKRPage() {
 
           {/* Submit */}
           <div className="flex items-center justify-end gap-3 mt-6">
-            <Button type="button" variant="outline" asChild>
+            <Button type="button" variant="outline" asChild data-testid="okr-cancel-button">
               <Link href="/okr/objectives">Cancel</Link>
             </Button>
             <Button
               type="submit"
+              data-testid="okr-submit-button"
               disabled={!isValid || createElective.isPending}
               style={{ backgroundColor: isValid ? '#0b6d41' : undefined }}
             >
