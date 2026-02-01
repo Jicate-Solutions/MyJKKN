@@ -32,7 +32,7 @@ export class OKRCheckInService {
    * Get check-ins with filters
    */
   static async getCheckIns(
-    filters: OKRCheckInFilters = {}
+    filters: OKRCheckInFilters
   ): Promise<OKRListResponse<OKRCheckIn>> {
     try {
       let query = (this.supabase as any)

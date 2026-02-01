@@ -63,7 +63,7 @@ export class OKRObjectiveService {
    * Get all objectives with filters and pagination
    */
   static async getObjectives(
-    filters: OKRObjectiveFilters = {}
+    filters: OKRObjectiveFilters
   ): Promise<OKRListResponse<OKRObjective>> {
     try {
       // Validate UUID filters if provided
@@ -606,7 +606,7 @@ export class OKRObjectiveService {
    * Get my objectives (current user)
    */
   static async getMyObjectives(
-    filters: Omit<OKRObjectiveFilters, 'owner_id'> = {}
+    filters: Omit<OKRObjectiveFilters, 'owner_id'>
   ): Promise<OKRListResponse<OKRObjective>> {
     const {
       data: { user }

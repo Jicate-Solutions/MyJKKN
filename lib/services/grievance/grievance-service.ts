@@ -230,7 +230,7 @@ export class GrievanceService {
   /**
    * Get tickets with filters and pagination
    */
-  static async getTickets(filters: GrievanceTicketFilters = {}): Promise<GrievanceTicketListResponse> {
+  static async getTickets(filters: GrievanceTicketFilters): Promise<GrievanceTicketListResponse> {
     let query = this.supabase
       .from('grievance_tickets')
       .select(`
@@ -868,7 +868,7 @@ export class GrievanceService {
   /**
    * Get my tickets (for current user)
    */
-  static async getMyTickets(filters: GrievanceTicketFilters = {}): Promise<GrievanceTicketListResponse> {
+  static async getMyTickets(filters: GrievanceTicketFilters): Promise<GrievanceTicketListResponse> {
     const { data: user } = await this.supabase.auth.getUser();
     if (!user?.user?.id) {
       throw new Error('User not authenticated');
@@ -884,7 +884,7 @@ export class GrievanceService {
   /**
    * Get assigned tickets (for staff)
    */
-  static async getAssignedTickets(filters: GrievanceTicketFilters = {}): Promise<GrievanceTicketListResponse> {
+  static async getAssignedTickets(filters: GrievanceTicketFilters): Promise<GrievanceTicketListResponse> {
     const { data: user } = await this.supabase.auth.getUser();
     if (!user?.user?.id) {
       throw new Error('User not authenticated');

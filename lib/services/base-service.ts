@@ -108,7 +108,11 @@ export abstract class BaseService {
       query = query.range(start, end);
 
       // Execute with timeout
-      const { data, count, error } = await withTimeout(
+      const { data, count, error } = await withTimeout<{
+        data: T[] | null;
+        count: number | null;
+        error: { message: string } | null;
+      }>(
         query,
         QUERY_TIMEOUTS.LIST,
         `List query for ${tableName} timed out`
@@ -158,7 +162,10 @@ export abstract class BaseService {
         query = query.eq('institution_id', institutionId);
       }
 
-      const { data, error } = await withTimeout(
+      const { data, error } = await withTimeout<{
+        data: T | null;
+        error: { message: string; code?: string } | null;
+      }>(
         query.single(),
         QUERY_TIMEOUTS.SINGLE,
         `Single query for ${tableName} timed out`
@@ -200,7 +207,10 @@ export abstract class BaseService {
     const startTime = performance.now();
 
     try {
-      const { data, error } = await withTimeout(
+      const { data, error } = await withTimeout<{
+        data: T | null;
+        error: { message: string } | null;
+      }>(
         this.supabase.rpc(functionName, params),
         QUERY_TIMEOUTS.DASHBOARD,
         `Dashboard function ${functionName} timed out`
@@ -241,7 +251,10 @@ export abstract class BaseService {
     select: string = '*'
   ): Promise<T> {
     try {
-      const { data: result, error } = await withTimeout(
+      const { data: result, error } = await withTimeout<{
+        data: T | null;
+        error: { message: string; code?: string } | null;
+      }>(
         this.supabase.from(tableName).insert(data).select(select).single(),
         QUERY_TIMEOUTS.DEFAULT,
         `Create operation for ${tableName} timed out`
@@ -293,7 +306,10 @@ export abstract class BaseService {
         query = query.eq('institution_id', institutionId);
       }
 
-      const { data, error } = await withTimeout(
+      const { data, error } = await withTimeout<{
+        data: T | null;
+        error: { message: string; code?: string } | null;
+      }>(
         query.select(select).single(),
         QUERY_TIMEOUTS.DEFAULT,
         `Update operation for ${tableName} timed out`
@@ -333,7 +349,9 @@ export abstract class BaseService {
         query = query.eq('institution_id', institutionId);
       }
 
-      const { error } = await withTimeout(
+      const { error } = await withTimeout<{
+        error: { message: string; code?: string } | null;
+      }>(
         query,
         QUERY_TIMEOUTS.DEFAULT,
         `Delete operation for ${tableName} timed out`

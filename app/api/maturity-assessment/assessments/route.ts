@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { NextResponse } from 'next/server';
 import { MaturityAssessmentService } from '@/lib/services/maturity-assessment/maturity-assessment-service';
 import { getAuthSession } from '@/lib/supabase/server';
+import type { MaturityAssessmentFilters } from '@/types/maturity-assessment';
 import {
   createAssessmentSchema,
   assessmentFiltersSchema
@@ -14,11 +15,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { searchParams } = new URL(request.url);
+    const { searchParams} = new URL(request.url);
+
+    const institutionId = searchParams.get('institution_id');
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'institution_id is required' },
+        { status: 400 }
+      );
+    }
 
     // Parse query parameters
     const queryParams = {
-      institution_id: searchParams.get('institution_id') || undefined,
+      institution_id: institutionId,
       department_id: searchParams.get('department_id') || undefined,
       status: searchParams.get('status') || undefined,
       date_from: searchParams.get('date_from') || undefined,
@@ -31,7 +40,7 @@ export async function GET(request: Request) {
       sortDirection: (searchParams.get('sortDirection') as 'asc' | 'desc') || undefined
     };
 
-    const validatedFilters = assessmentFiltersSchema.parse(queryParams);
+    const validatedFilters = assessmentFiltersSchema.parse(queryParams) as MaturityAssessmentFilters;
     const result = await MaturityAssessmentService.getAssessments(validatedFilters);
 
     return NextResponse.json(result);

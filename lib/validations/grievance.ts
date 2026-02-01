@@ -96,7 +96,7 @@ export const updateGrievanceCategorySchema = createGrievanceCategorySchema.parti
 });
 
 export const categoryFiltersSchema = z.object({
-  institution_id: z.string().uuid().optional(),
+  institution_id: z.string().uuid('Invalid institution ID'),
   parent_id: z.string().uuid().optional().nullable(),
   is_active: z.boolean().optional(),
   search: z.string().optional()
@@ -210,7 +210,7 @@ export const rateSatisfactionSchema = z.object({
 });
 
 export const ticketFiltersSchema = z.object({
-  institution_id: z.string().uuid().optional(),
+  institution_id: z.string().uuid('Invalid institution ID'),
   status: grievanceStatusSchema.optional(),
   sla_status: grievanceSLAStatusSchema.optional(),
   priority: grievancePrioritySchema.optional(),

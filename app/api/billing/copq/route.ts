@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/supabase/server';
 import { BillingCOPQService } from '@/lib/services/billing/copq/billing-copq-service';
+import type { COPQFilters } from '@/types/billing-copq';
 import {
   createCOPQIncidentSchema,
   copqFiltersSchema
@@ -17,11 +18,21 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's institution_id from query param (temporary - should be from profile)
+    // SECURITY NOTE: In production, institution_id should come from user's profile, not query params
     const { searchParams } = new URL(request.url);
+    const institutionId = searchParams.get('institution_id');
+
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'institution_id is required' },
+        { status: 400 }
+      );
+    }
 
     // Parse and validate query parameters
     const queryParams = {
-      institution_id: searchParams.get('institution_id') || undefined,
+      institution_id: institutionId,
       category: searchParams.get('category') || undefined,
       status: searchParams.get('status') || undefined,
       date_from: searchParams.get('date_from') || undefined,
@@ -33,7 +44,7 @@ export async function GET(request: Request) {
         : 10
     };
 
-    const validatedFilters = copqFiltersSchema.parse(queryParams);
+    const validatedFilters = copqFiltersSchema.parse(queryParams) as COPQFilters;
 
     const result = await BillingCOPQService.getIncidents(validatedFilters);
 

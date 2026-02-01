@@ -73,7 +73,7 @@ export class NPSService {
   /**
    * Get all surveys with filters and pagination
    */
-  static async getSurveys(filters: SurveyFilters = {}): Promise<SurveyListResponse> {
+  static async getSurveys(filters: SurveyFilters): Promise<SurveyListResponse> {
     const {
       institution_id,
       stakeholder_type,
@@ -400,7 +400,7 @@ export class NPSService {
   /**
    * Get responses with filters and pagination
    */
-  static async getResponses(filters: ResponseFilters = {}): Promise<ResponseListResponse> {
+  static async getResponses(filters: ResponseFilters): Promise<ResponseListResponse> {
     const {
       survey_id,
       nps_category,
@@ -558,7 +558,7 @@ export class NPSService {
   /**
    * Get analytics with filters
    */
-  static async getAnalytics(filters: AnalyticsFilters = {}): Promise<NPSAnalytics[]> {
+  static async getAnalytics(filters: AnalyticsFilters): Promise<NPSAnalytics[]> {
     const {
       institution_id,
       stakeholder_type,

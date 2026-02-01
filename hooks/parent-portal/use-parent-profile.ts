@@ -26,10 +26,11 @@ export const parentProfileKeys = {
 // QUERY HOOKS
 // ============================================================================
 
-export function useParentProfiles(filters: ParentProfileFilters = {}) {
+export function useParentProfiles(filters: ParentProfileFilters) {
   return useQuery({
     queryKey: parentProfileKeys.list(filters),
     queryFn: () => ParentPortalService.getParentProfiles(filters),
+    enabled: !!filters.institution_id,
     staleTime: 5 * 60 * 1000,
   });
 }

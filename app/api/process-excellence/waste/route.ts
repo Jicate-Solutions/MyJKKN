@@ -6,6 +6,7 @@ import {
   createWasteIncidentSchema,
   wasteIncidentFiltersSchema
 } from '@/lib/validations/process-excellence';
+import type { WasteIncidentFilters } from '@/types/process-excellence';
 
 export async function GET(request: Request) {
   try {
@@ -16,10 +17,16 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
 
+    // Validate required institution_id
+    const institutionId = searchParams.get('institution_id');
+    if (!institutionId) {
+      return NextResponse.json({ error: 'institution_id is required' }, { status: 400 });
+    }
+
     // Parse and validate query parameters
     const queryParams = {
       search: searchParams.get('search') || undefined,
-      institution_id: searchParams.get('institution_id') || undefined,
+      institution_id: institutionId,
       process_id: searchParams.get('process_id') || undefined,
       process_instance_id: searchParams.get('process_instance_id') || undefined,
       waste_category: searchParams.get('waste_category') || undefined,
@@ -34,7 +41,7 @@ export async function GET(request: Request) {
       sortDirection: searchParams.get('sortDirection') as 'asc' | 'desc' | undefined
     };
 
-    const validatedFilters = wasteIncidentFiltersSchema.parse(queryParams);
+    const validatedFilters = wasteIncidentFiltersSchema.parse(queryParams) as WasteIncidentFilters;
 
     const supabase = await createClient();
 

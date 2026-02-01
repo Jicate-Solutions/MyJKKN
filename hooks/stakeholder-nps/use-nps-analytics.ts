@@ -18,12 +18,13 @@ export const npsAnalyticsKeys = {
  * Hook for fetching analytics data with filters
  * FIXED: Added placeholderData for better UX during filter changes
  */
-export function useNPSAnalytics(initialFilters: AnalyticsFilters = {}) {
+export function useNPSAnalytics(initialFilters: AnalyticsFilters) {
   const [filters, setFilters] = useState<AnalyticsFilters>(initialFilters);
 
   const query = useQuery({
     queryKey: npsAnalyticsKeys.list(filters),
     queryFn: () => NPSService.getAnalytics(filters),
+    enabled: !!filters.institution_id || !!initialFilters?.institution_id,
     staleTime: 5 * 60 * 1000, // 5 minutes
     placeholderData: (previousData) => previousData
   });

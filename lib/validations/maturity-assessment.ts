@@ -216,7 +216,7 @@ export const createEvidenceSchema = z.object({
 // ============================================================
 
 export const assessmentFiltersSchema = z.object({
-  institution_id: z.string().uuid().optional(),
+  institution_id: z.string().uuid('Invalid institution ID'),
   department_id: z.string().uuid().optional(),
   status: assessmentStatusSchema.optional(),
   date_from: z

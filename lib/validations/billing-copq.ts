@@ -185,7 +185,7 @@ export const resolveCOPQIncidentSchema = z.object({
 
 // Schema for query filters
 export const copqFiltersSchema = z.object({
-  institution_id: z.string().uuid().optional(),
+  institution_id: z.string().uuid('Invalid institution ID'), // REQUIRED for security
   category: copqCategorySchema.optional(),
   status: copqStatusSchema.optional(),
   date_from: z

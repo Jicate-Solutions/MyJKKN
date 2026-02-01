@@ -27,7 +27,7 @@ export const copqKeys = {
 /**
  * Hook for fetching COPQ incidents with filters and pagination
  */
-export function useBillingCOPQIncidents(initialFilters: COPQFilters = {}) {
+export function useBillingCOPQIncidents(initialFilters: COPQFilters) {
   const [filters, setFilters] = useState<COPQFilters>({
     page: 1,
     limit: 10,

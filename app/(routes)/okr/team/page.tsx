@@ -36,6 +36,7 @@ import {
   useTeamSummary,
   useNeedsAttention
 } from '@/hooks/okr/use-team';
+import { useAuth } from '@/hooks/use-auth';
 import { OKRTeamMember, OKRNeedsAttention, UserBadge } from '@/types/okr';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -106,8 +107,14 @@ const attentionTypeConfig: Record<OKRNeedsAttention['type'], {
 };
 
 export default function TeamDashboardPage() {
-  const { data: summary, isLoading: summaryLoading, error: summaryError } = useTeamSummary();
-  const { data: needsAttention, isLoading: attentionLoading } = useNeedsAttention();
+  const { profile } = useAuth();
+
+  const { data: summary, isLoading: summaryLoading, error: summaryError } = useTeamSummary({
+    institution_id: profile?.institution_id || ''
+  });
+  const { data: needsAttention, isLoading: attentionLoading } = useNeedsAttention({
+    institution_id: profile?.institution_id || ''
+  });
 
   const handleSendReminder = (userId: string, userName: string) => {
     // TODO: Implement reminder functionality

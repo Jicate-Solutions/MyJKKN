@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { NextResponse } from 'next/server';
 import { NPSService } from '@/lib/services/stakeholder-nps/nps-service';
 import { getAuthSession } from '@/lib/supabase/server';
+import type { SurveyFilters } from '@/types/stakeholder-nps';
 import { createSurveySchema, surveyFiltersSchema } from '@/lib/validations/stakeholder-nps';
 
 export async function GET(request: Request) {
@@ -13,9 +14,14 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
 
+    const institutionId = searchParams.get('institution_id');
+    if (!institutionId) {
+      return NextResponse.json({ error: 'institution_id is required' }, { status: 400 });
+    }
+
     // Parse query parameters
     const queryParams = {
-      institution_id: searchParams.get('institution_id') || undefined,
+      institution_id: institutionId,
       stakeholder_type: searchParams.get('stakeholder_type') || undefined,
       status: searchParams.get('status') || undefined,
       department_id: searchParams.get('department_id') || undefined,
@@ -29,7 +35,7 @@ export async function GET(request: Request) {
       sortDirection: (searchParams.get('sortDirection') as 'asc' | 'desc') || 'desc'
     };
 
-    const validatedFilters = surveyFiltersSchema.parse(queryParams);
+    const validatedFilters = surveyFiltersSchema.parse(queryParams) as SurveyFilters;
     const result = await NPSService.getSurveys(validatedFilters);
 
     return NextResponse.json(result);

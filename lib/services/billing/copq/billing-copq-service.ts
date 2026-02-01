@@ -191,7 +191,7 @@ export class BillingCOPQService {
    * Get list of COPQ incidents with filters and pagination
    */
   static async getIncidents(
-    filters: COPQFilters = {}
+    filters: COPQFilters
   ): Promise<COPQListResponse> {
     try {
       let query = this.supabase

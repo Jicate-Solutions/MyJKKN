@@ -39,7 +39,7 @@ export const objectiveKeys = {
  * Get objectives with filters and pagination
  */
 export function useObjectives(
-  filters: OKRObjectiveFilters = {}
+  filters: OKRObjectiveFilters
 ): UseQueryResult<OKRListResponse<OKRObjective>, Error> {
   const { profile, isLoading: authLoading } = useAuth();
 
@@ -90,7 +90,7 @@ export function useObjectives(
  * Get current user's objectives
  */
 export function useMyObjectives(
-  filters: Omit<OKRObjectiveFilters, 'owner_id'> = {}
+  filters: Omit<OKRObjectiveFilters, 'owner_id'>
 ): UseQueryResult<OKRListResponse<OKRObjective>, Error> {
   const { profile, isLoading: authLoading } = useAuth();
 

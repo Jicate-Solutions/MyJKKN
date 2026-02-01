@@ -1,8 +1,13 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { NPSSurvey, SurveyFilters, SurveyListResponse } from '@/types/stakeholder-nps';
 
-export async function getSurveys(filters: SurveyFilters = {}): Promise<SurveyListResponse> {
+export async function getSurveys(filters: SurveyFilters): Promise<SurveyListResponse> {
   const supabase = await createServerSupabaseClient();
+
+  // CRITICAL: Validate required institution_id for security
+  if (!filters.institution_id) {
+    throw new Error('institution_id is required to fetch surveys');
+  }
 
   const {
     institution_id,
@@ -29,9 +34,7 @@ export async function getSurveys(filters: SurveyFilters = {}): Promise<SurveyLis
     `, { count: 'exact' });
 
   // Apply filters
-  if (institution_id) {
-    query = query.eq('institution_id', institution_id);
-  }
+  query = query.eq('institution_id', institution_id);
   if (stakeholder_type) {
     query = query.eq('stakeholder_type', stakeholder_type);
   }

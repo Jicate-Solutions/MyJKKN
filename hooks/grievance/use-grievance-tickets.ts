@@ -28,7 +28,7 @@ export const grievanceTicketKeys = {
 /**
  * Hook to fetch tickets with filters
  */
-export function useGrievanceTickets(filters: GrievanceTicketFilters = {}) {
+export function useGrievanceTickets(filters: GrievanceTicketFilters) {
   return useQuery({
     queryKey: grievanceTicketKeys.list(filters),
     queryFn: () => GrievanceService.getTickets(filters),
@@ -63,7 +63,7 @@ export function useGrievanceTicketByNumber(ticketNumber: string) {
 /**
  * Hook to fetch my tickets
  */
-export function useMyGrievanceTickets(filters: GrievanceTicketFilters = {}) {
+export function useMyGrievanceTickets(filters: GrievanceTicketFilters) {
   return useQuery({
     queryKey: grievanceTicketKeys.my(filters),
     queryFn: () => GrievanceService.getMyTickets(filters),
@@ -74,7 +74,7 @@ export function useMyGrievanceTickets(filters: GrievanceTicketFilters = {}) {
 /**
  * Hook to fetch assigned tickets
  */
-export function useAssignedGrievanceTickets(filters: GrievanceTicketFilters = {}) {
+export function useAssignedGrievanceTickets(filters: GrievanceTicketFilters) {
   return useQuery({
     queryKey: grievanceTicketKeys.assigned(filters),
     queryFn: () => GrievanceService.getAssignedTickets(filters),

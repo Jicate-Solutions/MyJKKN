@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { NextResponse } from 'next/server';
 import { GrievanceService } from '@/lib/services/grievance/grievance-service';
 import { getAuthSession } from '@/lib/supabase/server';
+import type { GrievanceTicketFilters } from '@/types/grievance';
 import { createGrievanceTicketSchema, ticketFiltersSchema } from '@/lib/validations/grievance';
 
 export async function GET(request: Request) {
@@ -16,8 +17,16 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
 
+    const institutionId = searchParams.get('institution_id');
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'institution_id is required' },
+        { status: 400 }
+      );
+    }
+
     const queryParams = {
-      institution_id: searchParams.get('institution_id') || undefined,
+      institution_id: institutionId,
       status: searchParams.get('status') || undefined,
       sla_status: searchParams.get('sla_status') || undefined,
       priority: searchParams.get('priority') || undefined,
@@ -35,7 +44,7 @@ export async function GET(request: Request) {
       sortDirection: (searchParams.get('sortDirection') as 'asc' | 'desc') || undefined
     };
 
-    const validatedFilters = ticketFiltersSchema.parse(queryParams);
+    const validatedFilters = ticketFiltersSchema.parse(queryParams) as GrievanceTicketFilters;
 
     // Check if this is a "my tickets" request
     const myTickets = searchParams.get('my') === 'true';

@@ -43,7 +43,7 @@ export function useVerifyOTP() {
             queryKey: parentProfileKeys.detail(data.parent.id),
           });
           queryClient.invalidateQueries({
-            queryKey: parentDashboardKeys.dashboard(data.parent.id),
+            queryKey: parentDashboardKeys.dashboard(),
           });
         }
         toast.success(data.message || 'Verification successful');

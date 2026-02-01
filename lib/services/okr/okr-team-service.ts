@@ -20,7 +20,7 @@ export class OKRTeamService {
    * Get team summary for a manager
    */
   static async getTeamSummary(
-    filters: OKRTeamFilters = {}
+    filters: OKRTeamFilters
   ): Promise<OKRTeamSummary> {
     try {
       const { data: { user } } = await this.supabase.auth.getUser();
@@ -102,7 +102,7 @@ export class OKRTeamService {
    * Get items needing attention
    */
   static async getNeedsAttention(
-    filters: OKRTeamFilters = {}
+    filters: OKRTeamFilters
   ): Promise<OKRNeedsAttention[]> {
     try {
       const items: OKRNeedsAttention[] = [];

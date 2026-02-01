@@ -24,10 +24,11 @@ export const wasteIncidentKeys = {
 };
 
 // Hook for fetching waste incidents list
-export function useWasteIncidents(filters: WasteIncidentFilters = {}) {
+export function useWasteIncidents(filters: WasteIncidentFilters) {
   return useQuery({
     queryKey: wasteIncidentKeys.list(filters),
     queryFn: () => ProcessExcellenceService.getWasteIncidents(filters),
+    enabled: !!filters.institution_id,
     staleTime: 2 * 60 * 1000 // 2 minutes
   });
 }

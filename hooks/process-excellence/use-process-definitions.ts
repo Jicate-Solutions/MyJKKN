@@ -21,10 +21,11 @@ export const processDefinitionKeys = {
 };
 
 // Hook for fetching process definitions list
-export function useProcessDefinitions(filters: ProcessDefinitionFilters = {}) {
+export function useProcessDefinitions(filters: ProcessDefinitionFilters) {
   return useQuery({
     queryKey: processDefinitionKeys.list(filters),
     queryFn: () => ProcessExcellenceService.getProcessDefinitions(filters),
+    enabled: !!filters.institution_id,
     staleTime: 5 * 60 * 1000 // 5 minutes
   });
 }

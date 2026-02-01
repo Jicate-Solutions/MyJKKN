@@ -25,12 +25,13 @@ export const npsResponseKeys = {
  * Hook for managing responses list with filters and pagination
  * FIXED: Added placeholderData for better UX during filter changes
  */
-export function useNPSResponses(initialFilters: ResponseFilters = {}) {
+export function useNPSResponses(initialFilters: ResponseFilters) {
   const [filters, setFilters] = useState<ResponseFilters>(initialFilters);
 
   const query = useQuery({
     queryKey: npsResponseKeys.list(filters),
     queryFn: () => NPSService.getResponses(filters),
+    enabled: !!filters.survey_id || !!initialFilters?.survey_id,
     staleTime: 2 * 60 * 1000, // 2 minutes
     placeholderData: (previousData) => previousData
   });

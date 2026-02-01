@@ -35,7 +35,7 @@ export const teamKeys = {
  * Get team summary for current user (as manager)
  */
 export function useTeamSummary(
-  filters: OKRTeamFilters = {}
+  filters: OKRTeamFilters
 ): UseQueryResult<OKRTeamSummary, Error> {
   const { profile, isLoading: authLoading } = useAuth();
 
@@ -51,7 +51,7 @@ export function useTeamSummary(
  * Get items needing attention
  */
 export function useNeedsAttention(
-  filters: OKRTeamFilters = {}
+  filters: OKRTeamFilters
 ): UseQueryResult<OKRNeedsAttention[], Error> {
   const { profile, isLoading: authLoading } = useAuth();
 

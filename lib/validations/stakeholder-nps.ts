@@ -188,7 +188,7 @@ export const submitResponseSchema = z.object({
 
 // Survey Filters Schema
 export const surveyFiltersSchema = z.object({
-  institution_id: z.string().uuid().optional(),
+  institution_id: z.string().uuid('Invalid institution ID'),
   stakeholder_type: stakeholderTypeSchema.optional(),
   status: surveyStatusSchema.optional(),
   department_id: z.string().uuid().optional(),
@@ -219,7 +219,7 @@ export const responseFiltersSchema = z.object({
 
 // Analytics Filters Schema
 export const analyticsFiltersSchema = z.object({
-  institution_id: z.string().uuid().optional(),
+  institution_id: z.string().uuid('Invalid institution ID'),
   stakeholder_type: stakeholderTypeSchema.optional(),
   department_id: z.string().uuid().optional(),
   period_start: z.string().optional(),

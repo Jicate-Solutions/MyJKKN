@@ -139,7 +139,7 @@ export class ParentPortalService {
     return data;
   }
 
-  static async getParentProfiles(filters: ParentProfileFilters = {}) {
+  static async getParentProfiles(filters: ParentProfileFilters) {
     const supabase: any = createClientSupabaseClient();
     const { page = 1, limit = 20 } = filters;
     const offset = (page - 1) * limit;
@@ -378,7 +378,7 @@ export class ParentPortalService {
   // COMMUNICATION METHODS
   // ============================================================================
 
-  static async getCommunications(filters: CommunicationFilters = {}) {
+  static async getCommunications(filters: CommunicationFilters) {
     const supabase: any = createClientSupabaseClient();
     const { page = 1, limit = 20 } = filters;
     const offset = (page - 1) * limit;
@@ -512,7 +512,7 @@ export class ParentPortalService {
   // ACTIVITY LOG METHODS
   // ============================================================================
 
-  static async getActivityLog(filters: ActivityLogFilters = {}) {
+  static async getActivityLog(filters: ActivityLogFilters) {
     const supabase: any = createClientSupabaseClient();
     const { page = 1, limit = 50 } = filters;
     const offset = (page - 1) * limit;

@@ -28,7 +28,7 @@ export const maturityAssessmentKeys = {
  * Hook for fetching assessments with filters and pagination (React Query based)
  * FIXED: Removed manual state management to prevent memory leaks and stale data
  */
-export function useMaturityAssessments(initialFilters: MaturityAssessmentFilters = {}) {
+export function useMaturityAssessments(initialFilters: MaturityAssessmentFilters) {
   const [filters, setFilters] = useState<MaturityAssessmentFilters>(initialFilters);
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -61,7 +61,7 @@ export function useMaturityAssessments(initialFilters: MaturityAssessmentFilters
 /**
  * Hook for fetching assessments with React Query
  */
-export function useMaturityAssessmentsQuery(filters: MaturityAssessmentFilters = {}) {
+export function useMaturityAssessmentsQuery(filters: MaturityAssessmentFilters) {
   return useQuery({
     queryKey: maturityAssessmentKeys.list(filters),
     queryFn: () => MaturityAssessmentService.getAssessments(filters),

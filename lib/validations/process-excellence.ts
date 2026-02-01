@@ -216,7 +216,7 @@ export const updateProcessAuditSchema = z.object({
 
 export const processDefinitionFiltersSchema = z.object({
   search: z.string().optional(),
-  institution_id: z.string().uuid().optional(),
+  institution_id: z.string().uuid('Invalid institution ID'),
   category: processCategorySchema.optional(),
   is_active: z.boolean().optional(),
   page: z.number().int().min(1).optional().default(1),
@@ -227,7 +227,7 @@ export const processDefinitionFiltersSchema = z.object({
 
 export const processInstanceFiltersSchema = z.object({
   search: z.string().optional(),
-  institution_id: z.string().uuid().optional(),
+  institution_id: z.string().uuid('Invalid institution ID'),
   process_id: z.string().uuid().optional(),
   reference_type: z.string().optional(),
   sla_status: slaStatusSchema.optional(),
@@ -242,7 +242,7 @@ export const processInstanceFiltersSchema = z.object({
 
 export const wasteIncidentFiltersSchema = z.object({
   search: z.string().optional(),
-  institution_id: z.string().uuid().optional(),
+  institution_id: z.string().uuid('Invalid institution ID'),
   process_id: z.string().uuid().optional(),
   process_instance_id: z.string().uuid().optional(),
   waste_category: wasteCategorySchema.optional(),
@@ -257,7 +257,7 @@ export const wasteIncidentFiltersSchema = z.object({
 
 export const processAuditFiltersSchema = z.object({
   search: z.string().optional(),
-  institution_id: z.string().uuid().optional(),
+  institution_id: z.string().uuid('Invalid institution ID'),
   process_id: z.string().uuid().optional(),
   auditor_id: z.string().uuid().optional(),
   abcd_rating: abcdRatingSchema.optional(),

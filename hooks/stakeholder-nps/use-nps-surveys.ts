@@ -28,12 +28,13 @@ export const npsSurveyKeys = {
  * Hook for managing surveys list with filters and pagination
  * FIXED: Added placeholderData for better UX during filter changes
  */
-export function useNPSSurveys(initialFilters: SurveyFilters = {}) {
+export function useNPSSurveys(initialFilters: SurveyFilters) {
   const [filters, setFilters] = useState<SurveyFilters>(initialFilters);
 
   const query = useQuery({
     queryKey: npsSurveyKeys.list(filters),
     queryFn: () => NPSService.getSurveys(filters),
+    enabled: !!filters.institution_id || !!initialFilters?.institution_id,
     staleTime: 5 * 60 * 1000, // 5 minutes
     placeholderData: (previousData) => previousData
   });

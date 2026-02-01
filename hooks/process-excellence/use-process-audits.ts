@@ -22,10 +22,11 @@ export const processAuditKeys = {
 };
 
 // Hook for fetching process audits list
-export function useProcessAudits(filters: ProcessAuditFilters = {}) {
+export function useProcessAudits(filters: ProcessAuditFilters) {
   return useQuery({
     queryKey: processAuditKeys.list(filters),
     queryFn: () => ProcessExcellenceService.getProcessAudits(filters),
+    enabled: !!filters.institution_id,
     staleTime: 5 * 60 * 1000 // 5 minutes
   });
 }

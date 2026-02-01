@@ -23,10 +23,11 @@ export const parentCommunicationKeys = {
 // QUERY HOOKS
 // ============================================================================
 
-export function useParentCommunications(filters: CommunicationFilters = {}) {
+export function useParentCommunications(filters: CommunicationFilters) {
   return useQuery({
     queryKey: parentCommunicationKeys.list(filters),
     queryFn: () => ParentPortalService.getCommunications(filters),
+    enabled: !!filters.institution_id,
     staleTime: 2 * 60 * 1000,
   });
 }
@@ -99,7 +100,7 @@ export function useMarkAllCommunicationsRead() {
         queryKey: parentCommunicationKeys.unreadCount(parentId),
       });
       queryClient.invalidateQueries({
-        queryKey: parentDashboardKeys.dashboard(parentId),
+        queryKey: parentDashboardKeys.dashboard(),
       });
       toast.success('All messages marked as read');
     },

@@ -22,10 +22,11 @@ export const processInstanceKeys = {
 };
 
 // Hook for fetching process instances list
-export function useProcessInstances(filters: ProcessInstanceFilters = {}) {
+export function useProcessInstances(filters: ProcessInstanceFilters) {
   return useQuery({
     queryKey: processInstanceKeys.list(filters),
     queryFn: () => ProcessExcellenceService.getProcessInstances(filters),
+    enabled: !!filters.institution_id,
     staleTime: 2 * 60 * 1000 // 2 minutes - instances change more frequently
   });
 }

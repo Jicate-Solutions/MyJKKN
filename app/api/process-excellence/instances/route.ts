@@ -6,6 +6,7 @@ import {
   startProcessInstanceSchema,
   processInstanceFiltersSchema
 } from '@/lib/validations/process-excellence';
+import type { ProcessInstanceFilters } from '@/types/process-excellence';
 
 export async function GET(request: Request) {
   try {
@@ -16,10 +17,16 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
 
+    // Validate required institution_id
+    const institutionId = searchParams.get('institution_id');
+    if (!institutionId) {
+      return NextResponse.json({ error: 'institution_id is required' }, { status: 400 });
+    }
+
     // Parse and validate query parameters
     const queryParams = {
       search: searchParams.get('search') || undefined,
-      institution_id: searchParams.get('institution_id') || undefined,
+      institution_id: institutionId,
       process_id: searchParams.get('process_id') || undefined,
       reference_type: searchParams.get('reference_type') || undefined,
       sla_status: searchParams.get('sla_status') || undefined,
@@ -36,7 +43,7 @@ export async function GET(request: Request) {
       sortDirection: searchParams.get('sortDirection') as 'asc' | 'desc' | undefined
     };
 
-    const validatedFilters = processInstanceFiltersSchema.parse(queryParams);
+    const validatedFilters = processInstanceFiltersSchema.parse(queryParams) as ProcessInstanceFilters;
 
     const supabase = await createClient();
 

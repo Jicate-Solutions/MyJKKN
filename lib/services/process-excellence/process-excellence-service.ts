@@ -85,7 +85,7 @@ export class ProcessExcellenceService {
   // =============================================
 
   static async getProcessDefinitions(
-    filters: ProcessDefinitionFilters = {}
+    filters: ProcessDefinitionFilters
   ): Promise<ProcessDefinitionListResponse> {
     try {
       let query = this.supabase
@@ -284,7 +284,7 @@ export class ProcessExcellenceService {
   // =============================================
 
   static async getProcessInstances(
-    filters: ProcessInstanceFilters = {}
+    filters: ProcessInstanceFilters
   ): Promise<ProcessInstanceListResponse> {
     try {
       let query = this.supabase
@@ -652,7 +652,7 @@ export class ProcessExcellenceService {
   // =============================================
 
   static async getWasteIncidents(
-    filters: WasteIncidentFilters = {}
+    filters: WasteIncidentFilters
   ): Promise<WasteIncidentListResponse> {
     try {
       let query = this.supabase
@@ -868,7 +868,7 @@ export class ProcessExcellenceService {
   // =============================================
 
   static async getProcessAudits(
-    filters: ProcessAuditFilters = {}
+    filters: ProcessAuditFilters
   ): Promise<ProcessAuditListResponse> {
     try {
       let query = this.supabase

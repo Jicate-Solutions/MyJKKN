@@ -69,8 +69,6 @@ export class MaturityAssessmentService {
     }
   }
 
-  private static supabase: any = createClientSupabaseClient();
-
   // ============================================================
   // Default Dimensions
   // ============================================================
@@ -235,7 +233,7 @@ export class MaturityAssessmentService {
   // ============================================================
 
   static async getAssessments(
-    filters: MaturityAssessmentFilters = {}
+    filters: MaturityAssessmentFilters
   ): Promise<MaturityAssessmentListResponse> {
     let query = this.supabase
       .from('maturity_assessments')
@@ -374,14 +372,15 @@ export class MaturityAssessmentService {
 
     const scores = Object.values(validatedScores).filter(
       (s) => isValidNumber(s) && s >= 1 && s <= 4
-    );
+    ) as number[];
 
     if (scores.length === 0) {
       console.warn('[MaturityAssessment] No valid dimension scores, defaulting to stage 1');
       return 1;
     }
 
-    const average = scores.reduce((a, b) => a + b, 0) / scores.length;
+    const sum: number = scores.reduce((a: number, b: number) => a + b, 0);
+    const average = sum / scores.length;
     return Math.max(1, Math.min(4, Math.floor(average))) as MaturityStage;
   }
 
