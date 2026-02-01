@@ -78,16 +78,11 @@ export function useMarkCommunicationRead() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, parentId }: { id: string; parentId: string }) =>
-      ParentPortalService.markCommunicationRead(id).then(() => parentId),
-    onSuccess: (parentId) => {
+    mutationFn: ({ id }: { id: string }) =>
+      ParentPortalService.markCommunicationRead(id),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: parentCommunicationKeys.lists() });
-      queryClient.invalidateQueries({
-        queryKey: parentCommunicationKeys.unreadCount(parentId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: parentDashboardKeys.dashboard(parentId),
-      });
+      queryClient.invalidateQueries({ queryKey: parentDashboardKeys.dashboard() });
     },
   });
 }

@@ -200,7 +200,7 @@ export function COPQDashboard({
           ) : (
             <div className='space-y-3'>
               {Object.entries(by_category)
-                .sort(([, a], [, b]) => (b || 0) - (a || 0))
+                .sort(([, a], [, b]) => (Number(b) || 0) - (Number(a) || 0))
                 .map(([category, amount]) => {
                   const percentage =
                     total_copq_ytd > 0
