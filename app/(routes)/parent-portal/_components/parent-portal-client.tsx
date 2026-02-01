@@ -45,7 +45,11 @@ export function ParentPortalClient() {
     }
   }, [isLoading, error, router]);
 
+  // Get institution_id from parent profile
+  const institutionId = dashboardData?.parent?.institution_id || '';
+
   const { data: communications } = useParentCommunications({
+    institution_id: institutionId,
     limit: 5,
   });
 

@@ -48,6 +48,7 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
 import { useObjectives, useArchiveObjective, useActivateObjective } from '@/hooks/okr/use-objectives';
 import { OKRTier, OKRLevel, OKRStatus, OKRObjectiveFilters } from '@/types/okr';
 import { toast } from 'sonner';
@@ -80,8 +81,11 @@ const statusConfig: Record<OKRStatus, { label: string; className: string }> = {
 };
 
 export default function OKRManagePage() {
+  const { profile } = useAuth();
+
   // Filters state
   const [filters, setFilters] = useState<OKRObjectiveFilters>({
+    institution_id: profile?.institution_id || '',
     page: 1,
     limit: 10
   });
@@ -90,6 +94,7 @@ export default function OKRManagePage() {
   // Data fetching
   const { data, isLoading, error } = useObjectives({
     ...filters,
+    institution_id: profile?.institution_id || '',
     search: searchQuery || undefined
   });
 

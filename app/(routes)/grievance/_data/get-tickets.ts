@@ -8,9 +8,14 @@ import type { GrievanceTicket, GrievanceTicketFilters, GrievanceTicketListRespon
  * Get tickets with server-side caching
  */
 export async function getTickets(
-  filters: GrievanceTicketFilters = {}
+  filters: GrievanceTicketFilters
 ): Promise<GrievanceTicketListResponse> {
   const supabase = await createClient();
+
+  // CRITICAL: Validate required institution_id for security
+  if (!filters.institution_id) {
+    throw new Error('institution_id is required to fetch grievance tickets');
+  }
 
   let query = supabase
     .from('grievance_tickets')
@@ -23,9 +28,7 @@ export async function getTickets(
     `, { count: 'exact' });
 
   // Apply filters
-  if (filters.institution_id) {
-    query = query.eq('institution_id', filters.institution_id);
-  }
+  query = query.eq('institution_id', filters.institution_id);
   if (filters.status) {
     query = query.eq('status', filters.status);
   }

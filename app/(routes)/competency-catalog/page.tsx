@@ -75,10 +75,13 @@ function StatsCard({
 // ============================================================================
 
 export default function CompetencyCatalogPage() {
-  const { institutions } = useUserInstitutionAccess();
+  const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
   const institutionId = institutions?.[0]?.institution_id || '';
 
   const { data: stats, isLoading: statsLoading } = useCompetencyStats(institutionId);
+
+  // Show loading while institutions are being fetched
+  const isLoadingData = institutionsLoading || statsLoading;
 
   return (
     <PermissionGuard module="competency.catalog" action="view">
@@ -107,26 +110,26 @@ export default function CompetencyCatalogPage() {
               title="Total Competencies"
               value={stats?.total_competencies || 0}
               icon={Award}
-              loading={statsLoading}
+              loading={isLoadingData}
             />
             <StatsCard
               title="Active"
               value={stats?.active_count || 0}
               description={`${stats?.inactive_count || 0} archived`}
               icon={TrendingUp}
-              loading={statsLoading}
+              loading={isLoadingData}
             />
             <StatsCard
               title="Mapped to Programs"
               value={stats?.mapped_to_programs || 0}
               icon={BookOpen}
-              loading={statsLoading}
+              loading={isLoadingData}
             />
             <StatsCard
               title="Mapped to Courses"
               value={stats?.mapped_to_courses || 0}
               icon={Briefcase}
-              loading={statsLoading}
+              loading={isLoadingData}
             />
           </div>
 

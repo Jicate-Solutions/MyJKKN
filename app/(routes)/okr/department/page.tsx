@@ -78,12 +78,14 @@ export default function DepartmentAdminPage() {
   // Fetch data - super_admin without department sees ALL departments
   const { data: departmentSummary, isLoading: summaryLoading } = useDepartmentSummary(filterDepartmentId || '');
   const { data: tier2Objectives, isLoading: tier2Loading } = useObjectives({
+    institution_id: profile?.institution_id || '',
     department_id: filterDepartmentId ?? undefined,
     tier: 'tier_2',
     status: 'active',
     limit: 50
   });
   const { data: teamSummary, isLoading: teamLoading } = useTeamSummary({
+    institution_id: profile?.institution_id || '',
     department_id: filterDepartmentId ?? undefined
   });
   const { data: complianceStatus } = useMyComplianceStatus();

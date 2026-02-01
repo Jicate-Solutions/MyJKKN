@@ -19,9 +19,14 @@ interface GetAssessmentsResult {
 }
 
 export async function getAssessments(
-  filters: MaturityAssessmentFilters = {}
+  filters: MaturityAssessmentFilters
 ): Promise<GetAssessmentsResult> {
   const supabase = await createClient();
+
+  // CRITICAL: Validate required institution_id for security
+  if (!filters.institution_id) {
+    throw new Error('institution_id is required to fetch maturity assessments');
+  }
 
   let query = supabase
     .from('maturity_assessments')
@@ -38,9 +43,7 @@ export async function getAssessments(
     );
 
   // Apply filters
-  if (filters.institution_id) {
-    query = query.eq('institution_id', filters.institution_id);
-  }
+  query = query.eq('institution_id', filters.institution_id);
   if (filters.department_id) {
     query = query.eq('department_id', filters.department_id);
   }

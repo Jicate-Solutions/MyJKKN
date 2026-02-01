@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  useParentDashboard,
   useParentCommunications,
   useMarkCommunicationRead,
   useMarkAllCommunicationsRead,
@@ -44,6 +45,8 @@ export function CommunicationClient() {
     null
   );
 
+  const { data: dashboardData } = useParentDashboard();
+
   useEffect(() => {
     const storedParentId = localStorage.getItem('parent_portal_id');
     if (!storedParentId) {
@@ -53,7 +56,10 @@ export function CommunicationClient() {
     setParentId(storedParentId);
   }, [router]);
 
+  const institutionId = dashboardData?.parent?.institution_id || '';
+
   const { data, isLoading } = useParentCommunications({
+    institution_id: institutionId,
     parent_id: parentId || '',
     type: typeFilter === 'all' ? undefined : typeFilter,
     is_read: readFilter === 'all' ? undefined : readFilter === 'read',
@@ -66,8 +72,8 @@ export function CommunicationClient() {
 
   const handleSelectMessage = (message: ParentCommunication) => {
     setSelectedMessage(message);
-    if (!message.read_at && parentId) {
-      markRead({ id: message.id, parentId });
+    if (!message.read_at) {
+      markRead({ id: message.id });
     }
   };
 

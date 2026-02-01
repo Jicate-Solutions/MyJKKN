@@ -101,7 +101,7 @@ const BLOOM_BADGES: Record<BloomTaxonomyLevel, { label: string; order: number }>
 // ============================================================================
 
 export function CompetencyTable() {
-  const { institutions } = useUserInstitutionAccess();
+  const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
   const institutionId = institutions?.[0]?.institution_id || '';
 
   // Filter state
@@ -130,7 +130,7 @@ export function CompetencyTable() {
     sort_order: sortOrder
   };
 
-  // Fetch data
+  // Fetch data - hooks must always be called, so we rely on 'enabled' in the hook
   const { data, isLoading, error } = useCompetencies(filters);
   const archiveMutation = useArchiveCompetency();
   const restoreMutation = useRestoreCompetency();
@@ -175,12 +175,29 @@ export function CompetencyTable() {
     setArchiveDialogOpen(true);
   };
 
-  // Loading state
+  // Loading state - check both institutions loading and data loading
+  if (institutionsLoading) {
+    return (
+      <Card>
+        <CardContent className="py-8">
+          <div className="space-y-3">
+            {[...Array(5)].map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (!institutionId) {
     return (
       <Card>
         <CardContent className="py-8 text-center">
           <p className="text-muted-foreground">No institution selected</p>
+          <p className="text-sm text-muted-foreground mt-2">
+            Please ensure you have access to at least one institution.
+          </p>
         </CardContent>
       </Card>
     );
