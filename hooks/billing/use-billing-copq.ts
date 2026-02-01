@@ -205,12 +205,20 @@ export function useCOPQSummary(institutionId: string, year?: number) {
 export function useCOPQDashboard(institutionId: string, year?: number) {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: copqKeys.dashboard(institutionId, year),
-    queryFn: () => BillingCOPQService.getDashboard(institutionId, year),
-    enabled: !!institutionId
+    queryFn: async () => {
+      try {
+        return await BillingCOPQService.getDashboard(institutionId, year);
+      } catch (err) {
+        console.error('[useCOPQDashboard] Error:', err);
+        throw err;
+      }
+    },
+    enabled: !!institutionId,
+    retry: false
   });
 
   return {
-    dashboard: data,
+    dashboard: data || null,
     loading: isLoading,
     error: error?.message,
     refetch
@@ -223,12 +231,20 @@ export function useCOPQDashboard(institutionId: string, year?: number) {
 export function useCOPQIceberg(institutionId: string, year?: number) {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: copqKeys.iceberg(institutionId, year),
-    queryFn: () => BillingCOPQService.getIcebergData(institutionId, year),
-    enabled: !!institutionId
+    queryFn: async () => {
+      try {
+        return await BillingCOPQService.getIcebergData(institutionId, year);
+      } catch (err) {
+        console.error('[useCOPQIceberg] Error:', err);
+        throw err;
+      }
+    },
+    enabled: !!institutionId,
+    retry: false
   });
 
   return {
-    iceberg: data,
+    iceberg: data || null,
     loading: isLoading,
     error: error?.message,
     refetch

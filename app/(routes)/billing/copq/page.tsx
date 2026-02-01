@@ -50,7 +50,7 @@ export default function BillingCOPQPage() {
   const { institutions } = useUserInstitutionAccess();
 
   // Get the first accessible institution ID as default
-  const defaultInstitutionId = institutions[0]?.institution_id || '';
+  const defaultInstitutionId = institutions?.[0]?.institution_id || '';
 
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>('');
 
