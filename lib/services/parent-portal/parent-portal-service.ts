@@ -27,6 +27,18 @@ import type {
 } from '@/types/parent-portal';
 
 export class ParentPortalService {
+  /**
+   * Sanitize search input to prevent SQL injection
+   * Escapes wildcards and special characters used in ILIKE queries
+   * @security CRITICAL - All user search inputs MUST pass through this
+   */
+  private static sanitizeSearch(input: string): string {
+    if (!input) return '';
+    // Escape SQL ILIKE wildcards (%) and single-character wildcards (_)
+    // Also escape backslash to prevent escape sequence injection
+    return input.replace(/[%_\\]/g, '\\$&');
+  }
+
   // ============================================================================
   // PARENT PROFILE METHODS
   // ============================================================================
@@ -110,8 +122,8 @@ export class ParentPortalService {
     }
 
     if (filters.search) {
-      // Sanitize search to prevent SQL injection
-      const sanitizedSearch = filters.search.replace(/[%_]/g, '\\$&');
+      // SECURITY FIX: Sanitize search to prevent SQL injection
+      const sanitizedSearch = this.sanitizeSearch(filters.search);
       query = query.or(`name.ilike.%${sanitizedSearch}%,phone.ilike.%${sanitizedSearch}%,email.ilike.%${sanitizedSearch}%`);
     }
 

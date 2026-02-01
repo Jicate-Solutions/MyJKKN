@@ -22,6 +22,50 @@ import type {
 export class NPSService {
   private static supabase: any = createClientSupabaseClient();
 
+  /**
+   * SECURITY: Validate institution access
+   * Ensures user has permission to access the requested institution's data
+   * @throws Error if institution_id is invalid or user lacks access
+   */
+  private static async validateInstitutionAccess(
+    institutionId: string
+  ): Promise<void> {
+    if (!institutionId || institutionId.trim() === '') {
+      throw new Error('Institution ID is required');
+    }
+
+    // Get current user
+    const { data: { user }, error: authError } = await this.supabase.auth.getUser();
+    if (authError || !user) {
+      throw new Error('Authentication required');
+    }
+
+    // Check user's institution access
+    const { data: access, error } = await this.supabase
+      .from('user_institution_access')
+      .select('institution_id')
+      .eq('user_id', user.id)
+      .eq('institution_id', institutionId)
+      .single();
+
+    if (error || !access) {
+      console.error('[stakeholder-nps] Access denied:', { userId: user.id, institutionId });
+      throw new Error('Access denied: Institution not accessible to user');
+    }
+  }
+
+  /**
+   * Sanitize search input to prevent SQL injection
+   * Escapes wildcards and special characters used in ILIKE queries
+   * @security CRITICAL - All user search inputs MUST pass through this
+   */
+  private static sanitizeSearch(input: string): string {
+    if (!input) return '';
+    // Escape SQL ILIKE wildcards (%) and single-character wildcards (_)
+    // Also escape backslash to prevent escape sequence injection
+    return input.replace(/[%_\\]/g, '\\$&');
+  }
+
   // =====================================================
   // SURVEY OPERATIONS
   // =====================================================
@@ -71,8 +115,8 @@ export class NPSService {
       query = query.eq('program_id', program_id);
     }
     if (search) {
-      // Sanitize search to prevent SQL injection
-      const sanitizedSearch = search.replace(/[%_]/g, '\\$&');
+      // SECURITY FIX: Sanitize search to prevent SQL injection
+      const sanitizedSearch = this.sanitizeSearch(search);
       query = query.or(`title.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%`);
     }
     if (start_date_from) {
@@ -399,7 +443,9 @@ export class NPSService {
       query = query.lte('submitted_at', submitted_to);
     }
     if (search) {
-      query = query.or(`additional_feedback.ilike.%${search}%,respondent_email.ilike.%${search}%,respondent_name.ilike.%${search}%`);
+      // SECURITY FIX: Sanitize search to prevent SQL injection
+      const sanitizedSearch = this.sanitizeSearch(search);
+      query = query.or(`additional_feedback.ilike.%${sanitizedSearch}%,respondent_email.ilike.%${sanitizedSearch}%,respondent_name.ilike.%${sanitizedSearch}%`);
     }
 
     // Apply sorting

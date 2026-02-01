@@ -19,6 +19,61 @@ export class BillingCOPQService {
   private static supabase: any = createClientSupabaseClient();
 
   /**
+   * Convert rupees to paisa for storage
+   * ₹100.50 → 10050 paisa
+   * Uses Math.round to handle floating-point input safely
+   */
+  private static rupeesToPaisa(rupees: number): number {
+    return Math.round(rupees * 100);
+  }
+
+  /**
+   * Convert paisa to rupees for display
+   * 10050 paisa → ₹100.50
+   */
+  private static paisaToRupees(paisa: number): number {
+    return paisa / 100;
+  }
+
+  /**
+   * Safely add two monetary values in paisa
+   * Integer addition is exact - no precision loss
+   */
+  private static addMoney(a: number, b: number): number {
+    return a + b;
+  }
+
+  /**
+   * Sum an array of monetary values in paisa
+   */
+  private static sumMoney(values: number[]): number {
+    return values.reduce((sum, val) => sum + val, 0);
+  }
+
+  /**
+   * Sanitize search input to prevent SQL injection
+   * Escapes wildcards and special characters used in ILIKE queries
+   * @security CRITICAL - All user search inputs MUST pass through this
+   */
+  private static sanitizeSearch(input: string): string {
+    if (!input) return '';
+    // Escape SQL ILIKE wildcards (%) and single-character wildcards (_)
+    // Also escape backslash to prevent escape sequence injection
+    return input.replace(/[%_\\]/g, '\\$&');
+  }
+
+  /**
+   * Convert incident from database (paisa) to API format (rupees)
+   */
+  private static convertIncidentToRupees(incident: any): BillingCOPQIncident {
+    return {
+      ...incident,
+      visible_cost: this.paisaToRupees(incident.visible_cost || 0),
+      hidden_cost_estimate: this.paisaToRupees(incident.hidden_cost_estimate || 0)
+    };
+  }
+
+  /**
    * Log a new COPQ incident
    */
   static async logIncident(
@@ -30,17 +85,24 @@ export class BillingCOPQService {
         data: { user }
       } = await this.supabase.auth.getUser();
 
+      // Convert input from rupees to paisa for storage
+      const incidentInPaisa = {
+        ...incident,
+        visible_cost: this.rupeesToPaisa(incident.visible_cost),
+        hidden_cost_estimate: this.rupeesToPaisa(incident.hidden_cost_estimate),
+        reported_by: user?.id || null
+      };
+
       const { data, error } = await this.supabase
         .from('billing_copq_incidents')
-        .insert({
-          ...incident,
-          reported_by: user?.id || null
-        })
+        .insert(incidentInPaisa)
         .select('*')
         .single();
 
       if (error) throw error;
-      return data as unknown as BillingCOPQIncident;
+
+      // Convert output from paisa to rupees for frontend
+      return this.convertIncidentToRupees(data);
     } catch (error) {
       console.error('[billing/copq] Error logging incident:', error);
       // SECURITY: Don't expose internal error details
@@ -83,7 +145,8 @@ export class BillingCOPQService {
         throw new Error('COPQ incident not found');
       }
 
-      return data as unknown as BillingCOPQIncident;
+      // Convert from paisa to rupees for frontend
+      return this.convertIncidentToRupees(data);
     } catch (error) {
       console.error('[billing/copq] Error fetching incident:', error);
       throw new Error(
@@ -134,8 +197,8 @@ export class BillingCOPQService {
       }
 
       if (filters.search) {
-        // Sanitize search to prevent SQL injection
-        const sanitizedSearch = filters.search.replace(/[%_]/g, '\\$&');
+        // SECURITY FIX: Sanitize search to prevent SQL injection
+        const sanitizedSearch = this.sanitizeSearch(filters.search);
         query = query.or(
           `description.ilike.%${sanitizedSearch}%,root_cause.ilike.%${sanitizedSearch}%`
         );
@@ -150,8 +213,11 @@ export class BillingCOPQService {
 
       if (error) throw error;
 
+      // Convert all incidents from paisa to rupees
+      const convertedData = (data || []).map(incident => this.convertIncidentToRupees(incident));
+
       return {
-        data: (data || []) as unknown as BillingCOPQIncident[],
+        data: convertedData,
         metadata: {
           total: count || 0,
           page,
@@ -176,9 +242,18 @@ export class BillingCOPQService {
     institutionId?: string
   ): Promise<BillingCOPQIncident> {
     try {
+      // Convert cost fields from rupees to paisa if present
+      const updatesInPaisa = { ...updates };
+      if (updates.visible_cost !== undefined) {
+        updatesInPaisa.visible_cost = this.rupeesToPaisa(updates.visible_cost);
+      }
+      if (updates.hidden_cost_estimate !== undefined) {
+        updatesInPaisa.hidden_cost_estimate = this.rupeesToPaisa(updates.hidden_cost_estimate);
+      }
+
       let query = this.supabase
         .from('billing_copq_incidents')
-        .update(updates)
+        .update(updatesInPaisa)
         .eq('id', id);
 
       // SECURITY: Filter by institution_id if provided to prevent unauthorized updates
@@ -198,7 +273,9 @@ export class BillingCOPQService {
         .single();
 
       if (error) throw error;
-      return data as unknown as BillingCOPQIncident;
+
+      // Convert from paisa to rupees for frontend
+      return this.convertIncidentToRupees(data);
     } catch (error) {
       console.error('[billing/copq] Error updating incident:', error);
       throw new Error(
@@ -253,7 +330,9 @@ export class BillingCOPQService {
         .single();
 
       if (error) throw error;
-      return data as unknown as BillingCOPQIncident;
+
+      // Convert from paisa to rupees for frontend
+      return this.convertIncidentToRupees(data);
     } catch (error) {
       console.error('[billing/copq] Error resolving incident:', error);
       throw new Error(
@@ -285,7 +364,9 @@ export class BillingCOPQService {
         .single();
 
       if (error) throw error;
-      return data as unknown as BillingCOPQIncident;
+
+      // Convert from paisa to rupees for frontend
+      return this.convertIncidentToRupees(data);
     } catch (error) {
       console.error('[billing/copq] Error writing off incident:', error);
       throw new Error(
@@ -355,10 +436,33 @@ export class BillingCOPQService {
           .order('visible_cost', { ascending: false })
           .limit(5);
 
+        // Convert dashboard data from paisa to rupees
         return {
-          ...dashboardData,
-          top_incidents: (topIncidents || []) as unknown as BillingCOPQIncident[]
-        } as COPQDashboard;
+          total_copq_ytd: this.paisaToRupees(dashboardData.total_copq_ytd_paisa || 0),
+          visible_vs_hidden: {
+            visible: this.paisaToRupees(dashboardData.visible_vs_hidden?.visible_paisa || 0),
+            hidden: this.paisaToRupees(dashboardData.visible_vs_hidden?.hidden_paisa || 0)
+          },
+          by_category: Object.fromEntries(
+            Object.entries(dashboardData.by_category || {}).map(([cat, paisa]) => [
+              cat,
+              this.paisaToRupees(paisa as number)
+            ])
+          ),
+          trend: (dashboardData.trend || []).map((month: any) => ({
+            month: month.month,
+            copq: this.paisaToRupees(month.copq_paisa || 0),
+            visible: this.paisaToRupees(month.visible_paisa || 0),
+            hidden: this.paisaToRupees(month.hidden_paisa || 0)
+          })),
+          top_incidents: (topIncidents || []).map(incident => this.convertIncidentToRupees(incident)),
+          stats: dashboardData.stats || {
+            total_incidents: 0,
+            open_incidents: 0,
+            resolved_incidents: 0,
+            avg_resolution_time_days: 0
+          }
+        };
       }
 
       // Fallback to manual calculation if function doesn't exist
@@ -389,20 +493,22 @@ export class BillingCOPQService {
       .gte('incident_date', yearStart)
       .lte('incident_date', yearEnd);
 
-    let totalVisible = 0;
-    let totalHidden = 0;
+    // Use integer arithmetic (paisa) for all calculations
+    let totalVisiblePaisa = 0;
+    let totalHiddenPaisa = 0;
     let openCount = 0;
     let resolvedCount = 0;
     let totalResolutionDays = 0;
     let resolvedWithDates = 0;
-    const byCategory: Partial<Record<COPQCategory, number>> = {};
-    const monthlyTrend: Record<string, { copq: number; visible: number; hidden: number }> = {};
+    const byCategoryPaisa: Partial<Record<COPQCategory, number>> = {};
+    const monthlyTrendPaisa: Record<string, { copq: number; visible: number; hidden: number }> = {};
 
     (incidents || []).forEach((i) => {
-      const visible = i.visible_cost || 0;
-      const hidden = i.hidden_cost_estimate || 0;
-      totalVisible += visible;
-      totalHidden += hidden;
+      // Values from DB are already in paisa - use directly (integer arithmetic)
+      const visiblePaisa = i.visible_cost || 0;
+      const hiddenPaisa = i.hidden_cost_estimate || 0;
+      totalVisiblePaisa = this.addMoney(totalVisiblePaisa, visiblePaisa);
+      totalHiddenPaisa = this.addMoney(totalHiddenPaisa, hiddenPaisa);
 
       // Status counts
       if (i.status === 'logged' || i.status === 'investigating') {
@@ -418,18 +524,19 @@ export class BillingCOPQService {
         }
       }
 
-      // By category
+      // By category (integer addition)
       const category = i.category as COPQCategory;
-      byCategory[category] = (byCategory[category] || 0) + visible + hidden;
+      const currentCategoryPaisa = byCategoryPaisa[category] || 0;
+      byCategoryPaisa[category] = this.addMoney(currentCategoryPaisa, this.addMoney(visiblePaisa, hiddenPaisa));
 
-      // Monthly trend
+      // Monthly trend (integer addition)
       const month = i.incident_date.substring(0, 7); // YYYY-MM
-      if (!monthlyTrend[month]) {
-        monthlyTrend[month] = { copq: 0, visible: 0, hidden: 0 };
+      if (!monthlyTrendPaisa[month]) {
+        monthlyTrendPaisa[month] = { copq: 0, visible: 0, hidden: 0 };
       }
-      monthlyTrend[month].copq += visible + hidden;
-      monthlyTrend[month].visible += visible;
-      monthlyTrend[month].hidden += hidden;
+      monthlyTrendPaisa[month].copq = this.addMoney(monthlyTrendPaisa[month].copq, this.addMoney(visiblePaisa, hiddenPaisa));
+      monthlyTrendPaisa[month].visible = this.addMoney(monthlyTrendPaisa[month].visible, visiblePaisa);
+      monthlyTrendPaisa[month].hidden = this.addMoney(monthlyTrendPaisa[month].hidden, hiddenPaisa);
     });
 
     // Get top incidents
@@ -449,20 +556,28 @@ export class BillingCOPQService {
       .order('visible_cost', { ascending: false })
       .limit(5);
 
+    // Convert all paisa values to rupees for API response
     return {
-      total_copq_ytd: totalVisible + totalHidden,
+      total_copq_ytd: this.paisaToRupees(this.addMoney(totalVisiblePaisa, totalHiddenPaisa)),
       visible_vs_hidden: {
-        visible: totalVisible,
-        hidden: totalHidden
+        visible: this.paisaToRupees(totalVisiblePaisa),
+        hidden: this.paisaToRupees(totalHiddenPaisa)
       },
-      by_category: byCategory,
-      trend: Object.entries(monthlyTrend)
+      by_category: Object.fromEntries(
+        Object.entries(byCategoryPaisa).map(([cat, paisa]) => [
+          cat,
+          this.paisaToRupees(paisa)
+        ])
+      ),
+      trend: Object.entries(monthlyTrendPaisa)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([month, data]) => ({
           month,
-          ...data
+          copq: this.paisaToRupees(data.copq),
+          visible: this.paisaToRupees(data.visible),
+          hidden: this.paisaToRupees(data.hidden)
         })),
-      top_incidents: (topIncidents || []) as unknown as BillingCOPQIncident[],
+      top_incidents: (topIncidents || []).map(incident => this.convertIncidentToRupees(incident)),
       stats: {
         total_incidents: incidents?.length || 0,
         open_incidents: openCount,
