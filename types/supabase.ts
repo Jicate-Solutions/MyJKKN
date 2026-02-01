@@ -1225,6 +1225,133 @@ export type Database = {
           },
         ]
       }
+      billing_copq_incidents: {
+        Row: {
+          affected_stakeholders: number | null
+          bill_id: string | null
+          category: string
+          created_at: string | null
+          description: string
+          hidden_cost_estimate: number | null
+          id: string
+          incident_date: string
+          institution_id: string
+          learner_id: string | null
+          preventive_action: string | null
+          reported_by: string | null
+          resolved_at: string | null
+          root_cause: string | null
+          status: string | null
+          time_spent_hours: number | null
+          updated_at: string | null
+          visible_cost: number | null
+        }
+        Insert: {
+          affected_stakeholders?: number | null
+          bill_id?: string | null
+          category: string
+          created_at?: string | null
+          description: string
+          hidden_cost_estimate?: number | null
+          id?: string
+          incident_date?: string
+          institution_id: string
+          learner_id?: string | null
+          preventive_action?: string | null
+          reported_by?: string | null
+          resolved_at?: string | null
+          root_cause?: string | null
+          status?: string | null
+          time_spent_hours?: number | null
+          updated_at?: string | null
+          visible_cost?: number | null
+        }
+        Update: {
+          affected_stakeholders?: number | null
+          bill_id?: string | null
+          category?: string
+          created_at?: string | null
+          description?: string
+          hidden_cost_estimate?: number | null
+          id?: string
+          incident_date?: string
+          institution_id?: string
+          learner_id?: string | null
+          preventive_action?: string | null
+          reported_by?: string | null
+          resolved_at?: string | null
+          root_cause?: string | null
+          status?: string | null
+          time_spent_hours?: number | null
+          updated_at?: string | null
+          visible_cost?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_copq_incidents_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "billing_deletion_dependencies"
+            referencedColumns: ["bill_id"]
+          },
+          {
+            foreignKeyName: "billing_copq_incidents_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "billing_student_bills"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_copq_incidents_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_copq_incidents_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "billing_copq_incidents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_copq_incidents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "billing_copq_incidents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "billing_copq_incidents_reported_by_fkey"
+            columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "billing_copq_incidents_reported_by_fkey"
+            columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_discounts: {
         Row: {
           approval_date: string | null
@@ -2272,6 +2399,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "departments"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bug_reports_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
           },
           {
             foreignKeyName: "bug_reports_institution_id_fkey"
@@ -3726,6 +3860,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "course_mappings_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
             foreignKeyName: "course_mappings_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -4804,6 +4945,281 @@ export type Database = {
           },
           {
             foreignKeyName: "funnel_snapshots_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      grievance_categories: {
+        Row: {
+          created_at: string | null
+          default_assignee_role: string | null
+          default_sla_hours: number | null
+          description: string | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          name: string
+          parent_id: string | null
+          sort_order: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          default_assignee_role?: string | null
+          default_sla_hours?: number | null
+          description?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          name: string
+          parent_id?: string | null
+          sort_order?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          default_assignee_role?: string | null
+          default_sla_hours?: number | null
+          description?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          name?: string
+          parent_id?: string | null
+          sort_order?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grievance_categories_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "grievance_categories_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "grievance_categories_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "grievance_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      grievance_comments: {
+        Row: {
+          attachments: Json | null
+          author_id: string | null
+          author_name: string
+          author_type: string
+          content: string
+          created_at: string | null
+          id: string
+          is_internal: boolean | null
+          ticket_id: string
+        }
+        Insert: {
+          attachments?: Json | null
+          author_id?: string | null
+          author_name: string
+          author_type: string
+          content: string
+          created_at?: string | null
+          id?: string
+          is_internal?: boolean | null
+          ticket_id: string
+        }
+        Update: {
+          attachments?: Json | null
+          author_id?: string | null
+          author_name?: string
+          author_type?: string
+          content?: string
+          created_at?: string | null
+          id?: string
+          is_internal?: boolean | null
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grievance_comments_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "grievance_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      grievance_history: {
+        Row: {
+          action: string
+          id: string
+          new_value: string | null
+          old_value: string | null
+          performed_at: string | null
+          performed_by: string | null
+          ticket_id: string
+        }
+        Insert: {
+          action: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          performed_at?: string | null
+          performed_by?: string | null
+          ticket_id: string
+        }
+        Update: {
+          action?: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          performed_at?: string | null
+          performed_by?: string | null
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grievance_history_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "grievance_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      grievance_tickets: {
+        Row: {
+          assigned_at: string | null
+          assigned_to: string | null
+          attachments: Json | null
+          category_id: string
+          created_at: string | null
+          department_id: string | null
+          description: string
+          id: string
+          institution_id: string
+          metadata: Json | null
+          priority: string | null
+          raised_by_email: string | null
+          raised_by_id: string | null
+          raised_by_name: string
+          raised_by_phone: string | null
+          raised_by_type: string
+          resolution: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          satisfaction_feedback: string | null
+          satisfaction_rating: number | null
+          sla_deadline: string
+          sla_hours: number
+          sla_status: string | null
+          status: string | null
+          subject: string
+          ticket_number: string
+          updated_at: string | null
+        }
+        Insert: {
+          assigned_at?: string | null
+          assigned_to?: string | null
+          attachments?: Json | null
+          category_id: string
+          created_at?: string | null
+          department_id?: string | null
+          description: string
+          id?: string
+          institution_id: string
+          metadata?: Json | null
+          priority?: string | null
+          raised_by_email?: string | null
+          raised_by_id?: string | null
+          raised_by_name: string
+          raised_by_phone?: string | null
+          raised_by_type: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          satisfaction_feedback?: string | null
+          satisfaction_rating?: number | null
+          sla_deadline: string
+          sla_hours: number
+          sla_status?: string | null
+          status?: string | null
+          subject: string
+          ticket_number: string
+          updated_at?: string | null
+        }
+        Update: {
+          assigned_at?: string | null
+          assigned_to?: string | null
+          attachments?: Json | null
+          category_id?: string
+          created_at?: string | null
+          department_id?: string | null
+          description?: string
+          id?: string
+          institution_id?: string
+          metadata?: Json | null
+          priority?: string | null
+          raised_by_email?: string | null
+          raised_by_id?: string | null
+          raised_by_name?: string
+          raised_by_phone?: string | null
+          raised_by_type?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          satisfaction_feedback?: string | null
+          satisfaction_rating?: number | null
+          sla_deadline?: string
+          sla_hours?: number
+          sla_status?: string | null
+          status?: string | null
+          subject?: string
+          ticket_number?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grievance_tickets_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "grievance_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "grievance_tickets_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "grievance_tickets_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "grievance_tickets_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "grievance_tickets_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
@@ -7116,6 +7532,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "learner_core_okrs_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
             foreignKeyName: "learner_core_okrs_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -7499,6 +7922,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "departments"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_learners_profiles_department"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
           },
           {
             foreignKeyName: "fk_learners_profiles_institution"
@@ -8532,6 +8962,279 @@ export type Database = {
         }
         Relationships: []
       }
+      maturity_assessments: {
+        Row: {
+          assessment_date: string
+          assessor_id: string | null
+          created_at: string | null
+          created_by: string | null
+          department_id: string | null
+          dimension_scores: Json
+          evidence: string | null
+          framework_id: string
+          id: string
+          improvement_plan: string | null
+          institution_id: string
+          overall_stage: number
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string | null
+          target_date: string | null
+          target_stage: number | null
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          assessment_date: string
+          assessor_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          department_id?: string | null
+          dimension_scores?: Json
+          evidence?: string | null
+          framework_id: string
+          id?: string
+          improvement_plan?: string | null
+          institution_id: string
+          overall_stage: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string | null
+          target_date?: string | null
+          target_stage?: number | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          assessment_date?: string
+          assessor_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          department_id?: string | null
+          dimension_scores?: Json
+          evidence?: string | null
+          framework_id?: string
+          id?: string
+          improvement_plan?: string | null
+          institution_id?: string
+          overall_stage?: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string | null
+          target_date?: string | null
+          target_stage?: number | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maturity_assessments_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maturity_assessments_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "maturity_assessments_framework_id_fkey"
+            columns: ["framework_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_frameworks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maturity_assessments_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maturity_assessments_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      maturity_evidence: {
+        Row: {
+          assessment_id: string
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          dimension: string
+          file_type: string | null
+          file_url: string | null
+          id: string
+          title: string
+        }
+        Insert: {
+          assessment_id: string
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          dimension: string
+          file_type?: string | null
+          file_url?: string | null
+          id?: string
+          title: string
+        }
+        Update: {
+          assessment_id?: string
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          dimension?: string
+          file_type?: string | null
+          file_url?: string | null
+          id?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maturity_evidence_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_assessments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maturity_evidence_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["assessment_id"]
+          },
+        ]
+      }
+      maturity_frameworks: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          dimensions: Json
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          name: string
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          dimensions?: Json
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          name?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          dimensions?: Json
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          name?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maturity_frameworks_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maturity_frameworks_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      maturity_progress: {
+        Row: {
+          action_item: string
+          assessment_id: string
+          assigned_to: string | null
+          completed_at: string | null
+          created_at: string | null
+          created_by: string | null
+          dimension: string
+          due_date: string | null
+          id: string
+          notes: string | null
+          status: string | null
+          target_stage: number
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          action_item: string
+          assessment_id: string
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          dimension: string
+          due_date?: string | null
+          id?: string
+          notes?: string | null
+          status?: string | null
+          target_stage: number
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          action_item?: string
+          assessment_id?: string
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          dimension?: string
+          due_date?: string | null
+          id?: string
+          notes?: string | null
+          status?: string | null
+          target_stage?: number
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maturity_progress_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_assessments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maturity_progress_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["assessment_id"]
+          },
+        ]
+      }
       merit_lists: {
         Row: {
           academic_year: string
@@ -8876,6 +9579,250 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nps_analytics: {
+        Row: {
+          calculated_at: string
+          department_id: string | null
+          detractors: number
+          id: string
+          institution_id: string
+          nps_score: number | null
+          passives: number
+          period_end: string
+          period_start: string
+          promoters: number
+          stakeholder_type: Database["public"]["Enums"]["stakeholder_type"]
+          survey_id: string | null
+          total_responses: number
+        }
+        Insert: {
+          calculated_at?: string
+          department_id?: string | null
+          detractors?: number
+          id?: string
+          institution_id: string
+          nps_score?: number | null
+          passives?: number
+          period_end: string
+          period_start: string
+          promoters?: number
+          stakeholder_type: Database["public"]["Enums"]["stakeholder_type"]
+          survey_id?: string | null
+          total_responses?: number
+        }
+        Update: {
+          calculated_at?: string
+          department_id?: string | null
+          detractors?: number
+          id?: string
+          institution_id?: string
+          nps_score?: number | null
+          passives?: number
+          period_end?: string
+          period_start?: string
+          promoters?: number
+          stakeholder_type?: Database["public"]["Enums"]["stakeholder_type"]
+          survey_id?: string | null
+          total_responses?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nps_analytics_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nps_analytics_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "nps_analytics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nps_analytics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "nps_analytics_survey_id_fkey"
+            columns: ["survey_id"]
+            isOneToOne: false
+            referencedRelation: "nps_surveys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nps_responses: {
+        Row: {
+          additional_feedback: string | null
+          department_id: string | null
+          id: string
+          ip_address: unknown
+          nps_category: Database["public"]["Enums"]["nps_category"] | null
+          nps_score: number
+          question_responses: Json
+          respondent_email: string | null
+          respondent_id: string | null
+          respondent_name: string | null
+          respondent_type: Database["public"]["Enums"]["stakeholder_type"]
+          submitted_at: string
+          survey_id: string
+          user_agent: string | null
+        }
+        Insert: {
+          additional_feedback?: string | null
+          department_id?: string | null
+          id?: string
+          ip_address?: unknown
+          nps_category?: Database["public"]["Enums"]["nps_category"] | null
+          nps_score: number
+          question_responses?: Json
+          respondent_email?: string | null
+          respondent_id?: string | null
+          respondent_name?: string | null
+          respondent_type: Database["public"]["Enums"]["stakeholder_type"]
+          submitted_at?: string
+          survey_id: string
+          user_agent?: string | null
+        }
+        Update: {
+          additional_feedback?: string | null
+          department_id?: string | null
+          id?: string
+          ip_address?: unknown
+          nps_category?: Database["public"]["Enums"]["nps_category"] | null
+          nps_score?: number
+          question_responses?: Json
+          respondent_email?: string | null
+          respondent_id?: string | null
+          respondent_name?: string | null
+          respondent_type?: Database["public"]["Enums"]["stakeholder_type"]
+          submitted_at?: string
+          survey_id?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nps_responses_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nps_responses_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "nps_responses_survey_id_fkey"
+            columns: ["survey_id"]
+            isOneToOne: false
+            referencedRelation: "nps_surveys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nps_surveys: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          department_id: string | null
+          description: string | null
+          end_date: string
+          id: string
+          institution_id: string
+          program_id: string | null
+          questions: Json
+          stakeholder_type: Database["public"]["Enums"]["stakeholder_type"]
+          start_date: string
+          status: Database["public"]["Enums"]["survey_status"]
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          department_id?: string | null
+          description?: string | null
+          end_date: string
+          id?: string
+          institution_id: string
+          program_id?: string | null
+          questions?: Json
+          stakeholder_type: Database["public"]["Enums"]["stakeholder_type"]
+          start_date: string
+          status?: Database["public"]["Enums"]["survey_status"]
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          department_id?: string | null
+          description?: string | null
+          end_date?: string
+          id?: string
+          institution_id?: string
+          program_id?: string | null
+          questions?: Json
+          stakeholder_type?: Database["public"]["Enums"]["stakeholder_type"]
+          start_date?: string
+          status?: Database["public"]["Enums"]["survey_status"]
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nps_surveys_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nps_surveys_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "nps_surveys_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nps_surveys_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "nps_surveys_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
             referencedColumns: ["id"]
           },
         ]
@@ -9261,6 +10208,13 @@ export type Database = {
             foreignKeyName: "okr_dependencies_objective_id_fkey"
             columns: ["objective_id"]
             isOneToOne: false
+            referencedRelation: "okr_abcd_analysis"
+            referencedColumns: ["objective_id"]
+          },
+          {
+            foreignKeyName: "okr_dependencies_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
             referencedRelation: "okr_objectives"
             referencedColumns: ["id"]
           },
@@ -9271,10 +10225,18 @@ export type Database = {
             referencedRelation: "departments"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "okr_dependencies_owner_department_id_fkey"
+            columns: ["owner_department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
         ]
       }
       okr_key_results: {
         Row: {
+          abcd_category: string | null
           created_at: string
           current_value: number
           data_source: string
@@ -9286,6 +10248,8 @@ export type Database = {
           measured_by: string | null
           objective_id: string
           order_index: number
+          process_notes: string | null
+          process_rating: number | null
           progress_percentage: number | null
           start_value: number
           status: string
@@ -9295,6 +10259,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          abcd_category?: string | null
           created_at?: string
           current_value?: number
           data_source?: string
@@ -9306,6 +10271,8 @@ export type Database = {
           measured_by?: string | null
           objective_id: string
           order_index?: number
+          process_notes?: string | null
+          process_rating?: number | null
           progress_percentage?: number | null
           start_value?: number
           status?: string
@@ -9315,6 +10282,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          abcd_category?: string | null
           created_at?: string
           current_value?: number
           data_source?: string
@@ -9326,6 +10294,8 @@ export type Database = {
           measured_by?: string | null
           objective_id?: string
           order_index?: number
+          process_notes?: string | null
+          process_rating?: number | null
           progress_percentage?: number | null
           start_value?: number
           status?: string
@@ -9335,6 +10305,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "okr_key_results_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "okr_abcd_analysis"
+            referencedColumns: ["objective_id"]
+          },
           {
             foreignKeyName: "okr_key_results_objective_id_fkey"
             columns: ["objective_id"]
@@ -9385,6 +10362,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "okr_check_ins"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_kr_updates_key_result_id_fkey"
+            columns: ["key_result_id"]
+            isOneToOne: false
+            referencedRelation: "okr_abcd_analysis"
+            referencedColumns: ["key_result_id"]
           },
           {
             foreignKeyName: "okr_kr_updates_key_result_id_fkey"
@@ -9454,8 +10438,22 @@ export type Database = {
             foreignKeyName: "okr_milestones_key_result_id_fkey"
             columns: ["key_result_id"]
             isOneToOne: false
+            referencedRelation: "okr_abcd_analysis"
+            referencedColumns: ["key_result_id"]
+          },
+          {
+            foreignKeyName: "okr_milestones_key_result_id_fkey"
+            columns: ["key_result_id"]
+            isOneToOne: false
             referencedRelation: "okr_key_results"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_milestones_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "okr_abcd_analysis"
+            referencedColumns: ["objective_id"]
           },
           {
             foreignKeyName: "okr_milestones_objective_id_fkey"
@@ -9573,6 +10571,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "okr_objectives_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
             foreignKeyName: "okr_objectives_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -9599,6 +10604,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_parent_objective_id_fkey"
+            columns: ["parent_objective_id"]
+            isOneToOne: false
+            referencedRelation: "okr_abcd_analysis"
+            referencedColumns: ["objective_id"]
           },
           {
             foreignKeyName: "okr_objectives_parent_objective_id_fkey"
@@ -9678,6 +10690,13 @@ export type Database = {
             foreignKeyName: "okr_risks_objective_id_fkey"
             columns: ["objective_id"]
             isOneToOne: false
+            referencedRelation: "okr_abcd_analysis"
+            referencedColumns: ["objective_id"]
+          },
+          {
+            foreignKeyName: "okr_risks_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
             referencedRelation: "okr_objectives"
             referencedColumns: ["id"]
           },
@@ -9737,8 +10756,22 @@ export type Database = {
             foreignKeyName: "okr_tasks_key_result_id_fkey"
             columns: ["key_result_id"]
             isOneToOne: false
+            referencedRelation: "okr_abcd_analysis"
+            referencedColumns: ["key_result_id"]
+          },
+          {
+            foreignKeyName: "okr_tasks_key_result_id_fkey"
+            columns: ["key_result_id"]
+            isOneToOne: false
             referencedRelation: "okr_key_results"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_tasks_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "okr_abcd_analysis"
+            referencedColumns: ["objective_id"]
           },
           {
             foreignKeyName: "okr_tasks_objective_id_fkey"
@@ -9806,6 +10839,315 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "profiles"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      parent_activity_log: {
+        Row: {
+          activity_type: Database["public"]["Enums"]["parent_activity_type"]
+          created_at: string | null
+          description: string | null
+          id: string
+          ip_address: unknown
+          metadata: Json | null
+          parent_id: string
+          user_agent: string | null
+        }
+        Insert: {
+          activity_type: Database["public"]["Enums"]["parent_activity_type"]
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          ip_address?: unknown
+          metadata?: Json | null
+          parent_id: string
+          user_agent?: string | null
+        }
+        Update: {
+          activity_type?: Database["public"]["Enums"]["parent_activity_type"]
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          ip_address?: unknown
+          metadata?: Json | null
+          parent_id?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parent_activity_log_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "parent_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parent_communications: {
+        Row: {
+          attachments: Json | null
+          content: string
+          created_at: string | null
+          id: string
+          institution_id: string
+          learner_id: string | null
+          parent_id: string | null
+          priority: Database["public"]["Enums"]["communication_priority"] | null
+          read_at: string | null
+          sender_id: string | null
+          subject: string
+          type: Database["public"]["Enums"]["communication_type"]
+        }
+        Insert: {
+          attachments?: Json | null
+          content: string
+          created_at?: string | null
+          id?: string
+          institution_id: string
+          learner_id?: string | null
+          parent_id?: string | null
+          priority?:
+            | Database["public"]["Enums"]["communication_priority"]
+            | null
+          read_at?: string | null
+          sender_id?: string | null
+          subject: string
+          type: Database["public"]["Enums"]["communication_type"]
+        }
+        Update: {
+          attachments?: Json | null
+          content?: string
+          created_at?: string | null
+          id?: string
+          institution_id?: string
+          learner_id?: string | null
+          parent_id?: string | null
+          priority?:
+            | Database["public"]["Enums"]["communication_priority"]
+            | null
+          read_at?: string | null
+          sender_id?: string | null
+          subject?: string
+          type?: Database["public"]["Enums"]["communication_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parent_communications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_communications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "parent_communications_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_communications_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "parent_communications_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "parent_communications_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "parent_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parent_learner_links: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_primary: boolean | null
+          learner_id: string
+          parent_id: string
+          relationship: Database["public"]["Enums"]["parent_relationship"]
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_primary?: boolean | null
+          learner_id: string
+          parent_id: string
+          relationship: Database["public"]["Enums"]["parent_relationship"]
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_primary?: boolean | null
+          learner_id?: string
+          parent_id?: string
+          relationship?: Database["public"]["Enums"]["parent_relationship"]
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parent_learner_links_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_learner_links_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "parent_learner_links_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "parent_learner_links_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "parent_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parent_otp_requests: {
+        Row: {
+          attempts: number | null
+          created_at: string | null
+          expires_at: string
+          id: string
+          institution_id: string
+          otp_code: string
+          phone: string
+          verified_at: string | null
+        }
+        Insert: {
+          attempts?: number | null
+          created_at?: string | null
+          expires_at: string
+          id?: string
+          institution_id: string
+          otp_code: string
+          phone: string
+          verified_at?: string | null
+        }
+        Update: {
+          attempts?: number | null
+          created_at?: string | null
+          expires_at?: string
+          id?: string
+          institution_id?: string
+          otp_code?: string
+          phone?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parent_otp_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_otp_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      parent_profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          email: string | null
+          id: string
+          institution_id: string
+          is_verified: boolean | null
+          last_login_at: string | null
+          name: string
+          phone: string | null
+          relationship:
+            | Database["public"]["Enums"]["parent_relationship"]
+            | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          institution_id: string
+          is_verified?: boolean | null
+          last_login_at?: string | null
+          name: string
+          phone?: string | null
+          relationship?:
+            | Database["public"]["Enums"]["parent_relationship"]
+            | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          institution_id?: string
+          is_verified?: boolean | null
+          last_login_at?: string | null
+          name?: string
+          phone?: string | null
+          relationship?:
+            | Database["public"]["Enums"]["parent_relationship"]
+            | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parent_profiles_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_profiles_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
           },
         ]
       }
@@ -9987,6 +11329,210 @@ export type Database = {
           },
         ]
       }
+      process_audits: {
+        Row: {
+          abcd_rating: string | null
+          audit_period_end: string
+          audit_period_start: string
+          auditor_id: string | null
+          avg_cycle_hours: number | null
+          avg_value_add_ratio: number | null
+          created_at: string | null
+          finalized_at: string | null
+          findings: string | null
+          id: string
+          institution_id: string
+          process_id: string
+          recommendations: string | null
+          sla_compliance_rate: number | null
+          status: string | null
+          total_instances: number | null
+          waste_breakdown: Json | null
+        }
+        Insert: {
+          abcd_rating?: string | null
+          audit_period_end: string
+          audit_period_start: string
+          auditor_id?: string | null
+          avg_cycle_hours?: number | null
+          avg_value_add_ratio?: number | null
+          created_at?: string | null
+          finalized_at?: string | null
+          findings?: string | null
+          id?: string
+          institution_id: string
+          process_id: string
+          recommendations?: string | null
+          sla_compliance_rate?: number | null
+          status?: string | null
+          total_instances?: number | null
+          waste_breakdown?: Json | null
+        }
+        Update: {
+          abcd_rating?: string | null
+          audit_period_end?: string
+          audit_period_start?: string
+          auditor_id?: string | null
+          avg_cycle_hours?: number | null
+          avg_value_add_ratio?: number | null
+          created_at?: string | null
+          finalized_at?: string | null
+          findings?: string | null
+          id?: string
+          institution_id?: string
+          process_id?: string
+          recommendations?: string | null
+          sla_compliance_rate?: number | null
+          status?: string | null
+          total_instances?: number | null
+          waste_breakdown?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "process_audits_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "process_audits_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "process_audits_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "process_definitions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      process_definitions: {
+        Row: {
+          category: string
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          name: string
+          sla_hours: number | null
+          stages: Json
+          target_cycle_time_hours: number | null
+          target_value_add_ratio: number | null
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          name: string
+          sla_hours?: number | null
+          stages?: Json
+          target_cycle_time_hours?: number | null
+          target_value_add_ratio?: number | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          name?: string
+          sla_hours?: number | null
+          stages?: Json
+          target_cycle_time_hours?: number | null
+          target_value_add_ratio?: number | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "process_definitions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "process_definitions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      process_instances: {
+        Row: {
+          completed_at: string | null
+          created_at: string | null
+          current_stage: string | null
+          id: string
+          process_id: string
+          reference_id: string
+          reference_type: string
+          sla_status: string | null
+          stage_history: Json | null
+          started_at: string
+          total_cycle_hours: number | null
+          value_add_hours: number | null
+          value_add_ratio: number | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string | null
+          current_stage?: string | null
+          id?: string
+          process_id: string
+          reference_id: string
+          reference_type: string
+          sla_status?: string | null
+          stage_history?: Json | null
+          started_at?: string
+          total_cycle_hours?: number | null
+          value_add_hours?: number | null
+          value_add_ratio?: number | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string | null
+          current_stage?: string | null
+          id?: string
+          process_id?: string
+          reference_id?: string
+          reference_type?: string
+          sla_status?: string | null
+          stage_history?: Json | null
+          started_at?: string
+          total_cycle_hours?: number | null
+          value_add_hours?: number | null
+          value_add_ratio?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "process_instances_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "process_definitions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -10058,6 +11604,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "departments"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_profiles_department_id"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
           },
           {
             foreignKeyName: "profiles_institution_id_fkey"
@@ -10237,6 +11790,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "departments"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "programs_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
           },
           {
             foreignKeyName: "programs_institution_id_fkey"
@@ -11646,6 +13206,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "resources_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
             foreignKeyName: "resources_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -12108,6 +13675,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "sections_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
             foreignKeyName: "sections_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -12203,6 +13777,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "departments"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "semesters_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
           },
           {
             foreignKeyName: "semesters_institution_id_fkey"
@@ -12422,6 +14003,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "staff_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
             foreignKeyName: "staff_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -12572,6 +14160,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "staff_plans_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
             foreignKeyName: "staff_plans_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -12674,6 +14269,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "departments"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_student_attendance_department"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
           },
           {
             foreignKeyName: "fk_student_attendance_program"
@@ -13243,6 +14845,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "timetables_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
             foreignKeyName: "timetables_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -13581,6 +15190,89 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      waste_incidents: {
+        Row: {
+          corrective_action: string | null
+          description: string
+          estimated_cost_impact: number | null
+          estimated_time_lost_hours: number | null
+          id: string
+          institution_id: string
+          process_id: string | null
+          process_instance_id: string | null
+          reported_at: string | null
+          reported_by: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          root_cause: string | null
+          status: string | null
+          waste_category: string
+        }
+        Insert: {
+          corrective_action?: string | null
+          description: string
+          estimated_cost_impact?: number | null
+          estimated_time_lost_hours?: number | null
+          id?: string
+          institution_id: string
+          process_id?: string | null
+          process_instance_id?: string | null
+          reported_at?: string | null
+          reported_by?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          root_cause?: string | null
+          status?: string | null
+          waste_category: string
+        }
+        Update: {
+          corrective_action?: string | null
+          description?: string
+          estimated_cost_impact?: number | null
+          estimated_time_lost_hours?: number | null
+          id?: string
+          institution_id?: string
+          process_id?: string | null
+          process_instance_id?: string | null
+          reported_at?: string | null
+          reported_by?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          root_cause?: string | null
+          status?: string | null
+          waste_category?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "waste_incidents_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "waste_incidents_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "waste_incidents_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "process_definitions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "waste_incidents_process_instance_id_fkey"
+            columns: ["process_instance_id"]
+            isOneToOne: false
+            referencedRelation: "process_instances"
             referencedColumns: ["id"]
           },
         ]
@@ -14300,6 +15992,64 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_copq_summary: {
+        Row: {
+          avg_time_spent: number | null
+          category: string | null
+          incident_count: number | null
+          institution_id: string | null
+          month: string | null
+          total_copq: number | null
+          total_hidden_cost: number | null
+          total_visible_cost: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_copq_incidents_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_copq_incidents_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      billing_copq_yearly_totals: {
+        Row: {
+          avg_affected_stakeholders: number | null
+          avg_time_spent_hours: number | null
+          institution_id: string | null
+          open_incidents: number | null
+          resolved_incidents: number | null
+          total_copq: number | null
+          total_hidden_cost: number | null
+          total_incidents: number | null
+          total_visible_cost: number | null
+          year: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_copq_incidents_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_copq_incidents_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       billing_deletion_dependencies: {
         Row: {
           bill_id: string | null
@@ -14369,6 +16119,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "departments"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bug_reports_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
           },
           {
             foreignKeyName: "bug_reports_institution_id_fkey"
@@ -14668,6 +16425,106 @@ export type Database = {
             columns: ["program_id"]
             isOneToOne: false
             referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maturity_dashboard_summary: {
+        Row: {
+          assessment_date: string | null
+          assessment_id: string | null
+          completed_actions: number | null
+          department_id: string | null
+          department_name: string | null
+          dimension_scores: Json | null
+          institution_id: string | null
+          institution_name: string | null
+          overall_stage: number | null
+          overdue_actions: number | null
+          status: string | null
+          target_date: string | null
+          target_stage: number | null
+          total_actions: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maturity_assessments_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maturity_assessments_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      okr_abcd_analysis: {
+        Row: {
+          abcd_category: string | null
+          analysis: string | null
+          created_at: string | null
+          deadline: string | null
+          department_id: string | null
+          institution_id: string | null
+          key_result_id: string | null
+          key_result_title: string | null
+          objective_id: string | null
+          objective_status: string | null
+          objective_title: string | null
+          owner_id: string | null
+          owner_type: string | null
+          priority_order: number | null
+          process_notes: string | null
+          process_rating: number | null
+          progress: number | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_objectives_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_owner_profile_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_owner_profile_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -16187,6 +18044,10 @@ export type Database = {
         Args: { current_val: number; start_val: number; target_val: number }
         Returns: number
       }
+      calculate_maturity_overall_stage: {
+        Args: { p_dimension_scores: Json }
+        Returns: number
+      }
       calculate_quality_score: { Args: { p_lead_id: string }; Returns: number }
       calculate_student_outstanding: {
         Args: { student_uuid: string }
@@ -16350,6 +18211,10 @@ export type Database = {
           id: string
           key_value: string
         }[]
+      }
+      create_default_maturity_framework: {
+        Args: { p_institution_id: string }
+        Returns: string
       }
       create_missing_profiles: {
         Args: never
@@ -16546,6 +18411,15 @@ export type Database = {
       }
       generate_payment_query_number: { Args: never; Returns: string }
       generate_payout_batch_number: { Args: never; Returns: string }
+      generate_process_audit_metrics: {
+        Args: {
+          p_institution_id: string
+          p_period_end: string
+          p_period_start: string
+          p_process_id: string
+        }
+        Returns: Json
+      }
       generate_receipt_number: { Args: never; Returns: string }
       generate_referral_reward_number: { Args: never; Returns: string }
       generate_temp_password: { Args: never; Returns: string }
@@ -16656,6 +18530,10 @@ export type Database = {
           is_available: boolean
           start_time: string
         }[]
+      }
+      get_billing_copq_dashboard: {
+        Args: { p_institution_id: string; p_year?: number }
+        Returns: Json
       }
       get_bug_leaderboard: {
         Args: never
@@ -16772,6 +18650,10 @@ export type Database = {
           total_periods: number
         }[]
       }
+      get_grievance_sla_stats: {
+        Args: { p_institution_id: string }
+        Returns: Json
+      }
       get_institution_courses: {
         Args: { p_institution_id: string; p_search_term?: string }
         Returns: {
@@ -16779,6 +18661,14 @@ export type Database = {
           course_name: string
           id: string
         }[]
+      }
+      get_learner_attendance_for_parent: {
+        Args: { p_days?: number; p_learner_id: string }
+        Returns: Json
+      }
+      get_learner_fees_for_parent: {
+        Args: { p_learner_id: string }
+        Returns: Json
       }
       get_learners_count_by_status: {
         Args: {
@@ -16969,6 +18859,34 @@ export type Database = {
       get_my_department_id: { Args: never; Returns: string }
       get_my_institution_id: { Args: never; Returns: string }
       get_my_role: { Args: never; Returns: string }
+      get_nps_dashboard: { Args: { p_institution_id: string }; Returns: Json }
+      get_okr_abcd_distribution: {
+        Args: {
+          p_department_id?: string
+          p_institution_id?: string
+          p_owner_id?: string
+        }
+        Returns: {
+          category: string
+          count: number
+          percentage: number
+        }[]
+      }
+      get_okr_d_category_alerts: {
+        Args: { p_institution_id?: string }
+        Returns: {
+          days_until_deadline: number
+          deadline: string
+          key_result_id: string
+          key_result_title: string
+          objective_id: string
+          objective_title: string
+          owner_id: string
+          process_notes: string
+          process_rating: number
+          progress: number
+        }[]
+      }
       get_okr_reaction_summary: {
         Args: { p_entity_id: string; p_entity_type: string }
         Returns: {
@@ -17004,6 +18922,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      get_parent_dashboard: { Args: { p_parent_id: string }; Returns: Json }
       get_period_course_id: {
         Args: { p_period_id: string; p_timetable_id: string }
         Returns: string
@@ -17276,6 +19195,10 @@ export type Database = {
         Args: { p_bill_id: string }
         Returns: undefined
       }
+      recalculate_nps_analytics: {
+        Args: { p_survey_id: string }
+        Returns: undefined
+      }
       refresh_activity_stats: { Args: never; Returns: undefined }
       refresh_student_billing_summary: {
         Args: { p_student_id: string }
@@ -17294,6 +19217,14 @@ export type Database = {
         Returns: undefined
       }
       safe_uuid_cast: { Args: { input_text: string }; Returns: string }
+      seed_grievance_categories: {
+        Args: { p_institution_id: string }
+        Returns: undefined
+      }
+      send_parent_otp: {
+        Args: { p_institution_id: string; p_phone: string }
+        Returns: Json
+      }
       sync_attendance_with_timetable: {
         Args: {
           p_attendance_date: string
@@ -17479,6 +19410,10 @@ export type Database = {
           suggestions: string[]
         }[]
       }
+      verify_parent_otp: {
+        Args: { p_institution_id: string; p_otp: string; p_phone: string }
+        Returns: Json
+      }
     }
     Enums: {
       admission_lead_stage:
@@ -17548,6 +19483,8 @@ export type Database = {
         | "email"
         | "voice"
         | "push"
+      communication_priority: "low" | "normal" | "high" | "urgent"
+      communication_type: "announcement" | "message" | "alert"
       consultant_status: "draft" | "active" | "inactive" | "blacklisted"
       consultant_tier: "bronze" | "silver" | "gold" | "platinum" | "diamond"
       consultant_type: "external" | "student" | "alumni"
@@ -17612,6 +19549,7 @@ export type Database = {
         | "read"
         | "failed"
         | "replied"
+      nps_category: "promoter" | "passive" | "detractor"
       offer_response: "pending" | "accepted" | "rejected" | "expired"
       okr_cycle_type: "annual" | "quarterly" | "semester"
       okr_entity_type: "objective" | "key_result" | "check_in"
@@ -17625,6 +19563,16 @@ export type Database = {
         | "question"
       okr_status: "draft" | "active" | "completed" | "archived"
       okr_tier: "tier_1" | "tier_2" | "tier_3"
+      parent_activity_type:
+        | "login"
+        | "view_dashboard"
+        | "view_attendance"
+        | "view_fees"
+        | "view_grades"
+        | "read_message"
+        | "submit_survey"
+        | "logout"
+      parent_relationship: "father" | "mother" | "guardian" | "other"
       payment_query_status: "open" | "in_progress" | "resolved" | "closed"
       payment_status:
         | "pending"
@@ -17672,8 +19620,10 @@ export type Database = {
         | "walk_in"
         | "phone"
         | "event"
+      stakeholder_type: "parent" | "learner" | "alumni" | "industry" | "staff"
       student_status: "active" | "inactive" | "exited" | "graduated" | "pending"
       supported_platform: "Web" | "Mobile" | "Both"
+      survey_status: "draft" | "active" | "closed" | "archived"
       task_status:
         | "pending"
         | "in_progress"
@@ -17918,6 +19868,8 @@ export const Constants = {
       commission_transaction_type: ["earned", "paid", "clawback", "adjustment"],
       commission_type: ["percentage", "flat"],
       communication_channel_type: ["whatsapp", "sms", "email", "voice", "push"],
+      communication_priority: ["low", "normal", "high", "urgent"],
+      communication_type: ["announcement", "message", "alert"],
       consultant_status: ["draft", "active", "inactive", "blacklisted"],
       consultant_tier: ["bronze", "silver", "gold", "platinum", "diamond"],
       consultant_type: ["external", "student", "alumni"],
@@ -17989,6 +19941,7 @@ export const Constants = {
         "failed",
         "replied",
       ],
+      nps_category: ["promoter", "passive", "detractor"],
       offer_response: ["pending", "accepted", "rejected", "expired"],
       okr_cycle_type: ["annual", "quarterly", "semester"],
       okr_entity_type: ["objective", "key_result", "check_in"],
@@ -18003,6 +19956,17 @@ export const Constants = {
       ],
       okr_status: ["draft", "active", "completed", "archived"],
       okr_tier: ["tier_1", "tier_2", "tier_3"],
+      parent_activity_type: [
+        "login",
+        "view_dashboard",
+        "view_attendance",
+        "view_fees",
+        "view_grades",
+        "read_message",
+        "submit_survey",
+        "logout",
+      ],
+      parent_relationship: ["father", "mother", "guardian", "other"],
       payment_query_status: ["open", "in_progress", "resolved", "closed"],
       payment_status: [
         "pending",
@@ -18056,8 +20020,10 @@ export const Constants = {
         "phone",
         "event",
       ],
+      stakeholder_type: ["parent", "learner", "alumni", "industry", "staff"],
       student_status: ["active", "inactive", "exited", "graduated", "pending"],
       supported_platform: ["Web", "Mobile", "Both"],
+      survey_status: ["draft", "active", "closed", "archived"],
       task_status: [
         "pending",
         "in_progress",

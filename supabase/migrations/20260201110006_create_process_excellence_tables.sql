@@ -20,8 +20,8 @@ CREATE TABLE IF NOT EXISTS process_definitions (
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  created_by UUID REFERENCES users_profiles(id),
-  updated_by UUID REFERENCES users_profiles(id),
+  created_by UUID REFERENCES auth.users(id),
+  updated_by UUID REFERENCES auth.users(id),
   CONSTRAINT unique_process_name_per_institution UNIQUE (institution_id, name)
 );
 
@@ -71,11 +71,11 @@ CREATE TABLE IF NOT EXISTS waste_incidents (
   estimated_cost_impact DECIMAL(12,2),
   root_cause TEXT,
   corrective_action TEXT,
-  reported_by UUID REFERENCES users_profiles(id),
+  reported_by UUID REFERENCES auth.users(id),
   reported_at TIMESTAMPTZ DEFAULT NOW(),
   status VARCHAR(20) DEFAULT 'open' CHECK (status IN ('open', 'investigating', 'resolved', 'dismissed')),
   resolved_at TIMESTAMPTZ,
-  resolved_by UUID REFERENCES users_profiles(id)
+  resolved_by UUID REFERENCES auth.users(id)
 );
 
 COMMENT ON TABLE waste_incidents IS 'TIMWOOD waste incidents: T=Transport, I=Inventory, M=Motion, W=Waiting, O1=Over-production, O2=Over-processing, D=Defects, TU=Talent Under-utilization';
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS process_audits (
   process_id UUID NOT NULL REFERENCES process_definitions(id) ON DELETE CASCADE,
   audit_period_start DATE NOT NULL,
   audit_period_end DATE NOT NULL,
-  auditor_id UUID REFERENCES users_profiles(id),
+  auditor_id UUID REFERENCES auth.users(id),
   total_instances INTEGER DEFAULT 0,
   avg_cycle_hours DECIMAL(10,2),
   avg_value_add_ratio DECIMAL(5,2),
@@ -161,7 +161,7 @@ CREATE POLICY "Admins can manage process definitions"
   USING (
     EXISTS (
       SELECT 1 FROM user_institution_access uia
-      JOIN users_profiles up ON up.id = uia.user_id
+      JOIN public.profiles up ON up.id = uia.user_id
       WHERE uia.user_id = auth.uid()
         AND uia.institution_id = process_definitions.institution_id
         AND uia.is_active = true
@@ -249,7 +249,7 @@ CREATE POLICY "Admins can manage audits"
   USING (
     EXISTS (
       SELECT 1 FROM user_institution_access uia
-      JOIN users_profiles up ON up.id = uia.user_id
+      JOIN public.profiles up ON up.id = uia.user_id
       WHERE uia.user_id = auth.uid()
         AND uia.institution_id = process_audits.institution_id
         AND uia.is_active = true

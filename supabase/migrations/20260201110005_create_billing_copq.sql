@@ -7,7 +7,7 @@
 CREATE TABLE IF NOT EXISTS billing_copq_incidents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  bill_id UUID REFERENCES billing_bills(id) ON DELETE SET NULL,
+  bill_id UUID REFERENCES billing_student_bills(id) ON DELETE SET NULL,
   learner_id UUID REFERENCES learners_profiles(id) ON DELETE SET NULL,
   incident_date DATE NOT NULL DEFAULT CURRENT_DATE,
   category VARCHAR(50) NOT NULL CHECK (category IN (

@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS nps_surveys (
   end_date TIMESTAMPTZ NOT NULL,
   status survey_status DEFAULT 'draft' NOT NULL,
   questions JSONB NOT NULL DEFAULT '[]',
-  created_by UUID REFERENCES users_profiles(id) ON DELETE SET NULL,
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
 
@@ -164,11 +164,11 @@ CREATE POLICY "Users can view surveys for their institution"
   ON nps_surveys FOR SELECT
   USING (
     institution_id IN (
-      SELECT institution_id FROM users_profiles WHERE id = auth.uid()
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
     )
     OR
     EXISTS (
-      SELECT 1 FROM users_profiles WHERE id = auth.uid() AND role = 'super_admin'
+      SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'super_admin'
     )
   );
 
@@ -176,11 +176,11 @@ CREATE POLICY "Staff can create surveys for their institution"
   ON nps_surveys FOR INSERT
   WITH CHECK (
     institution_id IN (
-      SELECT institution_id FROM users_profiles WHERE id = auth.uid()
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
     )
     AND
     EXISTS (
-      SELECT 1 FROM users_profiles
+      SELECT 1 FROM public.profiles
       WHERE id = auth.uid()
       AND role IN ('super_admin', 'admin', 'staff', 'faculty', 'hod')
     )
@@ -190,11 +190,11 @@ CREATE POLICY "Staff can update surveys for their institution"
   ON nps_surveys FOR UPDATE
   USING (
     institution_id IN (
-      SELECT institution_id FROM users_profiles WHERE id = auth.uid()
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
     )
     AND
     EXISTS (
-      SELECT 1 FROM users_profiles
+      SELECT 1 FROM public.profiles
       WHERE id = auth.uid()
       AND role IN ('super_admin', 'admin', 'staff', 'faculty', 'hod')
     )
@@ -204,11 +204,11 @@ CREATE POLICY "Admins can delete surveys for their institution"
   ON nps_surveys FOR DELETE
   USING (
     institution_id IN (
-      SELECT institution_id FROM users_profiles WHERE id = auth.uid()
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
     )
     AND
     EXISTS (
-      SELECT 1 FROM users_profiles
+      SELECT 1 FROM public.profiles
       WHERE id = auth.uid()
       AND role IN ('super_admin', 'admin')
     )
@@ -231,7 +231,7 @@ CREATE POLICY "Staff can view responses for their institution surveys"
   USING (
     EXISTS (
       SELECT 1 FROM nps_surveys s
-      JOIN users_profiles up ON up.institution_id = s.institution_id
+      JOIN public.profiles up ON up.institution_id = s.institution_id
       WHERE s.id = survey_id
       AND up.id = auth.uid()
       AND up.role IN ('super_admin', 'admin', 'staff', 'faculty', 'hod')
@@ -243,11 +243,11 @@ CREATE POLICY "Staff can view analytics for their institution"
   ON nps_analytics FOR SELECT
   USING (
     institution_id IN (
-      SELECT institution_id FROM users_profiles WHERE id = auth.uid()
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
     )
     AND
     EXISTS (
-      SELECT 1 FROM users_profiles
+      SELECT 1 FROM public.profiles
       WHERE id = auth.uid()
       AND role IN ('super_admin', 'admin', 'staff', 'faculty', 'hod')
     )

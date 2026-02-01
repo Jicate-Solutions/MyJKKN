@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS grievance_tickets (
   raised_by_phone VARCHAR(20),
 
   -- Assignment
-  assigned_to UUID REFERENCES users_profiles(id) ON DELETE SET NULL,
+  assigned_to UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   assigned_at TIMESTAMPTZ,
   department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
 
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS grievance_tickets (
   -- Resolution
   resolution TEXT,
   resolved_at TIMESTAMPTZ,
-  resolved_by UUID REFERENCES users_profiles(id) ON DELETE SET NULL,
+  resolved_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   satisfaction_rating INTEGER CHECK (satisfaction_rating IS NULL OR (satisfaction_rating >= 1 AND satisfaction_rating <= 5)),
   satisfaction_feedback TEXT,
 
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS grievance_tickets (
 CREATE TABLE IF NOT EXISTS grievance_comments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   ticket_id UUID NOT NULL REFERENCES grievance_tickets(id) ON DELETE CASCADE,
-  author_id UUID REFERENCES users_profiles(id) ON DELETE SET NULL,
+  author_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   author_name VARCHAR(255) NOT NULL,
   author_type VARCHAR(50) NOT NULL CHECK (author_type IN ('staff', 'learner', 'parent', 'system')),
   content TEXT NOT NULL,
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS grievance_history (
   action VARCHAR(50) NOT NULL,
   old_value TEXT,
   new_value TEXT,
-  performed_by UUID REFERENCES users_profiles(id) ON DELETE SET NULL,
+  performed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   performed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -256,7 +256,7 @@ CREATE POLICY grievance_categories_staff_select ON grievance_categories
   TO authenticated
   USING (
     EXISTS (
-      SELECT 1 FROM users_profiles up
+      SELECT 1 FROM public.profiles up
       WHERE up.id = auth.uid()
         AND up.role IN ('admin', 'super_admin', 'staff', 'hod', 'principal')
         AND (
@@ -277,17 +277,10 @@ CREATE POLICY grievance_categories_public_select ON grievance_categories
   USING (
     is_active = true
     AND EXISTS (
-      SELECT 1 FROM users_profiles up
+      SELECT 1 FROM public.profiles up
       WHERE up.id = auth.uid()
         AND up.role IN ('student', 'parent')
-        AND (
-          up.institution_id = grievance_categories.institution_id
-          OR EXISTS (
-            SELECT 1 FROM learners_profiles lp
-            WHERE lp.profile_id = up.id
-              AND lp.institution_id = grievance_categories.institution_id
-          )
-        )
+        AND up.institution_id = grievance_categories.institution_id
     )
   );
 
@@ -297,7 +290,7 @@ CREATE POLICY grievance_categories_admin_all ON grievance_categories
   TO authenticated
   USING (
     EXISTS (
-      SELECT 1 FROM users_profiles up
+      SELECT 1 FROM public.profiles up
       WHERE up.id = auth.uid()
         AND up.role IN ('admin', 'super_admin')
         AND (
@@ -321,7 +314,7 @@ CREATE POLICY grievance_tickets_staff_select ON grievance_tickets
   TO authenticated
   USING (
     EXISTS (
-      SELECT 1 FROM users_profiles up
+      SELECT 1 FROM public.profiles up
       WHERE up.id = auth.uid()
         AND up.role IN ('admin', 'super_admin', 'staff', 'hod', 'principal')
         AND (
@@ -341,11 +334,6 @@ CREATE POLICY grievance_tickets_own_select ON grievance_tickets
   TO authenticated
   USING (
     raised_by_id = auth.uid()
-    OR EXISTS (
-      SELECT 1 FROM learners_profiles lp
-      WHERE lp.profile_id = auth.uid()
-        AND lp.id = grievance_tickets.raised_by_id
-    )
   );
 
 -- Assigned staff can view their assigned tickets
@@ -360,13 +348,13 @@ CREATE POLICY grievance_tickets_insert ON grievance_tickets
   TO authenticated
   WITH CHECK (
     EXISTS (
-      SELECT 1 FROM users_profiles up
+      SELECT 1 FROM public.profiles up
       WHERE up.id = auth.uid()
         AND (
           up.institution_id = grievance_tickets.institution_id
           OR EXISTS (
             SELECT 1 FROM learners_profiles lp
-            WHERE lp.profile_id = up.id
+            WHERE lp.id = up.id
               AND lp.institution_id = grievance_tickets.institution_id
           )
           OR EXISTS (
@@ -384,7 +372,7 @@ CREATE POLICY grievance_tickets_staff_update ON grievance_tickets
   TO authenticated
   USING (
     EXISTS (
-      SELECT 1 FROM users_profiles up
+      SELECT 1 FROM public.profiles up
       WHERE up.id = auth.uid()
         AND up.role IN ('admin', 'super_admin', 'staff', 'hod', 'principal')
         AND (
@@ -412,11 +400,6 @@ CREATE POLICY grievance_tickets_raiser_rate ON grievance_tickets
     status = 'resolved'
     AND (
       raised_by_id = auth.uid()
-      OR EXISTS (
-        SELECT 1 FROM learners_profiles lp
-        WHERE lp.profile_id = auth.uid()
-          AND lp.id = grievance_tickets.raised_by_id
-      )
     )
   );
 
@@ -431,7 +414,7 @@ CREATE POLICY grievance_comments_staff_select ON grievance_comments
   USING (
     EXISTS (
       SELECT 1 FROM grievance_tickets gt
-      JOIN users_profiles up ON up.id = auth.uid()
+      JOIN public.profiles up ON up.id = auth.uid()
       WHERE gt.id = grievance_comments.ticket_id
         AND up.role IN ('admin', 'super_admin', 'staff', 'hod', 'principal')
         AND (
@@ -456,11 +439,6 @@ CREATE POLICY grievance_comments_public_select ON grievance_comments
       WHERE gt.id = grievance_comments.ticket_id
         AND (
           gt.raised_by_id = auth.uid()
-          OR EXISTS (
-            SELECT 1 FROM learners_profiles lp
-            WHERE lp.profile_id = auth.uid()
-              AND lp.id = gt.raised_by_id
-          )
         )
     )
   );
@@ -476,7 +454,7 @@ CREATE POLICY grievance_comments_insert ON grievance_comments
         AND (
           -- Staff with access
           EXISTS (
-            SELECT 1 FROM users_profiles up
+            SELECT 1 FROM public.profiles up
             WHERE up.id = auth.uid()
               AND up.role IN ('admin', 'super_admin', 'staff', 'hod', 'principal')
               AND (
@@ -490,11 +468,6 @@ CREATE POLICY grievance_comments_insert ON grievance_comments
           )
           -- Or ticket raiser
           OR gt.raised_by_id = auth.uid()
-          OR EXISTS (
-            SELECT 1 FROM learners_profiles lp
-            WHERE lp.profile_id = auth.uid()
-              AND lp.id = gt.raised_by_id
-          )
           -- Or assigned staff
           OR gt.assigned_to = auth.uid()
         )
@@ -503,7 +476,7 @@ CREATE POLICY grievance_comments_insert ON grievance_comments
     AND (
       is_internal = false
       OR EXISTS (
-        SELECT 1 FROM users_profiles up
+        SELECT 1 FROM public.profiles up
         WHERE up.id = auth.uid()
           AND up.role IN ('admin', 'super_admin', 'staff', 'hod', 'principal')
       )
@@ -521,7 +494,7 @@ CREATE POLICY grievance_history_staff_select ON grievance_history
   USING (
     EXISTS (
       SELECT 1 FROM grievance_tickets gt
-      JOIN users_profiles up ON up.id = auth.uid()
+      JOIN public.profiles up ON up.id = auth.uid()
       WHERE gt.id = grievance_history.ticket_id
         AND up.role IN ('admin', 'super_admin', 'staff', 'hod', 'principal')
         AND (
@@ -545,11 +518,6 @@ CREATE POLICY grievance_history_raiser_select ON grievance_history
       WHERE gt.id = grievance_history.ticket_id
         AND (
           gt.raised_by_id = auth.uid()
-          OR EXISTS (
-            SELECT 1 FROM learners_profiles lp
-            WHERE lp.profile_id = auth.uid()
-              AND lp.id = gt.raised_by_id
-          )
         )
     )
   );

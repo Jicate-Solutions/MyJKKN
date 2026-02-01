@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS parent_learner_links (
   relationship parent_relationship NOT NULL,
   is_primary BOOLEAN DEFAULT false,
   verified_at TIMESTAMPTZ,
-  verified_by UUID REFERENCES users_profiles(id),
+  verified_by UUID REFERENCES auth.users(id),
   created_at TIMESTAMPTZ DEFAULT NOW(),
 
   CONSTRAINT unique_parent_learner UNIQUE(parent_id, learner_id)
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS parent_communications (
   content TEXT NOT NULL,
   priority communication_priority DEFAULT 'normal',
   read_at TIMESTAMPTZ,
-  sender_id UUID REFERENCES users_profiles(id),
+  sender_id UUID REFERENCES auth.users(id),
   attachments JSONB DEFAULT '[]',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -242,13 +242,13 @@ CREATE POLICY "Parents can update own profile"
 CREATE POLICY "Institution staff can view parent profiles"
   ON parent_profiles FOR SELECT
   USING (institution_id IN (
-    SELECT institution_id FROM users_profiles WHERE id = auth.uid()
+    SELECT institution_id FROM public.profiles WHERE id = auth.uid()
   ));
 
 CREATE POLICY "Institution staff can manage parent profiles"
   ON parent_profiles FOR ALL
   USING (institution_id IN (
-    SELECT institution_id FROM users_profiles WHERE id = auth.uid()
+    SELECT institution_id FROM public.profiles WHERE id = auth.uid()
   ));
 
 -- parent_learner_links policies
@@ -262,7 +262,7 @@ CREATE POLICY "Institution staff can manage learner links"
   ON parent_learner_links FOR ALL
   USING (parent_id IN (
     SELECT id FROM parent_profiles WHERE institution_id IN (
-      SELECT institution_id FROM users_profiles WHERE id = auth.uid()
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
     )
   ));
 
@@ -285,7 +285,7 @@ CREATE POLICY "Parents can update read status"
 CREATE POLICY "Institution staff can manage communications"
   ON parent_communications FOR ALL
   USING (institution_id IN (
-    SELECT institution_id FROM users_profiles WHERE id = auth.uid()
+    SELECT institution_id FROM public.profiles WHERE id = auth.uid()
   ));
 
 -- parent_activity_log policies
@@ -305,7 +305,7 @@ CREATE POLICY "Institution staff can view activity logs"
   ON parent_activity_log FOR SELECT
   USING (parent_id IN (
     SELECT id FROM parent_profiles WHERE institution_id IN (
-      SELECT institution_id FROM users_profiles WHERE id = auth.uid()
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
     )
   ));
 

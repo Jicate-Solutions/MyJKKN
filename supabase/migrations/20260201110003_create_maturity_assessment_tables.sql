@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS maturity_frameworks (
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  created_by UUID REFERENCES users_profiles(id),
-  updated_by UUID REFERENCES users_profiles(id)
+  created_by UUID REFERENCES auth.users(id),
+  updated_by UUID REFERENCES auth.users(id)
 );
 
 -- Comment on table
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS maturity_assessments (
   framework_id UUID NOT NULL REFERENCES maturity_frameworks(id) ON DELETE RESTRICT,
   department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
   assessment_date DATE NOT NULL,
-  assessor_id UUID REFERENCES users_profiles(id) ON DELETE SET NULL,
+  assessor_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   dimension_scores JSONB NOT NULL DEFAULT '{}'::jsonb,
   overall_stage INTEGER NOT NULL CHECK (overall_stage >= 1 AND overall_stage <= 4),
   evidence TEXT,
@@ -42,12 +42,12 @@ CREATE TABLE IF NOT EXISTS maturity_assessments (
   target_stage INTEGER CHECK (target_stage IS NULL OR (target_stage >= 1 AND target_stage <= 4)),
   target_date DATE,
   status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'submitted', 'approved', 'archived')),
-  reviewed_by UUID REFERENCES users_profiles(id) ON DELETE SET NULL,
+  reviewed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   reviewed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  created_by UUID REFERENCES users_profiles(id),
-  updated_by UUID REFERENCES users_profiles(id)
+  created_by UUID REFERENCES auth.users(id),
+  updated_by UUID REFERENCES auth.users(id)
 );
 
 -- Comments on table
@@ -69,11 +69,11 @@ CREATE TABLE IF NOT EXISTS maturity_progress (
   due_date DATE,
   completed_at TIMESTAMPTZ,
   notes TEXT,
-  assigned_to UUID REFERENCES users_profiles(id) ON DELETE SET NULL,
+  assigned_to UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  created_by UUID REFERENCES users_profiles(id),
-  updated_by UUID REFERENCES users_profiles(id)
+  created_by UUID REFERENCES auth.users(id),
+  updated_by UUID REFERENCES auth.users(id)
 );
 
 -- Comment on table
@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS maturity_evidence (
   file_url TEXT,
   file_type VARCHAR(50),
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  created_by UUID REFERENCES users_profiles(id)
+  created_by UUID REFERENCES auth.users(id)
 );
 
 -- Comment on table
@@ -199,8 +199,7 @@ CREATE POLICY "Users can view frameworks for their institution"
   FOR SELECT
   USING (
     institution_id IN (
-      SELECT institution_id FROM user_institution_access
-      WHERE profile_id = auth.uid()
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
     )
   );
 
@@ -211,10 +210,8 @@ CREATE POLICY "Admins can create frameworks"
   FOR INSERT
   WITH CHECK (
     EXISTS (
-      SELECT 1 FROM user_institution_access uia
-      JOIN users_profiles up ON up.id = uia.profile_id
-      WHERE uia.profile_id = auth.uid()
-        AND uia.institution_id = maturity_frameworks.institution_id
+      SELECT 1 FROM public.profiles up WHERE up.id = auth.uid()
+        AND up.institution_id = maturity_frameworks.institution_id
         AND up.role IN ('super_admin', 'admin', 'principal')
     )
   );
@@ -226,10 +223,8 @@ CREATE POLICY "Admins can update frameworks"
   FOR UPDATE
   USING (
     EXISTS (
-      SELECT 1 FROM user_institution_access uia
-      JOIN users_profiles up ON up.id = uia.profile_id
-      WHERE uia.profile_id = auth.uid()
-        AND uia.institution_id = maturity_frameworks.institution_id
+      SELECT 1 FROM public.profiles up WHERE up.id = auth.uid()
+        AND up.institution_id = maturity_frameworks.institution_id
         AND up.role IN ('super_admin', 'admin', 'principal')
     )
   );
@@ -241,7 +236,7 @@ CREATE POLICY "Super admins can delete frameworks"
   FOR DELETE
   USING (
     EXISTS (
-      SELECT 1 FROM users_profiles
+      SELECT 1 FROM public.profiles
       WHERE id = auth.uid() AND role = 'super_admin'
     )
   );
@@ -257,8 +252,7 @@ CREATE POLICY "Users can view assessments for their institution"
   FOR SELECT
   USING (
     institution_id IN (
-      SELECT institution_id FROM user_institution_access
-      WHERE profile_id = auth.uid()
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
     )
   );
 
@@ -269,10 +263,8 @@ CREATE POLICY "Staff can create assessments"
   FOR INSERT
   WITH CHECK (
     EXISTS (
-      SELECT 1 FROM user_institution_access uia
-      JOIN users_profiles up ON up.id = uia.profile_id
-      WHERE uia.profile_id = auth.uid()
-        AND uia.institution_id = maturity_assessments.institution_id
+      SELECT 1 FROM public.profiles up WHERE up.id = auth.uid()
+        AND up.institution_id = maturity_assessments.institution_id
         AND up.role NOT IN ('student', 'parent')
     )
   );
@@ -284,10 +276,8 @@ CREATE POLICY "Staff can update assessments"
   FOR UPDATE
   USING (
     EXISTS (
-      SELECT 1 FROM user_institution_access uia
-      JOIN users_profiles up ON up.id = uia.profile_id
-      WHERE uia.profile_id = auth.uid()
-        AND uia.institution_id = maturity_assessments.institution_id
+      SELECT 1 FROM public.profiles up WHERE up.id = auth.uid()
+        AND up.institution_id = maturity_assessments.institution_id
         AND (
           -- Assessor can update their own drafts
           (assessor_id = auth.uid() AND status = 'draft')
@@ -304,10 +294,8 @@ CREATE POLICY "Admins can delete assessments"
   FOR DELETE
   USING (
     EXISTS (
-      SELECT 1 FROM user_institution_access uia
-      JOIN users_profiles up ON up.id = uia.profile_id
-      WHERE uia.profile_id = auth.uid()
-        AND uia.institution_id = maturity_assessments.institution_id
+      SELECT 1 FROM public.profiles up WHERE up.id = auth.uid()
+        AND up.institution_id = maturity_assessments.institution_id
         AND up.role IN ('super_admin', 'admin', 'principal')
     )
   );
@@ -324,9 +312,9 @@ CREATE POLICY "Users can view progress items"
   USING (
     EXISTS (
       SELECT 1 FROM maturity_assessments ma
-      JOIN user_institution_access uia ON uia.institution_id = ma.institution_id
+      JOIN public.profiles up ON up.institution_id = ma.institution_id
       WHERE ma.id = maturity_progress.assessment_id
-        AND uia.profile_id = auth.uid()
+        AND up.id = auth.uid()
     )
   );
 
@@ -338,10 +326,9 @@ CREATE POLICY "Staff can create progress items"
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM maturity_assessments ma
-      JOIN user_institution_access uia ON uia.institution_id = ma.institution_id
-      JOIN users_profiles up ON up.id = uia.profile_id
+      JOIN public.profiles up ON up.institution_id = ma.institution_id
       WHERE ma.id = maturity_progress.assessment_id
-        AND uia.profile_id = auth.uid()
+        AND up.id = auth.uid()
         AND up.role NOT IN ('student', 'parent')
     )
   );
@@ -354,10 +341,9 @@ CREATE POLICY "Staff can update progress items"
   USING (
     EXISTS (
       SELECT 1 FROM maturity_assessments ma
-      JOIN user_institution_access uia ON uia.institution_id = ma.institution_id
-      JOIN users_profiles up ON up.id = uia.profile_id
+      JOIN public.profiles up ON up.institution_id = ma.institution_id
       WHERE ma.id = maturity_progress.assessment_id
-        AND uia.profile_id = auth.uid()
+        AND up.id = auth.uid()
         AND up.role NOT IN ('student', 'parent')
     )
   );
@@ -370,10 +356,9 @@ CREATE POLICY "Admins can delete progress items"
   USING (
     EXISTS (
       SELECT 1 FROM maturity_assessments ma
-      JOIN user_institution_access uia ON uia.institution_id = ma.institution_id
-      JOIN users_profiles up ON up.id = uia.profile_id
+      JOIN public.profiles up ON up.institution_id = ma.institution_id
       WHERE ma.id = maturity_progress.assessment_id
-        AND uia.profile_id = auth.uid()
+        AND up.id = auth.uid()
         AND up.role IN ('super_admin', 'admin', 'principal')
     )
   );
@@ -390,9 +375,9 @@ CREATE POLICY "Users can view evidence"
   USING (
     EXISTS (
       SELECT 1 FROM maturity_assessments ma
-      JOIN user_institution_access uia ON uia.institution_id = ma.institution_id
+      JOIN public.profiles up ON up.institution_id = ma.institution_id
       WHERE ma.id = maturity_evidence.assessment_id
-        AND uia.profile_id = auth.uid()
+        AND up.id = auth.uid()
     )
   );
 
@@ -404,10 +389,9 @@ CREATE POLICY "Staff can add evidence"
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM maturity_assessments ma
-      JOIN user_institution_access uia ON uia.institution_id = ma.institution_id
-      JOIN users_profiles up ON up.id = uia.profile_id
+      JOIN public.profiles up ON up.institution_id = ma.institution_id
       WHERE ma.id = maturity_evidence.assessment_id
-        AND uia.profile_id = auth.uid()
+        AND up.id = auth.uid()
         AND up.role NOT IN ('student', 'parent')
     )
   );
@@ -420,10 +404,9 @@ CREATE POLICY "Admins can delete evidence"
   USING (
     EXISTS (
       SELECT 1 FROM maturity_assessments ma
-      JOIN user_institution_access uia ON uia.institution_id = ma.institution_id
-      JOIN users_profiles up ON up.id = uia.profile_id
+      JOIN public.profiles up ON up.institution_id = ma.institution_id
       WHERE ma.id = maturity_evidence.assessment_id
-        AND uia.profile_id = auth.uid()
+        AND up.id = auth.uid()
         AND up.role IN ('super_admin', 'admin', 'principal')
     )
   );
@@ -581,7 +564,7 @@ SELECT
   ma.institution_id,
   i.name AS institution_name,
   d.id AS department_id,
-  d.name AS department_name,
+  d.department_name AS department_name,
   ma.id AS assessment_id,
   ma.assessment_date,
   ma.overall_stage,
