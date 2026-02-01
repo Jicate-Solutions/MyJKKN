@@ -53,6 +53,39 @@ export type BloodGroup =
   | 'A1+'
   | 'A1B';
 
+// ============================================
+// FACILITATOR ROLE TYPES (Workshop Transformation)
+// ============================================
+
+/**
+ * Staff role type for outcome-focused education
+ */
+export type StaffRoleType = 'teacher' | 'facilitator' | 'trainer' | 'industry_mentor' | 'hybrid';
+
+/**
+ * Facilitator certification entry
+ */
+export interface FacilitatorCertification {
+  certification_name: string;
+  issuing_body: string;
+  issue_date: string;
+  expiry_date?: string;
+  certificate_url?: string;
+}
+
+/**
+ * Outcome metrics for staff performance tracking
+ */
+export interface StaffOutcomeMetrics {
+  learners_mentored?: number;
+  average_competency_improvement?: number;
+  courses_with_competency_mapping?: number;
+  industry_projects_facilitated?: number;
+  placement_success_rate?: number;
+  student_satisfaction_score?: number;
+  last_computed?: string;
+}
+
 export interface Staff {
   id: string;
   first_name: string;
@@ -89,6 +122,11 @@ export interface Staff {
     id: string;
     department_name: string;
   };
+
+  // Facilitator & Outcome Fields (Workshop Transformation)
+  role_type?: StaffRoleType;
+  facilitator_certification?: FacilitatorCertification[];
+  outcome_metrics?: StaffOutcomeMetrics;
 
   // Audit fields
   is_active: boolean;

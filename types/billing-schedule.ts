@@ -28,6 +28,54 @@ export type RefundCategory =
   | 'service_not_provided'
   | 'system_error'
   | 'other';
+
+// ============================================
+// OUTCOME-BASED DISCOUNT TYPES (Workshop Transformation)
+// ============================================
+
+/**
+ * Type of outcome criteria for discounts
+ */
+export type OutcomeCriteriaType =
+  | 'competency_achievement'
+  | 'attendance'
+  | 'cgpa'
+  | 'industry_readiness'
+  | 'placement';
+
+/**
+ * Condition for outcome-based discount qualification
+ */
+export interface OutcomeCondition {
+  type: OutcomeCriteriaType;
+  minimum_percentage?: number;
+  minimum_value?: number;
+  required_competencies?: string[];
+  minimum_level?: 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert';
+}
+
+/**
+ * Outcome criteria for automatic discount qualification
+ */
+export interface OutcomeCriteria {
+  type: OutcomeCriteriaType;
+  required_competencies?: string[];
+  minimum_level?: 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert';
+  industry_readiness_threshold?: number;
+  or_conditions?: OutcomeCondition[];
+}
+
+/**
+ * Verification details for outcome-based discounts
+ */
+export interface OutcomeVerification {
+  verified: boolean;
+  verified_at?: string;
+  verified_by?: string;
+  competencies_verified?: string[];
+  readiness_score_at_verification?: number;
+  notes?: string;
+}
 export type RefundMethod =
   | 'cash'
   | 'bank_transfer'
@@ -286,6 +334,11 @@ export interface BillingDiscount {
   created_at: string;
   updated_at: string;
 
+  // Outcome-based discount fields (Workshop Transformation)
+  is_outcome_based?: boolean;
+  outcome_criteria?: OutcomeCriteria;
+  outcome_verification?: OutcomeVerification;
+
   // Related data
   bill?: StudentBill;
   authorizer?: {
@@ -304,6 +357,9 @@ export interface CreateDiscountDto {
   supporting_documents?: any;
   effective_date: string;
   expiry_date?: string;
+  // Outcome-based discount fields
+  is_outcome_based?: boolean;
+  outcome_criteria?: OutcomeCriteria;
 }
 
 export interface UpdateDiscountDto extends Partial<CreateDiscountDto> {

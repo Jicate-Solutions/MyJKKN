@@ -1,0 +1,193 @@
+// ============================================================================
+// React Query hooks for Competency Catalog
+// ============================================================================
+
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  UseQueryResult
+} from '@tanstack/react-query';
+import { useMemo, useCallback } from 'react';
+import type {
+  Competency,
+  CompetencyListResponse,
+  CompetencyFilters,
+  CreateCompetencyDTO,
+  UpdateCompetencyDTO,
+  CompetencyStats,
+  CompetencyPickerOption
+} from '@/types/competency';
+import { CompetencyCatalogService } from '@/lib/services/competency';
+import { useAuth } from '../use-auth';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
+
+// Query key factory
+export const competencyKeys = {
+  all: ['competencies'] as const,
+  lists: () => [...competencyKeys.all, 'list'] as const,
+  list: (filters: CompetencyFilters) => [...competencyKeys.lists(), filters] as const,
+  details: () => [...competencyKeys.all, 'detail'] as const,
+  detail: (id: string) => [...competencyKeys.details(), id] as const,
+  stats: (institutionId: string) => [...competencyKeys.all, 'stats', institutionId] as const,
+  options: (institutionId: string) => [...competencyKeys.all, 'options', institutionId] as const
+};
+
+/**
+ * Get competencies with filters and pagination
+ */
+export function useCompetencies(
+  filters: CompetencyFilters = {}
+): UseQueryResult<CompetencyListResponse<Competency>, Error> {
+  const { profile, isLoading: authLoading } = useAuth();
+
+  const queryKey = useMemo(() => {
+    const stableFilters: CompetencyFilters = {
+      institution_id: filters.institution_id,
+      competency_type: filters.competency_type,
+      bloom_taxonomy_level: filters.bloom_taxonomy_level,
+      is_active: filters.is_active,
+      search: filters.search,
+      page: filters.page || 1,
+      limit: filters.limit || 10,
+      sort_by: filters.sort_by,
+      sort_order: filters.sort_order
+    };
+    return competencyKeys.list(stableFilters);
+  }, [
+    filters.institution_id,
+    filters.competency_type,
+    filters.bloom_taxonomy_level,
+    filters.is_active,
+    filters.search,
+    filters.page,
+    filters.limit,
+    filters.sort_by,
+    filters.sort_order
+  ]);
+
+  const queryFn = useCallback(async () => {
+    try {
+      return await CompetencyCatalogService.getCompetencies(filters);
+    } catch (error) {
+      console.error('[useCompetencies] Fetch error:', error);
+      throw new Error('Failed to fetch competencies');
+    }
+  }, [filters]);
+
+  return useQuery({
+    queryKey,
+    queryFn,
+    enabled: !authLoading && !!profile && !!filters.institution_id,
+    placeholderData: (previousData) => previousData,
+    ...QUERY_CONFIG.DYNAMIC_DATA
+  });
+}
+
+/**
+ * Get single competency by ID
+ */
+export function useCompetency(id: string): UseQueryResult<Competency, Error> {
+  const { profile, isLoading: authLoading } = useAuth();
+
+  return useQuery({
+    queryKey: competencyKeys.detail(id),
+    queryFn: () => CompetencyCatalogService.getCompetencyById(id),
+    enabled: !authLoading && !!profile && !!id,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA
+  });
+}
+
+/**
+ * Get competency statistics for institution
+ */
+export function useCompetencyStats(
+  institutionId: string
+): UseQueryResult<CompetencyStats, Error> {
+  const { profile, isLoading: authLoading } = useAuth();
+
+  return useQuery({
+    queryKey: competencyKeys.stats(institutionId),
+    queryFn: () => CompetencyCatalogService.getCompetencyStats(institutionId),
+    enabled: !authLoading && !!profile && !!institutionId,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA
+  });
+}
+
+/**
+ * Get competency options for picker (simplified list)
+ */
+export function useCompetencyOptions(
+  institutionId: string
+): UseQueryResult<CompetencyPickerOption[], Error> {
+  const { profile, isLoading: authLoading } = useAuth();
+
+  return useQuery({
+    queryKey: competencyKeys.options(institutionId),
+    queryFn: () => CompetencyCatalogService.getCompetencyOptions(institutionId),
+    enabled: !authLoading && !!profile && !!institutionId,
+    ...QUERY_CONFIG.FORM_DATA
+  });
+}
+
+/**
+ * Create competency mutation
+ */
+export function useCreateCompetency() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: CreateCompetencyDTO) =>
+      CompetencyCatalogService.createCompetency(data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: competencyKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: competencyKeys.stats(data.institution_id) });
+      queryClient.invalidateQueries({ queryKey: competencyKeys.options(data.institution_id) });
+    }
+  });
+}
+
+/**
+ * Update competency mutation
+ */
+export function useUpdateCompetency(id: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: UpdateCompetencyDTO) =>
+      CompetencyCatalogService.updateCompetency(id, data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: competencyKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: competencyKeys.lists() });
+      queryClient.setQueryData(competencyKeys.detail(id), data);
+    }
+  });
+}
+
+/**
+ * Archive competency mutation
+ */
+export function useArchiveCompetency() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => CompetencyCatalogService.archiveCompetency(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: competencyKeys.lists() });
+    }
+  });
+}
+
+/**
+ * Restore archived competency mutation
+ */
+export function useRestoreCompetency() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => CompetencyCatalogService.restoreCompetency(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: competencyKeys.lists() });
+    }
+  });
+}

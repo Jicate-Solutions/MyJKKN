@@ -21,6 +21,7 @@ import {
   ArrowLeft,
   Target,
   Calendar,
+  Building,
   Building2,
   Users,
   User,
@@ -111,13 +112,16 @@ const objectiveKeyResultSchema = z.object({
   dataSource: z.enum(['manual', 'auto'])
 });
 
+// Note: tier_3 and 'individual' level are deprecated as of Feb 2026
+// We still accept them in the schema for historical data compatibility,
+// but the UI no longer shows these options
 const createObjectiveSchema = z.object({
   title: z.string().min(5, 'Title must be at least 5 characters').max(200, 'Title cannot exceed 200 characters'),
   description: z.string().max(2000).optional(),
   rationale: z.string().max(1000).optional(),
   institutionId: z.string().min(1, 'Institution is required'),
   tier: z.enum(['tier_1', 'tier_2', 'tier_3']),
-  level: z.enum(['institution', 'department', 'individual']),
+  level: z.enum(['organization', 'institution', 'department', 'individual']),
   cycleType: z.enum(['annual', 'quarterly', 'semester']),
   startDate: z.string().min(1, 'Start date is required'),
   endDate: z.string().min(1, 'End date is required'),
@@ -128,9 +132,10 @@ type CreateObjectiveFormData = z.infer<typeof createObjectiveSchema>;
 
 // ============================================================================
 // TIER CONFIGURATIONS
+// Note: tier_3 (individual goals) is deprecated as of Feb 2026
+// Individual tracking is now handled by the Competency module
 // ============================================================================
-
-const TIER_CONFIG: Record<OKRTier, { label: string; description: string; color: string; sections: string[]; examples: string[] }> = {
+const TIER_CONFIG: Record<OKRTier, { label: string; description: string; color: string; sections: string[]; examples: string[]; deprecated?: boolean }> = {
   tier_1: {
     label: 'Full (11 Sections)',
     description: 'For major initiatives with multiple stakeholders',
@@ -147,18 +152,33 @@ const TIER_CONFIG: Record<OKRTier, { label: string; description: string; color: 
   },
   tier_3: {
     label: 'Simple (3 Sections)',
-    description: 'For individual goals',
+    description: 'DEPRECATED - Use Competency module instead',
     color: '#7c3aed',
     sections: ['objective', 'keyResults'],
-    examples: ['Personal Growth Plan', 'Skill Development']
+    examples: ['Personal Growth Plan', 'Skill Development'],
+    deprecated: true  // Hidden from UI but kept for historical data
   }
 };
 
+// Only show non-deprecated tiers in the UI
+const ACTIVE_TIERS = (Object.entries(TIER_CONFIG) as [OKRTier, typeof TIER_CONFIG['tier_1']][])
+  .filter(([_, config]) => !config.deprecated);
+
+// ============================================================================
+// LEVEL CONFIGURATIONS
+// Note: 'individual' level is deprecated as of Feb 2026
+// Individual tracking is now handled by the Competency module
+// ============================================================================
 const LEVEL_CONFIG = {
-  institution: { label: 'Institution', icon: Building2, description: 'Organization-wide OKR' },
-  department: { label: 'Department', icon: Users, description: 'Department-level OKR' },
-  individual: { label: 'Individual', icon: User, description: 'Personal OKR' }
+  organization: { label: 'Organization', icon: Building, description: 'Group-wide strategic OKR (JKKN level)', deprecated: false },
+  institution: { label: 'Institution', icon: Building2, description: 'Institution-wide OKR', deprecated: false },
+  department: { label: 'Department', icon: Users, description: 'Department-level OKR', deprecated: false },
+  individual: { label: 'Individual', icon: User, description: 'DEPRECATED - Use Competency module', deprecated: true }
 };
+
+// Only show non-deprecated levels in the UI
+const ACTIVE_LEVELS = Object.entries(LEVEL_CONFIG)
+  .filter(([_, config]) => !config.deprecated) as [string, typeof LEVEL_CONFIG['institution']][];
 
 const CYCLE_CONFIG = {
   annual: { label: 'Annual', duration: 12 },
@@ -532,8 +552,8 @@ export default function CreateObjectivePage() {
             <CardDescription>Choose based on scope and complexity</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-4">
-              {(Object.entries(TIER_CONFIG) as [OKRTier, typeof TIER_CONFIG['tier_1']][]).map(
+            <div className="grid grid-cols-2 gap-4">
+              {ACTIVE_TIERS.map(
                 ([key, config]) => (
                   <button
                     key={key}
@@ -611,7 +631,7 @@ export default function CreateObjectivePage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(LEVEL_CONFIG).map(([key, config]) => (
+                        {ACTIVE_LEVELS.map(([key, config]) => (
                           <SelectItem key={key} value={key}>
                             <div className="flex items-center gap-2">
                               <config.icon className="h-4 w-4" />

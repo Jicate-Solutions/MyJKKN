@@ -72,6 +72,12 @@ When updating any SQL file:
 | **Engagement Analytics** | **user_sessions, daily_engagement_metrics, student_engagement_scores, mv_engagement_overview (materialized view)** | **4** | **✅ Complete - Advanced student engagement tracking** |
 | Child App Auth  | ~~child_app_analytics, child_app_auth_codes_bucket, child_app_unified_sessions~~ (REMOVED 2025-01-20)                                                                                                     | 0     | ❌ Dropped - moved to auth server                          |
 | LTI Integration | lti_tools, lti_launches, lti_grades                                                                                                                                                                                         | 3     | ✅ Complete - MATLAB integration |
+| OKR Module | okr_objectives, okr_key_results, okr_check_ins, okr_kr_updates, okr_dependencies, okr_tasks, okr_risks, okr_compliance, okr_user_status, ~~learner_core_okrs~~, ~~learner_okr_assignments~~, ~~learner_elective_okrs~~, okr_milestones, okr_auto_track_sources, okr_comments, okr_reactions, okr_attachments | 17 (3 deprecated) | ✅ Complete - 3 learner tables DEPRECATED 2026-02-01 |
+| **OKR Metrics Registry** | **okr_metric_registry, okr_metric_execution_log, okr_metric_cache, okr_external_api_credentials** | **4** | **✅ NEW - Universal auto-metrics system** |
+| **Competency Module (NEW)** | **competency_catalog, competency_program_mapping, course_competency_mapping, learner_competencies** | **4** | **⏳ PENDING - Workshop Transformation Phase 1.2** |
+| **Industry Integration (NEW)** | **industry_partners, industry_mentors, industry_projects, learner_industry_engagements** | **4** | **⏳ PENDING - Workshop Transformation Phase 2.1** |
+| **Personalization Module (NEW)** | **learning_paths, learning_path_steps, parent_portal_access, parent_communications** | **4** | **⏳ PENDING - Workshop Transformation Phase 3** |
+| **Accountability Module (NEW)** | **alumni_outcomes, outcome_program_correlation, facilitator_development, facilitator_industry_immersion** | **4** | **⏳ PENDING - Workshop Transformation Phase 4** |
 | Other           | applications (with parent auth + LTI), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth + LTI  |
 
 ### Functions (242 total - Updated 2025-01-19)
@@ -185,6 +191,362 @@ When updating any SQL file:
 ```
 
 ## 📝 Change Log
+
+### 2026-02-01: Workshop Transformation - Accountability Module (Phase 4)
+
+- **File**: `migrations/20260201_create_accountability_tables.sql` ⏳ **PENDING REVIEW**
+
+  **Purpose**: Create Accountability module for tracking alumni outcomes and facilitator development as part of Workshop Transformation Phase 4.
+
+  **Tables Created (4)**:
+
+  **1. alumni_outcomes** - Graduate career/outcome tracking:
+  - Core: learner_id, institution_id, program_id, graduation_date
+  - Auto-computed: graduation_year (from graduation_date)
+  - Outcome: outcome_type ENUM, outcome_start_date
+  - Employment: company_name, designation, department, industry_sector, job_function
+  - Location: city, state, country, is_remote
+  - Compensation: salary_range ENUM, has_equity, other_benefits
+  - Relevance: is_relevant_to_program, relevance_percentage, skills_used
+  - Higher studies: institution_name, course_name, specialization, scholarship
+  - Entrepreneurship: business_name, business_type, funding_raised, employee_count
+  - Feedback: satisfaction_score (1-10), would_recommend_program, testimonial
+  - Verification: verification_status ENUM, verified_by, documents JSONB
+  - Engagement: is_willing_to_mentor/hire/guest_lecture
+
+  **2. outcome_program_correlation** - Program success analytics:
+  - Core: program_id, institution_id, cohort_year
+  - Counts: total_graduates, tracked_graduates, employed/entrepreneur/studies counts
+  - Auto-computed: tracking_percentage
+  - Rates: employment_rate, placement_rate, entrepreneurship_rate
+  - Salary analytics: average/median salary_range, salary_distribution JSONB
+  - Top performers: top_employers, top_sectors, top_roles, top_locations (all JSONB)
+  - Satisfaction: avg_relevance_percentage, program_satisfaction_avg
+  - Benchmarks: industry_benchmark_employment_rate, performance_vs_benchmark
+
+  **3. facilitator_development** - Staff professional evolution:
+  - Core: staff_id, institution_id
+  - Stage: current_stage (development_stage ENUM), stage_history JSONB
+  - Certifications: certifications JSONB, certification_count (auto-computed)
+  - Industry: industry_immersions JSONB, total_industry_days, companies_worked_with
+  - Innovation: innovation_contributions JSONB, innovation_count
+  - Peer learning: sessions_conducted/attended, is_peer_learning_champion
+  - Mentoring: faculty_mentored_count, current_mentees, specializations
+  - Score: outcome_score (0-100), outcome_score_components JSONB
+  - Research: publications_count, patents_count, industry_projects_guided
+  - Recognition: awards, speaking_engagements, media_features (all JSONB)
+  - Goals: development_goals JSONB, next_review_date
+
+  **4. facilitator_industry_immersion** - Industry experience records:
+  - Core: staff_id, institution_id, development_id (FK)
+  - Company: company_name, website, industry_sector, company_size
+  - Immersion: immersion_type ENUM, role_title, department
+  - Duration: start_date, end_date, duration_days, hours_per_week
+  - Work: objectives, key_responsibilities, projects_worked_on JSONB
+  - Learnings: learnings JSONB (technical, process, soft_skills, insights)
+  - Application: applied_in_teaching JSONB, curriculum_changes_proposed
+  - Compensation: is_paid, compensation_type, compensation_amount
+  - Documentation: certificate_url, report_url, presentation_url
+  - Feedback: company_feedback/rating, self_assessment/rating
+  - Visibility: is_public, is_featured
+
+  **ENUMs Created (5)**:
+  - `outcome_type`: employed, self_employed, entrepreneur, higher_studies, competitive_exams, family_business, gap_year, seeking, unknown
+  - `salary_range`: below_3l, 3l_to_5l, 5l_to_8l, 8l_to_12l, 12l_to_20l, 20l_to_35l, above_35l, not_applicable, undisclosed
+  - `verification_status`: pending, self_reported, document_verified, employer_confirmed, linkedin_verified, rejected
+  - `development_stage`: novice, developing, competent, proficient, expert, thought_leader
+  - `immersion_type`: sabbatical, summer_internship, consulting, research_collab, site_visit, workshop_delivery, project_mentoring
+
+  **Indexes Created**: 28
+  **RLS Policies Created**: 16 (4 per table)
+  **Triggers Created**: 5 (4 updated_at + 1 auto-update facilitator stats)
+  **Functions Created**: 3
+  - `compute_outcome_program_correlation(program_id, cohort_year)` - Aggregates outcome data
+  - `update_facilitator_development_stats(staff_id)` - Updates stats from immersions
+  - `trigger_update_facilitator_stats()` - Trigger function for auto-updates
+
+  **Key Features**:
+  - Comprehensive alumni tracking (employment, entrepreneurship, higher studies)
+  - Salary range tracking with verification workflow
+  - Program-level outcome correlation analytics with benchmarks
+  - Facilitator development stages (novice to thought leader)
+  - Industry immersion tracking with curriculum application
+  - Auto-computed metrics (graduation_year, tracking_percentage, certification_count)
+
+  **Setup Files Updated**:
+  - `supabase/setup/01_tables.sql` - Section 15: Accountability Module
+  - `supabase/setup/03_policies.sql` - Section 15: RLS policies
+
+  **Related Plan**: Workshop Alignment Transformation (Phase 4 - Final)
+
+---
+
+### 2026-02-01: Workshop Transformation - Personalization Module (Phase 3)
+
+- **File**: `migrations/20260201_create_personalization_tables.sql` ⏳ **PENDING REVIEW**
+
+  **Purpose**: Create Personalization module for AI-powered learning paths and parent engagement portal as part of Workshop Transformation Phase 3.
+
+  **Tables Created (4)**:
+
+  **1. learning_paths** - Per-learner personalized learning journeys:
+  - Core: learner_id, institution_id, path_name, path_description
+  - Career targets: target_role, target_industry
+  - Competencies: target_competencies (JSONB array with levels, priorities)
+  - Progress: current_progress (%), total_steps, completed_steps
+  - Timeline: estimated_completion, actual_completion, started_at
+  - AI metadata: is_ai_generated, ai_confidence_score, generation_parameters
+  - Status: learning_path_status ENUM
+  - Mentorship: assigned_mentor_id, mentor_notes
+  - Approval: approved_by, approved_at
+
+  **2. learning_path_steps** - Sequenced activities within paths:
+  - Ordering: path_id, step_order (unique per path)
+  - Definition: step_name, step_description, step_type (ENUM)
+  - Resource reference: reference_id, reference_table (polymorphic), external_url
+  - Competency link: competency_id, target_competency_level
+  - Duration: expected_duration_hours, actual_duration_hours
+  - Dependencies: prerequisite_step_ids (UUID[]), is_optional
+  - Status: learning_step_status ENUM, started_at, completed_at
+  - Evidence: evidence_url, evidence_type, evidence_metadata (JSONB)
+  - Feedback: learner_notes, mentor_feedback, rating (1-5)
+
+  **3. parent_portal_access** - Parent access configuration:
+  - Learner link: learner_id, institution_id
+  - Parent identification: parent_user_id, parent_email, parent_phone, parent_name, relationship
+  - Access credentials: access_code (unique), access_code_expires_at, pin_hash
+  - Access level: parent_access_level ENUM (view, interact, full)
+  - Permissions: JSONB (view_attendance, view_grades, view_fees, etc.)
+  - Notifications: notification_preferences JSONB (channels, frequency, alert_types)
+  - Activity: last_access, access_count, last_ip_address
+  - Status: is_active, is_verified, deactivated_at, deactivation_reason
+
+  **4. parent_communications** - Institution-parent message history:
+  - Links: learner_id, institution_id, parent_access_id
+  - Content: communication_type ENUM, subject, content, content_html
+  - Attachments: JSONB array with name, url, type, size
+  - Context: related_entity_type, related_entity_id, context_data JSONB
+  - Delivery: sent_at, sent_via (VARCHAR[]), delivery_status JSONB
+  - Read tracking: read_at, read_via
+  - Response handling: requires_response, response_deadline, response, response_at
+  - Sender: sent_by, sent_by_role
+  - Flags: is_archived, is_important
+
+  **ENUMs Created (5)**:
+  - `learning_path_status`: draft, active, paused, completed, archived
+  - `learning_step_type`: course, project, mentorship, certification, workshop, self_study, assessment, internship, competition
+  - `learning_step_status`: pending, in_progress, completed, skipped, failed
+  - `parent_access_level`: view, interact, full
+  - `communication_type`: progress_update, alert, feedback_request, announcement, fee_reminder, event_invite, achievement, concern
+
+  **Indexes Created**: 27
+  **RLS Policies Created**: 16 (4 per table)
+  **Triggers Created**: 5 (4 updated_at + 1 progress auto-calculation)
+  **Functions Created**: 2
+  - `generate_parent_access_code(institution_id)` - Creates unique JKKN-P-XXXXXX codes
+  - `update_learning_path_progress()` - Auto-updates path progress on step completion
+
+  **Key Features**:
+  - AI-generated learning paths with confidence scores
+  - Polymorphic step references (courses, projects, mentorships, etc.)
+  - Code-based parent portal access (no account required)
+  - Multi-channel communication delivery (email, SMS, WhatsApp, in-app)
+  - Automatic path progress calculation on step completion
+  - Competency-linked learning progression
+
+  **Setup Files Updated**:
+  - `supabase/setup/01_tables.sql` - Section 14: Personalization Module
+  - `supabase/setup/03_policies.sql` - Section 14: RLS policies
+
+  **Related Plan**: Workshop Alignment Transformation (Phase 3)
+
+---
+
+### 2026-02-01: Workshop Transformation - Industry Integration Module (Phase 2)
+
+- **File**: `migrations/20260201_create_industry_integration_tables.sql` ⏳ **PENDING REVIEW**
+
+  **Purpose**: Create Industry Integration module for connecting learners with industry partners, mentors, and real-world projects.
+
+  **Tables Created (4)**:
+
+  **1. industry_partners** - Company registry with MOU tracking:
+  - Company info: name, logo, sector, size, website, description
+  - Partnership: type, dates, MOU document, value description
+  - Contact: person, designation, email, phone
+  - Address: full address fields
+  - Tracking: projects offered, internships, placements, rating
+  - Verification: is_verified, verified_by, verified_at
+
+  **2. industry_mentors** - Expert profiles with availability:
+  - Profile: name, designation, company, photo, bio, linkedin
+  - Contact: email, phone, preferred method
+  - Expertise: areas (TEXT[]), experience years, competencies_can_mentor (UUID[])
+  - Availability: JSONB (days, hours, mode, timezone)
+  - Capacity: max_mentees, current_mentees
+  - Tracking: total mentees, rating, sessions conducted
+
+  **3. industry_projects** - Project marketplace:
+  - Project info: title, code, description, requirements, outcomes
+  - Deliverables: JSONB array
+  - Competencies: required (UUID[]), minimum level, developed (UUID[])
+  - Parameters: difficulty, duration, team size, hours
+  - Eligibility: programs (UUID[]), semesters (UUID[]), prerequisites
+  - Compensation: is_paid, stipend, benefits
+  - Timeline: deadline, start/end dates
+  - Status: project_status ENUM, capacity tracking
+
+  **4. learner_industry_engagements** - Participation tracking:
+  - Relationships: learner, project, mentor, partner
+  - Team: team_id, role
+  - Timeline: applied, approved, start, end dates
+  - Status: engagement_status ENUM
+  - Competencies: targeted, demonstrated, levels achieved
+  - Progress: percentage, milestones JSONB
+  - Deliverables: submitted JSONB
+  - Feedback: mentor JSONB, learner JSONB
+  - Certificate: issued, url, date
+
+  **ENUMs Created (5)**:
+  - `partnership_type`: mou, placement, project, mentorship, internship, sponsorship, training
+  - `project_status`: draft, open, assigned, in_progress, under_review, completed, cancelled
+  - `engagement_type`: project, internship, mentorship, workshop, site_visit, guest_lecture, hackathon
+  - `engagement_status`: applied, approved, active, completed, withdrawn, terminated
+  - `difficulty_level`: beginner, intermediate, advanced, expert
+
+  **Indexes Created**: 23
+  **RLS Policies Created**: 16 (4 per table)
+  **Triggers Created**: 4 (updated_at)
+
+  **Key Features**:
+  - Full partner/mentor/project lifecycle management
+  - Competency integration (required & developed)
+  - Feedback tracking (mentor & learner)
+  - Certificate issuance support
+  - Team project support
+  - Eligibility filtering
+
+  **Related Plan**: Workshop Alignment Transformation (Phase 2.1)
+
+---
+
+### 2026-02-01: Workshop Transformation - Existing Table Modifications
+
+- **File**: `migrations/20260201_modify_existing_tables_workshop.sql` ⏳ **PENDING REVIEW**
+
+  **Purpose**: Add new columns to existing tables to support outcome-focused education model.
+
+  **Tables Modified (4)**:
+
+  **1. courses** - Learning hours and competency coverage:
+  - `learning_hours_target INTEGER` - Total learning hours target
+  - `self_study_hours INTEGER` - Expected self-study hours per week
+  - `practical_hours INTEGER` - Lab/practical hours per week
+  - `theory_hours INTEGER` - Lecture/theory hours per week
+  - `competency_coverage JSONB` - Maps competencies to course with weights
+  - + 1 GIN index, 4 constraints
+
+  **2. learners_profiles** - Capabilities and career tracking:
+  - `capabilities JSONB` - Competency achievements with evidence
+  - `career_aspirations JSONB` - Career goals and preferences
+  - `industry_readiness_score NUMERIC(5,2)` - Computed placement readiness (0-100)
+  - `portfolio_url TEXT` - Link to learner portfolio
+  - + 3 indexes, 1 constraint
+
+  **3. staff** - Facilitator role and metrics:
+  - `role_type VARCHAR(50)` - teacher, facilitator, trainer, industry_mentor, hybrid
+  - `facilitator_certification JSONB` - Certifications array
+  - `outcome_metrics JSONB` - Performance metrics tracking
+  - + 3 indexes, 1 constraint
+
+  **4. billing_discounts** - Outcome-based discounts:
+  - `is_outcome_based BOOLEAN` - Flag for outcome-based discounts
+  - `outcome_criteria JSONB` - Competency requirements for qualification
+  - `outcome_verification JSONB` - Verification tracking
+  - + 3 indexes
+
+  **Summary**: 15 new columns, 10 new indexes, 6 new constraints
+
+  **Related Plan**: Workshop Alignment Transformation (Phase 1.5)
+
+---
+
+### 2026-02-01: Workshop Transformation - Competency Catalog Module (NEW)
+
+- **File**: `migrations/20260201_create_competency_tables.sql` ⏳ **PENDING REVIEW**
+
+  **Purpose**: Create Competency Catalog module as part of Workshop Transformation for outcome-focused skill tracking. Replaces deprecated learner OKR tables.
+
+  **Tables Created (4)**:
+  - `competency_catalog` - Master competency/skill taxonomy
+    - Fields: competency_code, competency_name, competency_type, description
+    - JSONB: proficiency_levels, evidence_requirements
+    - Array: industry_tags
+    - Bloom's taxonomy level support
+  - `competency_program_mapping` - Program competency requirements
+    - Links competencies to programs with required levels
+    - Fields: required_level, weight_percentage, semester_expected, is_mandatory
+  - `course_competency_mapping` - Course competency links
+    - Links courses to competencies with contribution details
+    - Fields: contribution_level, learning_hours, assessment_method
+  - `learner_competencies` - Individual learner competency tracking
+    - Replaces deprecated learner_okr_assignments
+    - Fields: current_level, progress_percentage
+    - JSONB: evidence, assessments
+    - Verification by staff (verified_by, verified_at)
+
+  **ENUMs Created (3)**:
+  - `competency_type`: technical, behavioral, domain, soft_skill
+  - `bloom_taxonomy_level`: remember, understand, apply, analyze, evaluate, create
+  - `proficiency_level`: novice, beginner, intermediate, advanced, expert
+
+  **Indexes Created**: 16 total
+  **RLS Policies Created**: 16 (4 per table: SELECT, INSERT, UPDATE, DELETE)
+  **Triggers Created**: 4 (updated_at for each table)
+
+  **Related Plan**: Workshop Alignment Transformation (Phase 1.2)
+
+---
+
+### 2026-02-01: Workshop Transformation - Learner OKR Deprecation
+
+- **File**: `migrations/20260201_deprecate_learner_okr_tables.sql` ⏳ **PENDING REVIEW**
+
+  **Purpose**: Soft-deprecate learner-specific OKR tables as part of Workshop Transformation. Learner OKRs being replaced by Competency module for outcome-focused tracking.
+
+  **Tables Affected**:
+  - `learner_core_okrs` - Added deprecated_at, blocked new inserts
+  - `learner_okr_assignments` - Added deprecated_at, blocked new inserts
+  - `learner_elective_okrs` - Added deprecated_at, blocked new inserts
+
+  **Changes**:
+  - Added `deprecated_at TIMESTAMPTZ` column to all 3 tables (set to NOW() for all existing records)
+  - Created RLS policies with `WITH CHECK (false)` to block new inserts
+  - Added deprecation comments to tables
+  - Created indexes on deprecated_at columns for future cleanup queries
+
+  **What Still Works**:
+  - SELECT: All existing data remains accessible
+  - UPDATE: Existing records can still be updated
+  - DELETE: Existing records can still be deleted (by owners)
+
+  **What's Blocked**:
+  - INSERT: No new records can be created in these tables
+
+  **Data Preserved**:
+  - All existing learner OKR data preserved (zero data loss)
+  - Historical reference available via deprecated_at timestamp
+
+  **Replacement**:
+  - Core OKRs → competency_catalog + learner_competencies (Task #4)
+  - Elective OKRs → learning_paths + learning_path_steps (Phase 3)
+
+  **Related Plan**: Workshop Alignment Transformation (Phase 1.1)
+
+  **Files Updated**:
+  - `supabase/SQL_FILE_INDEX.md` - This entry
+
+---
 
 ### 2025-01-19: Advanced Engagement Analytics System ⭐ NEW
 

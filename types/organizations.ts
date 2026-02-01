@@ -271,6 +271,16 @@ export interface ProgramListResponse {
   };
 }
 
+/**
+ * Competency coverage mapping for courses
+ * Links a course to competencies it develops
+ */
+export interface CourseCompetencyCoverage {
+  competency_id: string;
+  target_level: 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert';
+  weight: number; // 0-1, relative importance of this competency in the course
+}
+
 export interface Course {
   id: string;
   institution_id: string;
@@ -279,6 +289,16 @@ export interface Course {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+
+  // Learning hours breakdown (added for Workshop Transformation)
+  learning_hours_target?: number;
+  self_study_hours?: number;
+  practical_hours?: number;
+  theory_hours?: number;
+
+  // Competency coverage (added for Workshop Transformation)
+  competency_coverage?: CourseCompetencyCoverage[];
+
   // Include related data
   institution?: {
     id: string;
@@ -292,6 +312,13 @@ export interface CreateCourseDto {
   course_code: string;
   course_name: string;
   is_active?: boolean;
+  // Learning hours breakdown
+  learning_hours_target?: number;
+  self_study_hours?: number;
+  practical_hours?: number;
+  theory_hours?: number;
+  // Competency coverage
+  competency_coverage?: CourseCompetencyCoverage[];
 }
 
 export interface UpdateCourseDto extends Partial<CreateCourseDto> {}

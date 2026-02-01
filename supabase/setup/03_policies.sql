@@ -2047,3 +2047,619 @@ CREATE POLICY "Admins can view all favorites" ON public.user_app_favorites
             AND role IN ('admin', 'super_admin')
         )
     );
+
+-- =================================
+-- COMPETENCY CATALOG MODULE POLICIES
+-- Created: 2026-02-01 - Workshop Transformation Phase 1.2
+-- =================================
+
+-- competency_catalog policies
+CREATE POLICY "competency_catalog_select" ON public.competency_catalog
+    FOR SELECT TO authenticated
+    USING (
+        institution_id IN (SELECT institution_id FROM public.profiles WHERE id = auth.uid())
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_super_admin = true)
+    );
+
+CREATE POLICY "competency_catalog_insert" ON public.competency_catalog
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'super_admin')
+            AND (institution_id = competency_catalog.institution_id OR is_super_admin = true)
+        )
+    );
+
+CREATE POLICY "competency_catalog_update" ON public.competency_catalog
+    FOR UPDATE TO authenticated
+    USING (
+        created_by = auth.uid()
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin'))
+    );
+
+CREATE POLICY "competency_catalog_delete" ON public.competency_catalog
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- competency_program_mapping policies
+CREATE POLICY "competency_program_mapping_select" ON public.competency_program_mapping
+    FOR SELECT TO authenticated
+    USING (
+        competency_id IN (
+            SELECT id FROM public.competency_catalog
+            WHERE institution_id IN (SELECT institution_id FROM public.profiles WHERE id = auth.uid())
+        )
+    );
+
+CREATE POLICY "competency_program_mapping_insert" ON public.competency_program_mapping
+    FOR INSERT TO authenticated
+    WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin')));
+
+CREATE POLICY "competency_program_mapping_update" ON public.competency_program_mapping
+    FOR UPDATE TO authenticated
+    USING (
+        created_by = auth.uid()
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin'))
+    );
+
+CREATE POLICY "competency_program_mapping_delete" ON public.competency_program_mapping
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- course_competency_mapping policies
+CREATE POLICY "course_competency_mapping_select" ON public.course_competency_mapping
+    FOR SELECT TO authenticated
+    USING (
+        competency_id IN (
+            SELECT id FROM public.competency_catalog
+            WHERE institution_id IN (SELECT institution_id FROM public.profiles WHERE id = auth.uid())
+        )
+    );
+
+CREATE POLICY "course_competency_mapping_insert" ON public.course_competency_mapping
+    FOR INSERT TO authenticated
+    WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')));
+
+CREATE POLICY "course_competency_mapping_update" ON public.course_competency_mapping
+    FOR UPDATE TO authenticated
+    USING (
+        created_by = auth.uid()
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff'))
+    );
+
+CREATE POLICY "course_competency_mapping_delete" ON public.course_competency_mapping
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- learner_competencies policies
+CREATE POLICY "learner_competencies_select" ON public.learner_competencies
+    FOR SELECT TO authenticated
+    USING (
+        learner_id IN (
+            SELECT lp.id FROM public.learners_profiles lp
+            JOIN public.profiles p ON LOWER(p.email) = LOWER(lp.student_email)
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff', 'super_admin'))
+    );
+
+CREATE POLICY "learner_competencies_insert" ON public.learner_competencies
+    FOR INSERT TO authenticated
+    WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')));
+
+CREATE POLICY "learner_competencies_update" ON public.learner_competencies
+    FOR UPDATE TO authenticated
+    USING (
+        learner_id IN (
+            SELECT lp.id FROM public.learners_profiles lp
+            JOIN public.profiles p ON LOWER(p.email) = LOWER(lp.student_email)
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff', 'super_admin'))
+    );
+
+CREATE POLICY "learner_competencies_delete" ON public.learner_competencies
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- =================================
+-- INDUSTRY INTEGRATION MODULE POLICIES
+-- Created: 2026-02-01 - Workshop Transformation Phase 2.1
+-- =================================
+
+-- industry_partners policies
+CREATE POLICY "industry_partners_select" ON public.industry_partners
+    FOR SELECT TO authenticated
+    USING (
+        institution_id IN (SELECT institution_id FROM public.profiles WHERE id = auth.uid())
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_super_admin = true)
+    );
+
+CREATE POLICY "industry_partners_insert" ON public.industry_partners
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'super_admin')
+            AND (institution_id = industry_partners.institution_id OR is_super_admin = true)
+        )
+    );
+
+CREATE POLICY "industry_partners_update" ON public.industry_partners
+    FOR UPDATE TO authenticated
+    USING (
+        created_by = auth.uid()
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin'))
+    );
+
+CREATE POLICY "industry_partners_delete" ON public.industry_partners
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- industry_mentors policies
+CREATE POLICY "industry_mentors_select" ON public.industry_mentors
+    FOR SELECT TO authenticated
+    USING (
+        institution_id IN (SELECT institution_id FROM public.profiles WHERE id = auth.uid())
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_super_admin = true)
+    );
+
+CREATE POLICY "industry_mentors_insert" ON public.industry_mentors
+    FOR INSERT TO authenticated
+    WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin')));
+
+CREATE POLICY "industry_mentors_update" ON public.industry_mentors
+    FOR UPDATE TO authenticated
+    USING (
+        created_by = auth.uid()
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin'))
+    );
+
+CREATE POLICY "industry_mentors_delete" ON public.industry_mentors
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- industry_projects policies
+CREATE POLICY "industry_projects_select" ON public.industry_projects
+    FOR SELECT TO authenticated
+    USING (
+        institution_id IN (SELECT institution_id FROM public.profiles WHERE id = auth.uid())
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_super_admin = true)
+    );
+
+CREATE POLICY "industry_projects_insert" ON public.industry_projects
+    FOR INSERT TO authenticated
+    WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')));
+
+CREATE POLICY "industry_projects_update" ON public.industry_projects
+    FOR UPDATE TO authenticated
+    USING (
+        created_by = auth.uid()
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff'))
+    );
+
+CREATE POLICY "industry_projects_delete" ON public.industry_projects
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- learner_industry_engagements policies
+CREATE POLICY "learner_engagements_select" ON public.learner_industry_engagements
+    FOR SELECT TO authenticated
+    USING (
+        learner_id IN (
+            SELECT lp.id FROM public.learners_profiles lp
+            JOIN public.profiles p ON LOWER(p.email) = LOWER(lp.student_email)
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff', 'super_admin'))
+    );
+
+CREATE POLICY "learner_engagements_insert" ON public.learner_industry_engagements
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        learner_id IN (
+            SELECT lp.id FROM public.learners_profiles lp
+            JOIN public.profiles p ON LOWER(p.email) = LOWER(lp.student_email)
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff', 'super_admin'))
+    );
+
+CREATE POLICY "learner_engagements_update" ON public.learner_industry_engagements
+    FOR UPDATE TO authenticated
+    USING (
+        learner_id IN (
+            SELECT lp.id FROM public.learners_profiles lp
+            JOIN public.profiles p ON LOWER(p.email) = LOWER(lp.student_email)
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff', 'super_admin'))
+    );
+
+CREATE POLICY "learner_engagements_delete" ON public.learner_industry_engagements
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- ================================================================================
+-- SECTION 14: PERSONALIZATION MODULE (Workshop Transformation Phase 3)
+-- Added: 2026-02-01
+-- Tables: learning_paths, learning_path_steps, parent_portal_access, parent_communications
+-- ================================================================================
+
+-- learning_paths policies
+CREATE POLICY "learning_paths_select" ON public.learning_paths
+    FOR SELECT TO authenticated
+    USING (
+        learner_id IN (
+            SELECT lp.id FROM public.learners_profiles lp
+            JOIN public.profiles p ON LOWER(p.email) = LOWER(lp.student_email)
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "learning_paths_insert" ON public.learning_paths
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        learner_id IN (
+            SELECT lp.id FROM public.learners_profiles lp
+            JOIN public.profiles p ON LOWER(p.email) = LOWER(lp.student_email)
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "learning_paths_update" ON public.learning_paths
+    FOR UPDATE TO authenticated
+    USING (
+        learner_id IN (
+            SELECT lp.id FROM public.learners_profiles lp
+            JOIN public.profiles p ON LOWER(p.email) = LOWER(lp.student_email)
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "learning_paths_delete" ON public.learning_paths
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- learning_path_steps policies
+CREATE POLICY "learning_path_steps_select" ON public.learning_path_steps
+    FOR SELECT TO authenticated
+    USING (
+        path_id IN (
+            SELECT lp.id FROM public.learning_paths lp
+            WHERE lp.learner_id IN (
+                SELECT lpr.id FROM public.learners_profiles lpr
+                JOIN public.profiles p ON LOWER(p.email) = LOWER(lpr.student_email)
+                WHERE p.id = auth.uid()
+            )
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "learning_path_steps_insert" ON public.learning_path_steps
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        path_id IN (
+            SELECT lp.id FROM public.learning_paths lp
+            WHERE lp.learner_id IN (
+                SELECT lpr.id FROM public.learners_profiles lpr
+                JOIN public.profiles p ON LOWER(p.email) = LOWER(lpr.student_email)
+                WHERE p.id = auth.uid()
+            )
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "learning_path_steps_update" ON public.learning_path_steps
+    FOR UPDATE TO authenticated
+    USING (
+        path_id IN (
+            SELECT lp.id FROM public.learning_paths lp
+            WHERE lp.learner_id IN (
+                SELECT lpr.id FROM public.learners_profiles lpr
+                JOIN public.profiles p ON LOWER(p.email) = LOWER(lpr.student_email)
+                WHERE p.id = auth.uid()
+            )
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "learning_path_steps_delete" ON public.learning_path_steps
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- parent_portal_access policies
+CREATE POLICY "parent_portal_access_select" ON public.parent_portal_access
+    FOR SELECT TO authenticated
+    USING (
+        parent_user_id = auth.uid()
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "parent_portal_access_insert" ON public.parent_portal_access
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "parent_portal_access_update" ON public.parent_portal_access
+    FOR UPDATE TO authenticated
+    USING (
+        parent_user_id = auth.uid()
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "parent_portal_access_delete" ON public.parent_portal_access
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- parent_communications policies
+CREATE POLICY "parent_communications_select" ON public.parent_communications
+    FOR SELECT TO authenticated
+    USING (
+        parent_access_id IN (
+            SELECT id FROM public.parent_portal_access WHERE parent_user_id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "parent_communications_insert" ON public.parent_communications
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "parent_communications_update" ON public.parent_communications
+    FOR UPDATE TO authenticated
+    USING (
+        parent_access_id IN (
+            SELECT id FROM public.parent_portal_access WHERE parent_user_id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "parent_communications_delete" ON public.parent_communications
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- ================================================================================
+-- SECTION 15: ACCOUNTABILITY MODULE (Workshop Transformation Phase 4)
+-- Added: 2026-02-01
+-- Tables: alumni_outcomes, outcome_program_correlation, facilitator_development, facilitator_industry_immersion
+-- ================================================================================
+
+-- alumni_outcomes policies
+CREATE POLICY "alumni_outcomes_select" ON public.alumni_outcomes
+    FOR SELECT TO authenticated
+    USING (
+        learner_id IN (
+            SELECT lp.id FROM public.learners_profiles lp
+            JOIN public.profiles p ON LOWER(p.email) = LOWER(lp.student_email)
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "alumni_outcomes_insert" ON public.alumni_outcomes
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        learner_id IN (
+            SELECT lp.id FROM public.learners_profiles lp
+            JOIN public.profiles p ON LOWER(p.email) = LOWER(lp.student_email)
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "alumni_outcomes_update" ON public.alumni_outcomes
+    FOR UPDATE TO authenticated
+    USING (
+        learner_id IN (
+            SELECT lp.id FROM public.learners_profiles lp
+            JOIN public.profiles p ON LOWER(p.email) = LOWER(lp.student_email)
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "alumni_outcomes_delete" ON public.alumni_outcomes
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- outcome_program_correlation policies
+CREATE POLICY "outcome_correlation_select" ON public.outcome_program_correlation
+    FOR SELECT TO authenticated
+    USING (
+        is_published = true
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'staff', 'super_admin')
+        )
+    );
+
+CREATE POLICY "outcome_correlation_insert" ON public.outcome_program_correlation
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'super_admin')
+        )
+    );
+
+CREATE POLICY "outcome_correlation_update" ON public.outcome_program_correlation
+    FOR UPDATE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'super_admin')
+        )
+    );
+
+CREATE POLICY "outcome_correlation_delete" ON public.outcome_program_correlation
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- facilitator_development policies
+CREATE POLICY "facilitator_dev_select" ON public.facilitator_development
+    FOR SELECT TO authenticated
+    USING (
+        staff_id IN (
+            SELECT s.id FROM public.staff s
+            JOIN public.profiles p ON s.user_id = p.id
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'super_admin')
+        )
+    );
+
+CREATE POLICY "facilitator_dev_insert" ON public.facilitator_development
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'super_admin')
+        )
+    );
+
+CREATE POLICY "facilitator_dev_update" ON public.facilitator_development
+    FOR UPDATE TO authenticated
+    USING (
+        staff_id IN (
+            SELECT s.id FROM public.staff s
+            JOIN public.profiles p ON s.user_id = p.id
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'super_admin')
+        )
+    );
+
+CREATE POLICY "facilitator_dev_delete" ON public.facilitator_development
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- facilitator_industry_immersion policies
+CREATE POLICY "facilitator_immersion_select" ON public.facilitator_industry_immersion
+    FOR SELECT TO authenticated
+    USING (
+        is_public = true
+        OR staff_id IN (
+            SELECT s.id FROM public.staff s
+            JOIN public.profiles p ON s.user_id = p.id
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'super_admin')
+        )
+    );
+
+CREATE POLICY "facilitator_immersion_insert" ON public.facilitator_industry_immersion
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        staff_id IN (
+            SELECT s.id FROM public.staff s
+            JOIN public.profiles p ON s.user_id = p.id
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'super_admin')
+        )
+    );
+
+CREATE POLICY "facilitator_immersion_update" ON public.facilitator_industry_immersion
+    FOR UPDATE TO authenticated
+    USING (
+        staff_id IN (
+            SELECT s.id FROM public.staff s
+            JOIN public.profiles p ON s.user_id = p.id
+            WHERE p.id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'institution_admin', 'super_admin')
+        )
+    );
+
+CREATE POLICY "facilitator_immersion_delete" ON public.facilitator_industry_immersion
+    FOR DELETE TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));

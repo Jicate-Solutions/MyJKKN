@@ -171,6 +171,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/staff/list': 'staff.view',
   '/staff/dashboard': 'staff.dashboard.view',
 
+  // Competency Catalog
+  '/competency-catalog': 'competency.catalog.view',
+  '/competency-catalog/new': 'competency.catalog.create',
+  '/competency-catalog/[id]': 'competency.catalog.view',
+  '/competency-catalog/[id]/edit': 'competency.catalog.edit',
+
   // Academic Management
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -364,7 +370,26 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/okr/admin/compliance': 'okr.admin.view',
   '/okr/elective': 'okr.elective.view',
   '/okr/elective/[id]': 'okr.elective.view',
-  '/okr/elective/[id]/edit': 'okr.elective.edit'
+  '/okr/elective/[id]/edit': 'okr.elective.edit',
+
+  // Industry Integration
+  '/industry': 'industry.view',
+  '/industry/partners': 'industry.partners.view',
+  '/industry/partners/new': 'industry.partners.create',
+  '/industry/partners/[id]': 'industry.partners.view',
+  '/industry/partners/[id]/edit': 'industry.partners.edit',
+  '/industry/mentors': 'industry.mentors.view',
+  '/industry/mentors/new': 'industry.mentors.create',
+  '/industry/mentors/[id]': 'industry.mentors.view',
+  '/industry/mentors/[id]/edit': 'industry.mentors.edit',
+  '/industry/projects': 'industry.projects.view',
+  '/industry/projects/new': 'industry.projects.create',
+  '/industry/projects/[id]': 'industry.projects.view',
+  '/industry/projects/[id]/edit': 'industry.projects.edit',
+  '/industry/engagements': 'industry.engagements.view',
+  '/industry/engagements/new': 'industry.engagements.create',
+  '/industry/engagements/[id]': 'industry.engagements.view',
+  '/industry/engagements/[id]/edit': 'industry.engagements.edit'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -701,6 +726,24 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Academic Management',
       menus: [
         {
+          href: '/competency-catalog',
+          label: 'Competency Catalog',
+          active: pathname.startsWith('/competency-catalog'),
+          icon: Award,
+          submenus: [
+            {
+              href: '/competency-catalog',
+              label: 'All Competencies',
+              active: pathname === '/competency-catalog'
+            },
+            {
+              href: '/competency-catalog/new',
+              label: 'Add Competency',
+              active: pathname === '/competency-catalog/new'
+            }
+          ]
+        },
+        {
           href: '/academic/years',
           label: 'Academic Years',
           active: pathname === '/academic/years',
@@ -953,6 +996,90 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/okr/admin'),
           icon: Shield,
           submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Industry Connect',
+      menus: [
+        {
+          href: '/industry',
+          label: 'Dashboard',
+          active: pathname === '/industry',
+          icon: Briefcase,
+          submenus: []
+        },
+        {
+          href: '/industry/partners',
+          label: 'Industry Partners',
+          active: pathname.startsWith('/industry/partners'),
+          icon: Handshake,
+          submenus: [
+            {
+              href: '/industry/partners',
+              label: 'All Partners',
+              active: pathname === '/industry/partners'
+            },
+            {
+              href: '/industry/partners/new',
+              label: 'Add Partner',
+              active: pathname === '/industry/partners/new'
+            }
+          ]
+        },
+        {
+          href: '/industry/mentors',
+          label: 'Mentors',
+          active: pathname.startsWith('/industry/mentors'),
+          icon: Users,
+          submenus: [
+            {
+              href: '/industry/mentors',
+              label: 'All Mentors',
+              active: pathname === '/industry/mentors'
+            },
+            {
+              href: '/industry/mentors/new',
+              label: 'Add Mentor',
+              active: pathname === '/industry/mentors/new'
+            }
+          ]
+        },
+        {
+          href: '/industry/projects',
+          label: 'Projects',
+          active: pathname.startsWith('/industry/projects'),
+          icon: Target,
+          submenus: [
+            {
+              href: '/industry/projects',
+              label: 'All Projects',
+              active: pathname === '/industry/projects'
+            },
+            {
+              href: '/industry/projects/new',
+              label: 'Add Project',
+              active: pathname === '/industry/projects/new'
+            }
+          ]
+        },
+        {
+          href: '/industry/engagements',
+          label: 'Learner Engagements',
+          active: pathname.startsWith('/industry/engagements'),
+          icon: UserCheck,
+          submenus: [
+            {
+              href: '/industry/engagements',
+              label: 'All Engagements',
+              active: pathname === '/industry/engagements'
+            },
+            {
+              href: '/industry/engagements/new',
+              label: 'New Engagement',
+              active: pathname === '/industry/engagements/new'
+            }
+          ]
         }
       ]
     },

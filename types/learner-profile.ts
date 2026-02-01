@@ -29,6 +29,54 @@ export type LifecycleStatus =
  */
 export type MigrationSource = 'merged' | 'admission' | 'student' | 'direct';
 
+// ============================================
+// CAPABILITY & CAREER TYPES (Workshop Transformation)
+// ============================================
+
+/**
+ * Individual competency tracking within capabilities JSONB
+ */
+export interface LearnerCapabilityCompetency {
+  competency_id: string;
+  competency_name?: string;
+  current_level: 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert';
+  evidence: string[]; // URLs to certificates, projects, etc.
+  verified_at?: string;
+  verified_by?: string;
+}
+
+/**
+ * Summary counts for capabilities
+ */
+export interface LearnerCapabilitySummary {
+  technical_skills: number;
+  behavioral_skills: number;
+  domain_knowledge: number;
+  soft_skills: number;
+}
+
+/**
+ * Learner capabilities JSONB structure
+ */
+export interface LearnerCapabilities {
+  competencies: LearnerCapabilityCompetency[];
+  summary?: LearnerCapabilitySummary;
+  last_updated?: string;
+}
+
+/**
+ * Career aspirations JSONB structure
+ */
+export interface LearnerCareerAspirations {
+  target_roles?: string[];
+  preferred_industries?: string[];
+  location_preferences?: string[];
+  salary_expectations?: string;
+  further_studies?: boolean;
+  entrepreneurship_interest?: boolean;
+  updated_at?: string;
+}
+
 /**
  * Main LearnerProfile Interface
  * Single source of truth for all learner data
@@ -138,6 +186,12 @@ export interface LearnerProfile {
   college_email?: string;
   student_photo_url?: string;
   is_profile_complete: boolean;
+
+  // Capability & Career Tracking (Workshop Transformation)
+  capabilities?: LearnerCapabilities;
+  career_aspirations?: LearnerCareerAspirations;
+  industry_readiness_score?: number; // 0-100, computed from competencies
+  portfolio_url?: string;
 
   // Audit fields
   created_at: string;

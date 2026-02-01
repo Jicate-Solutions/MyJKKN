@@ -1,5 +1,16 @@
 // hooks/okr/use-learner-okrs.ts
 // React Query hooks for Learner-specific OKRs (Core + Elective)
+//
+// ============================================================================
+// DEPRECATED as of 2026-02-01 per Workshop Transformation Plan
+// ============================================================================
+// These hooks are deprecated. New implementations should use:
+// - hooks/competency/use-learner-competencies.ts for learner skill tracking
+// - hooks/competency/use-competency-mappings.ts for program/course requirements
+//
+// The underlying database tables have INSERT blocked via RLS policies.
+// These hooks remain functional for READ operations on historical data.
+// ============================================================================
 
 import {
   useQuery,
@@ -17,6 +28,9 @@ import { OKRLearnerService } from '@/lib/services/okr';
 import { useAuth } from '../use-auth';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
 
+/**
+ * @deprecated Query keys for deprecated learner OKR hooks
+ */
 // Query key factory for learner OKRs
 export const learnerOKRKeys = {
   all: ['okr-learner'] as const,
@@ -32,6 +46,7 @@ export const learnerOKRKeys = {
 
 /**
  * Get core OKRs for an institution
+ * @deprecated Use useProgramMappings from hooks/competency instead
  */
 export function useCoreOKRs(
   institutionId: string,
@@ -54,6 +69,7 @@ export function useCoreOKRs(
 
 /**
  * Get current learner's assigned core OKRs
+ * @deprecated Use useLearnerCompetencies from hooks/competency instead
  */
 export function useMyAssignedOKRs(
   academicYear?: string,
@@ -71,6 +87,7 @@ export function useMyAssignedOKRs(
 
 /**
  * Update assigned OKR progress
+ * @deprecated Use useUpsertLearnerCompetency from hooks/competency instead
  */
 export function useUpdateAssignedProgress() {
   const queryClient = useQueryClient();
@@ -93,6 +110,7 @@ export function useUpdateAssignedProgress() {
 
 /**
  * Get current learner's elective OKRs
+ * @deprecated Elective OKRs replaced by Learning Path module
  */
 export function useMyElectiveOKRs(): UseQueryResult<LearnerElectiveOKR[], Error> {
   const { profile, isLoading: authLoading } = useAuth();
@@ -107,6 +125,7 @@ export function useMyElectiveOKRs(): UseQueryResult<LearnerElectiveOKR[], Error>
 
 /**
  * Get a single elective OKR by ID
+ * @deprecated Elective OKRs replaced by Learning Path module
  */
 export function useElectiveOKR(id: string): UseQueryResult<LearnerElectiveOKR, Error> {
   const { profile, isLoading: authLoading } = useAuth();
@@ -121,6 +140,7 @@ export function useElectiveOKR(id: string): UseQueryResult<LearnerElectiveOKR, E
 
 /**
  * Create elective OKR
+ * @deprecated Elective OKRs replaced by Learning Path module. INSERT blocked via RLS.
  */
 export function useCreateElectiveOKR() {
   const queryClient = useQueryClient();
@@ -138,6 +158,7 @@ export function useCreateElectiveOKR() {
 
 /**
  * Update elective OKR
+ * @deprecated Elective OKRs replaced by Learning Path module
  */
 export function useUpdateElectiveOKR(id: string) {
   const queryClient = useQueryClient();
@@ -155,6 +176,7 @@ export function useUpdateElectiveOKR(id: string) {
 
 /**
  * Update elective OKR progress
+ * @deprecated Elective OKRs replaced by Learning Path module
  */
 export function useUpdateElectiveProgress() {
   const queryClient = useQueryClient();
@@ -172,6 +194,7 @@ export function useUpdateElectiveProgress() {
 
 /**
  * Delete (deactivate) elective OKR
+ * @deprecated Elective OKRs replaced by Learning Path module
  */
 export function useDeleteElectiveOKR() {
   const queryClient = useQueryClient();
@@ -188,6 +211,7 @@ export function useDeleteElectiveOKR() {
 
 /**
  * Get all OKRs for current learner (combined core + elective)
+ * @deprecated Use useLearnerCompetencyDashboard from hooks/competency instead
  */
 export function useAllMyOKRs(): UseQueryResult<
   {
@@ -215,6 +239,7 @@ export function useAllMyOKRs(): UseQueryResult<
 
 /**
  * Get learner OKR dashboard data
+ * @deprecated Use useLearnerCompetencyDashboard from hooks/competency instead
  */
 export function useLearnerDashboard(): UseQueryResult<
   {

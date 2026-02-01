@@ -1,7 +1,8 @@
 // ============================================================================
 // MyJKKN OKR Management Module - TypeScript Types
-// Version: 1.0
+// Version: 1.1
 // Created: 2026-01-15
+// Updated: 2026-02-01 - Deprecated individual level and tier_3 per Workshop Transformation
 // ============================================================================
 
 // ============================================================================
@@ -12,11 +13,36 @@
  * OKR Tier determines the complexity and number of sections in the form
  * - tier_1: Full (11 sections) - For major initiatives, organization/institution level
  * - tier_2: Core (6 sections) - For department-level quarterly objectives
- * - tier_3: Simple (3 sections) - For individual goals
+ * - tier_3: Simple (3 sections) - DEPRECATED: Was for individual goals, now handled by Competency module
+ *
+ * @deprecated tier_3 is deprecated as of 2026-02-01. Individual goals are now tracked
+ * via the Competency module (learner_competencies table). Kept for historical data compatibility.
  */
 export type OKRTier = 'tier_1' | 'tier_2' | 'tier_3';
-// Organization level is for group-wide OKRs (JKKN Institutions level, above individual institutions)
+
+/**
+ * OKR Level determines the organizational scope
+ * - organization: Group-wide OKRs (JKKN Institutions level, above individual institutions)
+ * - institution: Institution-level strategic objectives
+ * - department: Department-level quarterly objectives
+ * - individual: DEPRECATED - Was for personal goals, now handled by Competency module
+ *
+ * @deprecated individual level is deprecated as of 2026-02-01. Learner goals are now
+ * tracked via the Competency module. Kept for historical data compatibility.
+ */
 export type OKRLevel = 'organization' | 'institution' | 'department' | 'individual';
+
+/**
+ * Allowed OKR levels for NEW objectives (excludes deprecated 'individual')
+ * Use this type for UI dropdowns and validation of new OKR creation
+ */
+export type OKRLevelAllowed = 'organization' | 'institution' | 'department';
+
+/**
+ * Allowed OKR tiers for NEW objectives (excludes deprecated 'tier_3')
+ * Use this type for UI dropdowns and validation of new OKR creation
+ */
+export type OKRTierAllowed = 'tier_1' | 'tier_2';
 export type OKRCycleType = 'annual' | 'quarterly' | 'semester';
 export type OKRStatus = 'draft' | 'active' | 'completed' | 'archived';
 export type KRStatus = 'not_started' | 'on_track' | 'at_risk' | 'behind' | 'blocked' | 'completed';
@@ -36,12 +62,24 @@ export type MilestoneType = '50_percent' | '75_percent' | '100_percent' | 'excee
  * Maps OKR tiers to their required form sections
  * - tier_1: Full complexity (11 sections) for organization/institution level initiatives
  * - tier_2: Core complexity (6 sections) for department-level objectives
- * - tier_3: Simple (3 sections) for individual goals
+ * - tier_3: DEPRECATED - Simple (3 sections) was for individual goals
+ *
+ * @deprecated tier_3 sections are deprecated. Individual goals now use the Competency module.
  */
 export const TIER_SECTIONS = {
   tier_1: ['basic', 'strategic', 'kpis', 'keyResults', 'stakeholders', 'dependencies', 'tasks', 'risks', 'resources', 'milestones', 'contingency'],
   tier_2: ['basic', 'goals', 'keyResults', 'parentAlignment', 'team', 'successCriteria'],
+  /** @deprecated tier_3 is deprecated - use Competency module for individual goals */
   tier_3: ['basic', 'keyResults', 'notes']
+} as const;
+
+/**
+ * Allowed tier sections for NEW objectives (excludes deprecated tier_3)
+ * Use this for UI when creating new OKRs
+ */
+export const TIER_SECTIONS_ALLOWED = {
+  tier_1: TIER_SECTIONS.tier_1,
+  tier_2: TIER_SECTIONS.tier_2
 } as const;
 
 export type TierSectionKey = keyof typeof TIER_SECTIONS;
@@ -323,7 +361,16 @@ export interface OKRUserStatus {
 // ============================================================================
 // LEARNER-SPECIFIC TYPES
 // ============================================================================
+// DEPRECATED as of 2026-02-01 per Workshop Transformation Plan
+// These types are kept for historical data compatibility.
+// New learner goal tracking should use the Competency module (types/competency.ts)
+// See: learner_competencies table for tracking individual learner skills
+// ============================================================================
 
+/**
+ * @deprecated Use Competency module instead. This type is kept for historical data.
+ * Core OKRs defined by institution for learners - replaced by competency_program_mapping
+ */
 export interface LearnerCoreOKR {
   id: string;
   institution_id: string;
@@ -345,6 +392,10 @@ export interface LearnerCoreOKR {
   updated_at: string;
 }
 
+/**
+ * @deprecated Use Competency module instead. This type is kept for historical data.
+ * Learner OKR assignments - replaced by learner_competencies table
+ */
 export interface LearnerOKRAssignment {
   id: string;
   learner_id: string;
@@ -362,6 +413,10 @@ export interface LearnerOKRAssignment {
   learner?: OKRUser;
 }
 
+/**
+ * @deprecated Use Competency module instead. This type is kept for historical data.
+ * Learner elective OKRs - replaced by learning_paths module
+ */
 export interface LearnerElectiveOKR {
   id: string;
   learner_id: string;
@@ -498,6 +553,9 @@ export interface CreateOKRCheckInDTO {
   blocker_assigned_to?: string;
 }
 
+/**
+ * @deprecated Use Competency module instead. Learner elective OKRs replaced by learning_paths.
+ */
 export interface CreateLearnerElectiveOKRDTO {
   title: string;
   description?: string;

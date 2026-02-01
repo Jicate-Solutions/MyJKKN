@@ -1,0 +1,478 @@
+// ============================================================================
+// Industry Engagement Service
+// CRUD operations for learner industry engagements
+// Note: Using 'as any' type casts because industry tables are new and
+// Supabase TypeScript types haven't been regenerated yet
+// ============================================================================
+
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type {
+  LearnerIndustryEngagement,
+  IndustryListResponse,
+  LearnerEngagementFilters,
+  CreateLearnerEngagementDTO,
+  UpdateLearnerEngagementDTO,
+  EngagementFeedback,
+  IndustryStats
+} from '@/types/industry';
+
+export class IndustryEngagementService {
+  /**
+   * Get paginated list of learner engagements
+   */
+  static async getEngagements(
+    filters: LearnerEngagementFilters = {}
+  ): Promise<IndustryListResponse<LearnerIndustryEngagement>> {
+    const supabase = createClientSupabaseClient();
+    const {
+      learner_id,
+      partner_id,
+      project_id,
+      mentor_id,
+      engagement_type,
+      status,
+      page = 1,
+      limit = 10
+    } = filters;
+
+    let query = (supabase as any)
+      .from('learner_industry_engagements')
+      .select(`
+        *,
+        project:industry_projects(id, project_title, status),
+        mentor:industry_mentors(id, mentor_name, designation),
+        partner:industry_partners(id, company_name)
+      `, { count: 'exact' });
+
+    // Apply filters
+    if (learner_id) {
+      query = query.eq('learner_id', learner_id);
+    }
+
+    if (partner_id) {
+      query = query.eq('partner_id', partner_id);
+    }
+
+    if (project_id) {
+      query = query.eq('project_id', project_id);
+    }
+
+    if (mentor_id) {
+      query = query.eq('mentor_id', mentor_id);
+    }
+
+    if (engagement_type) {
+      if (Array.isArray(engagement_type)) {
+        query = query.in('engagement_type', engagement_type);
+      } else {
+        query = query.eq('engagement_type', engagement_type);
+      }
+    }
+
+    if (status) {
+      if (Array.isArray(status)) {
+        query = query.in('status', status);
+      } else {
+        query = query.eq('status', status);
+      }
+    }
+
+    // Apply sorting
+    query = query.order('created_at', { ascending: false });
+
+    // Apply pagination
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+
+    const { data, error, count } = await query;
+
+    if (error) {
+      console.error('[IndustryEngagementService] getEngagements error:', error);
+      throw new Error(error.message);
+    }
+
+    return {
+      data: data || [],
+      metadata: {
+        total: count || 0,
+        page,
+        limit,
+        totalPages: Math.ceil((count || 0) / limit)
+      }
+    };
+  }
+
+  /**
+   * Get single engagement by ID
+   */
+  static async getEngagementById(id: string): Promise<LearnerIndustryEngagement> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any)
+      .from('learner_industry_engagements')
+      .select(`
+        *,
+        project:industry_projects(id, project_title, description, status, technologies, deliverables),
+        mentor:industry_mentors(id, mentor_name, designation, email, expertise_areas),
+        partner:industry_partners(id, company_name, industry_sector, contact_email)
+      `)
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      console.error('[IndustryEngagementService] getEngagementById error:', error);
+      throw new Error(error.message);
+    }
+
+    return data;
+  }
+
+  /**
+   * Get engagements by learner ID
+   */
+  static async getEngagementsByLearnerId(
+    learnerId: string,
+    status?: string | string[]
+  ): Promise<LearnerIndustryEngagement[]> {
+    const supabase = createClientSupabaseClient();
+
+    let query = (supabase as any)
+      .from('learner_industry_engagements')
+      .select(`
+        *,
+        project:industry_projects(id, project_title, status),
+        mentor:industry_mentors(id, mentor_name),
+        partner:industry_partners(id, company_name)
+      `)
+      .eq('learner_id', learnerId);
+
+    if (status) {
+      if (Array.isArray(status)) {
+        query = query.in('status', status);
+      } else {
+        query = query.eq('status', status);
+      }
+    }
+
+    query = query.order('created_at', { ascending: false });
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('[IndustryEngagementService] getEngagementsByLearnerId error:', error);
+      throw new Error(error.message);
+    }
+
+    return data || [];
+  }
+
+  /**
+   * Get active engagements for a learner
+   */
+  static async getActiveLearnerEngagements(
+    learnerId: string
+  ): Promise<LearnerIndustryEngagement[]> {
+    return this.getEngagementsByLearnerId(learnerId, ['pending', 'active']);
+  }
+
+  /**
+   * Create new learner engagement
+   */
+  static async createEngagement(
+    dto: CreateLearnerEngagementDTO
+  ): Promise<LearnerIndustryEngagement> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any)
+      .from('learner_industry_engagements')
+      .insert({
+        ...dto,
+        status: dto.status || 'pending',
+        hours_completed: 0,
+        competencies_demonstrated: []
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[IndustryEngagementService] createEngagement error:', error);
+      throw new Error(error.message);
+    }
+
+    // If this is a mentorship engagement, increment mentor's mentee count
+    // Note: This RPC function may need to be created separately
+    if (dto.mentor_id && dto.engagement_type === 'mentorship') {
+      try {
+        await (supabase as any).rpc('increment_mentor_mentees', { mentor_id: dto.mentor_id });
+      } catch (rpcError) {
+        console.warn('[IndustryEngagementService] increment_mentor_mentees RPC not available:', rpcError);
+      }
+    }
+
+    return data;
+  }
+
+  /**
+   * Update learner engagement
+   */
+  static async updateEngagement(
+    id: string,
+    dto: UpdateLearnerEngagementDTO
+  ): Promise<LearnerIndustryEngagement> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any)
+      .from('learner_industry_engagements')
+      .update({ ...dto, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[IndustryEngagementService] updateEngagement error:', error);
+      throw new Error(error.message);
+    }
+
+    return data;
+  }
+
+  /**
+   * Update engagement status
+   */
+  static async updateEngagementStatus(
+    id: string,
+    status: LearnerIndustryEngagement['status'],
+    endDate?: string
+  ): Promise<void> {
+    const supabase = createClientSupabaseClient();
+
+    const updateData: Record<string, any> = {
+      status,
+      updated_at: new Date().toISOString()
+    };
+
+    // Set end_date if completing or terminating
+    if (['completed', 'terminated', 'withdrawn'].includes(status)) {
+      updateData.end_date = endDate || new Date().toISOString().split('T')[0];
+    }
+
+    const { error } = await (supabase as any)
+      .from('learner_industry_engagements')
+      .update(updateData)
+      .eq('id', id);
+
+    if (error) {
+      console.error('[IndustryEngagementService] updateEngagementStatus error:', error);
+      throw new Error(error.message);
+    }
+  }
+
+  /**
+   * Add feedback to engagement
+   */
+  static async addFeedback(
+    id: string,
+    feedbackType: 'mentor_feedback' | 'learner_feedback' | 'supervisor_feedback',
+    feedback: EngagementFeedback[typeof feedbackType]
+  ): Promise<LearnerIndustryEngagement> {
+    const supabase = createClientSupabaseClient();
+
+    // First get existing feedback
+    const { data: existing, error: fetchError } = await (supabase as any)
+      .from('learner_industry_engagements')
+      .select('feedback')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) {
+      console.error('[IndustryEngagementService] addFeedback fetch error:', fetchError);
+      throw new Error(fetchError.message);
+    }
+
+    const currentFeedback = existing?.feedback || {};
+    const updatedFeedback = {
+      ...currentFeedback,
+      [feedbackType]: feedback
+    };
+
+    const { data, error } = await (supabase as any)
+      .from('learner_industry_engagements')
+      .update({
+        feedback: updatedFeedback,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[IndustryEngagementService] addFeedback error:', error);
+      throw new Error(error.message);
+    }
+
+    return data;
+  }
+
+  /**
+   * Log hours for engagement
+   */
+  static async logHours(id: string, hours: number): Promise<void> {
+    const supabase = createClientSupabaseClient();
+
+    // Get current hours
+    const { data: existing, error: fetchError } = await (supabase as any)
+      .from('learner_industry_engagements')
+      .select('hours_completed')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) {
+      console.error('[IndustryEngagementService] logHours fetch error:', fetchError);
+      throw new Error(fetchError.message);
+    }
+
+    const { error } = await (supabase as any)
+      .from('learner_industry_engagements')
+      .update({
+        hours_completed: (existing?.hours_completed || 0) + hours,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+
+    if (error) {
+      console.error('[IndustryEngagementService] logHours error:', error);
+      throw new Error(error.message);
+    }
+  }
+
+  /**
+   * Add demonstrated competency
+   */
+  static async addDemonstratedCompetency(
+    id: string,
+    competencyId: string
+  ): Promise<void> {
+    const supabase = createClientSupabaseClient();
+
+    // Get current competencies
+    const { data: existing, error: fetchError } = await (supabase as any)
+      .from('learner_industry_engagements')
+      .select('competencies_demonstrated')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) {
+      console.error('[IndustryEngagementService] addDemonstratedCompetency fetch error:', fetchError);
+      throw new Error(fetchError.message);
+    }
+
+    const currentCompetencies = existing?.competencies_demonstrated || [];
+    if (currentCompetencies.includes(competencyId)) {
+      return; // Already added
+    }
+
+    const { error } = await (supabase as any)
+      .from('learner_industry_engagements')
+      .update({
+        competencies_demonstrated: [...currentCompetencies, competencyId],
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+
+    if (error) {
+      console.error('[IndustryEngagementService] addDemonstratedCompetency error:', error);
+      throw new Error(error.message);
+    }
+  }
+
+  /**
+   * Get industry module statistics
+   */
+  static async getIndustryStats(institutionId: string): Promise<IndustryStats> {
+    const supabase = createClientSupabaseClient();
+
+    // Get partner stats
+    const { data: partners, error: partnerError } = await (supabase as any)
+      .from('industry_partners')
+      .select('id, is_active, partnership_type')
+      .eq('institution_id', institutionId);
+
+    if (partnerError) {
+      console.error('[IndustryEngagementService] getIndustryStats partner error:', partnerError);
+      throw new Error(partnerError.message);
+    }
+
+    const partnerIds = (partners || []).map((p: any) => p.id);
+
+    // Get mentor stats
+    const { data: mentors, error: mentorError } = await (supabase as any)
+      .from('industry_mentors')
+      .select('id, is_active')
+      .in('partner_id', partnerIds.length > 0 ? partnerIds : ['none']);
+
+    if (mentorError) {
+      console.error('[IndustryEngagementService] getIndustryStats mentor error:', mentorError);
+      throw new Error(mentorError.message);
+    }
+
+    // Get project stats
+    const { data: projects, error: projectError } = await (supabase as any)
+      .from('industry_projects')
+      .select('id, status')
+      .in('partner_id', partnerIds.length > 0 ? partnerIds : ['none']);
+
+    if (projectError) {
+      console.error('[IndustryEngagementService] getIndustryStats project error:', projectError);
+      throw new Error(projectError.message);
+    }
+
+    // Get engagement stats
+    const { data: engagements, error: engagementError } = await (supabase as any)
+      .from('learner_industry_engagements')
+      .select('id, status, engagement_type')
+      .in('partner_id', partnerIds.length > 0 ? partnerIds : ['none']);
+
+    if (engagementError) {
+      console.error('[IndustryEngagementService] getIndustryStats engagement error:', engagementError);
+      throw new Error(engagementError.message);
+    }
+
+    // Calculate stats
+    const partnerList = partners || [];
+    const mentorList = mentors || [];
+    const projectList = projects || [];
+    const engagementList = engagements || [];
+
+    const byPartnershipType = partnerList.reduce((acc: Record<string, number>, p: any) => {
+      if (p.partnership_type) {
+        acc[p.partnership_type] = (acc[p.partnership_type] || 0) + 1;
+      }
+      return acc;
+    }, {} as Record<string, number>);
+
+    const byProjectStatus = projectList.reduce((acc: Record<string, number>, p: any) => {
+      acc[p.status] = (acc[p.status] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const byEngagementType = engagementList.reduce((acc: Record<string, number>, e: any) => {
+      acc[e.engagement_type] = (acc[e.engagement_type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      total_partners: partnerList.length,
+      active_partners: partnerList.filter((p: any) => p.is_active).length,
+      total_mentors: mentorList.length,
+      active_mentors: mentorList.filter((m: any) => m.is_active).length,
+      total_projects: projectList.length,
+      open_projects: projectList.filter((p: any) => p.status === 'open').length,
+      total_engagements: engagementList.length,
+      active_engagements: engagementList.filter((e: any) => ['pending', 'active'].includes(e.status)).length,
+      by_partnership_type: byPartnershipType as any,
+      by_project_status: byProjectStatus as any,
+      by_engagement_type: byEngagementType as any
+    };
+  }
+}

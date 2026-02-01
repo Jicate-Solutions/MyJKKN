@@ -2,6 +2,21 @@
 // OKR Learner Service
 // Handles learner-specific OKRs (Core + Elective)
 // ============================================================================
+//
+// DEPRECATED as of 2026-02-01 per Workshop Transformation Plan
+// ============================================================================
+// This service is deprecated. New learner goal tracking should use:
+// - Competency module: lib/services/competency/learner-competency-service.ts
+// - Learning Path module: (to be implemented)
+//
+// The database tables (learner_core_okrs, learner_okr_assignments, learner_elective_okrs)
+// have been soft-deprecated with INSERT blocked via RLS policies.
+// Existing data is preserved for historical reference.
+//
+// For new implementations, use:
+// - LearnerCompetencyService for tracking learner skills/capabilities
+// - CompetencyMappingService for program/course competency requirements
+// ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
@@ -13,6 +28,9 @@ import type {
   KRStatus
 } from '@/types/okr';
 
+/**
+ * @deprecated Use LearnerCompetencyService instead. This service is kept for historical data access.
+ */
 export class OKRLearnerService {
   private static supabase = createClientSupabaseClient();
 

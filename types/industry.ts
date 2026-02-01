@@ -1,0 +1,533 @@
+// ============================================================================
+// MyJKKN Industry Integration Module - TypeScript Types
+// Version: 1.0
+// Created: 2026-02-01
+// Purpose: Industry partnerships, mentors, projects, and learner engagements
+// ============================================================================
+
+// ============================================================================
+// ENUMS & UNION TYPES
+// ============================================================================
+
+/**
+ * Type of partnership with industry partner
+ */
+export type PartnershipType = 'mou' | 'placement' | 'project' | 'mentorship' | 'sponsorship';
+
+/**
+ * Status of industry project
+ */
+export type ProjectStatus = 'draft' | 'open' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
+
+/**
+ * Type of learner engagement
+ */
+export type EngagementType = 'project' | 'internship' | 'mentorship' | 'placement' | 'workshop';
+
+/**
+ * Status of learner engagement
+ */
+export type EngagementStatus = 'pending' | 'active' | 'completed' | 'withdrawn' | 'terminated';
+
+/**
+ * Difficulty level for projects
+ */
+export type DifficultyLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert';
+
+// ============================================================================
+// CORE TYPES - INDUSTRY PARTNERS
+// ============================================================================
+
+/**
+ * Industry Partner - Company or organization partnering with institution
+ */
+export interface IndustryPartner {
+  id: string;
+  institution_id: string;
+  company_name: string;
+  industry_sector: string | null;
+  partnership_type: PartnershipType | null;
+  contact_person: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  partnership_start_date: string | null;
+  partnership_end_date: string | null;
+  mou_document_url: string | null;
+  description: string | null;
+  website_url: string | null;
+  logo_url: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+
+  // Optional populated relationships
+  mentors?: IndustryMentor[];
+  projects?: IndustryProject[];
+  _count?: {
+    mentors: number;
+    projects: number;
+    engagements: number;
+  };
+}
+
+// ============================================================================
+// CORE TYPES - INDUSTRY MENTORS
+// ============================================================================
+
+/**
+ * Mentor availability schedule
+ */
+export interface MentorAvailability {
+  days: string[];  // ['monday', 'wednesday', 'friday']
+  hours: string;   // '10:00-17:00'
+  mode: 'online' | 'offline' | 'hybrid';
+  timezone?: string;
+}
+
+/**
+ * Industry Mentor - Professional providing mentorship
+ */
+export interface IndustryMentor {
+  id: string;
+  partner_id: string;
+  mentor_name: string;
+  designation: string | null;
+  expertise_areas: string[];
+  email: string | null;
+  phone: string | null;
+  linkedin_url: string | null;
+  bio: string | null;
+  photo_url: string | null;
+  availability: MentorAvailability | null;
+  max_mentees: number;
+  current_mentees_count: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+
+  // Optional populated relationships
+  partner?: IndustryPartner;
+  engagements?: LearnerIndustryEngagement[];
+}
+
+// ============================================================================
+// CORE TYPES - INDUSTRY PROJECTS
+// ============================================================================
+
+/**
+ * Industry Project - Real-world project from industry partner
+ */
+export interface IndustryProject {
+  id: string;
+  partner_id: string;
+  project_title: string;
+  description: string | null;
+  required_competencies: string[];  // UUIDs from competency_catalog
+  difficulty_level: DifficultyLevel | null;
+  duration_weeks: number | null;
+  max_team_size: number | null;
+  min_team_size: number | null;
+  stipend_amount: number | null;
+  stipend_currency: string;
+  application_deadline: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: ProjectStatus;
+  deliverables: string[];
+  technologies: string[];
+  location: string | null;
+  is_remote: boolean;
+  mentor_id: string | null;
+  created_at: string;
+  updated_at: string;
+
+  // Optional populated relationships
+  partner?: IndustryPartner;
+  mentor?: IndustryMentor;
+  engagements?: LearnerIndustryEngagement[];
+  _count?: {
+    engagements: number;
+    applications: number;
+  };
+}
+
+// ============================================================================
+// CORE TYPES - LEARNER ENGAGEMENTS
+// ============================================================================
+
+/**
+ * Feedback structure for engagements
+ */
+export interface EngagementFeedback {
+  mentor_feedback?: {
+    rating: number;  // 1-5
+    comments: string;
+    date: string;
+    competencies_demonstrated: string[];
+  };
+  learner_feedback?: {
+    rating: number;
+    comments: string;
+    date: string;
+    skills_gained: string[];
+  };
+  supervisor_feedback?: {
+    rating: number;
+    comments: string;
+    date: string;
+    recommendation: string;
+  };
+}
+
+/**
+ * Learner Industry Engagement - Learner's participation in industry activities
+ */
+export interface LearnerIndustryEngagement {
+  id: string;
+  learner_id: string;
+  engagement_type: EngagementType;
+  project_id: string | null;
+  mentor_id: string | null;
+  partner_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  expected_end_date: string | null;
+  status: EngagementStatus;
+  competencies_demonstrated: string[];  // UUIDs from competency_catalog
+  feedback: EngagementFeedback | null;
+  hours_completed: number;
+  certificate_url: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+
+  // Optional populated relationships
+  learner?: {
+    id: string;
+    full_name: string;
+    roll_number: string;
+    email: string;
+  };
+  project?: IndustryProject;
+  mentor?: IndustryMentor;
+  partner?: IndustryPartner;
+}
+
+// ============================================================================
+// DTO TYPES (Data Transfer Objects)
+// ============================================================================
+
+/**
+ * Create industry partner
+ */
+export interface CreateIndustryPartnerDTO {
+  institution_id: string;
+  company_name: string;
+  industry_sector?: string;
+  partnership_type?: PartnershipType;
+  contact_person?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  partnership_start_date?: string;
+  partnership_end_date?: string;
+  mou_document_url?: string;
+  description?: string;
+  website_url?: string;
+  logo_url?: string;
+  is_active?: boolean;
+}
+
+/**
+ * Update industry partner
+ */
+export interface UpdateIndustryPartnerDTO {
+  company_name?: string;
+  industry_sector?: string;
+  partnership_type?: PartnershipType;
+  contact_person?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  partnership_start_date?: string;
+  partnership_end_date?: string;
+  mou_document_url?: string;
+  description?: string;
+  website_url?: string;
+  logo_url?: string;
+  is_active?: boolean;
+}
+
+/**
+ * Create industry mentor
+ */
+export interface CreateIndustryMentorDTO {
+  partner_id: string;
+  mentor_name: string;
+  designation?: string;
+  expertise_areas?: string[];
+  email?: string;
+  phone?: string;
+  linkedin_url?: string;
+  bio?: string;
+  photo_url?: string;
+  availability?: MentorAvailability;
+  max_mentees?: number;
+  is_active?: boolean;
+}
+
+/**
+ * Update industry mentor
+ */
+export interface UpdateIndustryMentorDTO {
+  mentor_name?: string;
+  designation?: string;
+  expertise_areas?: string[];
+  email?: string;
+  phone?: string;
+  linkedin_url?: string;
+  bio?: string;
+  photo_url?: string;
+  availability?: MentorAvailability;
+  max_mentees?: number;
+  is_active?: boolean;
+}
+
+/**
+ * Create industry project
+ */
+export interface CreateIndustryProjectDTO {
+  partner_id: string;
+  project_title: string;
+  description?: string;
+  required_competencies?: string[];
+  difficulty_level?: DifficultyLevel;
+  duration_weeks?: number;
+  max_team_size?: number;
+  min_team_size?: number;
+  stipend_amount?: number;
+  stipend_currency?: string;
+  application_deadline?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: ProjectStatus;
+  deliverables?: string[];
+  technologies?: string[];
+  location?: string;
+  is_remote?: boolean;
+  mentor_id?: string;
+}
+
+/**
+ * Update industry project
+ */
+export interface UpdateIndustryProjectDTO {
+  project_title?: string;
+  description?: string;
+  required_competencies?: string[];
+  difficulty_level?: DifficultyLevel;
+  duration_weeks?: number;
+  max_team_size?: number;
+  min_team_size?: number;
+  stipend_amount?: number;
+  stipend_currency?: string;
+  application_deadline?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: ProjectStatus;
+  deliverables?: string[];
+  technologies?: string[];
+  location?: string;
+  is_remote?: boolean;
+  mentor_id?: string;
+}
+
+/**
+ * Create learner engagement
+ */
+export interface CreateLearnerEngagementDTO {
+  learner_id: string;
+  engagement_type: EngagementType;
+  project_id?: string;
+  mentor_id?: string;
+  partner_id?: string;
+  start_date?: string;
+  expected_end_date?: string;
+  status?: EngagementStatus;
+  notes?: string;
+}
+
+/**
+ * Update learner engagement
+ */
+export interface UpdateLearnerEngagementDTO {
+  engagement_type?: EngagementType;
+  start_date?: string;
+  end_date?: string;
+  expected_end_date?: string;
+  status?: EngagementStatus;
+  competencies_demonstrated?: string[];
+  feedback?: EngagementFeedback;
+  hours_completed?: number;
+  certificate_url?: string;
+  notes?: string;
+}
+
+// ============================================================================
+// FILTER TYPES
+// ============================================================================
+
+/**
+ * Filters for industry partners
+ */
+export interface IndustryPartnerFilters {
+  institution_id?: string;
+  partnership_type?: PartnershipType | PartnershipType[];
+  industry_sector?: string;
+  is_active?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sort_by?: 'company_name' | 'partnership_start_date' | 'created_at';
+  sort_order?: 'asc' | 'desc';
+}
+
+/**
+ * Filters for industry mentors
+ */
+export interface IndustryMentorFilters {
+  partner_id?: string;
+  expertise_area?: string;
+  is_active?: boolean;
+  has_availability?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+/**
+ * Filters for industry projects
+ */
+export interface IndustryProjectFilters {
+  partner_id?: string;
+  status?: ProjectStatus | ProjectStatus[];
+  difficulty_level?: DifficultyLevel | DifficultyLevel[];
+  required_competency?: string;
+  is_remote?: boolean;
+  has_stipend?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sort_by?: 'project_title' | 'application_deadline' | 'created_at';
+  sort_order?: 'asc' | 'desc';
+}
+
+/**
+ * Filters for learner engagements
+ */
+export interface LearnerEngagementFilters {
+  learner_id?: string;
+  partner_id?: string;
+  project_id?: string;
+  mentor_id?: string;
+  engagement_type?: EngagementType | EngagementType[];
+  status?: EngagementStatus | EngagementStatus[];
+  page?: number;
+  limit?: number;
+}
+
+// ============================================================================
+// RESPONSE TYPES
+// ============================================================================
+
+/**
+ * Paginated list response
+ */
+export interface IndustryListResponse<T> {
+  data: T[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+/**
+ * Industry module statistics
+ */
+export interface IndustryStats {
+  total_partners: number;
+  active_partners: number;
+  total_mentors: number;
+  active_mentors: number;
+  total_projects: number;
+  open_projects: number;
+  total_engagements: number;
+  active_engagements: number;
+  by_partnership_type: Record<PartnershipType, number>;
+  by_project_status: Record<ProjectStatus, number>;
+  by_engagement_type: Record<EngagementType, number>;
+}
+
+/**
+ * Partner summary for dashboard
+ */
+export interface PartnerSummary {
+  id: string;
+  company_name: string;
+  industry_sector: string | null;
+  partnership_type: PartnershipType | null;
+  mentors_count: number;
+  projects_count: number;
+  active_engagements: number;
+}
+
+/**
+ * Project summary for listings
+ */
+export interface ProjectSummary {
+  id: string;
+  project_title: string;
+  partner_name: string;
+  difficulty_level: DifficultyLevel | null;
+  status: ProjectStatus;
+  application_deadline: string | null;
+  applicants_count: number;
+  spots_remaining: number;
+}
+
+// ============================================================================
+// PICKER OPTION TYPES
+// ============================================================================
+
+/**
+ * Partner option for dropdowns
+ */
+export interface PartnerPickerOption {
+  id: string;
+  company_name: string;
+  industry_sector: string | null;
+  is_active: boolean;
+}
+
+/**
+ * Mentor option for dropdowns
+ */
+export interface MentorPickerOption {
+  id: string;
+  mentor_name: string;
+  designation: string | null;
+  partner_name: string;
+  expertise_areas: string[];
+  available_slots: number;
+}
+
+/**
+ * Project option for dropdowns
+ */
+export interface ProjectPickerOption {
+  id: string;
+  project_title: string;
+  partner_name: string;
+  status: ProjectStatus;
+  spots_remaining: number;
+}

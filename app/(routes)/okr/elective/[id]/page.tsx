@@ -1,45 +1,41 @@
 'use client';
 
 // ============================================================================
-// Elective OKR Detail View
-// Simple detail view for learner's self-set elective OKRs
+// Elective OKR Detail View - DEPRECATED
+//
+// DEPRECATION NOTICE (2026-02-01):
+// Learner-specific elective OKRs have been replaced by the Competency module.
+// - For learners: Show deprecation notice with redirect
+// - For managers/admins: Allow view-only access to historical data
 // ============================================================================
 
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
   ArrowLeft,
   Target,
   Calendar,
-  Edit2,
-  Trash2,
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  AlertTriangle,
+  ArrowRight,
+  Eye
 } from 'lucide-react';
 
 // UI Components
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger
-} from '@/components/ui/alert-dialog';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import Link from 'next/link';
 
 // Hooks
-import { useElectiveOKR, useDeleteElectiveOKR } from '@/hooks/okr';
-import { useState } from 'react';
-import { toast } from 'react-hot-toast';
+import { useElectiveOKR } from '@/hooks/okr';
+import { useAuth } from '@/hooks/use-auth';
 
 // ============================================================================
 // STATUS CONFIG
@@ -65,27 +61,86 @@ function getProgressColor(progress: number): string {
 }
 
 // ============================================================================
-// MAIN COMPONENT
+// DEPRECATION NOTICE COMPONENT (for learners)
 // ============================================================================
 
-export default function ElectiveOKRDetailPage() {
-  const params = useParams();
+function DeprecationNotice() {
   const router = useRouter();
-  const id = params.id as string;
 
-  const { data: okr, isLoading, error } = useElectiveOKR(id);
-  const deleteMutation = useDeleteElectiveOKR();
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-
-  const handleDelete = async () => {
-    try {
-      await deleteMutation.mutateAsync(id);
-      toast.success('OKR deleted successfully');
+  // Auto-redirect after 5 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
       router.push('/okr/objectives');
-    } catch (err) {
-      toast.error('Failed to delete OKR');
-    }
-  };
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [router]);
+
+  return (
+    <div className="container mx-auto py-6 max-w-2xl space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-amber-100">
+              <AlertTriangle className="h-6 w-6 text-amber-600" />
+            </div>
+            <div>
+              <CardTitle>Feature Moved</CardTitle>
+              <CardDescription>
+                Personal OKRs are now tracked differently
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Alert variant="default" className="border-amber-200 bg-amber-50">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertTitle className="text-amber-800">Competency Module</AlertTitle>
+            <AlertDescription className="text-amber-700">
+              As of February 2026, personal goals and skill development are now tracked via the
+              <strong> Competency Module</strong>. This provides better tracking of skills,
+              competencies, and learning outcomes aligned with industry standards.
+            </AlertDescription>
+          </Alert>
+
+          <div className="p-4 bg-muted/50 rounded-lg">
+            <h3 className="font-medium mb-2">What changed?</h3>
+            <ul className="text-sm text-muted-foreground space-y-1">
+              <li>Personal goals are now tracked via Competency profiles</li>
+              <li>Skills are mapped to industry requirements</li>
+              <li>Your historical data is preserved</li>
+            </ul>
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            Redirecting to objectives page in 5 seconds...
+          </p>
+
+          <div className="flex gap-3">
+            <Button asChild>
+              <Link href="/okr/objectives">
+                Go to Objectives
+                <ArrowRight className="h-4 w-4 ml-2" />
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/competency-catalog">
+                View Competencies
+              </Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================================
+// HISTORICAL DATA VIEW (for managers/admins)
+// ============================================================================
+
+function HistoricalDataView({ id }: { id: string }) {
+  const router = useRouter();
+  const { data: okr, isLoading, error } = useElectiveOKR(id);
 
   // Loading state
   if (isLoading) {
@@ -115,7 +170,7 @@ export default function ElectiveOKRDetailPage() {
             <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <h2 className="text-xl font-semibold mb-2">OKR Not Found</h2>
             <p className="text-muted-foreground mb-4">
-              {error?.message || 'The elective OKR you are looking for does not exist or you do not have permission to view it.'}
+              {error?.message || 'The elective OKR you are looking for does not exist.'}
             </p>
             <Button onClick={() => router.push('/okr/objectives')}>
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -131,6 +186,16 @@ export default function ElectiveOKRDetailPage() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
+      {/* Deprecation Banner */}
+      <Alert variant="default" className="border-amber-200 bg-amber-50">
+        <Eye className="h-4 w-4 text-amber-600" />
+        <AlertTitle className="text-amber-800">Historical Data - View Only</AlertTitle>
+        <AlertDescription className="text-amber-700">
+          This elective OKR was created before the Competency module. Data is preserved for reference
+          but editing is disabled. New personal goals should be tracked via Competencies.
+        </AlertDescription>
+      </Alert>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -143,42 +208,13 @@ export default function ElectiveOKRDetailPage() {
           </Button>
           <div>
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                Elective
+              <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                Elective (Archived)
               </Badge>
               <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
             </div>
             <h1 className="text-2xl font-bold mt-1">{okr.title}</h1>
           </div>
-        </div>
-
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push(`/okr/elective/${id}/edit`)}>
-            <Edit2 className="h-4 w-4 mr-2" />
-            Edit
-          </Button>
-          <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive">
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete Elective OKR</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Are you sure you want to delete this OKR? This action cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
         </div>
       </div>
 
@@ -187,7 +223,7 @@ export default function ElectiveOKRDetailPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <TrendingUp className="h-5 w-5" />
-            Progress
+            Progress (Final)
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -208,7 +244,7 @@ export default function ElectiveOKRDetailPage() {
               </div>
               <div className="p-3 bg-primary/10 rounded-lg">
                 <p className="text-2xl font-bold text-primary">{okr.current_value}</p>
-                <p className="text-xs text-muted-foreground">Current</p>
+                <p className="text-xs text-muted-foreground">Final Value</p>
               </div>
               <div className="p-3 bg-muted/50 rounded-lg">
                 <p className="text-2xl font-bold">{okr.target_value || 100}</p>
@@ -245,7 +281,7 @@ export default function ElectiveOKRDetailPage() {
             <>
               <Separator />
               <div>
-                <h3 className="text-sm font-medium text-muted-foreground mb-2">Why It Matters</h3>
+                <h3 className="text-sm font-medium text-muted-foreground mb-2">Why It Mattered</h3>
                 <p className="text-sm">{okr.why_matters}</p>
               </div>
             </>
@@ -259,9 +295,6 @@ export default function ElectiveOKRDetailPage() {
             <span className="font-medium">
               {format(new Date(okr.deadline), 'PPP')}
             </span>
-            {new Date(okr.deadline) < new Date() && okr.status !== 'completed' && (
-              <Badge variant="destructive" className="ml-2">Overdue</Badge>
-            )}
           </div>
 
           <div className="text-xs text-muted-foreground">
@@ -274,4 +307,39 @@ export default function ElectiveOKRDetailPage() {
       </Card>
     </div>
   );
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
+export default function ElectiveOKRDetailPage() {
+  const params = useParams();
+  const { profile, isLoading: authLoading } = useAuth();
+  const id = params.id as string;
+
+  // Determine if user is a manager/admin (not a learner)
+  const isManagerOrAdmin = profile?.role && ['admin', 'super_admin', 'manager', 'staff', 'faculty'].includes(profile.role);
+
+  // Loading state while checking auth
+  if (authLoading) {
+    return (
+      <div className="container mx-auto py-6">
+        <Skeleton className="h-8 w-48" />
+        <Card className="mt-6">
+          <CardContent className="py-12">
+            <Skeleton className="h-4 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // For managers/admins: Show historical data view
+  if (isManagerOrAdmin) {
+    return <HistoricalDataView id={id} />;
+  }
+
+  // For learners: Show deprecation notice with redirect
+  return <DeprecationNotice />;
 }
