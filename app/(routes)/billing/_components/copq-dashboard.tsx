@@ -204,7 +204,7 @@ export function COPQDashboard({
                 .map(([category, amount]) => {
                   const percentage =
                     total_copq_ytd > 0
-                      ? Math.round(((amount || 0) / total_copq_ytd) * 100)
+                      ? Math.round(((Number(amount) || 0) / total_copq_ytd) * 100)
                       : 0;
                   return (
                     <div key={category} className='flex items-center gap-4'>

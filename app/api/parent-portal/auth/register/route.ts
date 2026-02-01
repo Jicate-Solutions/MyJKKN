@@ -1,18 +1,20 @@
 // app/api/parent-portal/auth/register/route.ts
+// SECURITY: Uses validation middleware to prevent XSS and injection attacks
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { parentRegistrationSchema } from '@/lib/validations/parent-portal';
+import { parentRegistrationSchema, ParentRegistrationInput } from '@/lib/validations/parent-portal';
 import { ParentSessionService } from '@/lib/services/parent-portal/parent-session-service';
 import { setCSRFCookie } from '@/lib/utils/csrf';
-import { z } from 'zod';
+import { withValidation, withRateLimit, composeValidation } from '@/lib/middleware/validate-input';
 
-export async function POST(request: NextRequest) {
+// Handler with validated and sanitized input
+async function registerHandler(
+  request: NextRequest,
+  validated: ParentRegistrationInput
+) {
   try {
     const supabase = await createClient();
-    const body = await request.json();
-
-    const validated = parentRegistrationSchema.parse(body);
 
     // Find the learner by enrollment number
     const { data: learner, error: learnerError } = await supabase
@@ -103,9 +105,6 @@ export async function POST(request: NextRequest) {
       learner_name: learner.name,
     });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.errors }, { status: 400 });
-    }
     console.error('[parent-portal/auth/register] POST error:', error);
     return NextResponse.json(
       { error: 'Failed to register' },
@@ -113,3 +112,10 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// Export with validation and rate limiting middleware
+// SECURITY: Rate limit prevents brute force attacks
+// SECURITY: Validation middleware sanitizes all inputs
+export const POST = composeValidation(
+  (handler) => withRateLimit(20, 60000, handler), // Max 20 requests per minute
+)(withValidation(parentRegistrationSchema, registerHandler));
