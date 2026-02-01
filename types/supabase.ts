@@ -10,7 +10,32 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "12.2.3 (519615d)"
+    PostgrestVersion: "14.1"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -59,6 +84,704 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      admission_applications: {
+        Row: {
+          academic_year: string
+          application_number: string | null
+          campus_id: string | null
+          can_reapply: boolean | null
+          completion_percentage: number | null
+          created_at: string | null
+          current_step: number | null
+          expires_at: string | null
+          form_data: Json | null
+          id: string
+          institution_id: string
+          last_saved_at: string | null
+          lead_id: string
+          learner_profile_id: string | null
+          program_id: string
+          rejection_reason: string | null
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewer_id: string | null
+          status: Database["public"]["Enums"]["application_status"] | null
+          status_changed_at: string | null
+          status_history: Json | null
+          steps_completed: Json | null
+          submitted_at: string | null
+          total_steps: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          academic_year: string
+          application_number?: string | null
+          campus_id?: string | null
+          can_reapply?: boolean | null
+          completion_percentage?: number | null
+          created_at?: string | null
+          current_step?: number | null
+          expires_at?: string | null
+          form_data?: Json | null
+          id?: string
+          institution_id: string
+          last_saved_at?: string | null
+          lead_id: string
+          learner_profile_id?: string | null
+          program_id: string
+          rejection_reason?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewer_id?: string | null
+          status?: Database["public"]["Enums"]["application_status"] | null
+          status_changed_at?: string | null
+          status_history?: Json | null
+          steps_completed?: Json | null
+          submitted_at?: string | null
+          total_steps?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          academic_year?: string
+          application_number?: string | null
+          campus_id?: string | null
+          can_reapply?: boolean | null
+          completion_percentage?: number | null
+          created_at?: string | null
+          current_step?: number | null
+          expires_at?: string | null
+          form_data?: Json | null
+          id?: string
+          institution_id?: string
+          last_saved_at?: string | null
+          lead_id?: string
+          learner_profile_id?: string | null
+          program_id?: string
+          rejection_reason?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewer_id?: string | null
+          status?: Database["public"]["Enums"]["application_status"] | null
+          status_changed_at?: string | null
+          status_history?: Json | null
+          steps_completed?: Json | null
+          submitted_at?: string | null
+          total_steps?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_applications_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_applications_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+          {
+            foreignKeyName: "admission_applications_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_applications_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "admission_applications_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "admission_applications_reviewer_id_fkey"
+            columns: ["reviewer_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_applications_reviewer_id_fkey"
+            columns: ["reviewer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admission_leads: {
+        Row: {
+          assigned_at: string | null
+          assigned_counselor_id: string | null
+          combined_score: number | null
+          conversion_probability: number | null
+          created_at: string | null
+          created_by: string | null
+          dormant_at: string | null
+          engagement_score: number | null
+          id: string
+          institution_id: string
+          interested_programs: string[] | null
+          is_active: boolean | null
+          is_dormant: boolean | null
+          is_hot_lead: boolean | null
+          is_lost: boolean | null
+          is_priority: boolean | null
+          last_activity_at: string | null
+          last_contact_at: string | null
+          last_message_at: string | null
+          learner_profile_id: string
+          lost_at: string | null
+          lost_reason: string | null
+          messages_this_week: number | null
+          ownership_mode:
+            | Database["public"]["Enums"]["lead_ownership_mode"]
+            | null
+          parent_email: string | null
+          parent_name: string | null
+          parent_opted_in: boolean | null
+          parent_phone: string | null
+          preferred_campus: string | null
+          preferred_channel:
+            | Database["public"]["Enums"]["communication_channel_type"]
+            | null
+          previous_stage:
+            | Database["public"]["Enums"]["admission_lead_stage"]
+            | null
+          quality_score: number | null
+          score_breakdown: Json | null
+          stage: Database["public"]["Enums"]["admission_lead_stage"] | null
+          stage_changed_at: string | null
+          tags: string[] | null
+          total_messages_sent: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          assigned_at?: string | null
+          assigned_counselor_id?: string | null
+          combined_score?: number | null
+          conversion_probability?: number | null
+          created_at?: string | null
+          created_by?: string | null
+          dormant_at?: string | null
+          engagement_score?: number | null
+          id?: string
+          institution_id: string
+          interested_programs?: string[] | null
+          is_active?: boolean | null
+          is_dormant?: boolean | null
+          is_hot_lead?: boolean | null
+          is_lost?: boolean | null
+          is_priority?: boolean | null
+          last_activity_at?: string | null
+          last_contact_at?: string | null
+          last_message_at?: string | null
+          learner_profile_id: string
+          lost_at?: string | null
+          lost_reason?: string | null
+          messages_this_week?: number | null
+          ownership_mode?:
+            | Database["public"]["Enums"]["lead_ownership_mode"]
+            | null
+          parent_email?: string | null
+          parent_name?: string | null
+          parent_opted_in?: boolean | null
+          parent_phone?: string | null
+          preferred_campus?: string | null
+          preferred_channel?:
+            | Database["public"]["Enums"]["communication_channel_type"]
+            | null
+          previous_stage?:
+            | Database["public"]["Enums"]["admission_lead_stage"]
+            | null
+          quality_score?: number | null
+          score_breakdown?: Json | null
+          stage?: Database["public"]["Enums"]["admission_lead_stage"] | null
+          stage_changed_at?: string | null
+          tags?: string[] | null
+          total_messages_sent?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          assigned_at?: string | null
+          assigned_counselor_id?: string | null
+          combined_score?: number | null
+          conversion_probability?: number | null
+          created_at?: string | null
+          created_by?: string | null
+          dormant_at?: string | null
+          engagement_score?: number | null
+          id?: string
+          institution_id?: string
+          interested_programs?: string[] | null
+          is_active?: boolean | null
+          is_dormant?: boolean | null
+          is_hot_lead?: boolean | null
+          is_lost?: boolean | null
+          is_priority?: boolean | null
+          last_activity_at?: string | null
+          last_contact_at?: string | null
+          last_message_at?: string | null
+          learner_profile_id?: string
+          lost_at?: string | null
+          lost_reason?: string | null
+          messages_this_week?: number | null
+          ownership_mode?:
+            | Database["public"]["Enums"]["lead_ownership_mode"]
+            | null
+          parent_email?: string | null
+          parent_name?: string | null
+          parent_opted_in?: boolean | null
+          parent_phone?: string | null
+          preferred_campus?: string | null
+          preferred_channel?:
+            | Database["public"]["Enums"]["communication_channel_type"]
+            | null
+          previous_stage?:
+            | Database["public"]["Enums"]["admission_lead_stage"]
+            | null
+          quality_score?: number | null
+          score_breakdown?: Json | null
+          stage?: Database["public"]["Enums"]["admission_lead_stage"] | null
+          stage_changed_at?: string | null
+          tags?: string[] | null
+          total_messages_sent?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_leads_assigned_counselor_id_fkey"
+            columns: ["assigned_counselor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_leads_assigned_counselor_id_fkey"
+            columns: ["assigned_counselor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_leads_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_leads_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: true
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: true
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "admission_leads_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: true
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+        ]
+      }
+      admission_payments: {
+        Row: {
+          amount: number
+          application_id: string
+          created_at: string | null
+          currency: string | null
+          discount_amount: number | null
+          discount_reason: string | null
+          due_date: string | null
+          fee_breakdown: Json | null
+          gateway_name: string | null
+          gateway_order_id: string | null
+          gateway_payment_id: string | null
+          gateway_signature: string | null
+          id: string
+          institution_id: string
+          last_reminder_at: string | null
+          paid_at: string | null
+          payment_method: string | null
+          payment_type: Database["public"]["Enums"]["admission_payment_type"]
+          receipt_number: string | null
+          receipt_url: string | null
+          refund_amount: number | null
+          refund_reason: string | null
+          refund_reference: string | null
+          refunded_at: string | null
+          reminder_count: number | null
+          scholarship_id: string | null
+          status: Database["public"]["Enums"]["payment_status"] | null
+          updated_at: string | null
+        }
+        Insert: {
+          amount: number
+          application_id: string
+          created_at?: string | null
+          currency?: string | null
+          discount_amount?: number | null
+          discount_reason?: string | null
+          due_date?: string | null
+          fee_breakdown?: Json | null
+          gateway_name?: string | null
+          gateway_order_id?: string | null
+          gateway_payment_id?: string | null
+          gateway_signature?: string | null
+          id?: string
+          institution_id: string
+          last_reminder_at?: string | null
+          paid_at?: string | null
+          payment_method?: string | null
+          payment_type: Database["public"]["Enums"]["admission_payment_type"]
+          receipt_number?: string | null
+          receipt_url?: string | null
+          refund_amount?: number | null
+          refund_reason?: string | null
+          refund_reference?: string | null
+          refunded_at?: string | null
+          reminder_count?: number | null
+          scholarship_id?: string | null
+          status?: Database["public"]["Enums"]["payment_status"] | null
+          updated_at?: string | null
+        }
+        Update: {
+          amount?: number
+          application_id?: string
+          created_at?: string | null
+          currency?: string | null
+          discount_amount?: number | null
+          discount_reason?: string | null
+          due_date?: string | null
+          fee_breakdown?: Json | null
+          gateway_name?: string | null
+          gateway_order_id?: string | null
+          gateway_payment_id?: string | null
+          gateway_signature?: string | null
+          id?: string
+          institution_id?: string
+          last_reminder_at?: string | null
+          paid_at?: string | null
+          payment_method?: string | null
+          payment_type?: Database["public"]["Enums"]["admission_payment_type"]
+          receipt_number?: string | null
+          receipt_url?: string | null
+          refund_amount?: number | null
+          refund_reason?: string | null
+          refund_reference?: string | null
+          refunded_at?: string | null
+          reminder_count?: number | null
+          scholarship_id?: string | null
+          status?: Database["public"]["Enums"]["payment_status"] | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_payments_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "admission_applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_payments_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "v_application_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_payments_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_payments_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      admission_tasks: {
+        Row: {
+          assigned_to: string | null
+          completed_at: string | null
+          completed_by: string | null
+          created_at: string | null
+          created_by: string | null
+          created_by_system: boolean | null
+          description: string | null
+          due_at: string
+          id: string
+          institution_id: string
+          lead_id: string
+          outcome: string | null
+          outcome_notes: string | null
+          priority: number | null
+          reminder_at: string | null
+          status: Database["public"]["Enums"]["task_status"] | null
+          task_type: Database["public"]["Enums"]["task_type"]
+          title: string
+          updated_at: string | null
+          workflow_id: string | null
+        }
+        Insert: {
+          assigned_to?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          created_by_system?: boolean | null
+          description?: string | null
+          due_at: string
+          id?: string
+          institution_id: string
+          lead_id: string
+          outcome?: string | null
+          outcome_notes?: string | null
+          priority?: number | null
+          reminder_at?: string | null
+          status?: Database["public"]["Enums"]["task_status"] | null
+          task_type: Database["public"]["Enums"]["task_type"]
+          title: string
+          updated_at?: string | null
+          workflow_id?: string | null
+        }
+        Update: {
+          assigned_to?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          created_by_system?: boolean | null
+          description?: string | null
+          due_at?: string
+          id?: string
+          institution_id?: string
+          lead_id?: string
+          outcome?: string | null
+          outcome_notes?: string | null
+          priority?: number | null
+          reminder_at?: string | null
+          status?: Database["public"]["Enums"]["task_status"] | null
+          task_type?: Database["public"]["Enums"]["task_type"]
+          title?: string
+          updated_at?: string | null
+          workflow_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_tasks_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_tasks_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_tasks_completed_by_fkey"
+            columns: ["completed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_tasks_completed_by_fkey"
+            columns: ["completed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_tasks_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_tasks_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_tasks_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_tasks_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+        ]
+      }
+      admissions: {
+        Row: {
+          academic_year: string | null
+          admission_date: string | null
+          admission_number: string | null
+          admission_type: string | null
+          created_at: string
+          documents: Json | null
+          fee_structure: Json | null
+          id: string
+          institution_id: string | null
+          notes: string | null
+          program_id: string | null
+          status: string | null
+          student_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          academic_year?: string | null
+          admission_date?: string | null
+          admission_number?: string | null
+          admission_type?: string | null
+          created_at?: string
+          documents?: Json | null
+          fee_structure?: Json | null
+          id?: string
+          institution_id?: string | null
+          notes?: string | null
+          program_id?: string | null
+          status?: string | null
+          student_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          academic_year?: string | null
+          admission_date?: string | null
+          admission_number?: string | null
+          admission_type?: string | null
+          created_at?: string
+          documents?: Json | null
+          fee_structure?: Json | null
+          id?: string
+          institution_id?: string | null
+          notes?: string | null
+          program_id?: string | null
+          status?: string | null
+          student_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admissions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admissions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admissions_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admissions_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -223,6 +946,102 @@ export type Database = {
         }
         Relationships: []
       }
+      application_documents: {
+        Row: {
+          application_id: string
+          document_type_id: string
+          extracted_data: Json | null
+          file_name: string
+          file_path: string
+          file_size: number | null
+          id: string
+          mime_type: string | null
+          rejection_reason: string | null
+          reupload_notes: string | null
+          updated_at: string | null
+          uploaded_at: string | null
+          verification_status:
+            | Database["public"]["Enums"]["document_verification_status"]
+            | null
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          application_id: string
+          document_type_id: string
+          extracted_data?: Json | null
+          file_name: string
+          file_path: string
+          file_size?: number | null
+          id?: string
+          mime_type?: string | null
+          rejection_reason?: string | null
+          reupload_notes?: string | null
+          updated_at?: string | null
+          uploaded_at?: string | null
+          verification_status?:
+            | Database["public"]["Enums"]["document_verification_status"]
+            | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          application_id?: string
+          document_type_id?: string
+          extracted_data?: Json | null
+          file_name?: string
+          file_path?: string
+          file_size?: number | null
+          id?: string
+          mime_type?: string | null
+          rejection_reason?: string | null
+          reupload_notes?: string | null
+          updated_at?: string | null
+          uploaded_at?: string | null
+          verification_status?:
+            | Database["public"]["Enums"]["document_verification_status"]
+            | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "application_documents_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "admission_applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "application_documents_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "v_application_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "application_documents_document_type_id_fkey"
+            columns: ["document_type_id"]
+            isOneToOne: false
+            referencedRelation: "document_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "application_documents_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "application_documents_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       applications: {
         Row: {
           allowed_redirect_uris: string[] | null
@@ -247,6 +1066,7 @@ export type Database = {
           integration_type: string
           is_active: boolean
           last_auth_activity: string | null
+          lti_tool_id: string | null
           name: string
           rate_limit_requests: number | null
           rate_limit_window_minutes: number | null
@@ -283,6 +1103,7 @@ export type Database = {
           integration_type: string
           is_active?: boolean
           last_auth_activity?: string | null
+          lti_tool_id?: string | null
           name: string
           rate_limit_requests?: number | null
           rate_limit_window_minutes?: number | null
@@ -319,6 +1140,7 @@ export type Database = {
           integration_type?: string
           is_active?: boolean
           last_auth_activity?: string | null
+          lti_tool_id?: string | null
           name?: string
           rate_limit_requests?: number | null
           rate_limit_window_minutes?: number | null
@@ -338,6 +1160,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "applications_lti_tool_id_fkey"
+            columns: ["lti_tool_id"]
+            isOneToOne: false
+            referencedRelation: "lti_tools"
             referencedColumns: ["id"]
           },
         ]
@@ -597,6 +1426,27 @@ export type Database = {
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
           },
+          {
+            foreignKeyName: "fk_billing_invoices_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_billing_invoices_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_invoices_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
         ]
       }
       billing_item_categories: {
@@ -851,6 +1701,27 @@ export type Database = {
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
           },
+          {
+            foreignKeyName: "fk_billing_receipts_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_billing_receipts_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_receipts_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
         ]
       }
       billing_refunds: {
@@ -1040,6 +1911,27 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "billing_item_categories"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_billing_student_bills_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_billing_student_bills_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_student_bills_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
           },
         ]
       }
@@ -1440,6 +2332,1339 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: []
+      }
+      communication_channels: {
+        Row: {
+          channel_type: Database["public"]["Enums"]["communication_channel_type"]
+          config: Json
+          created_at: string | null
+          health_status: string | null
+          id: string
+          institution_id: string | null
+          is_active: boolean | null
+          is_primary: boolean | null
+          last_health_check_at: string | null
+          provider_name: string
+          rate_limit_per_day: number | null
+          rate_limit_per_minute: number | null
+          rate_limit_per_second: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          channel_type: Database["public"]["Enums"]["communication_channel_type"]
+          config?: Json
+          created_at?: string | null
+          health_status?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          is_primary?: boolean | null
+          last_health_check_at?: string | null
+          provider_name: string
+          rate_limit_per_day?: number | null
+          rate_limit_per_minute?: number | null
+          rate_limit_per_second?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          channel_type?: Database["public"]["Enums"]["communication_channel_type"]
+          config?: Json
+          created_at?: string | null
+          health_status?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          is_primary?: boolean | null
+          last_health_check_at?: string | null
+          provider_name?: string
+          rate_limit_per_day?: number | null
+          rate_limit_per_minute?: number | null
+          rate_limit_per_second?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_channels_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_channels_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      communication_log: {
+        Row: {
+          channel: Database["public"]["Enums"]["communication_channel_type"]
+          content: string
+          created_at: string | null
+          delivered_at: string | null
+          direction: Database["public"]["Enums"]["message_direction"]
+          error_message: string | null
+          external_id: string | null
+          failed_at: string | null
+          id: string
+          institution_id: string
+          is_automated: boolean | null
+          lead_id: string
+          metadata: Json | null
+          provider_name: string | null
+          queued_at: string | null
+          read_at: string | null
+          recipient: string
+          replied_at: string | null
+          retry_count: number | null
+          sent_at: string | null
+          sent_by: string | null
+          status: Database["public"]["Enums"]["message_status"] | null
+          subject: string | null
+          template_id: string | null
+        }
+        Insert: {
+          channel: Database["public"]["Enums"]["communication_channel_type"]
+          content: string
+          created_at?: string | null
+          delivered_at?: string | null
+          direction: Database["public"]["Enums"]["message_direction"]
+          error_message?: string | null
+          external_id?: string | null
+          failed_at?: string | null
+          id?: string
+          institution_id: string
+          is_automated?: boolean | null
+          lead_id: string
+          metadata?: Json | null
+          provider_name?: string | null
+          queued_at?: string | null
+          read_at?: string | null
+          recipient: string
+          replied_at?: string | null
+          retry_count?: number | null
+          sent_at?: string | null
+          sent_by?: string | null
+          status?: Database["public"]["Enums"]["message_status"] | null
+          subject?: string | null
+          template_id?: string | null
+        }
+        Update: {
+          channel?: Database["public"]["Enums"]["communication_channel_type"]
+          content?: string
+          created_at?: string | null
+          delivered_at?: string | null
+          direction?: Database["public"]["Enums"]["message_direction"]
+          error_message?: string | null
+          external_id?: string | null
+          failed_at?: string | null
+          id?: string
+          institution_id?: string
+          is_automated?: boolean | null
+          lead_id?: string
+          metadata?: Json | null
+          provider_name?: string | null
+          queued_at?: string | null
+          read_at?: string | null
+          recipient?: string
+          replied_at?: string | null
+          retry_count?: number | null
+          sent_at?: string | null
+          sent_by?: string | null
+          status?: Database["public"]["Enums"]["message_status"] | null
+          subject?: string | null
+          template_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "communication_log_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_log_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+          {
+            foreignKeyName: "communication_log_sent_by_fkey"
+            columns: ["sent_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "communication_log_sent_by_fkey"
+            columns: ["sent_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_log_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "message_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consultant_commission_structures: {
+        Row: {
+          applies_to_all_programs: boolean | null
+          base_amount: number | null
+          base_rate: number | null
+          clawback_conditions: Json | null
+          clawback_enabled: boolean | null
+          clawback_percentage: number | null
+          clawback_period_days: number | null
+          commission_basis: string | null
+          commission_type: string
+          consultant_id: string
+          created_at: string | null
+          created_by: string | null
+          degree_id: string | null
+          department_id: string | null
+          description: string | null
+          effective_from: string
+          effective_to: string | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          milestones: Json
+          name: string
+          priority: number | null
+          program_id: string | null
+          updated_at: string | null
+          updated_by: string | null
+          volume_tiers: Json | null
+          volume_tiers_enabled: boolean | null
+        }
+        Insert: {
+          applies_to_all_programs?: boolean | null
+          base_amount?: number | null
+          base_rate?: number | null
+          clawback_conditions?: Json | null
+          clawback_enabled?: boolean | null
+          clawback_percentage?: number | null
+          clawback_period_days?: number | null
+          commission_basis?: string | null
+          commission_type?: string
+          consultant_id: string
+          created_at?: string | null
+          created_by?: string | null
+          degree_id?: string | null
+          department_id?: string | null
+          description?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          milestones?: Json
+          name: string
+          priority?: number | null
+          program_id?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+          volume_tiers?: Json | null
+          volume_tiers_enabled?: boolean | null
+        }
+        Update: {
+          applies_to_all_programs?: boolean | null
+          base_amount?: number | null
+          base_rate?: number | null
+          clawback_conditions?: Json | null
+          clawback_enabled?: boolean | null
+          clawback_percentage?: number | null
+          clawback_period_days?: number | null
+          commission_basis?: string | null
+          commission_type?: string
+          consultant_id?: string
+          created_at?: string | null
+          created_by?: string | null
+          degree_id?: string | null
+          department_id?: string | null
+          description?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          milestones?: Json
+          name?: string
+          priority?: number | null
+          program_id?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+          volume_tiers?: Json | null
+          volume_tiers_enabled?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consultant_commission_structures_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "education_consultants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_commission_structures_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "v_consultant_performance"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consultant_commission_transactions: {
+        Row: {
+          admission_id: string | null
+          approved_at: string | null
+          approved_by: string | null
+          attribution_id: string | null
+          clawback_reason: string | null
+          commission_basis_amount: number | null
+          commission_rate: number | null
+          consultant_id: string
+          created_at: string | null
+          created_by: string | null
+          gross_amount: number
+          id: string
+          institution_id: string
+          learner_profile_id: string | null
+          milestone_description: string | null
+          milestone_stage: string | null
+          net_amount: number
+          notes: string | null
+          original_transaction_id: string | null
+          other_deductions: number | null
+          payment_date: string | null
+          payment_mode: string | null
+          payment_reference: string | null
+          payout_batch_id: string | null
+          rejection_reason: string | null
+          status: string | null
+          status_history: Json | null
+          tds_amount: number | null
+          tds_percentage: number | null
+          transaction_number: string | null
+          transaction_type: string
+          updated_at: string | null
+          volume_tier_multiplier: number | null
+        }
+        Insert: {
+          admission_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          attribution_id?: string | null
+          clawback_reason?: string | null
+          commission_basis_amount?: number | null
+          commission_rate?: number | null
+          consultant_id: string
+          created_at?: string | null
+          created_by?: string | null
+          gross_amount: number
+          id?: string
+          institution_id: string
+          learner_profile_id?: string | null
+          milestone_description?: string | null
+          milestone_stage?: string | null
+          net_amount: number
+          notes?: string | null
+          original_transaction_id?: string | null
+          other_deductions?: number | null
+          payment_date?: string | null
+          payment_mode?: string | null
+          payment_reference?: string | null
+          payout_batch_id?: string | null
+          rejection_reason?: string | null
+          status?: string | null
+          status_history?: Json | null
+          tds_amount?: number | null
+          tds_percentage?: number | null
+          transaction_number?: string | null
+          transaction_type: string
+          updated_at?: string | null
+          volume_tier_multiplier?: number | null
+        }
+        Update: {
+          admission_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          attribution_id?: string | null
+          clawback_reason?: string | null
+          commission_basis_amount?: number | null
+          commission_rate?: number | null
+          consultant_id?: string
+          created_at?: string | null
+          created_by?: string | null
+          gross_amount?: number
+          id?: string
+          institution_id?: string
+          learner_profile_id?: string | null
+          milestone_description?: string | null
+          milestone_stage?: string | null
+          net_amount?: number
+          notes?: string | null
+          original_transaction_id?: string | null
+          other_deductions?: number | null
+          payment_date?: string | null
+          payment_mode?: string | null
+          payment_reference?: string | null
+          payout_batch_id?: string | null
+          rejection_reason?: string | null
+          status?: string | null
+          status_history?: Json | null
+          tds_amount?: number | null
+          tds_percentage?: number | null
+          transaction_number?: string | null
+          transaction_type?: string
+          updated_at?: string | null
+          volume_tier_multiplier?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consultant_commission_transactions_attribution_id_fkey"
+            columns: ["attribution_id"]
+            isOneToOne: false
+            referencedRelation: "consultant_lead_attributions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_commission_transactions_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "education_consultants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_commission_transactions_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "v_consultant_performance"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consultant_communications: {
+        Row: {
+          attachments: Json | null
+          call_duration_seconds: number | null
+          call_outcome: string | null
+          call_recording_url: string | null
+          communication_type: string
+          consultant_id: string
+          content: string | null
+          content_html: string | null
+          created_at: string | null
+          created_by: string | null
+          direction: string | null
+          email_message_id: string | null
+          email_thread_id: string | null
+          follow_up_completed: boolean | null
+          follow_up_completed_at: string | null
+          follow_up_date: string | null
+          follow_up_notes: string | null
+          follow_up_required: boolean | null
+          follow_up_type: string | null
+          id: string
+          institution_id: string
+          linked_lead_id: string | null
+          linked_transaction_id: string | null
+          meeting_attendees: Json | null
+          meeting_date: string | null
+          meeting_end_date: string | null
+          meeting_location: string | null
+          meeting_outcome: string | null
+          meeting_type: string | null
+          subject: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          attachments?: Json | null
+          call_duration_seconds?: number | null
+          call_outcome?: string | null
+          call_recording_url?: string | null
+          communication_type: string
+          consultant_id: string
+          content?: string | null
+          content_html?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          direction?: string | null
+          email_message_id?: string | null
+          email_thread_id?: string | null
+          follow_up_completed?: boolean | null
+          follow_up_completed_at?: string | null
+          follow_up_date?: string | null
+          follow_up_notes?: string | null
+          follow_up_required?: boolean | null
+          follow_up_type?: string | null
+          id?: string
+          institution_id: string
+          linked_lead_id?: string | null
+          linked_transaction_id?: string | null
+          meeting_attendees?: Json | null
+          meeting_date?: string | null
+          meeting_end_date?: string | null
+          meeting_location?: string | null
+          meeting_outcome?: string | null
+          meeting_type?: string | null
+          subject?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          attachments?: Json | null
+          call_duration_seconds?: number | null
+          call_outcome?: string | null
+          call_recording_url?: string | null
+          communication_type?: string
+          consultant_id?: string
+          content?: string | null
+          content_html?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          direction?: string | null
+          email_message_id?: string | null
+          email_thread_id?: string | null
+          follow_up_completed?: boolean | null
+          follow_up_completed_at?: string | null
+          follow_up_date?: string | null
+          follow_up_notes?: string | null
+          follow_up_required?: boolean | null
+          follow_up_type?: string | null
+          id?: string
+          institution_id?: string
+          linked_lead_id?: string | null
+          linked_transaction_id?: string | null
+          meeting_attendees?: Json | null
+          meeting_date?: string | null
+          meeting_end_date?: string | null
+          meeting_location?: string | null
+          meeting_outcome?: string | null
+          meeting_type?: string | null
+          subject?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consultant_communications_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "education_consultants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_communications_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "v_consultant_performance"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consultant_documents: {
+        Row: {
+          consultant_id: string
+          created_at: string | null
+          document_description: string | null
+          document_name: string
+          document_type: string
+          document_url: string
+          expiry_notification_days: number | null
+          expiry_notification_sent: boolean | null
+          file_size_bytes: number | null
+          id: string
+          institution_id: string
+          is_mandatory: boolean | null
+          is_verified: boolean | null
+          mime_type: string | null
+          previous_version_id: string | null
+          requires_verification: boolean | null
+          status: string | null
+          updated_at: string | null
+          uploaded_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          verification_notes: string | null
+          verified_at: string | null
+          verified_by: string | null
+          version: number | null
+        }
+        Insert: {
+          consultant_id: string
+          created_at?: string | null
+          document_description?: string | null
+          document_name: string
+          document_type: string
+          document_url: string
+          expiry_notification_days?: number | null
+          expiry_notification_sent?: boolean | null
+          file_size_bytes?: number | null
+          id?: string
+          institution_id: string
+          is_mandatory?: boolean | null
+          is_verified?: boolean | null
+          mime_type?: string | null
+          previous_version_id?: string | null
+          requires_verification?: boolean | null
+          status?: string | null
+          updated_at?: string | null
+          uploaded_by?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+          verification_notes?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+          version?: number | null
+        }
+        Update: {
+          consultant_id?: string
+          created_at?: string | null
+          document_description?: string | null
+          document_name?: string
+          document_type?: string
+          document_url?: string
+          expiry_notification_days?: number | null
+          expiry_notification_sent?: boolean | null
+          file_size_bytes?: number | null
+          id?: string
+          institution_id?: string
+          is_mandatory?: boolean | null
+          is_verified?: boolean | null
+          mime_type?: string | null
+          previous_version_id?: string | null
+          requires_verification?: boolean | null
+          status?: string | null
+          updated_at?: string | null
+          uploaded_by?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+          verification_notes?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+          version?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consultant_documents_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "education_consultants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_documents_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "v_consultant_performance"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consultant_lead_attributions: {
+        Row: {
+          admission_id: string | null
+          attribution_percentage: number
+          attribution_type: string | null
+          commission_structure_id: string | null
+          consultant_id: string
+          created_at: string | null
+          current_stage: string | null
+          dispute_reason: string | null
+          dispute_resolved_at: string | null
+          id: string
+          institution_id: string
+          is_disputed: boolean | null
+          is_verified: boolean | null
+          learner_profile_id: string | null
+          notes: string | null
+          referral_code: string | null
+          referral_source: string | null
+          referral_url: string | null
+          stage_history: Json | null
+          updated_at: string | null
+          utm_campaign: string | null
+          utm_medium: string | null
+          utm_source: string | null
+          verification_notes: string | null
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          admission_id?: string | null
+          attribution_percentage?: number
+          attribution_type?: string | null
+          commission_structure_id?: string | null
+          consultant_id: string
+          created_at?: string | null
+          current_stage?: string | null
+          dispute_reason?: string | null
+          dispute_resolved_at?: string | null
+          id?: string
+          institution_id: string
+          is_disputed?: boolean | null
+          is_verified?: boolean | null
+          learner_profile_id?: string | null
+          notes?: string | null
+          referral_code?: string | null
+          referral_source?: string | null
+          referral_url?: string | null
+          stage_history?: Json | null
+          updated_at?: string | null
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          verification_notes?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          admission_id?: string | null
+          attribution_percentage?: number
+          attribution_type?: string | null
+          commission_structure_id?: string | null
+          consultant_id?: string
+          created_at?: string | null
+          current_stage?: string | null
+          dispute_reason?: string | null
+          dispute_resolved_at?: string | null
+          id?: string
+          institution_id?: string
+          is_disputed?: boolean | null
+          is_verified?: boolean | null
+          learner_profile_id?: string | null
+          notes?: string | null
+          referral_code?: string | null
+          referral_source?: string | null
+          referral_url?: string | null
+          stage_history?: Json | null
+          updated_at?: string | null
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          verification_notes?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consultant_lead_attributions_commission_structure_id_fkey"
+            columns: ["commission_structure_id"]
+            isOneToOne: false
+            referencedRelation: "consultant_commission_structures"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_lead_attributions_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "education_consultants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_lead_attributions_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "v_consultant_performance"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consultant_payment_queries: {
+        Row: {
+          assigned_at: string | null
+          assigned_to: string | null
+          attachments: Json | null
+          consultant_id: string
+          created_at: string | null
+          description: string
+          escalated_at: string | null
+          escalated_to: string | null
+          escalation_reason: string | null
+          expected_resolution_date: string | null
+          id: string
+          institution_id: string
+          is_escalated: boolean | null
+          messages: Json | null
+          payout_batch_id: string | null
+          priority: string | null
+          query_number: string | null
+          query_type: string
+          resolution_notes: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          sla_breached: boolean | null
+          status: string | null
+          subject: string
+          transaction_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          assigned_at?: string | null
+          assigned_to?: string | null
+          attachments?: Json | null
+          consultant_id: string
+          created_at?: string | null
+          description: string
+          escalated_at?: string | null
+          escalated_to?: string | null
+          escalation_reason?: string | null
+          expected_resolution_date?: string | null
+          id?: string
+          institution_id: string
+          is_escalated?: boolean | null
+          messages?: Json | null
+          payout_batch_id?: string | null
+          priority?: string | null
+          query_number?: string | null
+          query_type: string
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          sla_breached?: boolean | null
+          status?: string | null
+          subject: string
+          transaction_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          assigned_at?: string | null
+          assigned_to?: string | null
+          attachments?: Json | null
+          consultant_id?: string
+          created_at?: string | null
+          description?: string
+          escalated_at?: string | null
+          escalated_to?: string | null
+          escalation_reason?: string | null
+          expected_resolution_date?: string | null
+          id?: string
+          institution_id?: string
+          is_escalated?: boolean | null
+          messages?: Json | null
+          payout_batch_id?: string | null
+          priority?: string | null
+          query_number?: string | null
+          query_type?: string
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          sla_breached?: boolean | null
+          status?: string | null
+          subject?: string
+          transaction_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consultant_payment_queries_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "education_consultants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_payment_queries_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "v_consultant_performance"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_payment_queries_payout_batch_id_fkey"
+            columns: ["payout_batch_id"]
+            isOneToOne: false
+            referencedRelation: "consultant_payout_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_payment_queries_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "consultant_commission_transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consultant_payout_batches: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          bank_reference: string | null
+          batch_name: string | null
+          batch_number: string | null
+          batch_period_end: string | null
+          batch_period_start: string | null
+          completed_at: string | null
+          created_at: string | null
+          id: string
+          institution_id: string
+          notes: string | null
+          payment_mode: string | null
+          prepared_at: string | null
+          prepared_by: string | null
+          processed_at: string | null
+          processed_by: string | null
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string | null
+          status_history: Json | null
+          total_consultants: number | null
+          total_deductions: number | null
+          total_gross_amount: number | null
+          total_net_amount: number | null
+          total_tds_amount: number | null
+          total_transactions: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          bank_reference?: string | null
+          batch_name?: string | null
+          batch_number?: string | null
+          batch_period_end?: string | null
+          batch_period_start?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          id?: string
+          institution_id: string
+          notes?: string | null
+          payment_mode?: string | null
+          prepared_at?: string | null
+          prepared_by?: string | null
+          processed_at?: string | null
+          processed_by?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string | null
+          status_history?: Json | null
+          total_consultants?: number | null
+          total_deductions?: number | null
+          total_gross_amount?: number | null
+          total_net_amount?: number | null
+          total_tds_amount?: number | null
+          total_transactions?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          bank_reference?: string | null
+          batch_name?: string | null
+          batch_number?: string | null
+          batch_period_end?: string | null
+          batch_period_start?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          id?: string
+          institution_id?: string
+          notes?: string | null
+          payment_mode?: string | null
+          prepared_at?: string | null
+          prepared_by?: string | null
+          processed_at?: string | null
+          processed_by?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string | null
+          status_history?: Json | null
+          total_consultants?: number | null
+          total_deductions?: number | null
+          total_gross_amount?: number | null
+          total_net_amount?: number | null
+          total_tds_amount?: number | null
+          total_transactions?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      counselor_activities: {
+        Row: {
+          activity_data: Json | null
+          activity_type: string
+          counselor_id: string
+          created_at: string | null
+          duration_seconds: number | null
+          id: string
+          institution_id: string
+          lead_id: string | null
+          response_time_seconds: number | null
+        }
+        Insert: {
+          activity_data?: Json | null
+          activity_type: string
+          counselor_id: string
+          created_at?: string | null
+          duration_seconds?: number | null
+          id?: string
+          institution_id: string
+          lead_id?: string | null
+          response_time_seconds?: number | null
+        }
+        Update: {
+          activity_data?: Json | null
+          activity_type?: string
+          counselor_id?: string
+          created_at?: string | null
+          duration_seconds?: number | null
+          id?: string
+          institution_id?: string
+          lead_id?: string | null
+          response_time_seconds?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "counselor_activities_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "counselor_activities_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_activities_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_activities_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "counselor_activities_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_activities_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+        ]
+      }
+      counselor_daily_metrics: {
+        Row: {
+          avg_response_time_seconds: number | null
+          calls_duration_total: number | null
+          calls_made: number | null
+          counselor_id: string
+          created_at: string | null
+          emails_sent: number | null
+          fastest_response_seconds: number | null
+          id: string
+          institution_id: string
+          leads_assigned: number | null
+          leads_contacted: number | null
+          leads_converted: number | null
+          leads_lost: number | null
+          metric_date: string
+          stage_progressions: number | null
+          tasks_completed: number | null
+          tasks_created: number | null
+          updated_at: string | null
+          whatsapp_sent: number | null
+        }
+        Insert: {
+          avg_response_time_seconds?: number | null
+          calls_duration_total?: number | null
+          calls_made?: number | null
+          counselor_id: string
+          created_at?: string | null
+          emails_sent?: number | null
+          fastest_response_seconds?: number | null
+          id?: string
+          institution_id: string
+          leads_assigned?: number | null
+          leads_contacted?: number | null
+          leads_converted?: number | null
+          leads_lost?: number | null
+          metric_date: string
+          stage_progressions?: number | null
+          tasks_completed?: number | null
+          tasks_created?: number | null
+          updated_at?: string | null
+          whatsapp_sent?: number | null
+        }
+        Update: {
+          avg_response_time_seconds?: number | null
+          calls_duration_total?: number | null
+          calls_made?: number | null
+          counselor_id?: string
+          created_at?: string | null
+          emails_sent?: number | null
+          fastest_response_seconds?: number | null
+          id?: string
+          institution_id?: string
+          leads_assigned?: number | null
+          leads_contacted?: number | null
+          leads_converted?: number | null
+          leads_lost?: number | null
+          metric_date?: string
+          stage_progressions?: number | null
+          tasks_completed?: number | null
+          tasks_created?: number | null
+          updated_at?: string | null
+          whatsapp_sent?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "counselor_daily_metrics_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "counselor_daily_metrics_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_daily_metrics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_daily_metrics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      counselor_metrics_daily: {
+        Row: {
+          avg_first_response_minutes: number | null
+          avg_task_completion_hours: number | null
+          call_duration_minutes: number | null
+          calls_connected: number | null
+          calls_made: number | null
+          counselor_id: string
+          created_at: string | null
+          escalations_received: number | null
+          escalations_resolved: number | null
+          id: string
+          institution_id: string
+          leads_contacted: number | null
+          leads_converted: number | null
+          leads_lost: number | null
+          leads_qualified: number | null
+          leads_responded_outside_sla: number | null
+          leads_responded_within_sla: number | null
+          messages_replied: number | null
+          messages_sent: number | null
+          metric_date: string
+          new_leads_assigned: number | null
+          tasks_assigned: number | null
+          tasks_completed: number | null
+          tasks_overdue: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          avg_first_response_minutes?: number | null
+          avg_task_completion_hours?: number | null
+          call_duration_minutes?: number | null
+          calls_connected?: number | null
+          calls_made?: number | null
+          counselor_id: string
+          created_at?: string | null
+          escalations_received?: number | null
+          escalations_resolved?: number | null
+          id?: string
+          institution_id: string
+          leads_contacted?: number | null
+          leads_converted?: number | null
+          leads_lost?: number | null
+          leads_qualified?: number | null
+          leads_responded_outside_sla?: number | null
+          leads_responded_within_sla?: number | null
+          messages_replied?: number | null
+          messages_sent?: number | null
+          metric_date: string
+          new_leads_assigned?: number | null
+          tasks_assigned?: number | null
+          tasks_completed?: number | null
+          tasks_overdue?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          avg_first_response_minutes?: number | null
+          avg_task_completion_hours?: number | null
+          call_duration_minutes?: number | null
+          calls_connected?: number | null
+          calls_made?: number | null
+          counselor_id?: string
+          created_at?: string | null
+          escalations_received?: number | null
+          escalations_resolved?: number | null
+          id?: string
+          institution_id?: string
+          leads_contacted?: number | null
+          leads_converted?: number | null
+          leads_lost?: number | null
+          leads_qualified?: number | null
+          leads_responded_outside_sla?: number | null
+          leads_responded_within_sla?: number | null
+          messages_replied?: number | null
+          messages_sent?: number | null
+          metric_date?: string
+          new_leads_assigned?: number | null
+          tasks_assigned?: number | null
+          tasks_completed?: number | null
+          tasks_overdue?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "counselor_metrics_daily_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "counselor_metrics_daily_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_metrics_daily_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_metrics_daily_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      counselor_targets: {
+        Row: {
+          calls_to_make: number | null
+          conversion_rate_target: number | null
+          counselor_id: string | null
+          created_at: string | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          leads_to_contact: number | null
+          max_response_time_hours: number | null
+          target_period: string
+          tasks_to_complete: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          calls_to_make?: number | null
+          conversion_rate_target?: number | null
+          counselor_id?: string | null
+          created_at?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          leads_to_contact?: number | null
+          max_response_time_hours?: number | null
+          target_period: string
+          tasks_to_complete?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          calls_to_make?: number | null
+          conversion_rate_target?: number | null
+          counselor_id?: string | null
+          created_at?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          leads_to_contact?: number | null
+          max_response_time_hours?: number | null
+          target_period?: string
+          tasks_to_complete?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "counselor_targets_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "counselor_targets_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_targets_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_targets_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
       }
       course_mappings: {
         Row: {
@@ -1864,6 +4089,338 @@ export type Database = {
           },
         ]
       }
+      distribution_rules: {
+        Row: {
+          assignment_type: Database["public"]["Enums"]["assignment_type"]
+          conditions: Json
+          created_at: string | null
+          created_by: string | null
+          current_index: number | null
+          description: string | null
+          id: string
+          institution_id: string | null
+          is_active: boolean | null
+          max_leads_per_counselor: number | null
+          name: string
+          priority: number | null
+          required_skills: string[] | null
+          target_counselor_ids: string[] | null
+          target_team_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          assignment_type?: Database["public"]["Enums"]["assignment_type"]
+          conditions?: Json
+          created_at?: string | null
+          created_by?: string | null
+          current_index?: number | null
+          description?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          max_leads_per_counselor?: number | null
+          name: string
+          priority?: number | null
+          required_skills?: string[] | null
+          target_counselor_ids?: string[] | null
+          target_team_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          assignment_type?: Database["public"]["Enums"]["assignment_type"]
+          conditions?: Json
+          created_at?: string | null
+          created_by?: string | null
+          current_index?: number | null
+          description?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          max_leads_per_counselor?: number | null
+          name?: string
+          priority?: number | null
+          required_skills?: string[] | null
+          target_counselor_ids?: string[] | null
+          target_team_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "distribution_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "distribution_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "distribution_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "distribution_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      document_types: {
+        Row: {
+          allowed_extensions: string[] | null
+          applies_to_categories: string[] | null
+          applies_to_programs: string[] | null
+          code: string
+          created_at: string | null
+          description: string | null
+          display_order: number | null
+          help_text: string | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          is_required: boolean | null
+          max_file_size_mb: number | null
+          name: string
+        }
+        Insert: {
+          allowed_extensions?: string[] | null
+          applies_to_categories?: string[] | null
+          applies_to_programs?: string[] | null
+          code: string
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          help_text?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          is_required?: boolean | null
+          max_file_size_mb?: number | null
+          name: string
+        }
+        Update: {
+          allowed_extensions?: string[] | null
+          applies_to_categories?: string[] | null
+          applies_to_programs?: string[] | null
+          code?: string
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          help_text?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          is_required?: boolean | null
+          max_file_size_mb?: number | null
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_types_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_types_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      education_consultants: {
+        Row: {
+          address_line1: string | null
+          address_line2: string | null
+          alternate_phone: string | null
+          bank_account_number: string | null
+          bank_branch: string | null
+          bank_ifsc: string | null
+          bank_name: string | null
+          city: string | null
+          code: string | null
+          company_name: string | null
+          company_registration_no: string | null
+          consultant_type: string
+          contact_person: string | null
+          contract_document_url: string | null
+          contract_end_date: string | null
+          contract_start_date: string | null
+          contract_status: string | null
+          contract_terms: Json | null
+          conversion_rate: number | null
+          country: string | null
+          covered_cities: Json | null
+          covered_regions: Json | null
+          covered_states: Json | null
+          created_at: string | null
+          created_by: string | null
+          email: string | null
+          gst_number: string | null
+          id: string
+          institution_id: string
+          internal_notes: string | null
+          learner_profile_id: string | null
+          name: string
+          onboarded_at: string | null
+          onboarded_by: string | null
+          pan_number: string | null
+          payment_preference: string | null
+          pending_commission: number | null
+          performance_rating: number | null
+          phone: string | null
+          pincode: string | null
+          profile_photo_url: string | null
+          referrer_user_id: string | null
+          relationship_score: number | null
+          specialized_degrees: string[] | null
+          specialized_departments: string[] | null
+          specialized_programs: string[] | null
+          state: string | null
+          status: string | null
+          tags: Json | null
+          tier: Database["public"]["Enums"]["consultant_tier"]
+          total_commission_earned: number | null
+          total_commission_paid: number | null
+          total_conversions: number | null
+          total_leads_referred: number | null
+          updated_at: string | null
+          updated_by: string | null
+          upi_id: string | null
+        }
+        Insert: {
+          address_line1?: string | null
+          address_line2?: string | null
+          alternate_phone?: string | null
+          bank_account_number?: string | null
+          bank_branch?: string | null
+          bank_ifsc?: string | null
+          bank_name?: string | null
+          city?: string | null
+          code?: string | null
+          company_name?: string | null
+          company_registration_no?: string | null
+          consultant_type?: string
+          contact_person?: string | null
+          contract_document_url?: string | null
+          contract_end_date?: string | null
+          contract_start_date?: string | null
+          contract_status?: string | null
+          contract_terms?: Json | null
+          conversion_rate?: number | null
+          country?: string | null
+          covered_cities?: Json | null
+          covered_regions?: Json | null
+          covered_states?: Json | null
+          created_at?: string | null
+          created_by?: string | null
+          email?: string | null
+          gst_number?: string | null
+          id?: string
+          institution_id: string
+          internal_notes?: string | null
+          learner_profile_id?: string | null
+          name: string
+          onboarded_at?: string | null
+          onboarded_by?: string | null
+          pan_number?: string | null
+          payment_preference?: string | null
+          pending_commission?: number | null
+          performance_rating?: number | null
+          phone?: string | null
+          pincode?: string | null
+          profile_photo_url?: string | null
+          referrer_user_id?: string | null
+          relationship_score?: number | null
+          specialized_degrees?: string[] | null
+          specialized_departments?: string[] | null
+          specialized_programs?: string[] | null
+          state?: string | null
+          status?: string | null
+          tags?: Json | null
+          tier?: Database["public"]["Enums"]["consultant_tier"]
+          total_commission_earned?: number | null
+          total_commission_paid?: number | null
+          total_conversions?: number | null
+          total_leads_referred?: number | null
+          updated_at?: string | null
+          updated_by?: string | null
+          upi_id?: string | null
+        }
+        Update: {
+          address_line1?: string | null
+          address_line2?: string | null
+          alternate_phone?: string | null
+          bank_account_number?: string | null
+          bank_branch?: string | null
+          bank_ifsc?: string | null
+          bank_name?: string | null
+          city?: string | null
+          code?: string | null
+          company_name?: string | null
+          company_registration_no?: string | null
+          consultant_type?: string
+          contact_person?: string | null
+          contract_document_url?: string | null
+          contract_end_date?: string | null
+          contract_start_date?: string | null
+          contract_status?: string | null
+          contract_terms?: Json | null
+          conversion_rate?: number | null
+          country?: string | null
+          covered_cities?: Json | null
+          covered_regions?: Json | null
+          covered_states?: Json | null
+          created_at?: string | null
+          created_by?: string | null
+          email?: string | null
+          gst_number?: string | null
+          id?: string
+          institution_id?: string
+          internal_notes?: string | null
+          learner_profile_id?: string | null
+          name?: string
+          onboarded_at?: string | null
+          onboarded_by?: string | null
+          pan_number?: string | null
+          payment_preference?: string | null
+          pending_commission?: number | null
+          performance_rating?: number | null
+          phone?: string | null
+          pincode?: string | null
+          profile_photo_url?: string | null
+          referrer_user_id?: string | null
+          relationship_score?: number | null
+          specialized_degrees?: string[] | null
+          specialized_departments?: string[] | null
+          specialized_programs?: string[] | null
+          state?: string | null
+          status?: string | null
+          tags?: Json | null
+          tier?: Database["public"]["Enums"]["consultant_tier"]
+          total_commission_earned?: number | null
+          total_commission_paid?: number | null
+          total_conversions?: number | null
+          total_leads_referred?: number | null
+          updated_at?: string | null
+          updated_by?: string | null
+          upi_id?: string | null
+        }
+        Relationships: []
+      }
       employment_categories: {
         Row: {
           category_name: string
@@ -1896,6 +4453,1506 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: []
+      }
+      escalation_log: {
+        Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          created_at: string | null
+          escalated_from: string | null
+          escalated_to: string | null
+          id: string
+          institution_id: string
+          lead_id: string
+          notes: string | null
+          resolution_notes: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          rule_id: string
+          status: Database["public"]["Enums"]["escalation_status"] | null
+          trigger_data: Json | null
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          created_at?: string | null
+          escalated_from?: string | null
+          escalated_to?: string | null
+          id?: string
+          institution_id: string
+          lead_id: string
+          notes?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          rule_id: string
+          status?: Database["public"]["Enums"]["escalation_status"] | null
+          trigger_data?: Json | null
+        }
+        Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          created_at?: string | null
+          escalated_from?: string | null
+          escalated_to?: string | null
+          id?: string
+          institution_id?: string
+          lead_id?: string
+          notes?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          rule_id?: string
+          status?: Database["public"]["Enums"]["escalation_status"] | null
+          trigger_data?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "escalation_log_acknowledged_by_fkey"
+            columns: ["acknowledged_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "escalation_log_acknowledged_by_fkey"
+            columns: ["acknowledged_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_log_escalated_from_fkey"
+            columns: ["escalated_from"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "escalation_log_escalated_from_fkey"
+            columns: ["escalated_from"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_log_escalated_to_fkey"
+            columns: ["escalated_to"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "escalation_log_escalated_to_fkey"
+            columns: ["escalated_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "escalation_log_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_log_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+          {
+            foreignKeyName: "escalation_log_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "escalation_log_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_log_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "escalation_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      escalation_rules: {
+        Row: {
+          cooldown_hours: number | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          escalate_to: string | null
+          escalate_to_role: string | null
+          id: string
+          include_lead_history: boolean | null
+          institution_id: string
+          is_active: boolean | null
+          name: string
+          notification_channels: string[] | null
+          notification_template_id: string | null
+          priority: number | null
+          trigger_condition: Json
+          updated_at: string | null
+        }
+        Insert: {
+          cooldown_hours?: number | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          escalate_to?: string | null
+          escalate_to_role?: string | null
+          id?: string
+          include_lead_history?: boolean | null
+          institution_id: string
+          is_active?: boolean | null
+          name: string
+          notification_channels?: string[] | null
+          notification_template_id?: string | null
+          priority?: number | null
+          trigger_condition: Json
+          updated_at?: string | null
+        }
+        Update: {
+          cooldown_hours?: number | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          escalate_to?: string | null
+          escalate_to_role?: string | null
+          id?: string
+          include_lead_history?: boolean | null
+          institution_id?: string
+          is_active?: boolean | null
+          name?: string
+          notification_channels?: string[] | null
+          notification_template_id?: string | null
+          priority?: number | null
+          trigger_condition?: Json
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "escalation_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "escalation_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_rules_escalate_to_fkey"
+            columns: ["escalate_to"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "escalation_rules_escalate_to_fkey"
+            columns: ["escalate_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      funnel_alert_thresholds: {
+        Row: {
+          avg_time_critical: number | null
+          avg_time_warning: number | null
+          created_at: string | null
+          critical_threshold: number | null
+          id: string
+          institution_id: string | null
+          is_active: boolean | null
+          stage: string
+          stuck_days_critical: number | null
+          stuck_days_warning: number | null
+          updated_at: string | null
+          warning_threshold: number | null
+        }
+        Insert: {
+          avg_time_critical?: number | null
+          avg_time_warning?: number | null
+          created_at?: string | null
+          critical_threshold?: number | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          stage: string
+          stuck_days_critical?: number | null
+          stuck_days_warning?: number | null
+          updated_at?: string | null
+          warning_threshold?: number | null
+        }
+        Update: {
+          avg_time_critical?: number | null
+          avg_time_warning?: number | null
+          created_at?: string | null
+          critical_threshold?: number | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          stage?: string
+          stuck_days_critical?: number | null
+          stuck_days_warning?: number | null
+          updated_at?: string | null
+          warning_threshold?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "funnel_alert_thresholds_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "funnel_alert_thresholds_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      funnel_snapshots: {
+        Row: {
+          conversion_rates: Json | null
+          created_at: string | null
+          funnel_data: Json
+          id: string
+          institution_id: string
+          program_data: Json | null
+          snapshot_date: string
+          snapshot_type: string
+          source_data: Json | null
+        }
+        Insert: {
+          conversion_rates?: Json | null
+          created_at?: string | null
+          funnel_data: Json
+          id?: string
+          institution_id: string
+          program_data?: Json | null
+          snapshot_date: string
+          snapshot_type: string
+          source_data?: Json | null
+        }
+        Update: {
+          conversion_rates?: Json | null
+          created_at?: string | null
+          funnel_data?: Json
+          id?: string
+          institution_id?: string
+          program_data?: Json | null
+          snapshot_date?: string
+          snapshot_type?: string
+          source_data?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "funnel_snapshots_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "funnel_snapshots_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      hostel_allocation_requests: {
+        Row: {
+          allocated_bed_id: string | null
+          allocation_id: string | null
+          application_id: string | null
+          created_at: string | null
+          has_medical_condition: boolean | null
+          id: string
+          institution_id: string
+          medical_notes: string | null
+          prefer_ac: boolean | null
+          prefer_attached_bathroom: boolean | null
+          preferred_floor: number | null
+          preferred_hostel_id: string | null
+          preferred_hostel_type: string | null
+          preferred_room_type: string | null
+          preferred_roommate_ids: string[] | null
+          processed_at: string | null
+          processed_by: string | null
+          rejection_reason: string | null
+          request_for_semester: string | null
+          request_for_year: string
+          request_status: string | null
+          special_requirements: string | null
+          student_id: string
+          updated_at: string | null
+          waitlist_position: number | null
+        }
+        Insert: {
+          allocated_bed_id?: string | null
+          allocation_id?: string | null
+          application_id?: string | null
+          created_at?: string | null
+          has_medical_condition?: boolean | null
+          id?: string
+          institution_id: string
+          medical_notes?: string | null
+          prefer_ac?: boolean | null
+          prefer_attached_bathroom?: boolean | null
+          preferred_floor?: number | null
+          preferred_hostel_id?: string | null
+          preferred_hostel_type?: string | null
+          preferred_room_type?: string | null
+          preferred_roommate_ids?: string[] | null
+          processed_at?: string | null
+          processed_by?: string | null
+          rejection_reason?: string | null
+          request_for_semester?: string | null
+          request_for_year: string
+          request_status?: string | null
+          special_requirements?: string | null
+          student_id: string
+          updated_at?: string | null
+          waitlist_position?: number | null
+        }
+        Update: {
+          allocated_bed_id?: string | null
+          allocation_id?: string | null
+          application_id?: string | null
+          created_at?: string | null
+          has_medical_condition?: boolean | null
+          id?: string
+          institution_id?: string
+          medical_notes?: string | null
+          prefer_ac?: boolean | null
+          prefer_attached_bathroom?: boolean | null
+          preferred_floor?: number | null
+          preferred_hostel_id?: string | null
+          preferred_hostel_type?: string | null
+          preferred_room_type?: string | null
+          preferred_roommate_ids?: string[] | null
+          processed_at?: string | null
+          processed_by?: string | null
+          rejection_reason?: string | null
+          request_for_semester?: string | null
+          request_for_year?: string
+          request_status?: string | null
+          special_requirements?: string | null
+          student_id?: string
+          updated_at?: string | null
+          waitlist_position?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_allocation_requests_allocated_bed_id_fkey"
+            columns: ["allocated_bed_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["bed_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocation_requests_allocated_bed_id_fkey"
+            columns: ["allocated_bed_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_beds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_allocation_requests_allocation_id_fkey"
+            columns: ["allocation_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["allocation_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocation_requests_allocation_id_fkey"
+            columns: ["allocation_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_allocations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_allocation_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_allocation_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocation_requests_preferred_hostel_id_fkey"
+            columns: ["preferred_hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocation_requests_preferred_hostel_id_fkey"
+            columns: ["preferred_hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_occupancy_summary"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocation_requests_preferred_hostel_id_fkey"
+            columns: ["preferred_hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_allocation_requests_processed_by_fkey"
+            columns: ["processed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocation_requests_processed_by_fkey"
+            columns: ["processed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_allocations: {
+        Row: {
+          academic_year: string
+          agreed_fee_per_month: number | null
+          agreed_fee_per_semester: number | null
+          allocation_status: string | null
+          application_id: string | null
+          approved_at: string | null
+          approved_by: string | null
+          bed_id: string
+          checked_in_at: string | null
+          checked_out_at: string | null
+          created_at: string | null
+          created_by: string | null
+          end_date: string | null
+          fee_paid_till: string | null
+          hostel_id: string
+          id: string
+          institution_id: string
+          metadata: Json | null
+          room_id: string
+          semester: string | null
+          start_date: string
+          student_id: string
+          student_type: string
+          updated_at: string | null
+          vacate_note: string | null
+          vacate_reason: string | null
+        }
+        Insert: {
+          academic_year: string
+          agreed_fee_per_month?: number | null
+          agreed_fee_per_semester?: number | null
+          allocation_status?: string | null
+          application_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          bed_id: string
+          checked_in_at?: string | null
+          checked_out_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          end_date?: string | null
+          fee_paid_till?: string | null
+          hostel_id: string
+          id?: string
+          institution_id: string
+          metadata?: Json | null
+          room_id: string
+          semester?: string | null
+          start_date: string
+          student_id: string
+          student_type: string
+          updated_at?: string | null
+          vacate_note?: string | null
+          vacate_reason?: string | null
+        }
+        Update: {
+          academic_year?: string
+          agreed_fee_per_month?: number | null
+          agreed_fee_per_semester?: number | null
+          allocation_status?: string | null
+          application_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          bed_id?: string
+          checked_in_at?: string | null
+          checked_out_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          end_date?: string | null
+          fee_paid_till?: string | null
+          hostel_id?: string
+          id?: string
+          institution_id?: string
+          metadata?: Json | null
+          room_id?: string
+          semester?: string | null
+          start_date?: string
+          student_id?: string
+          student_type?: string
+          updated_at?: string | null
+          vacate_note?: string | null
+          vacate_reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_allocations_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_bed_id_fkey"
+            columns: ["bed_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["bed_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_bed_id_fkey"
+            columns: ["bed_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_beds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_occupancy_summary"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["room_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_room_availability"
+            referencedColumns: ["room_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_attendance: {
+        Row: {
+          allocation_id: string
+          attendance_date: string
+          check_in_time: string | null
+          check_out_time: string | null
+          expected_return_date: string | null
+          id: string
+          leave_reason: string | null
+          leave_type: string | null
+          marked_at: string | null
+          marked_by: string | null
+          status: string | null
+        }
+        Insert: {
+          allocation_id: string
+          attendance_date: string
+          check_in_time?: string | null
+          check_out_time?: string | null
+          expected_return_date?: string | null
+          id?: string
+          leave_reason?: string | null
+          leave_type?: string | null
+          marked_at?: string | null
+          marked_by?: string | null
+          status?: string | null
+        }
+        Update: {
+          allocation_id?: string
+          attendance_date?: string
+          check_in_time?: string | null
+          check_out_time?: string | null
+          expected_return_date?: string | null
+          id?: string
+          leave_reason?: string | null
+          leave_type?: string | null
+          marked_at?: string | null
+          marked_by?: string | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_attendance_allocation_id_fkey"
+            columns: ["allocation_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["allocation_id"]
+          },
+          {
+            foreignKeyName: "hostel_attendance_allocation_id_fkey"
+            columns: ["allocation_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_allocations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_attendance_marked_by_fkey"
+            columns: ["marked_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_attendance_marked_by_fkey"
+            columns: ["marked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_beds: {
+        Row: {
+          bed_number: string
+          bed_position: string | null
+          bed_status: string | null
+          created_at: string | null
+          current_allocation_id: string | null
+          current_occupant_id: string | null
+          id: string
+          room_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          bed_number: string
+          bed_position?: string | null
+          bed_status?: string | null
+          created_at?: string | null
+          current_allocation_id?: string | null
+          current_occupant_id?: string | null
+          id?: string
+          room_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          bed_number?: string
+          bed_position?: string | null
+          bed_status?: string | null
+          created_at?: string | null
+          current_allocation_id?: string | null
+          current_occupant_id?: string | null
+          id?: string
+          room_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_beds_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["room_id"]
+          },
+          {
+            foreignKeyName: "hostel_beds_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_room_availability"
+            referencedColumns: ["room_id"]
+          },
+          {
+            foreignKeyName: "hostel_beds_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_complaints: {
+        Row: {
+          allocation_id: string | null
+          assigned_at: string | null
+          assigned_to: string | null
+          attachment_urls: string[] | null
+          category: string
+          complaint_status: string | null
+          created_at: string | null
+          description: string
+          feedback: string | null
+          hostel_id: string
+          id: string
+          institution_id: string
+          priority: string | null
+          reported_by: string
+          resolution_notes: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          room_id: string | null
+          satisfaction_rating: number | null
+          subject: string
+          updated_at: string | null
+        }
+        Insert: {
+          allocation_id?: string | null
+          assigned_at?: string | null
+          assigned_to?: string | null
+          attachment_urls?: string[] | null
+          category: string
+          complaint_status?: string | null
+          created_at?: string | null
+          description: string
+          feedback?: string | null
+          hostel_id: string
+          id?: string
+          institution_id: string
+          priority?: string | null
+          reported_by: string
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          room_id?: string | null
+          satisfaction_rating?: number | null
+          subject: string
+          updated_at?: string | null
+        }
+        Update: {
+          allocation_id?: string | null
+          assigned_at?: string | null
+          assigned_to?: string | null
+          attachment_urls?: string[] | null
+          category?: string
+          complaint_status?: string | null
+          created_at?: string | null
+          description?: string
+          feedback?: string | null
+          hostel_id?: string
+          id?: string
+          institution_id?: string
+          priority?: string | null
+          reported_by?: string
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          room_id?: string | null
+          satisfaction_rating?: number | null
+          subject?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_complaints_allocation_id_fkey"
+            columns: ["allocation_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["allocation_id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_allocation_id_fkey"
+            columns: ["allocation_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_allocations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_occupancy_summary"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_reported_by_fkey"
+            columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_reported_by_fkey"
+            columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["room_id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_room_availability"
+            referencedColumns: ["room_id"]
+          },
+          {
+            foreignKeyName: "hostel_complaints_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_fee_structure: {
+        Row: {
+          ac_charges_per_month: number | null
+          academic_year: string
+          created_at: string | null
+          effective_from: string
+          effective_till: string | null
+          electricity_charges: number | null
+          hostel_id: string
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          laundry_charges_per_month: number | null
+          maintenance_charges: number | null
+          mess_fee_per_month: number | null
+          mess_fee_per_semester: number | null
+          room_rent_per_month: number | null
+          room_rent_per_semester: number | null
+          room_type: string
+          security_deposit: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          ac_charges_per_month?: number | null
+          academic_year: string
+          created_at?: string | null
+          effective_from: string
+          effective_till?: string | null
+          electricity_charges?: number | null
+          hostel_id: string
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          laundry_charges_per_month?: number | null
+          maintenance_charges?: number | null
+          mess_fee_per_month?: number | null
+          mess_fee_per_semester?: number | null
+          room_rent_per_month?: number | null
+          room_rent_per_semester?: number | null
+          room_type: string
+          security_deposit?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          ac_charges_per_month?: number | null
+          academic_year?: string
+          created_at?: string | null
+          effective_from?: string
+          effective_till?: string | null
+          electricity_charges?: number | null
+          hostel_id?: string
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          laundry_charges_per_month?: number | null
+          maintenance_charges?: number | null
+          mess_fee_per_month?: number | null
+          mess_fee_per_semester?: number | null
+          room_rent_per_month?: number | null
+          room_rent_per_semester?: number | null
+          room_type?: string
+          security_deposit?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_fee_structure_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_fee_structure_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_occupancy_summary"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_fee_structure_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_fee_structure_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_fee_structure_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      hostel_floors: {
+        Row: {
+          created_at: string | null
+          floor_name: string | null
+          floor_number: number
+          floor_warden_id: string | null
+          hostel_id: string
+          id: string
+          is_active: boolean | null
+          total_beds: number | null
+          total_rooms: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          floor_name?: string | null
+          floor_number: number
+          floor_warden_id?: string | null
+          hostel_id: string
+          id?: string
+          is_active?: boolean | null
+          total_beds?: number | null
+          total_rooms?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          floor_name?: string | null
+          floor_number?: number
+          floor_warden_id?: string | null
+          hostel_id?: string
+          id?: string
+          is_active?: boolean | null
+          total_beds?: number | null
+          total_rooms?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_floors_floor_warden_id_fkey"
+            columns: ["floor_warden_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_floors_floor_warden_id_fkey"
+            columns: ["floor_warden_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_floors_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_floors_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_occupancy_summary"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_floors_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_rooms: {
+        Row: {
+          created_at: string | null
+          fee_modifier_per_month: number | null
+          fee_modifier_per_semester: number | null
+          floor_id: string
+          has_ac: boolean | null
+          has_attached_bathroom: boolean | null
+          has_balcony: boolean | null
+          has_study_table: boolean | null
+          has_wardrobe: boolean | null
+          hostel_id: string
+          id: string
+          is_active: boolean | null
+          last_maintenance_at: string | null
+          next_maintenance_at: string | null
+          occupied_beds: number | null
+          room_number: string
+          room_status: string | null
+          room_type: string
+          total_beds: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          fee_modifier_per_month?: number | null
+          fee_modifier_per_semester?: number | null
+          floor_id: string
+          has_ac?: boolean | null
+          has_attached_bathroom?: boolean | null
+          has_balcony?: boolean | null
+          has_study_table?: boolean | null
+          has_wardrobe?: boolean | null
+          hostel_id: string
+          id?: string
+          is_active?: boolean | null
+          last_maintenance_at?: string | null
+          next_maintenance_at?: string | null
+          occupied_beds?: number | null
+          room_number: string
+          room_status?: string | null
+          room_type: string
+          total_beds?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          fee_modifier_per_month?: number | null
+          fee_modifier_per_semester?: number | null
+          floor_id?: string
+          has_ac?: boolean | null
+          has_attached_bathroom?: boolean | null
+          has_balcony?: boolean | null
+          has_study_table?: boolean | null
+          has_wardrobe?: boolean | null
+          hostel_id?: string
+          id?: string
+          is_active?: boolean | null
+          last_maintenance_at?: string | null
+          next_maintenance_at?: string | null
+          occupied_beds?: number | null
+          room_number?: string
+          room_status?: string | null
+          room_type?: string
+          total_beds?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_rooms_floor_id_fkey"
+            columns: ["floor_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_floors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_rooms_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_rooms_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_occupancy_summary"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_rooms_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_wardens: {
+        Row: {
+          created_at: string | null
+          duty_phone: string | null
+          end_date: string | null
+          floor_id: string | null
+          hostel_id: string
+          id: string
+          is_active: boolean | null
+          start_date: string
+          updated_at: string | null
+          warden_id: string
+          warden_type: string
+        }
+        Insert: {
+          created_at?: string | null
+          duty_phone?: string | null
+          end_date?: string | null
+          floor_id?: string | null
+          hostel_id: string
+          id?: string
+          is_active?: boolean | null
+          start_date: string
+          updated_at?: string | null
+          warden_id: string
+          warden_type: string
+        }
+        Update: {
+          created_at?: string | null
+          duty_phone?: string | null
+          end_date?: string | null
+          floor_id?: string | null
+          hostel_id?: string
+          id?: string
+          is_active?: boolean | null
+          start_date?: string
+          updated_at?: string | null
+          warden_id?: string
+          warden_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_wardens_floor_id_fkey"
+            columns: ["floor_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_floors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_wardens_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_wardens_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_occupancy_summary"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_wardens_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_wardens_warden_id_fkey"
+            columns: ["warden_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_wardens_warden_id_fkey"
+            columns: ["warden_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostels: {
+        Row: {
+          address: string | null
+          amenities: string[] | null
+          base_fee_per_month: number | null
+          base_fee_per_semester: number | null
+          chief_warden_id: string | null
+          contact_email: string | null
+          contact_phone: string | null
+          created_at: string | null
+          created_by: string | null
+          hostel_code: string
+          hostel_name: string
+          hostel_type: string
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          landmark: string | null
+          latitude: number | null
+          longitude: number | null
+          metadata: Json | null
+          total_beds: number | null
+          total_floors: number | null
+          total_rooms: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          address?: string | null
+          amenities?: string[] | null
+          base_fee_per_month?: number | null
+          base_fee_per_semester?: number | null
+          chief_warden_id?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          hostel_code: string
+          hostel_name: string
+          hostel_type: string
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          landmark?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          metadata?: Json | null
+          total_beds?: number | null
+          total_floors?: number | null
+          total_rooms?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          address?: string | null
+          amenities?: string[] | null
+          base_fee_per_month?: number | null
+          base_fee_per_semester?: number | null
+          chief_warden_id?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          hostel_code?: string
+          hostel_name?: string
+          hostel_type?: string
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          landmark?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          metadata?: Json | null
+          total_beds?: number | null
+          total_floors?: number | null
+          total_rooms?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostels_chief_warden_id_fkey"
+            columns: ["chief_warden_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostels_chief_warden_id_fkey"
+            columns: ["chief_warden_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostels_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostels_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostels_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostels_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
       }
       institution_leaves: {
         Row: {
@@ -2044,6 +6101,8 @@ export type Database = {
           created_by: string | null
           email: string | null
           id: string
+          institution_code: string | null
+          institution_name: string | null
           institution_type: string | null
           is_active: boolean | null
           logo_url: string | null
@@ -2074,6 +6133,8 @@ export type Database = {
           created_by?: string | null
           email?: string | null
           id?: string
+          institution_code?: string | null
+          institution_name?: string | null
           institution_type?: string | null
           is_active?: boolean | null
           logo_url?: string | null
@@ -2104,6 +6165,8 @@ export type Database = {
           created_by?: string | null
           email?: string | null
           id?: string
+          institution_code?: string | null
+          institution_name?: string | null
           institution_type?: string | null
           is_active?: boolean | null
           logo_url?: string | null
@@ -2119,60 +6182,1128 @@ export type Database = {
         }
         Relationships: []
       }
+      interview_bookings: {
+        Row: {
+          application_id: string
+          booked_at: string | null
+          booked_by: string | null
+          completed_at: string | null
+          created_at: string | null
+          feedback: Json | null
+          id: string
+          institution_id: string
+          internal_notes: string | null
+          interviewer_notes: string | null
+          outcome: Database["public"]["Enums"]["interview_outcome"] | null
+          panel_members: string[] | null
+          previous_slot_id: string | null
+          score: number | null
+          slot_id: string
+          status: Database["public"]["Enums"]["interview_status"] | null
+          updated_at: string | null
+        }
+        Insert: {
+          application_id: string
+          booked_at?: string | null
+          booked_by?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          feedback?: Json | null
+          id?: string
+          institution_id: string
+          internal_notes?: string | null
+          interviewer_notes?: string | null
+          outcome?: Database["public"]["Enums"]["interview_outcome"] | null
+          panel_members?: string[] | null
+          previous_slot_id?: string | null
+          score?: number | null
+          slot_id: string
+          status?: Database["public"]["Enums"]["interview_status"] | null
+          updated_at?: string | null
+        }
+        Update: {
+          application_id?: string
+          booked_at?: string | null
+          booked_by?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          feedback?: Json | null
+          id?: string
+          institution_id?: string
+          internal_notes?: string | null
+          interviewer_notes?: string | null
+          outcome?: Database["public"]["Enums"]["interview_outcome"] | null
+          panel_members?: string[] | null
+          previous_slot_id?: string | null
+          score?: number | null
+          slot_id?: string
+          status?: Database["public"]["Enums"]["interview_status"] | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interview_bookings_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "admission_applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interview_bookings_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "v_application_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interview_bookings_booked_by_fkey"
+            columns: ["booked_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "interview_bookings_booked_by_fkey"
+            columns: ["booked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interview_bookings_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interview_bookings_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "interview_bookings_slot_id_fkey"
+            columns: ["slot_id"]
+            isOneToOne: false
+            referencedRelation: "interview_slots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      interview_slots: {
+        Row: {
+          booked_count: number | null
+          capacity: number
+          created_at: string | null
+          created_by: string | null
+          default_panel_members: string[] | null
+          end_time: string
+          id: string
+          institution_id: string
+          interview_type: string | null
+          is_available: boolean | null
+          is_online: boolean | null
+          location: string | null
+          meeting_link: string | null
+          program_id: string | null
+          slot_date: string
+          start_time: string
+        }
+        Insert: {
+          booked_count?: number | null
+          capacity?: number
+          created_at?: string | null
+          created_by?: string | null
+          default_panel_members?: string[] | null
+          end_time: string
+          id?: string
+          institution_id: string
+          interview_type?: string | null
+          is_available?: boolean | null
+          is_online?: boolean | null
+          location?: string | null
+          meeting_link?: string | null
+          program_id?: string | null
+          slot_date: string
+          start_time: string
+        }
+        Update: {
+          booked_count?: number | null
+          capacity?: number
+          created_at?: string | null
+          created_by?: string | null
+          default_panel_members?: string[] | null
+          end_time?: string
+          id?: string
+          institution_id?: string
+          interview_type?: string | null
+          is_available?: boolean | null
+          is_online?: boolean | null
+          location?: string | null
+          meeting_link?: string | null
+          program_id?: string | null
+          slot_date?: string
+          start_time?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interview_slots_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "interview_slots_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interview_slots_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interview_slots_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      lateral_entry_applications: {
+        Row: {
+          academic_score: number | null
+          admission_id: string | null
+          application_number: string
+          application_status: string
+          application_type: string
+          applied_program_id: string | null
+          applied_program_name: string
+          approval_notes: string | null
+          cgpa: number | null
+          created_at: string
+          current_institution: string
+          current_program: string
+          current_year: string
+          date_of_birth: string | null
+          documents: Json | null
+          documents_uploaded: boolean | null
+          eligibility_notes: string | null
+          eligibility_status: string
+          email: string
+          id: string
+          institution_id: string
+          ip_address: unknown
+          phone: string | null
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source: string | null
+          student_id: string | null
+          student_name: string
+          target_year: number | null
+          updated_at: string
+          user_agent: string | null
+        }
+        Insert: {
+          academic_score?: number | null
+          admission_id?: string | null
+          application_number: string
+          application_status?: string
+          application_type: string
+          applied_program_id?: string | null
+          applied_program_name: string
+          approval_notes?: string | null
+          cgpa?: number | null
+          created_at?: string
+          current_institution: string
+          current_program: string
+          current_year: string
+          date_of_birth?: string | null
+          documents?: Json | null
+          documents_uploaded?: boolean | null
+          eligibility_notes?: string | null
+          eligibility_status?: string
+          email: string
+          id?: string
+          institution_id: string
+          ip_address?: unknown
+          phone?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source?: string | null
+          student_id?: string | null
+          student_name: string
+          target_year?: number | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Update: {
+          academic_score?: number | null
+          admission_id?: string | null
+          application_number?: string
+          application_status?: string
+          application_type?: string
+          applied_program_id?: string | null
+          applied_program_name?: string
+          approval_notes?: string | null
+          cgpa?: number | null
+          created_at?: string
+          current_institution?: string
+          current_program?: string
+          current_year?: string
+          date_of_birth?: string | null
+          documents?: Json | null
+          documents_uploaded?: boolean | null
+          eligibility_notes?: string | null
+          eligibility_status?: string
+          email?: string
+          id?: string
+          institution_id?: string
+          ip_address?: unknown
+          phone?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source?: string | null
+          student_id?: string | null
+          student_name?: string
+          target_year?: number | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lateral_entry_applications_admission_id_fkey"
+            columns: ["admission_id"]
+            isOneToOne: false
+            referencedRelation: "admissions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_applications_applied_program_id_fkey"
+            columns: ["applied_program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_applications_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_applications_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lateral_entry_documents: {
+        Row: {
+          application_id: string
+          created_at: string
+          document_name: string
+          document_type: string
+          file_size: number | null
+          file_url: string
+          id: string
+          is_verified: boolean | null
+          mime_type: string | null
+          updated_at: string
+          uploaded_at: string
+          verification_notes: string | null
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          application_id: string
+          created_at?: string
+          document_name: string
+          document_type: string
+          file_size?: number | null
+          file_url: string
+          id?: string
+          is_verified?: boolean | null
+          mime_type?: string | null
+          updated_at?: string
+          uploaded_at?: string
+          verification_notes?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          application_id?: string
+          created_at?: string
+          document_name?: string
+          document_type?: string
+          file_size?: number | null
+          file_url?: string
+          id?: string
+          is_verified?: boolean | null
+          mime_type?: string | null
+          updated_at?: string
+          uploaded_at?: string
+          verification_notes?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lateral_entry_documents_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "lateral_entry_applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_documents_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "lateral_entry_applications_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_documents_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lateral_entry_eligibility_rules: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          entrance_exam_name: string | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          max_age: number | null
+          max_score: number | null
+          min_cgpa: number | null
+          min_score: number | null
+          required_documents: Json | null
+          requirements: Json
+          requires_entrance_exam: boolean | null
+          rule_type: string
+          target_program_id: string | null
+          target_program_name: string | null
+          target_year: string
+          title: string
+          updated_at: string
+          valid_from: string | null
+          valid_until: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          entrance_exam_name?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          max_age?: number | null
+          max_score?: number | null
+          min_cgpa?: number | null
+          min_score?: number | null
+          required_documents?: Json | null
+          requirements?: Json
+          requires_entrance_exam?: boolean | null
+          rule_type: string
+          target_program_id?: string | null
+          target_program_name?: string | null
+          target_year: string
+          title: string
+          updated_at?: string
+          valid_from?: string | null
+          valid_until?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          entrance_exam_name?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          max_age?: number | null
+          max_score?: number | null
+          min_cgpa?: number | null
+          min_score?: number | null
+          required_documents?: Json | null
+          requirements?: Json
+          requires_entrance_exam?: boolean | null
+          rule_type?: string
+          target_program_id?: string | null
+          target_program_name?: string | null
+          target_year?: string
+          title?: string
+          updated_at?: string
+          valid_from?: string | null
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lateral_entry_eligibility_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_eligibility_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_eligibility_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_eligibility_rules_target_program_id_fkey"
+            columns: ["target_program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lateral_entry_vacancies: {
+        Row: {
+          academic_year: string
+          available_lateral: number | null
+          available_regular: number | null
+          closes_at: string | null
+          created_at: string
+          id: string
+          institution_id: string
+          is_open: boolean | null
+          lateral_entry_seats: number
+          lateral_filled: number
+          notes: string | null
+          opens_at: string | null
+          program_id: string
+          program_name: string
+          regular_filled: number
+          regular_seats: number
+          semester: string | null
+          total_intake: number
+          updated_at: string
+        }
+        Insert: {
+          academic_year: string
+          available_lateral?: number | null
+          available_regular?: number | null
+          closes_at?: string | null
+          created_at?: string
+          id?: string
+          institution_id: string
+          is_open?: boolean | null
+          lateral_entry_seats?: number
+          lateral_filled?: number
+          notes?: string | null
+          opens_at?: string | null
+          program_id: string
+          program_name: string
+          regular_filled?: number
+          regular_seats?: number
+          semester?: string | null
+          total_intake?: number
+          updated_at?: string
+        }
+        Update: {
+          academic_year?: string
+          available_lateral?: number | null
+          available_regular?: number | null
+          closes_at?: string | null
+          created_at?: string
+          id?: string
+          institution_id?: string
+          is_open?: boolean | null
+          lateral_entry_seats?: number
+          lateral_filled?: number
+          notes?: string | null
+          opens_at?: string | null
+          program_id?: string
+          program_name?: string
+          regular_filled?: number
+          regular_seats?: number
+          semester?: string | null
+          total_intake?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lateral_entry_vacancies_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_vacancies_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_vacancies_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_activity_log: {
+        Row: {
+          activity_description: string | null
+          activity_type: string
+          channel:
+            | Database["public"]["Enums"]["communication_channel_type"]
+            | null
+          created_at: string | null
+          id: string
+          is_system_generated: boolean | null
+          lead_id: string
+          metadata: Json | null
+          performed_by: string | null
+          score_change: number | null
+          score_type: string | null
+        }
+        Insert: {
+          activity_description?: string | null
+          activity_type: string
+          channel?:
+            | Database["public"]["Enums"]["communication_channel_type"]
+            | null
+          created_at?: string | null
+          id?: string
+          is_system_generated?: boolean | null
+          lead_id: string
+          metadata?: Json | null
+          performed_by?: string | null
+          score_change?: number | null
+          score_type?: string | null
+        }
+        Update: {
+          activity_description?: string | null
+          activity_type?: string
+          channel?:
+            | Database["public"]["Enums"]["communication_channel_type"]
+            | null
+          created_at?: string | null
+          id?: string
+          is_system_generated?: boolean | null
+          lead_id?: string
+          metadata?: Json | null
+          performed_by?: string | null
+          score_change?: number | null
+          score_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_activity_log_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_activity_log_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+          {
+            foreignKeyName: "lead_activity_log_performed_by_fkey"
+            columns: ["performed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "lead_activity_log_performed_by_fkey"
+            columns: ["performed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_sources: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_first_touch: boolean | null
+          is_last_touch: boolean | null
+          landing_page: string | null
+          lead_id: string
+          partner_id: string | null
+          partner_name: string | null
+          referral_code: string | null
+          referrer: string | null
+          source_name: string
+          source_type: Database["public"]["Enums"]["source_type"]
+          touch_number: number | null
+          touched_at: string | null
+          utm_campaign: string | null
+          utm_content: string | null
+          utm_medium: string | null
+          utm_term: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_first_touch?: boolean | null
+          is_last_touch?: boolean | null
+          landing_page?: string | null
+          lead_id: string
+          partner_id?: string | null
+          partner_name?: string | null
+          referral_code?: string | null
+          referrer?: string | null
+          source_name: string
+          source_type: Database["public"]["Enums"]["source_type"]
+          touch_number?: number | null
+          touched_at?: string | null
+          utm_campaign?: string | null
+          utm_content?: string | null
+          utm_medium?: string | null
+          utm_term?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_first_touch?: boolean | null
+          is_last_touch?: boolean | null
+          landing_page?: string | null
+          lead_id?: string
+          partner_id?: string | null
+          partner_name?: string | null
+          referral_code?: string | null
+          referrer?: string | null
+          source_name?: string
+          source_type?: Database["public"]["Enums"]["source_type"]
+          touch_number?: number | null
+          touched_at?: string | null
+          utm_campaign?: string | null
+          utm_content?: string | null
+          utm_medium?: string | null
+          utm_term?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_sources_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_sources_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+        ]
+      }
+      lead_stage_history: {
+        Row: {
+          changed_by: string | null
+          created_at: string | null
+          from_stage: string | null
+          id: string
+          institution_id: string
+          lead_id: string
+          time_in_previous_stage: unknown
+          to_stage: string
+          transitioned_at: string | null
+          trigger_reason: string | null
+          triggered_by: string | null
+        }
+        Insert: {
+          changed_by?: string | null
+          created_at?: string | null
+          from_stage?: string | null
+          id?: string
+          institution_id: string
+          lead_id: string
+          time_in_previous_stage?: unknown
+          to_stage: string
+          transitioned_at?: string | null
+          trigger_reason?: string | null
+          triggered_by?: string | null
+        }
+        Update: {
+          changed_by?: string | null
+          created_at?: string | null
+          from_stage?: string | null
+          id?: string
+          institution_id?: string
+          lead_id?: string
+          time_in_previous_stage?: unknown
+          to_stage?: string
+          transitioned_at?: string | null
+          trigger_reason?: string | null
+          triggered_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_stage_history_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "lead_stage_history_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_stage_history_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_stage_history_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "lead_stage_history_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_stage_history_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+        ]
+      }
+      learner_application_sequences_by_code: {
+        Row: {
+          counselling_code: string
+          current_sequence: number
+          updated_at: string | null
+        }
+        Insert: {
+          counselling_code: string
+          current_sequence?: number
+          updated_at?: string | null
+        }
+        Update: {
+          counselling_code?: string
+          current_sequence?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      learner_core_okrs: {
+        Row: {
+          auto_source_config: Json | null
+          auto_source_module: string
+          created_at: string
+          created_by: string
+          department_id: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          kr_description: string | null
+          kr_title: string
+          order_index: number
+          program_id: string | null
+          semester: string | null
+          start_value: number
+          target_value: number
+          unit: string
+          updated_at: string
+        }
+        Insert: {
+          auto_source_config?: Json | null
+          auto_source_module: string
+          created_at?: string
+          created_by: string
+          department_id?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          kr_description?: string | null
+          kr_title: string
+          order_index?: number
+          program_id?: string | null
+          semester?: string | null
+          start_value?: number
+          target_value: number
+          unit: string
+          updated_at?: string
+        }
+        Update: {
+          auto_source_config?: Json | null
+          auto_source_module?: string
+          created_at?: string
+          created_by?: string
+          department_id?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          kr_description?: string | null
+          kr_title?: string
+          order_index?: number
+          program_id?: string | null
+          semester?: string | null
+          start_value?: number
+          target_value?: number
+          unit?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learner_core_okrs_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_core_okrs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_core_okrs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "learner_core_okrs_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      learner_elective_okrs: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          baseline_value: number | null
+          created_at: string
+          current_value: number | null
+          deadline: string
+          description: string | null
+          id: string
+          is_active: boolean
+          learner_id: string
+          progress: number | null
+          start_value: number | null
+          status: string
+          target_value: number | null
+          title: string
+          unit: string | null
+          updated_at: string
+          why_matters: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          baseline_value?: number | null
+          created_at?: string
+          current_value?: number | null
+          deadline: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          learner_id: string
+          progress?: number | null
+          start_value?: number | null
+          status?: string
+          target_value?: number | null
+          title: string
+          unit?: string | null
+          updated_at?: string
+          why_matters?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          baseline_value?: number | null
+          created_at?: string
+          current_value?: number | null
+          deadline?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          learner_id?: string
+          progress?: number | null
+          start_value?: number | null
+          status?: string
+          target_value?: number | null
+          title?: string
+          unit?: string | null
+          updated_at?: string
+          why_matters?: string | null
+        }
+        Relationships: []
+      }
+      learner_okr_assignments: {
+        Row: {
+          academic_year: string
+          core_okr_id: string
+          created_at: string
+          current_value: number | null
+          id: string
+          is_active: boolean
+          learner_id: string
+          progress: number | null
+          semester: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          academic_year: string
+          core_okr_id: string
+          created_at?: string
+          current_value?: number | null
+          id?: string
+          is_active?: boolean
+          learner_id: string
+          progress?: number | null
+          semester: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          academic_year?: string
+          core_okr_id?: string
+          created_at?: string
+          current_value?: number | null
+          id?: string
+          is_active?: boolean
+          learner_id?: string
+          progress?: number | null
+          semester?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learner_okr_assignments_core_okr_id_fkey"
+            columns: ["core_okr_id"]
+            isOneToOne: false
+            referencedRelation: "learner_core_okrs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       learners_profiles: {
         Row: {
           aadhar_number: string | null
           academic_year_id: string | null
-          accommodation_type: string
+          accommodation_type: string | null
           admission_year: number | null
           annual_income: string | null
           application_id: string | null
           batch_id: string | null
           blood_group: string | null
-          board_of_study: string
+          board_of_study: string | null
           bus_pickup_location: string | null
           bus_required: boolean | null
           bus_route: string | null
           caste: string | null
           category: string | null
           college_email: string | null
-          community: string
+          community: string | null
           counseling_applied: boolean | null
           counseling_number: string | null
           created_at: string
           created_by: string | null
-          date_of_birth: string
+          date_of_birth: string | null
           degree_id: string | null
           department_id: string | null
           engineering_cutoff_marks: string | null
           enquiry_date: string | null
-          entry_type: string
-          father_mobile: string
-          father_name: string
+          entry_type: string | null
+          father_mobile: string | null
+          father_name: string | null
           father_occupation: string | null
-          first_graduate: boolean | null
           first_name: string
           food_type: string | null
-          gender: string
+          gender: string | null
           hostel_type: string | null
           id: string
           institution_id: string | null
           is_profile_complete: boolean | null
           last_name: string | null
-          last_school: string
+          last_school: string | null
           lifecycle_status: Database["public"]["Enums"]["lifecycle_status"]
           medical_cutoff_marks: string | null
           migrated_at: string | null
           migration_source: string | null
-          mother_mobile: string
-          mother_name: string
+          mother_mobile: string | null
+          mother_name: string | null
           mother_occupation: string | null
           neet_roll_number: string | null
           neet_score: string | null
-          permanent_address_district: string
-          permanent_address_pin_code: string
-          permanent_address_state: string
-          permanent_address_street: string
+          permanent_address_district: string | null
+          permanent_address_pin_code: string | null
+          permanent_address_state: string | null
+          permanent_address_street: string | null
           permanent_address_taluk: string | null
           program_id: string | null
           quota: string | null
@@ -2181,71 +7312,71 @@ export type Database = {
           reference_type: string | null
           register_number: string | null
           regulation_id: string | null
-          religion: string
+          religion: string | null
           roll_number: string | null
+          scholarship_type: string | null
           section_id: string | null
           semester_id: string | null
-          student_email: string
+          student_email: string | null
           student_mobile: string
           student_photo_url: string | null
-          tenth_marks: Json
-          twelfth_marks: Json
+          tenth_marks: Json | null
+          twelfth_marks: Json | null
           updated_at: string
           updated_by: string | null
         }
         Insert: {
           aadhar_number?: string | null
           academic_year_id?: string | null
-          accommodation_type: string
+          accommodation_type?: string | null
           admission_year?: number | null
           annual_income?: string | null
           application_id?: string | null
           batch_id?: string | null
           blood_group?: string | null
-          board_of_study: string
+          board_of_study?: string | null
           bus_pickup_location?: string | null
           bus_required?: boolean | null
           bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
-          community: string
+          community?: string | null
           counseling_applied?: boolean | null
           counseling_number?: string | null
           created_at?: string
           created_by?: string | null
-          date_of_birth: string
+          date_of_birth?: string | null
           degree_id?: string | null
           department_id?: string | null
           engineering_cutoff_marks?: string | null
           enquiry_date?: string | null
-          entry_type: string
-          father_mobile: string
-          father_name: string
+          entry_type?: string | null
+          father_mobile?: string | null
+          father_name?: string | null
           father_occupation?: string | null
-          first_graduate?: boolean | null
           first_name: string
           food_type?: string | null
-          gender: string
+          gender?: string | null
           hostel_type?: string | null
           id?: string
           institution_id?: string | null
           is_profile_complete?: boolean | null
           last_name?: string | null
-          last_school: string
+          last_school?: string | null
           lifecycle_status?: Database["public"]["Enums"]["lifecycle_status"]
           medical_cutoff_marks?: string | null
           migrated_at?: string | null
           migration_source?: string | null
-          mother_mobile: string
-          mother_name: string
+          mother_mobile?: string | null
+          mother_name?: string | null
           mother_occupation?: string | null
           neet_roll_number?: string | null
           neet_score?: string | null
-          permanent_address_district: string
-          permanent_address_pin_code: string
-          permanent_address_state: string
-          permanent_address_street: string
+          permanent_address_district?: string | null
+          permanent_address_pin_code?: string | null
+          permanent_address_state?: string | null
+          permanent_address_street?: string | null
           permanent_address_taluk?: string | null
           program_id?: string | null
           quota?: string | null
@@ -2254,71 +7385,71 @@ export type Database = {
           reference_type?: string | null
           register_number?: string | null
           regulation_id?: string | null
-          religion: string
+          religion?: string | null
           roll_number?: string | null
+          scholarship_type?: string | null
           section_id?: string | null
           semester_id?: string | null
-          student_email: string
+          student_email?: string | null
           student_mobile: string
           student_photo_url?: string | null
-          tenth_marks: Json
-          twelfth_marks: Json
+          tenth_marks?: Json | null
+          twelfth_marks?: Json | null
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
           aadhar_number?: string | null
           academic_year_id?: string | null
-          accommodation_type?: string
+          accommodation_type?: string | null
           admission_year?: number | null
           annual_income?: string | null
           application_id?: string | null
           batch_id?: string | null
           blood_group?: string | null
-          board_of_study?: string
+          board_of_study?: string | null
           bus_pickup_location?: string | null
           bus_required?: boolean | null
           bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
-          community?: string
+          community?: string | null
           counseling_applied?: boolean | null
           counseling_number?: string | null
           created_at?: string
           created_by?: string | null
-          date_of_birth?: string
+          date_of_birth?: string | null
           degree_id?: string | null
           department_id?: string | null
           engineering_cutoff_marks?: string | null
           enquiry_date?: string | null
-          entry_type?: string
-          father_mobile?: string
-          father_name?: string
+          entry_type?: string | null
+          father_mobile?: string | null
+          father_name?: string | null
           father_occupation?: string | null
-          first_graduate?: boolean | null
           first_name?: string
           food_type?: string | null
-          gender?: string
+          gender?: string | null
           hostel_type?: string | null
           id?: string
           institution_id?: string | null
           is_profile_complete?: boolean | null
           last_name?: string | null
-          last_school?: string
+          last_school?: string | null
           lifecycle_status?: Database["public"]["Enums"]["lifecycle_status"]
           medical_cutoff_marks?: string | null
           migrated_at?: string | null
           migration_source?: string | null
-          mother_mobile?: string
-          mother_name?: string
+          mother_mobile?: string | null
+          mother_name?: string | null
           mother_occupation?: string | null
           neet_roll_number?: string | null
           neet_score?: string | null
-          permanent_address_district?: string
-          permanent_address_pin_code?: string
-          permanent_address_state?: string
-          permanent_address_street?: string
+          permanent_address_district?: string | null
+          permanent_address_pin_code?: string | null
+          permanent_address_state?: string | null
+          permanent_address_street?: string | null
           permanent_address_taluk?: string | null
           program_id?: string | null
           quota?: string | null
@@ -2327,15 +7458,16 @@ export type Database = {
           reference_type?: string | null
           register_number?: string | null
           regulation_id?: string | null
-          religion?: string
+          religion?: string | null
           roll_number?: string | null
+          scholarship_type?: string | null
           section_id?: string | null
           semester_id?: string | null
-          student_email?: string
+          student_email?: string | null
           student_mobile?: string
           student_photo_url?: string | null
-          tenth_marks?: Json
-          twelfth_marks?: Json
+          tenth_marks?: Json | null
+          twelfth_marks?: Json | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -2674,6 +7806,234 @@ export type Database = {
         }
         Relationships: []
       }
+      learners_profiles_backup_bpharm_sem8_active: {
+        Row: {
+          aadhar_number: string | null
+          academic_year_id: string | null
+          accommodation_type: string | null
+          admission_year: number | null
+          annual_income: string | null
+          application_id: string | null
+          batch_id: string | null
+          blood_group: string | null
+          board_of_study: string | null
+          bus_pickup_location: string | null
+          bus_required: boolean | null
+          bus_route: string | null
+          caste: string | null
+          category: string | null
+          college_email: string | null
+          community: string | null
+          counseling_applied: boolean | null
+          counseling_number: string | null
+          created_at: string | null
+          created_by: string | null
+          date_of_birth: string | null
+          degree_id: string | null
+          department_id: string | null
+          engineering_cutoff_marks: string | null
+          enquiry_date: string | null
+          entry_type: string | null
+          father_mobile: string | null
+          father_name: string | null
+          father_occupation: string | null
+          first_graduate: boolean | null
+          first_name: string | null
+          food_type: string | null
+          gender: string | null
+          hostel_type: string | null
+          id: string | null
+          institution_id: string | null
+          is_profile_complete: boolean | null
+          last_name: string | null
+          last_school: string | null
+          lifecycle_status:
+            | Database["public"]["Enums"]["lifecycle_status"]
+            | null
+          medical_cutoff_marks: string | null
+          migrated_at: string | null
+          migration_source: string | null
+          mother_mobile: string | null
+          mother_name: string | null
+          mother_occupation: string | null
+          neet_roll_number: string | null
+          neet_score: string | null
+          permanent_address_district: string | null
+          permanent_address_pin_code: string | null
+          permanent_address_state: string | null
+          permanent_address_street: string | null
+          permanent_address_taluk: string | null
+          program_id: string | null
+          quota: string | null
+          reference_contact: string | null
+          reference_name: string | null
+          reference_type: string | null
+          register_number: string | null
+          regulation_id: string | null
+          religion: string | null
+          roll_number: string | null
+          section_id: string | null
+          semester_id: string | null
+          student_email: string | null
+          student_mobile: string | null
+          student_photo_url: string | null
+          tenth_marks: Json | null
+          twelfth_marks: Json | null
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          aadhar_number?: string | null
+          academic_year_id?: string | null
+          accommodation_type?: string | null
+          admission_year?: number | null
+          annual_income?: string | null
+          application_id?: string | null
+          batch_id?: string | null
+          blood_group?: string | null
+          board_of_study?: string | null
+          bus_pickup_location?: string | null
+          bus_required?: boolean | null
+          bus_route?: string | null
+          caste?: string | null
+          category?: string | null
+          college_email?: string | null
+          community?: string | null
+          counseling_applied?: boolean | null
+          counseling_number?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          date_of_birth?: string | null
+          degree_id?: string | null
+          department_id?: string | null
+          engineering_cutoff_marks?: string | null
+          enquiry_date?: string | null
+          entry_type?: string | null
+          father_mobile?: string | null
+          father_name?: string | null
+          father_occupation?: string | null
+          first_graduate?: boolean | null
+          first_name?: string | null
+          food_type?: string | null
+          gender?: string | null
+          hostel_type?: string | null
+          id?: string | null
+          institution_id?: string | null
+          is_profile_complete?: boolean | null
+          last_name?: string | null
+          last_school?: string | null
+          lifecycle_status?:
+            | Database["public"]["Enums"]["lifecycle_status"]
+            | null
+          medical_cutoff_marks?: string | null
+          migrated_at?: string | null
+          migration_source?: string | null
+          mother_mobile?: string | null
+          mother_name?: string | null
+          mother_occupation?: string | null
+          neet_roll_number?: string | null
+          neet_score?: string | null
+          permanent_address_district?: string | null
+          permanent_address_pin_code?: string | null
+          permanent_address_state?: string | null
+          permanent_address_street?: string | null
+          permanent_address_taluk?: string | null
+          program_id?: string | null
+          quota?: string | null
+          reference_contact?: string | null
+          reference_name?: string | null
+          reference_type?: string | null
+          register_number?: string | null
+          regulation_id?: string | null
+          religion?: string | null
+          roll_number?: string | null
+          section_id?: string | null
+          semester_id?: string | null
+          student_email?: string | null
+          student_mobile?: string | null
+          student_photo_url?: string | null
+          tenth_marks?: Json | null
+          twelfth_marks?: Json | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          aadhar_number?: string | null
+          academic_year_id?: string | null
+          accommodation_type?: string | null
+          admission_year?: number | null
+          annual_income?: string | null
+          application_id?: string | null
+          batch_id?: string | null
+          blood_group?: string | null
+          board_of_study?: string | null
+          bus_pickup_location?: string | null
+          bus_required?: boolean | null
+          bus_route?: string | null
+          caste?: string | null
+          category?: string | null
+          college_email?: string | null
+          community?: string | null
+          counseling_applied?: boolean | null
+          counseling_number?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          date_of_birth?: string | null
+          degree_id?: string | null
+          department_id?: string | null
+          engineering_cutoff_marks?: string | null
+          enquiry_date?: string | null
+          entry_type?: string | null
+          father_mobile?: string | null
+          father_name?: string | null
+          father_occupation?: string | null
+          first_graduate?: boolean | null
+          first_name?: string | null
+          food_type?: string | null
+          gender?: string | null
+          hostel_type?: string | null
+          id?: string | null
+          institution_id?: string | null
+          is_profile_complete?: boolean | null
+          last_name?: string | null
+          last_school?: string | null
+          lifecycle_status?:
+            | Database["public"]["Enums"]["lifecycle_status"]
+            | null
+          medical_cutoff_marks?: string | null
+          migrated_at?: string | null
+          migration_source?: string | null
+          mother_mobile?: string | null
+          mother_name?: string | null
+          mother_occupation?: string | null
+          neet_roll_number?: string | null
+          neet_score?: string | null
+          permanent_address_district?: string | null
+          permanent_address_pin_code?: string | null
+          permanent_address_state?: string | null
+          permanent_address_street?: string | null
+          permanent_address_taluk?: string | null
+          program_id?: string | null
+          quota?: string | null
+          reference_contact?: string | null
+          reference_name?: string | null
+          reference_type?: string | null
+          register_number?: string | null
+          regulation_id?: string | null
+          religion?: string | null
+          roll_number?: string | null
+          section_id?: string | null
+          semester_id?: string | null
+          student_email?: string | null
+          student_mobile?: string | null
+          student_photo_url?: string | null
+          tenth_marks?: Json | null
+          twelfth_marks?: Json | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       leave_approval_chains: {
         Row: {
           approver_role: string
@@ -2820,6 +8180,556 @@ export type Database = {
         }
         Relationships: []
       }
+      lti_grades: {
+        Row: {
+          activity_progress: string | null
+          created_at: string | null
+          gradebook_entry_id: string | null
+          graded_at: string | null
+          grading_progress: string | null
+          id: string
+          idempotency_key: string | null
+          institution_id: string
+          launch_id: string | null
+          learner_profile_id: string
+          received_at: string | null
+          resource_link_id: string
+          resource_link_title: string | null
+          score: number
+          score_maximum: number
+          score_percentage: number | null
+          sync_error: string | null
+          synced_at: string | null
+          synced_to_gradebook: boolean | null
+          tool_id: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          activity_progress?: string | null
+          created_at?: string | null
+          gradebook_entry_id?: string | null
+          graded_at?: string | null
+          grading_progress?: string | null
+          id?: string
+          idempotency_key?: string | null
+          institution_id: string
+          launch_id?: string | null
+          learner_profile_id: string
+          received_at?: string | null
+          resource_link_id: string
+          resource_link_title?: string | null
+          score: number
+          score_maximum: number
+          score_percentage?: number | null
+          sync_error?: string | null
+          synced_at?: string | null
+          synced_to_gradebook?: boolean | null
+          tool_id: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          activity_progress?: string | null
+          created_at?: string | null
+          gradebook_entry_id?: string | null
+          graded_at?: string | null
+          grading_progress?: string | null
+          id?: string
+          idempotency_key?: string | null
+          institution_id?: string
+          launch_id?: string | null
+          learner_profile_id?: string
+          received_at?: string | null
+          resource_link_id?: string
+          resource_link_title?: string | null
+          score?: number
+          score_maximum?: number
+          score_percentage?: number | null
+          sync_error?: string | null
+          synced_at?: string | null
+          synced_to_gradebook?: boolean | null
+          tool_id?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lti_grades_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lti_grades_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "lti_grades_launch_id_fkey"
+            columns: ["launch_id"]
+            isOneToOne: false
+            referencedRelation: "lti_launches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lti_grades_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lti_grades_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "lti_grades_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "lti_grades_tool_id_fkey"
+            columns: ["tool_id"]
+            isOneToOne: false
+            referencedRelation: "lti_tools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lti_launches: {
+        Row: {
+          academic_year_id: string | null
+          context_id: string | null
+          context_label: string | null
+          context_title: string | null
+          created_by: string | null
+          id: string
+          institution_id: string
+          ip_address: unknown
+          jwt_expires_at: string | null
+          jwt_nonce: string | null
+          launch_type: string | null
+          launched_at: string | null
+          learner_profile_id: string | null
+          lti_message_type: string | null
+          lti_version: string | null
+          myjkkn_role: string | null
+          program_id: string | null
+          resource_link_description: string | null
+          resource_link_id: string | null
+          resource_link_title: string | null
+          section_id: string | null
+          semester_id: string | null
+          session_duration_seconds: number | null
+          tool_id: string
+          user_agent: string | null
+          user_id: string
+          user_role_sent: string | null
+        }
+        Insert: {
+          academic_year_id?: string | null
+          context_id?: string | null
+          context_label?: string | null
+          context_title?: string | null
+          created_by?: string | null
+          id?: string
+          institution_id: string
+          ip_address?: unknown
+          jwt_expires_at?: string | null
+          jwt_nonce?: string | null
+          launch_type?: string | null
+          launched_at?: string | null
+          learner_profile_id?: string | null
+          lti_message_type?: string | null
+          lti_version?: string | null
+          myjkkn_role?: string | null
+          program_id?: string | null
+          resource_link_description?: string | null
+          resource_link_id?: string | null
+          resource_link_title?: string | null
+          section_id?: string | null
+          semester_id?: string | null
+          session_duration_seconds?: number | null
+          tool_id: string
+          user_agent?: string | null
+          user_id: string
+          user_role_sent?: string | null
+        }
+        Update: {
+          academic_year_id?: string | null
+          context_id?: string | null
+          context_label?: string | null
+          context_title?: string | null
+          created_by?: string | null
+          id?: string
+          institution_id?: string
+          ip_address?: unknown
+          jwt_expires_at?: string | null
+          jwt_nonce?: string | null
+          launch_type?: string | null
+          launched_at?: string | null
+          learner_profile_id?: string | null
+          lti_message_type?: string | null
+          lti_version?: string | null
+          myjkkn_role?: string | null
+          program_id?: string | null
+          resource_link_description?: string | null
+          resource_link_id?: string | null
+          resource_link_title?: string | null
+          section_id?: string | null
+          semester_id?: string | null
+          session_duration_seconds?: number | null
+          tool_id?: string
+          user_agent?: string | null
+          user_id?: string
+          user_role_sent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lti_launches_academic_year_id_fkey"
+            columns: ["academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "academic_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lti_launches_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lti_launches_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "lti_launches_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lti_launches_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "lti_launches_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "lti_launches_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lti_launches_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lti_launches_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lti_launches_tool_id_fkey"
+            columns: ["tool_id"]
+            isOneToOne: false
+            referencedRelation: "lti_tools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lti_tools: {
+        Row: {
+          client_id: string
+          created_at: string | null
+          created_by: string | null
+          deployment_id: string
+          id: string
+          is_active: boolean | null
+          launch_url: string
+          license_expiry_date: string | null
+          name: string
+          oidc_auth_url: string
+          platform_id: string | null
+          public_keyset_url: string
+          redirect_uri: string
+          supports_deep_linking: boolean | null
+          supports_grade_passback: boolean | null
+          supports_names_roles: boolean | null
+          tool_type: string
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          client_id: string
+          created_at?: string | null
+          created_by?: string | null
+          deployment_id: string
+          id?: string
+          is_active?: boolean | null
+          launch_url: string
+          license_expiry_date?: string | null
+          name: string
+          oidc_auth_url: string
+          platform_id?: string | null
+          public_keyset_url: string
+          redirect_uri: string
+          supports_deep_linking?: boolean | null
+          supports_grade_passback?: boolean | null
+          supports_names_roles?: boolean | null
+          tool_type: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          client_id?: string
+          created_at?: string | null
+          created_by?: string | null
+          deployment_id?: string
+          id?: string
+          is_active?: boolean | null
+          launch_url?: string
+          license_expiry_date?: string | null
+          name?: string
+          oidc_auth_url?: string
+          platform_id?: string | null
+          public_keyset_url?: string
+          redirect_uri?: string
+          supports_deep_linking?: boolean | null
+          supports_grade_passback?: boolean | null
+          supports_names_roles?: boolean | null
+          tool_type?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      merit_lists: {
+        Row: {
+          academic_year: string
+          category: string | null
+          created_at: string | null
+          created_by: string | null
+          cutoff_rank: number | null
+          cutoff_score: number | null
+          entries: Json | null
+          id: string
+          institution_id: string
+          is_published: boolean | null
+          list_name: string
+          program_id: string
+          published_at: string | null
+          total_entries: number | null
+        }
+        Insert: {
+          academic_year: string
+          category?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          cutoff_rank?: number | null
+          cutoff_score?: number | null
+          entries?: Json | null
+          id?: string
+          institution_id: string
+          is_published?: boolean | null
+          list_name: string
+          program_id: string
+          published_at?: string | null
+          total_entries?: number | null
+        }
+        Update: {
+          academic_year?: string
+          category?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          cutoff_rank?: number | null
+          cutoff_score?: number | null
+          entries?: Json | null
+          id?: string
+          institution_id?: string
+          is_published?: boolean | null
+          list_name?: string
+          program_id?: string
+          published_at?: string | null
+          total_entries?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merit_lists_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "merit_lists_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "merit_lists_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "merit_lists_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      message_templates: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          body: string
+          buttons: Json | null
+          category: string
+          channel: Database["public"]["Enums"]["communication_channel_type"]
+          created_at: string | null
+          created_by: string | null
+          footer: string | null
+          header: string | null
+          id: string
+          institution_id: string | null
+          is_active: boolean | null
+          is_approved: boolean | null
+          language: string | null
+          name: string
+          slug: string
+          subject: string | null
+          updated_at: string | null
+          variables: string[] | null
+          whatsapp_template_id: string | null
+          whatsapp_template_status: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          body: string
+          buttons?: Json | null
+          category: string
+          channel: Database["public"]["Enums"]["communication_channel_type"]
+          created_at?: string | null
+          created_by?: string | null
+          footer?: string | null
+          header?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          is_approved?: boolean | null
+          language?: string | null
+          name: string
+          slug: string
+          subject?: string | null
+          updated_at?: string | null
+          variables?: string[] | null
+          whatsapp_template_id?: string | null
+          whatsapp_template_status?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          body?: string
+          buttons?: Json | null
+          category?: string
+          channel?: Database["public"]["Enums"]["communication_channel_type"]
+          created_at?: string | null
+          created_by?: string | null
+          footer?: string | null
+          header?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          is_approved?: boolean | null
+          language?: string | null
+          name?: string
+          slug?: string
+          subject?: string | null
+          updated_at?: string | null
+          variables?: string[] | null
+          whatsapp_template_id?: string | null
+          whatsapp_template_status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_templates_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "message_templates_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "message_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_templates_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_templates_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       migration_log: {
         Row: {
           details: Json | null
@@ -2965,6 +8875,935 @@ export type Database = {
             foreignKeyName: "notifications_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      offer_letters: {
+        Row: {
+          admission_type: string | null
+          application_id: string
+          campus_offered: string | null
+          created_at: string | null
+          created_by: string | null
+          generated_at: string | null
+          id: string
+          institution_id: string
+          last_reminder_at: string | null
+          letter_data: Json | null
+          letter_number: string | null
+          letter_template_id: string | null
+          letter_url: string | null
+          program_offered: string
+          rejection_category: string | null
+          rejection_details: Json | null
+          rejection_reason: string | null
+          reminder_sent_count: number | null
+          response: Database["public"]["Enums"]["offer_response"] | null
+          response_at: string | null
+          response_notes: string | null
+          sent_at: string | null
+          sent_via: string[] | null
+          valid_until: string | null
+        }
+        Insert: {
+          admission_type?: string | null
+          application_id: string
+          campus_offered?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          generated_at?: string | null
+          id?: string
+          institution_id: string
+          last_reminder_at?: string | null
+          letter_data?: Json | null
+          letter_number?: string | null
+          letter_template_id?: string | null
+          letter_url?: string | null
+          program_offered: string
+          rejection_category?: string | null
+          rejection_details?: Json | null
+          rejection_reason?: string | null
+          reminder_sent_count?: number | null
+          response?: Database["public"]["Enums"]["offer_response"] | null
+          response_at?: string | null
+          response_notes?: string | null
+          sent_at?: string | null
+          sent_via?: string[] | null
+          valid_until?: string | null
+        }
+        Update: {
+          admission_type?: string | null
+          application_id?: string
+          campus_offered?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          generated_at?: string | null
+          id?: string
+          institution_id?: string
+          last_reminder_at?: string | null
+          letter_data?: Json | null
+          letter_number?: string | null
+          letter_template_id?: string | null
+          letter_url?: string | null
+          program_offered?: string
+          rejection_category?: string | null
+          rejection_details?: Json | null
+          rejection_reason?: string | null
+          reminder_sent_count?: number | null
+          response?: Database["public"]["Enums"]["offer_response"] | null
+          response_at?: string | null
+          response_notes?: string | null
+          sent_at?: string | null
+          sent_via?: string[] | null
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "offer_letters_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "admission_applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "offer_letters_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "v_application_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "offer_letters_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "offer_letters_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "offer_letters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "offer_letters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      okr_attachments: {
+        Row: {
+          created_at: string
+          description: string | null
+          entity_id: string
+          entity_type: string
+          external_url: string | null
+          file_name: string
+          file_size: number | null
+          file_type: string
+          id: string
+          storage_path: string | null
+          thumbnail_path: string | null
+          uploaded_by: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          entity_id: string
+          entity_type: string
+          external_url?: string | null
+          file_name: string
+          file_size?: number | null
+          file_type: string
+          id?: string
+          storage_path?: string | null
+          thumbnail_path?: string | null
+          uploaded_by: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          entity_id?: string
+          entity_type?: string
+          external_url?: string | null
+          file_name?: string
+          file_size?: number | null
+          file_type?: string
+          id?: string
+          storage_path?: string | null
+          thumbnail_path?: string | null
+          uploaded_by?: string
+        }
+        Relationships: []
+      }
+      okr_check_ins: {
+        Row: {
+          blocker_assigned_to: string | null
+          blocker_description: string | null
+          blocker_flagged: boolean | null
+          blocker_resolved: boolean | null
+          blocker_resolved_at: string | null
+          check_in_date: string | null
+          created_at: string
+          days_overdue: number | null
+          due_date: string
+          id: string
+          is_completed: boolean
+          is_overdue: boolean
+          overall_notes: string | null
+          updated_at: string
+          user_id: string
+          week_number: number
+          year: number
+        }
+        Insert: {
+          blocker_assigned_to?: string | null
+          blocker_description?: string | null
+          blocker_flagged?: boolean | null
+          blocker_resolved?: boolean | null
+          blocker_resolved_at?: string | null
+          check_in_date?: string | null
+          created_at?: string
+          days_overdue?: number | null
+          due_date: string
+          id?: string
+          is_completed?: boolean
+          is_overdue?: boolean
+          overall_notes?: string | null
+          updated_at?: string
+          user_id: string
+          week_number: number
+          year: number
+        }
+        Update: {
+          blocker_assigned_to?: string | null
+          blocker_description?: string | null
+          blocker_flagged?: boolean | null
+          blocker_resolved?: boolean | null
+          blocker_resolved_at?: string | null
+          check_in_date?: string | null
+          created_at?: string
+          days_overdue?: number | null
+          due_date?: string
+          id?: string
+          is_completed?: boolean
+          is_overdue?: boolean
+          overall_notes?: string | null
+          updated_at?: string
+          user_id?: string
+          week_number?: number
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_check_ins_user_profile_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "okr_check_ins_user_profile_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      okr_comments: {
+        Row: {
+          author_id: string
+          content: string
+          created_at: string
+          deleted_at: string | null
+          edited_at: string | null
+          entity_id: string
+          entity_type: string
+          id: string
+          is_deleted: boolean | null
+          is_edited: boolean | null
+          mentioned_user_ids: string[] | null
+          parent_comment_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          author_id: string
+          content: string
+          created_at?: string
+          deleted_at?: string | null
+          edited_at?: string | null
+          entity_id: string
+          entity_type: string
+          id?: string
+          is_deleted?: boolean | null
+          is_edited?: boolean | null
+          mentioned_user_ids?: string[] | null
+          parent_comment_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          author_id?: string
+          content?: string
+          created_at?: string
+          deleted_at?: string | null
+          edited_at?: string | null
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          is_deleted?: boolean | null
+          is_edited?: boolean | null
+          mentioned_user_ids?: string[] | null
+          parent_comment_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_comments_parent_comment_id_fkey"
+            columns: ["parent_comment_id"]
+            isOneToOne: false
+            referencedRelation: "okr_comments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      okr_compliance_logs: {
+        Row: {
+          action: string
+          created_at: string
+          id: string
+          metadata: Json | null
+          new_badge: string | null
+          performed_by: string
+          previous_badge: string | null
+          reason: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          new_badge?: string | null
+          performed_by: string
+          previous_badge?: string | null
+          reason?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          new_badge?: string | null
+          performed_by?: string
+          previous_badge?: string | null
+          reason?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      okr_dependencies: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          objective_id: string
+          owner_department_id: string | null
+          owner_user_id: string | null
+          required_by_date: string
+          resolution_notes: string | null
+          resolved_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          id?: string
+          objective_id: string
+          owner_department_id?: string | null
+          owner_user_id?: string | null
+          required_by_date: string
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          objective_id?: string
+          owner_department_id?: string | null
+          owner_user_id?: string | null
+          required_by_date?: string
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_dependencies_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "okr_objectives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_dependencies_owner_department_id_fkey"
+            columns: ["owner_department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      okr_key_results: {
+        Row: {
+          created_at: string
+          current_value: number
+          data_source: string
+          data_source_config: Json | null
+          deadline: string
+          description: string | null
+          id: string
+          last_synced_at: string | null
+          measured_by: string | null
+          objective_id: string
+          order_index: number
+          progress_percentage: number | null
+          start_value: number
+          status: string
+          target_value: number
+          title: string
+          unit: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_value?: number
+          data_source?: string
+          data_source_config?: Json | null
+          deadline: string
+          description?: string | null
+          id?: string
+          last_synced_at?: string | null
+          measured_by?: string | null
+          objective_id: string
+          order_index?: number
+          progress_percentage?: number | null
+          start_value?: number
+          status?: string
+          target_value: number
+          title: string
+          unit?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_value?: number
+          data_source?: string
+          data_source_config?: Json | null
+          deadline?: string
+          description?: string | null
+          id?: string
+          last_synced_at?: string | null
+          measured_by?: string | null
+          objective_id?: string
+          order_index?: number
+          progress_percentage?: number | null
+          start_value?: number
+          status?: string
+          target_value?: number
+          title?: string
+          unit?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_key_results_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "okr_objectives"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      okr_kr_updates: {
+        Row: {
+          check_in_id: string | null
+          created_at: string
+          id: string
+          is_auto_tracked: boolean | null
+          key_result_id: string
+          new_value: number
+          notes: string | null
+          previous_value: number
+          updated_by: string
+        }
+        Insert: {
+          check_in_id?: string | null
+          created_at?: string
+          id?: string
+          is_auto_tracked?: boolean | null
+          key_result_id: string
+          new_value: number
+          notes?: string | null
+          previous_value: number
+          updated_by: string
+        }
+        Update: {
+          check_in_id?: string | null
+          created_at?: string
+          id?: string
+          is_auto_tracked?: boolean | null
+          key_result_id?: string
+          new_value?: number
+          notes?: string | null
+          previous_value?: number
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_kr_updates_check_in_id_fkey"
+            columns: ["check_in_id"]
+            isOneToOne: false
+            referencedRelation: "okr_check_ins"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_kr_updates_key_result_id_fkey"
+            columns: ["key_result_id"]
+            isOneToOne: false
+            referencedRelation: "okr_key_results"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_kr_updates_updated_by_profile_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "okr_kr_updates_updated_by_profile_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      okr_milestones: {
+        Row: {
+          achieved_at: string
+          announced_at: string | null
+          celebration_type: string | null
+          created_at: string
+          id: string
+          is_announced: boolean | null
+          key_result_id: string | null
+          milestone_type: string
+          objective_id: string | null
+          recognition_notes: string | null
+          user_id: string
+        }
+        Insert: {
+          achieved_at?: string
+          announced_at?: string | null
+          celebration_type?: string | null
+          created_at?: string
+          id?: string
+          is_announced?: boolean | null
+          key_result_id?: string | null
+          milestone_type: string
+          objective_id?: string | null
+          recognition_notes?: string | null
+          user_id: string
+        }
+        Update: {
+          achieved_at?: string
+          announced_at?: string | null
+          celebration_type?: string | null
+          created_at?: string
+          id?: string
+          is_announced?: boolean | null
+          key_result_id?: string | null
+          milestone_type?: string
+          objective_id?: string | null
+          recognition_notes?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_milestones_key_result_id_fkey"
+            columns: ["key_result_id"]
+            isOneToOne: false
+            referencedRelation: "okr_key_results"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_milestones_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "okr_objectives"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      okr_objectives: {
+        Row: {
+          ai_integration_notes: string | null
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string
+          created_by: string
+          cycle_type: string
+          department_id: string | null
+          description: string | null
+          end_date: string
+          id: string
+          institution_id: string | null
+          level: string
+          overall_progress: number | null
+          owner_id: string
+          parent_objective_id: string | null
+          rationale: string | null
+          start_date: string
+          status: string
+          tier: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          ai_integration_notes?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          created_by: string
+          cycle_type: string
+          department_id?: string | null
+          description?: string | null
+          end_date: string
+          id?: string
+          institution_id?: string | null
+          level: string
+          overall_progress?: number | null
+          owner_id: string
+          parent_objective_id?: string | null
+          rationale?: string | null
+          start_date: string
+          status?: string
+          tier?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          ai_integration_notes?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          created_by?: string
+          cycle_type?: string
+          department_id?: string | null
+          description?: string | null
+          end_date?: string
+          id?: string
+          institution_id?: string | null
+          level?: string
+          overall_progress?: number | null
+          owner_id?: string
+          parent_objective_id?: string | null
+          rationale?: string | null
+          start_date?: string
+          status?: string
+          tier?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_objectives_approved_by_profile_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_approved_by_profile_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_created_by_profile_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_created_by_profile_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_owner_profile_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_owner_profile_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_objectives_parent_objective_id_fkey"
+            columns: ["parent_objective_id"]
+            isOneToOne: false
+            referencedRelation: "okr_objectives"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      okr_reactions: {
+        Row: {
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+          reaction_type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          reaction_type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          reaction_type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      okr_risks: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          impact: string
+          likelihood: string
+          mitigation_strategy: string
+          objective_id: string
+          owner_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          id?: string
+          impact: string
+          likelihood: string
+          mitigation_strategy: string
+          objective_id: string
+          owner_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          impact?: string
+          likelihood?: string
+          mitigation_strategy?: string
+          objective_id?: string
+          owner_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_risks_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "okr_objectives"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      okr_tasks: {
+        Row: {
+          accountable_id: string | null
+          consulted_ids: string[] | null
+          created_at: string
+          deadline: string | null
+          description: string | null
+          id: string
+          informed_ids: string[] | null
+          key_result_id: string | null
+          objective_id: string
+          order_index: number
+          responsible_id: string | null
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          accountable_id?: string | null
+          consulted_ids?: string[] | null
+          created_at?: string
+          deadline?: string | null
+          description?: string | null
+          id?: string
+          informed_ids?: string[] | null
+          key_result_id?: string | null
+          objective_id: string
+          order_index?: number
+          responsible_id?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          accountable_id?: string | null
+          consulted_ids?: string[] | null
+          created_at?: string
+          deadline?: string | null
+          description?: string | null
+          id?: string
+          informed_ids?: string[] | null
+          key_result_id?: string | null
+          objective_id?: string
+          order_index?: number
+          responsible_id?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_tasks_key_result_id_fkey"
+            columns: ["key_result_id"]
+            isOneToOne: false
+            referencedRelation: "okr_key_results"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "okr_tasks_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "okr_objectives"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      okr_user_status: {
+        Row: {
+          consecutive_completed: number | null
+          consecutive_missed: number | null
+          current_badge: string
+          id: string
+          last_check_in_date: string | null
+          next_check_in_due: string | null
+          total_check_ins: number | null
+          unblock_reason: string | null
+          unblocked_at: string | null
+          unblocked_by: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          consecutive_completed?: number | null
+          consecutive_missed?: number | null
+          current_badge?: string
+          id?: string
+          last_check_in_date?: string | null
+          next_check_in_due?: string | null
+          total_check_ins?: number | null
+          unblock_reason?: string | null
+          unblocked_at?: string | null
+          unblocked_by?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          consecutive_completed?: number | null
+          consecutive_missed?: number | null
+          current_badge?: string
+          id?: string
+          last_check_in_date?: string | null
+          next_check_in_due?: string | null
+          total_check_ins?: number | null
+          unblock_reason?: string | null
+          unblocked_at?: string | null
+          unblocked_by?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_user_status_user_profile_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "okr_user_status_user_profile_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -3164,6 +10003,7 @@ export type Database = {
           is_pre_registered: boolean | null
           is_super_admin: boolean | null
           last_login: string | null
+          learner_id: string | null
           phone_number: string | null
           profile_completed: boolean
           role: string
@@ -3184,6 +10024,7 @@ export type Database = {
           is_pre_registered?: boolean | null
           is_super_admin?: boolean | null
           last_login?: string | null
+          learner_id?: string | null
           phone_number?: string | null
           profile_completed?: boolean
           role?: string
@@ -3204,6 +10045,7 @@ export type Database = {
           is_pre_registered?: boolean | null
           is_super_admin?: boolean | null
           last_login?: string | null
+          learner_id?: string | null
           phone_number?: string | null
           profile_completed?: boolean
           role?: string
@@ -3231,7 +10073,94 @@ export type Database = {
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
           },
+          {
+            foreignKeyName: "profiles_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "profiles_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
         ]
+      }
+      profiles_backup_bpharm_sem8_active: {
+        Row: {
+          avatar_url: string | null
+          bio: string | null
+          created_at: string | null
+          department_id: string | null
+          designation: string | null
+          email: string | null
+          full_name: string | null
+          gender: string | null
+          id: string | null
+          institution_id: string | null
+          is_active: boolean | null
+          is_pre_registered: boolean | null
+          is_super_admin: boolean | null
+          last_login: string | null
+          learner_id: string | null
+          phone_number: string | null
+          profile_completed: boolean | null
+          role: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string | null
+          department_id?: string | null
+          designation?: string | null
+          email?: string | null
+          full_name?: string | null
+          gender?: string | null
+          id?: string | null
+          institution_id?: string | null
+          is_active?: boolean | null
+          is_pre_registered?: boolean | null
+          is_super_admin?: boolean | null
+          last_login?: string | null
+          learner_id?: string | null
+          phone_number?: string | null
+          profile_completed?: boolean | null
+          role?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string | null
+          department_id?: string | null
+          designation?: string | null
+          email?: string | null
+          full_name?: string | null
+          gender?: string | null
+          id?: string | null
+          institution_id?: string | null
+          is_active?: boolean | null
+          is_pre_registered?: boolean | null
+          is_super_admin?: boolean | null
+          last_login?: string | null
+          learner_id?: string | null
+          phone_number?: string | null
+          profile_completed?: boolean | null
+          role?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       programs: {
         Row: {
@@ -3239,11 +10168,19 @@ export type Database = {
           created_by: string | null
           degree_id: string | null
           department_id: string | null
+          display_name: string | null
+          duration_years: number | null
           id: string
           institution_id: string | null
           is_active: boolean | null
+          is_part_time: boolean | null
+          pattern_type: string | null
+          program_code: string | null
+          program_duration_yrs: number | null
           program_id: string
           program_name: string
+          program_order: number | null
+          program_type: string | null
           updated_at: string | null
         }
         Insert: {
@@ -3251,11 +10188,19 @@ export type Database = {
           created_by?: string | null
           degree_id?: string | null
           department_id?: string | null
+          display_name?: string | null
+          duration_years?: number | null
           id?: string
           institution_id?: string | null
           is_active?: boolean | null
+          is_part_time?: boolean | null
+          pattern_type?: string | null
+          program_code?: string | null
+          program_duration_yrs?: number | null
           program_id: string
           program_name: string
+          program_order?: number | null
+          program_type?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -3263,11 +10208,19 @@ export type Database = {
           created_by?: string | null
           degree_id?: string | null
           department_id?: string | null
+          display_name?: string | null
+          duration_years?: number | null
           id?: string
           institution_id?: string | null
           is_active?: boolean | null
+          is_part_time?: boolean | null
+          pattern_type?: string | null
+          program_code?: string | null
+          program_duration_yrs?: number | null
           program_id?: string
           program_name?: string
+          program_order?: number | null
+          program_type?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -3340,6 +10293,307 @@ export type Database = {
           },
         ]
       }
+      re_engagement_campaigns: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          end_date: string | null
+          exclude_if_active_in_days: number | null
+          id: string
+          institution_id: string
+          leads_converted: number | null
+          leads_re_engaged: number | null
+          max_leads_per_day: number | null
+          name: string
+          send_time: string | null
+          send_timezone: string | null
+          sequence: Json
+          start_date: string | null
+          status: Database["public"]["Enums"]["campaign_status"] | null
+          target_criteria: Json
+          total_leads_targeted: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          end_date?: string | null
+          exclude_if_active_in_days?: number | null
+          id?: string
+          institution_id: string
+          leads_converted?: number | null
+          leads_re_engaged?: number | null
+          max_leads_per_day?: number | null
+          name: string
+          send_time?: string | null
+          send_timezone?: string | null
+          sequence?: Json
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["campaign_status"] | null
+          target_criteria: Json
+          total_leads_targeted?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          end_date?: string | null
+          exclude_if_active_in_days?: number | null
+          id?: string
+          institution_id?: string
+          leads_converted?: number | null
+          leads_re_engaged?: number | null
+          max_leads_per_day?: number | null
+          name?: string
+          send_time?: string | null
+          send_timezone?: string | null
+          sequence?: Json
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["campaign_status"] | null
+          target_criteria?: Json
+          total_leads_targeted?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "re_engagement_campaigns_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "re_engagement_campaigns_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "re_engagement_campaigns_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "re_engagement_campaigns_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      referral_reward_configs: {
+        Row: {
+          applicable_degrees: string[] | null
+          applicable_programs: string[] | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          max_referrals_per_year: number | null
+          max_reward_amount: number | null
+          max_stacking_count: number | null
+          min_referrals_required: number | null
+          min_reward_amount: number | null
+          name: string
+          referrer_type: string
+          reward_type: string
+          reward_value: number
+          reward_value_type: string
+          stackable: boolean | null
+          trigger_conditions: Json | null
+          trigger_stage: string
+          updated_at: string | null
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+        }
+        Insert: {
+          applicable_degrees?: string[] | null
+          applicable_programs?: string[] | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          max_referrals_per_year?: number | null
+          max_reward_amount?: number | null
+          max_stacking_count?: number | null
+          min_referrals_required?: number | null
+          min_reward_amount?: number | null
+          name: string
+          referrer_type: string
+          reward_type: string
+          reward_value: number
+          reward_value_type: string
+          stackable?: boolean | null
+          trigger_conditions?: Json | null
+          trigger_stage?: string
+          updated_at?: string | null
+          updated_by?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+        }
+        Update: {
+          applicable_degrees?: string[] | null
+          applicable_programs?: string[] | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          max_referrals_per_year?: number | null
+          max_reward_amount?: number | null
+          max_stacking_count?: number | null
+          min_referrals_required?: number | null
+          min_reward_amount?: number | null
+          name?: string
+          referrer_type?: string
+          reward_type?: string
+          reward_value?: number
+          reward_value_type?: string
+          stackable?: boolean | null
+          trigger_conditions?: Json | null
+          trigger_stage?: string
+          updated_at?: string | null
+          updated_by?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+        }
+        Relationships: []
+      }
+      referral_rewards: {
+        Row: {
+          applied_to_bill_id: string | null
+          approved_at: string | null
+          approved_by: string | null
+          attribution_id: string | null
+          created_at: string | null
+          credits_awarded: number | null
+          credits_balance: number | null
+          credits_expiry_date: string | null
+          credits_used: number | null
+          discount_applied_at: string | null
+          id: string
+          institution_id: string
+          notes: string | null
+          paid_at: string | null
+          payment_mode: string | null
+          payment_reference: string | null
+          referred_learner_id: string
+          referrer_consultant_id: string | null
+          referrer_learner_id: string
+          rejection_reason: string | null
+          reward_amount: number
+          reward_config_id: string | null
+          reward_description: string | null
+          reward_number: string | null
+          reward_type: string
+          status: string | null
+          status_history: Json | null
+          updated_at: string | null
+        }
+        Insert: {
+          applied_to_bill_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          attribution_id?: string | null
+          created_at?: string | null
+          credits_awarded?: number | null
+          credits_balance?: number | null
+          credits_expiry_date?: string | null
+          credits_used?: number | null
+          discount_applied_at?: string | null
+          id?: string
+          institution_id: string
+          notes?: string | null
+          paid_at?: string | null
+          payment_mode?: string | null
+          payment_reference?: string | null
+          referred_learner_id: string
+          referrer_consultant_id?: string | null
+          referrer_learner_id: string
+          rejection_reason?: string | null
+          reward_amount: number
+          reward_config_id?: string | null
+          reward_description?: string | null
+          reward_number?: string | null
+          reward_type: string
+          status?: string | null
+          status_history?: Json | null
+          updated_at?: string | null
+        }
+        Update: {
+          applied_to_bill_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          attribution_id?: string | null
+          created_at?: string | null
+          credits_awarded?: number | null
+          credits_balance?: number | null
+          credits_expiry_date?: string | null
+          credits_used?: number | null
+          discount_applied_at?: string | null
+          id?: string
+          institution_id?: string
+          notes?: string | null
+          paid_at?: string | null
+          payment_mode?: string | null
+          payment_reference?: string | null
+          referred_learner_id?: string
+          referrer_consultant_id?: string | null
+          referrer_learner_id?: string
+          rejection_reason?: string | null
+          reward_amount?: number
+          reward_config_id?: string | null
+          reward_description?: string | null
+          reward_number?: string | null
+          reward_type?: string
+          status?: string | null
+          status_history?: Json | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_rewards_attribution_id_fkey"
+            columns: ["attribution_id"]
+            isOneToOne: false
+            referencedRelation: "consultant_lead_attributions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_rewards_referrer_consultant_id_fkey"
+            columns: ["referrer_consultant_id"]
+            isOneToOne: false
+            referencedRelation: "education_consultants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_rewards_referrer_consultant_id_fkey"
+            columns: ["referrer_consultant_id"]
+            isOneToOne: false
+            referencedRelation: "v_consultant_performance"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_rewards_reward_config_id_fkey"
+            columns: ["reward_config_id"]
+            isOneToOne: false
+            referencedRelation: "referral_reward_configs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       regulations: {
         Row: {
           created_at: string
@@ -3382,6 +10636,145 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      rejection_feedback: {
+        Row: {
+          application_id: string
+          collected_at: string | null
+          collected_by: string | null
+          collected_via: string
+          competitor_name: string | null
+          competitor_program: string | null
+          created_at: string | null
+          expected_fee: number | null
+          feedback_text: string | null
+          follow_up_action: string | null
+          follow_up_at: string | null
+          follow_up_by: string | null
+          id: string
+          improvement_suggestions: string | null
+          institution_id: string
+          loan_needed: boolean | null
+          offer_id: string | null
+          primary_reason: string
+          scholarship_expected: boolean | null
+          sentiment: string | null
+          sub_reasons: string[] | null
+          would_recommend: boolean | null
+        }
+        Insert: {
+          application_id: string
+          collected_at?: string | null
+          collected_by?: string | null
+          collected_via: string
+          competitor_name?: string | null
+          competitor_program?: string | null
+          created_at?: string | null
+          expected_fee?: number | null
+          feedback_text?: string | null
+          follow_up_action?: string | null
+          follow_up_at?: string | null
+          follow_up_by?: string | null
+          id?: string
+          improvement_suggestions?: string | null
+          institution_id: string
+          loan_needed?: boolean | null
+          offer_id?: string | null
+          primary_reason: string
+          scholarship_expected?: boolean | null
+          sentiment?: string | null
+          sub_reasons?: string[] | null
+          would_recommend?: boolean | null
+        }
+        Update: {
+          application_id?: string
+          collected_at?: string | null
+          collected_by?: string | null
+          collected_via?: string
+          competitor_name?: string | null
+          competitor_program?: string | null
+          created_at?: string | null
+          expected_fee?: number | null
+          feedback_text?: string | null
+          follow_up_action?: string | null
+          follow_up_at?: string | null
+          follow_up_by?: string | null
+          id?: string
+          improvement_suggestions?: string | null
+          institution_id?: string
+          loan_needed?: boolean | null
+          offer_id?: string | null
+          primary_reason?: string
+          scholarship_expected?: boolean | null
+          sentiment?: string | null
+          sub_reasons?: string[] | null
+          would_recommend?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rejection_feedback_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "admission_applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rejection_feedback_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "v_application_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rejection_feedback_collected_by_fkey"
+            columns: ["collected_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "rejection_feedback_collected_by_fkey"
+            columns: ["collected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rejection_feedback_follow_up_by_fkey"
+            columns: ["follow_up_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "rejection_feedback_follow_up_by_fkey"
+            columns: ["follow_up_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rejection_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rejection_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "rejection_feedback_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "offer_letters"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -4296,6 +11689,372 @@ export type Database = {
           },
         ]
       }
+      scholarship_applications: {
+        Row: {
+          application_id: string
+          applied_at: string | null
+          approved_amount: number | null
+          documents: string[] | null
+          id: string
+          institution_id: string
+          rejection_reason: string | null
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          scholarship_id: string
+          status: string | null
+          supporting_data: Json | null
+          updated_at: string | null
+        }
+        Insert: {
+          application_id: string
+          applied_at?: string | null
+          approved_amount?: number | null
+          documents?: string[] | null
+          id?: string
+          institution_id: string
+          rejection_reason?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          scholarship_id: string
+          status?: string | null
+          supporting_data?: Json | null
+          updated_at?: string | null
+        }
+        Update: {
+          application_id?: string
+          applied_at?: string | null
+          approved_amount?: number | null
+          documents?: string[] | null
+          id?: string
+          institution_id?: string
+          rejection_reason?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          scholarship_id?: string
+          status?: string | null
+          supporting_data?: Json | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scholarship_applications_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "admission_applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scholarship_applications_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "v_application_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scholarship_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scholarship_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "scholarship_applications_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "scholarship_applications_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scholarship_applications_scholarship_id_fkey"
+            columns: ["scholarship_id"]
+            isOneToOne: false
+            referencedRelation: "scholarships"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scholarships: {
+        Row: {
+          academic_year: string | null
+          auto_qualify: boolean | null
+          benefit_type: string
+          benefit_value: number
+          code: string
+          created_at: string | null
+          description: string | null
+          eligibility_criteria: Json
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          max_benefit: number | null
+          name: string
+          requires_application: boolean | null
+          scholarship_type: Database["public"]["Enums"]["scholarship_type"]
+          total_slots: number | null
+          updated_at: string | null
+          used_slots: number | null
+          valid_from: string | null
+          valid_until: string | null
+        }
+        Insert: {
+          academic_year?: string | null
+          auto_qualify?: boolean | null
+          benefit_type: string
+          benefit_value: number
+          code: string
+          created_at?: string | null
+          description?: string | null
+          eligibility_criteria?: Json
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          max_benefit?: number | null
+          name: string
+          requires_application?: boolean | null
+          scholarship_type: Database["public"]["Enums"]["scholarship_type"]
+          total_slots?: number | null
+          updated_at?: string | null
+          used_slots?: number | null
+          valid_from?: string | null
+          valid_until?: string | null
+        }
+        Update: {
+          academic_year?: string | null
+          auto_qualify?: boolean | null
+          benefit_type?: string
+          benefit_value?: number
+          code?: string
+          created_at?: string | null
+          description?: string | null
+          eligibility_criteria?: Json
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          max_benefit?: number | null
+          name?: string
+          requires_application?: boolean | null
+          scholarship_type?: Database["public"]["Enums"]["scholarship_type"]
+          total_slots?: number | null
+          updated_at?: string | null
+          used_slots?: number | null
+          valid_from?: string | null
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scholarships_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scholarships_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      scoring_rules: {
+        Row: {
+          conditions: Json | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          institution_id: string | null
+          is_active: boolean | null
+          is_positive: boolean | null
+          priority: number | null
+          score_value: number
+          signal_category: string
+          signal_name: string
+          updated_at: string | null
+        }
+        Insert: {
+          conditions?: Json | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          is_positive?: boolean | null
+          priority?: number | null
+          score_value: number
+          signal_category: string
+          signal_name: string
+          updated_at?: string | null
+        }
+        Update: {
+          conditions?: Json | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          is_positive?: boolean | null
+          priority?: number | null
+          score_value?: number
+          signal_category?: string
+          signal_name?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scoring_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "scoring_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scoring_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scoring_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      screening_exams: {
+        Row: {
+          application_id: string
+          completed_at: string | null
+          created_at: string | null
+          cutoff_met: boolean | null
+          cutoff_score: number | null
+          duration_minutes: number | null
+          exam_name: string | null
+          exam_type: Database["public"]["Enums"]["exam_type"]
+          external_exam_name: string | null
+          external_roll_number: string | null
+          external_score_verified: boolean | null
+          id: string
+          institution_id: string
+          max_score: number | null
+          percentage: number | null
+          percentile: number | null
+          raw_score: number | null
+          scheduled_at: string | null
+          score_breakdown: Json | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["exam_status"] | null
+          suggested_programs: string[] | null
+          updated_at: string | null
+        }
+        Insert: {
+          application_id: string
+          completed_at?: string | null
+          created_at?: string | null
+          cutoff_met?: boolean | null
+          cutoff_score?: number | null
+          duration_minutes?: number | null
+          exam_name?: string | null
+          exam_type?: Database["public"]["Enums"]["exam_type"]
+          external_exam_name?: string | null
+          external_roll_number?: string | null
+          external_score_verified?: boolean | null
+          id?: string
+          institution_id: string
+          max_score?: number | null
+          percentage?: number | null
+          percentile?: number | null
+          raw_score?: number | null
+          scheduled_at?: string | null
+          score_breakdown?: Json | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["exam_status"] | null
+          suggested_programs?: string[] | null
+          updated_at?: string | null
+        }
+        Update: {
+          application_id?: string
+          completed_at?: string | null
+          created_at?: string | null
+          cutoff_met?: boolean | null
+          cutoff_score?: number | null
+          duration_minutes?: number | null
+          exam_name?: string | null
+          exam_type?: Database["public"]["Enums"]["exam_type"]
+          external_exam_name?: string | null
+          external_roll_number?: string | null
+          external_score_verified?: boolean | null
+          id?: string
+          institution_id?: string
+          max_score?: number | null
+          percentage?: number | null
+          percentile?: number | null
+          raw_score?: number | null
+          scheduled_at?: string | null
+          score_breakdown?: Json | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["exam_status"] | null
+          suggested_programs?: string[] | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "screening_exams_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "admission_applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "screening_exams_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "v_application_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "screening_exams_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "screening_exams_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       sections: {
         Row: {
           created_at: string
@@ -4384,12 +12143,16 @@ export type Database = {
           degree_id: string
           department_id: string
           id: string
+          initial_semester: boolean | null
           institution_id: string
           is_active: boolean | null
           program_id: string
           semester_code: string
+          semester_group: string | null
           semester_name: string
+          semester_order: number | null
           semester_type: string
+          terminal_semester: boolean | null
           updated_at: string
         }
         Insert: {
@@ -4397,12 +12160,16 @@ export type Database = {
           degree_id: string
           department_id: string
           id?: string
+          initial_semester?: boolean | null
           institution_id: string
           is_active?: boolean | null
           program_id: string
           semester_code: string
+          semester_group?: string | null
           semester_name: string
+          semester_order?: number | null
           semester_type: string
+          terminal_semester?: boolean | null
           updated_at?: string
         }
         Update: {
@@ -4410,12 +12177,16 @@ export type Database = {
           degree_id?: string
           department_id?: string
           id?: string
+          initial_semester?: boolean | null
           institution_id?: string
           is_active?: boolean | null
           program_id?: string
           semester_code?: string
+          semester_group?: string | null
           semester_name?: string
+          semester_order?: number | null
           semester_type?: string
+          terminal_semester?: boolean | null
           updated_at?: string
         }
         Relationships: [
@@ -4456,9 +12227,95 @@ export type Database = {
           },
         ]
       }
+      sla_configurations: {
+        Row: {
+          applies_to: string
+          business_end_hour: number | null
+          business_hours_only: boolean | null
+          business_start_hour: number | null
+          created_at: string | null
+          critical_time_minutes: number
+          description: string | null
+          escalation_rule_id: string | null
+          excluded_days: number[] | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          name: string
+          notify_on_critical: boolean | null
+          notify_on_warning: boolean | null
+          target_time_minutes: number
+          updated_at: string | null
+          warning_time_minutes: number
+        }
+        Insert: {
+          applies_to: string
+          business_end_hour?: number | null
+          business_hours_only?: boolean | null
+          business_start_hour?: number | null
+          created_at?: string | null
+          critical_time_minutes: number
+          description?: string | null
+          escalation_rule_id?: string | null
+          excluded_days?: number[] | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          name: string
+          notify_on_critical?: boolean | null
+          notify_on_warning?: boolean | null
+          target_time_minutes: number
+          updated_at?: string | null
+          warning_time_minutes: number
+        }
+        Update: {
+          applies_to?: string
+          business_end_hour?: number | null
+          business_hours_only?: boolean | null
+          business_start_hour?: number | null
+          created_at?: string | null
+          critical_time_minutes?: number
+          description?: string | null
+          escalation_rule_id?: string | null
+          excluded_days?: number[] | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          name?: string
+          notify_on_critical?: boolean | null
+          notify_on_warning?: boolean | null
+          target_time_minutes?: number
+          updated_at?: string | null
+          warning_time_minutes?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sla_configurations_escalation_rule_id_fkey"
+            columns: ["escalation_rule_id"]
+            isOneToOne: false
+            referencedRelation: "escalation_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sla_configurations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sla_configurations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       staff: {
         Row: {
           address: string | null
+          auth_user_id: string | null
           blood_group: string | null
           category_id: string
           created_at: string
@@ -4470,6 +12327,7 @@ export type Database = {
           district: string | null
           email: string
           first_name: string
+          full_name: string | null
           gender: string
           id: string
           institution_email: string
@@ -4488,6 +12346,7 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          auth_user_id?: string | null
           blood_group?: string | null
           category_id: string
           created_at?: string
@@ -4499,6 +12358,7 @@ export type Database = {
           district?: string | null
           email: string
           first_name: string
+          full_name?: string | null
           gender: string
           id?: string
           institution_email: string
@@ -4517,6 +12377,7 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          auth_user_id?: string | null
           blood_group?: string | null
           category_id?: string
           created_at?: string
@@ -4528,6 +12389,7 @@ export type Database = {
           district?: string | null
           email?: string
           first_name?: string
+          full_name?: string | null
           gender?: string
           id?: string
           institution_email?: string
@@ -4903,6 +12765,99 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      students: {
+        Row: {
+          address: Json | null
+          blood_group: string | null
+          created_at: string
+          date_of_birth: string | null
+          email: string | null
+          emergency_contact: Json | null
+          first_name: string | null
+          gender: string | null
+          id: string
+          institution_id: string | null
+          last_name: string | null
+          learner_profile_id: string | null
+          phone: string | null
+          status: string | null
+          student_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: Json | null
+          blood_group?: string | null
+          created_at?: string
+          date_of_birth?: string | null
+          email?: string | null
+          emergency_contact?: Json | null
+          first_name?: string | null
+          gender?: string | null
+          id?: string
+          institution_id?: string | null
+          last_name?: string | null
+          learner_profile_id?: string | null
+          phone?: string | null
+          status?: string | null
+          student_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: Json | null
+          blood_group?: string | null
+          created_at?: string
+          date_of_birth?: string | null
+          email?: string | null
+          emergency_contact?: Json | null
+          first_name?: string | null
+          gender?: string | null
+          id?: string
+          institution_id?: string | null
+          last_name?: string | null
+          learner_profile_id?: string | null
+          phone?: string | null
+          status?: string | null
+          student_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "students_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "students_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "students_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "students_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "students_learner_profile_id_fkey"
+            columns: ["learner_profile_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+        ]
       }
       students_backup_20251223: {
         Row: {
@@ -5663,6 +13618,674 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_connections: {
+        Row: {
+          connected_at: string | null
+          connected_by: string | null
+          created_at: string
+          disconnected_at: string | null
+          error_message: string | null
+          id: string
+          institution_id: string
+          jid: string | null
+          last_health_check: string | null
+          last_qr_at: string | null
+          phone_number: string | null
+          push_name: string | null
+          service_url: string | null
+          session_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          connected_at?: string | null
+          connected_by?: string | null
+          created_at?: string
+          disconnected_at?: string | null
+          error_message?: string | null
+          id?: string
+          institution_id: string
+          jid?: string | null
+          last_health_check?: string | null
+          last_qr_at?: string | null
+          phone_number?: string | null
+          push_name?: string | null
+          service_url?: string | null
+          session_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          connected_at?: string | null
+          connected_by?: string | null
+          created_at?: string
+          disconnected_at?: string | null
+          error_message?: string | null
+          id?: string
+          institution_id?: string
+          jid?: string | null
+          last_health_check?: string | null
+          last_qr_at?: string | null
+          phone_number?: string | null
+          push_name?: string | null
+          service_url?: string | null
+          session_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_connections_connected_by_fkey"
+            columns: ["connected_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_connections_connected_by_fkey"
+            columns: ["connected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_connections_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: true
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_connections_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: true
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      whatsapp_message_logs: {
+        Row: {
+          connection_id: string
+          created_at: string
+          delivered_at: string | null
+          error_message: string | null
+          id: string
+          institution_id: string
+          message_preview: string | null
+          message_type: string
+          read_at: string | null
+          recipient_count: number | null
+          recipient_jid: string
+          recipient_name: string | null
+          recipient_type: string
+          sent_at: string
+          sent_by: string
+          status: string
+          template_id: string | null
+          whatsapp_message_id: string | null
+        }
+        Insert: {
+          connection_id: string
+          created_at?: string
+          delivered_at?: string | null
+          error_message?: string | null
+          id?: string
+          institution_id: string
+          message_preview?: string | null
+          message_type?: string
+          read_at?: string | null
+          recipient_count?: number | null
+          recipient_jid: string
+          recipient_name?: string | null
+          recipient_type: string
+          sent_at?: string
+          sent_by: string
+          status?: string
+          template_id?: string | null
+          whatsapp_message_id?: string | null
+        }
+        Update: {
+          connection_id?: string
+          created_at?: string
+          delivered_at?: string | null
+          error_message?: string | null
+          id?: string
+          institution_id?: string
+          message_preview?: string | null
+          message_type?: string
+          read_at?: string | null
+          recipient_count?: number | null
+          recipient_jid?: string
+          recipient_name?: string | null
+          recipient_type?: string
+          sent_at?: string
+          sent_by?: string
+          status?: string
+          template_id?: string | null
+          whatsapp_message_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_message_logs_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_active_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_message_logs_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_message_logs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_message_logs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_message_logs_sent_by_fkey"
+            columns: ["sent_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_message_logs_sent_by_fkey"
+            columns: ["sent_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_settings: {
+        Row: {
+          api_key: string | null
+          bulk_delay_ms: number | null
+          created_at: string
+          enable_auto_replies: boolean | null
+          enable_bulk_messaging: boolean | null
+          enable_scheduled_messages: boolean | null
+          enable_templates: boolean | null
+          id: string
+          institution_id: string
+          max_bulk_recipients: number | null
+          message_log_retention_days: number | null
+          messages_per_minute: number | null
+          notify_email: string | null
+          notify_on_disconnect: boolean | null
+          service_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          api_key?: string | null
+          bulk_delay_ms?: number | null
+          created_at?: string
+          enable_auto_replies?: boolean | null
+          enable_bulk_messaging?: boolean | null
+          enable_scheduled_messages?: boolean | null
+          enable_templates?: boolean | null
+          id?: string
+          institution_id: string
+          max_bulk_recipients?: number | null
+          message_log_retention_days?: number | null
+          messages_per_minute?: number | null
+          notify_email?: string | null
+          notify_on_disconnect?: boolean | null
+          service_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          api_key?: string | null
+          bulk_delay_ms?: number | null
+          created_at?: string
+          enable_auto_replies?: boolean | null
+          enable_bulk_messaging?: boolean | null
+          enable_scheduled_messages?: boolean | null
+          enable_templates?: boolean | null
+          id?: string
+          institution_id?: string
+          max_bulk_recipients?: number | null
+          message_log_retention_days?: number | null
+          messages_per_minute?: number | null
+          notify_email?: string | null
+          notify_on_disconnect?: boolean | null
+          service_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_settings_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: true
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_settings_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: true
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      whatsapp_shared_access: {
+        Row: {
+          access_level: string
+          connection_id: string
+          created_at: string
+          expires_at: string | null
+          granted_at: string
+          granted_by: string | null
+          id: string
+          profile_id: string
+        }
+        Insert: {
+          access_level?: string
+          connection_id: string
+          created_at?: string
+          expires_at?: string | null
+          granted_at?: string
+          granted_by?: string | null
+          id?: string
+          profile_id: string
+        }
+        Update: {
+          access_level?: string
+          connection_id?: string
+          created_at?: string
+          expires_at?: string | null
+          granted_at?: string
+          granted_by?: string | null
+          id?: string
+          profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_shared_access_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_active_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_shared_access_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_shared_access_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_shared_access_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_shared_access_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_shared_access_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_templates: {
+        Row: {
+          attachment_type: string | null
+          attachment_url: string | null
+          category: string | null
+          content: string
+          created_at: string
+          created_by: string | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          last_used_at: string | null
+          name: string
+          updated_at: string
+          use_count: number | null
+          variables: Json | null
+        }
+        Insert: {
+          attachment_type?: string | null
+          attachment_url?: string | null
+          category?: string | null
+          content: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          last_used_at?: string | null
+          name: string
+          updated_at?: string
+          use_count?: number | null
+          variables?: Json | null
+        }
+        Update: {
+          attachment_type?: string | null
+          attachment_url?: string | null
+          category?: string | null
+          content?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          last_used_at?: string | null
+          name?: string
+          updated_at?: string
+          use_count?: number | null
+          variables?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_templates_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_templates_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      workflow_executions: {
+        Row: {
+          completed_at: string | null
+          created_at: string | null
+          current_step: number | null
+          error_message: string | null
+          id: string
+          institution_id: string
+          lead_id: string | null
+          next_step_at: string | null
+          results: Json | null
+          retry_count: number | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["workflow_status"] | null
+          total_steps: number
+          trigger_data: Json | null
+          workflow_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string | null
+          current_step?: number | null
+          error_message?: string | null
+          id?: string
+          institution_id: string
+          lead_id?: string | null
+          next_step_at?: string | null
+          results?: Json | null
+          retry_count?: number | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["workflow_status"] | null
+          total_steps: number
+          trigger_data?: Json | null
+          workflow_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string | null
+          current_step?: number | null
+          error_message?: string | null
+          id?: string
+          institution_id?: string
+          lead_id?: string | null
+          next_step_at?: string | null
+          results?: Json | null
+          retry_count?: number | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["workflow_status"] | null
+          total_steps?: number
+          trigger_data?: Json | null
+          workflow_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_executions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_executions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "workflow_executions_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_executions_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+          {
+            foreignKeyName: "workflow_executions_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "v_workflow_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_executions_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_step_logs: {
+        Row: {
+          completed_at: string | null
+          created_message_id: string | null
+          created_task_id: string | null
+          error_message: string | null
+          execution_id: string
+          id: string
+          result: Json | null
+          started_at: string | null
+          status: string | null
+          step_action: string
+          step_config: Json
+          step_number: number
+        }
+        Insert: {
+          completed_at?: string | null
+          created_message_id?: string | null
+          created_task_id?: string | null
+          error_message?: string | null
+          execution_id: string
+          id?: string
+          result?: Json | null
+          started_at?: string | null
+          status?: string | null
+          step_action: string
+          step_config: Json
+          step_number: number
+        }
+        Update: {
+          completed_at?: string | null
+          created_message_id?: string | null
+          created_task_id?: string | null
+          error_message?: string | null
+          execution_id?: string
+          id?: string
+          result?: Json | null
+          started_at?: string | null
+          status?: string | null
+          step_action?: string
+          step_config?: Json
+          step_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_step_logs_execution_id_fkey"
+            columns: ["execution_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_executions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflows: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          failed_executions: number | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          is_system: boolean | null
+          max_concurrent: number | null
+          name: string
+          retry_count: number | null
+          retry_delay_minutes: number | null
+          schedule_cron: string | null
+          schedule_timezone: string | null
+          steps: Json
+          successful_executions: number | null
+          total_executions: number | null
+          trigger_conditions: Json | null
+          trigger_event: Database["public"]["Enums"]["workflow_trigger_type"]
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          failed_executions?: number | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          is_system?: boolean | null
+          max_concurrent?: number | null
+          name: string
+          retry_count?: number | null
+          retry_delay_minutes?: number | null
+          schedule_cron?: string | null
+          schedule_timezone?: string | null
+          steps?: Json
+          successful_executions?: number | null
+          total_executions?: number | null
+          trigger_conditions?: Json | null
+          trigger_event: Database["public"]["Enums"]["workflow_trigger_type"]
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          failed_executions?: number | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          is_system?: boolean | null
+          max_concurrent?: number | null
+          name?: string
+          retry_count?: number | null
+          retry_delay_minutes?: number | null
+          schedule_cron?: string | null
+          schedule_timezone?: string | null
+          steps?: Json
+          successful_executions?: number | null
+          total_executions?: number | null
+          trigger_conditions?: Json | null
+          trigger_event?: Database["public"]["Enums"]["workflow_trigger_type"]
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflows_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "workflows_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflows_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflows_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
     }
     Views: {
       activity_stats: {
@@ -5684,7 +14307,29 @@ export type Database = {
           refunds_count: number | null
           student_id: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "fk_billing_student_bills_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_billing_student_bills_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "fk_billing_student_bills_learner_profile"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+        ]
       }
       bug_reporters_leaderboard: {
         Row: {
@@ -5755,6 +14400,278 @@ export type Database = {
           },
         ]
       }
+      contact_phone_lookup: {
+        Row: {
+          contact_type: string | null
+          department_id: string | null
+          email: string | null
+          institution_id: string | null
+          name: string | null
+          phone_number: string | null
+          record_id: string | null
+          source_table: string | null
+        }
+        Relationships: []
+      }
+      hostel_active_allocations: {
+        Row: {
+          academic_year: string | null
+          allocation_id: string | null
+          allocation_status: string | null
+          bed_id: string | null
+          bed_number: string | null
+          checked_in_at: string | null
+          end_date: string | null
+          floor_number: number | null
+          has_ac: boolean | null
+          hostel_code: string | null
+          hostel_id: string | null
+          hostel_name: string | null
+          hostel_type: string | null
+          institution_id: string | null
+          room_id: string | null
+          room_number: string | null
+          room_type: string | null
+          semester: string | null
+          start_date: string | null
+          student_id: string | null
+          student_type: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_allocations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      hostel_occupancy_summary: {
+        Row: {
+          available_beds: number | null
+          hostel_code: string | null
+          hostel_id: string | null
+          hostel_name: string | null
+          hostel_type: string | null
+          institution_id: string | null
+          maintenance_beds: number | null
+          occupancy_rate: number | null
+          occupied_beds: number | null
+          reserved_beds: number | null
+          total_beds: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostels_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostels_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      hostel_room_availability: {
+        Row: {
+          available_beds: number | null
+          floor_id: string | null
+          floor_name: string | null
+          floor_number: number | null
+          has_ac: boolean | null
+          has_attached_bathroom: boolean | null
+          hostel_id: string | null
+          hostel_name: string | null
+          hostel_type: string | null
+          occupied_beds: number | null
+          room_id: string | null
+          room_number: string | null
+          room_status: string | null
+          room_type: string | null
+          total_beds: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_rooms_floor_id_fkey"
+            columns: ["floor_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_floors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_rooms_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_active_allocations"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_rooms_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_occupancy_summary"
+            referencedColumns: ["hostel_id"]
+          },
+          {
+            foreignKeyName: "hostel_rooms_hostel_id_fkey"
+            columns: ["hostel_id"]
+            isOneToOne: false
+            referencedRelation: "hostels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lateral_entry_applications_view: {
+        Row: {
+          academic_score: number | null
+          admission_id: string | null
+          application_number: string | null
+          application_status: string | null
+          application_type: string | null
+          applied_program_id: string | null
+          applied_program_name: string | null
+          approval_notes: string | null
+          cgpa: number | null
+          created_at: string | null
+          current_institution: string | null
+          current_program: string | null
+          current_year: string | null
+          date_of_birth: string | null
+          document_count: number | null
+          documents: Json | null
+          documents_uploaded: boolean | null
+          eligibility_notes: string | null
+          eligibility_status: string | null
+          email: string | null
+          id: string | null
+          institution_code: string | null
+          institution_id: string | null
+          institution_name: string | null
+          ip_address: unknown
+          phone: string | null
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          reviewer_name: string | null
+          source: string | null
+          student_id: string | null
+          student_name: string | null
+          target_program_code: string | null
+          target_program_name_full: string | null
+          target_year: number | null
+          updated_at: string | null
+          user_agent: string | null
+          verified_document_count: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lateral_entry_applications_admission_id_fkey"
+            columns: ["admission_id"]
+            isOneToOne: false
+            referencedRelation: "admissions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_applications_applied_program_id_fkey"
+            columns: ["applied_program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_applications_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_applications_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lateral_entry_vacancy_summary: {
+        Row: {
+          academic_year: string | null
+          available_lateral: number | null
+          available_regular: number | null
+          closes_at: string | null
+          created_at: string | null
+          duration_years: number | null
+          fill_percentage: number | null
+          id: string | null
+          institution_code: string | null
+          institution_id: string | null
+          institution_name: string | null
+          is_open: boolean | null
+          lateral_entry_seats: number | null
+          lateral_filled: number | null
+          notes: string | null
+          opens_at: string | null
+          program_code: string | null
+          program_id: string | null
+          program_name: string | null
+          regular_filled: number | null
+          regular_seats: number | null
+          semester: string | null
+          total_intake: number | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lateral_entry_vacancies_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_vacancies_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "lateral_entry_vacancies_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       semester_hierarchy_health: {
         Row: {
           institution_id: string | null
@@ -5791,6 +14708,866 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "programs"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_admission_funnel: {
+        Row: {
+          avg_days_in_stage: number | null
+          avg_score: number | null
+          count: number | null
+          institution_id: string | null
+          stage: Database["public"]["Enums"]["admission_lead_stage"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      v_application_summary: {
+        Row: {
+          academic_year: string | null
+          application_number: string | null
+          completion_percentage: number | null
+          created_at: string | null
+          id: string | null
+          institution_id: string | null
+          interview_outcome:
+            | Database["public"]["Enums"]["interview_outcome"]
+            | null
+          interview_status:
+            | Database["public"]["Enums"]["interview_status"]
+            | null
+          lead_id: string | null
+          lead_score: number | null
+          offer_response: Database["public"]["Enums"]["offer_response"] | null
+          pending_amount: number | null
+          program_id: string | null
+          rejected_documents: number | null
+          status: Database["public"]["Enums"]["application_status"] | null
+          submitted_at: string | null
+          total_documents: number | null
+          total_paid: number | null
+          updated_at: string | null
+          verified_documents: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_applications_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_applications_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+        ]
+      }
+      v_commission_liability: {
+        Row: {
+          approved_amount: number | null
+          approved_count: number | null
+          consultant_id: string | null
+          institution_id: string | null
+          paid_amount: number | null
+          pending_amount: number | null
+          pending_count: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consultant_commission_transactions_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "education_consultants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_commission_transactions_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "v_consultant_performance"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_consultant_lead_pipeline: {
+        Row: {
+          consultant_id: string | null
+          consultant_name: string | null
+          current_stage: string | null
+          institution_id: string | null
+          lead_count: number | null
+          month: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consultant_lead_attributions_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "education_consultants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_lead_attributions_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "v_consultant_performance"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_consultant_performance: {
+        Row: {
+          code: string | null
+          consultant_type: string | null
+          contract_end_date: string | null
+          contract_status: string | null
+          contract_validity_status: string | null
+          conversion_rate: number | null
+          conversions_this_month: number | null
+          id: string | null
+          institution_id: string | null
+          leads_this_month: number | null
+          name: string | null
+          pending_commission: number | null
+          performance_rating: number | null
+          relationship_score: number | null
+          status: string | null
+          total_commission_earned: number | null
+          total_commission_paid: number | null
+          total_conversions: number | null
+          total_leads_referred: number | null
+        }
+        Insert: {
+          code?: string | null
+          consultant_type?: string | null
+          contract_end_date?: string | null
+          contract_status?: string | null
+          contract_validity_status?: never
+          conversion_rate?: number | null
+          conversions_this_month?: never
+          id?: string | null
+          institution_id?: string | null
+          leads_this_month?: never
+          name?: string | null
+          pending_commission?: number | null
+          performance_rating?: number | null
+          relationship_score?: number | null
+          status?: string | null
+          total_commission_earned?: number | null
+          total_commission_paid?: number | null
+          total_conversions?: number | null
+          total_leads_referred?: number | null
+        }
+        Update: {
+          code?: string | null
+          consultant_type?: string | null
+          contract_end_date?: string | null
+          contract_status?: string | null
+          contract_validity_status?: never
+          conversion_rate?: number | null
+          conversions_this_month?: never
+          id?: string | null
+          institution_id?: string | null
+          leads_this_month?: never
+          name?: string | null
+          pending_commission?: number | null
+          performance_rating?: number | null
+          relationship_score?: number | null
+          status?: string | null
+          total_commission_earned?: number | null
+          total_commission_paid?: number | null
+          total_conversions?: number | null
+          total_leads_referred?: number | null
+        }
+        Relationships: []
+      }
+      v_counselor_leaderboard: {
+        Row: {
+          avatar_url: string | null
+          avg_response_time: number | null
+          conversion_change: number | null
+          conversion_rate: number | null
+          counselor_id: string | null
+          counselor_name: string | null
+          institution_id: string | null
+          performance_score: number | null
+          rank: number | null
+          total_assigned: number | null
+          total_calls: number | null
+          total_contacted: number | null
+          total_converted: number | null
+          total_emails: number | null
+          total_progressions: number | null
+          total_tasks_completed: number | null
+          total_whatsapp: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "counselor_daily_metrics_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "counselor_daily_metrics_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_daily_metrics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_daily_metrics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      v_counselor_performance: {
+        Row: {
+          avg_lead_score: number | null
+          contacted_24h: number | null
+          conversion_rate: number | null
+          counselor_id: string | null
+          counselor_name: string | null
+          enrolled_count: number | null
+          institution_id: string | null
+          total_leads: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_leads_assigned_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_leads_assigned_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      v_counselor_performance_trends: {
+        Row: {
+          avg_response_time_seconds: number | null
+          calls_made: number | null
+          counselor_id: string | null
+          institution_id: string | null
+          leads_assigned: number | null
+          leads_contacted: number | null
+          leads_converted: number | null
+          metric_date: string | null
+          rolling_7day_calls: number | null
+          rolling_7day_conversions: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "counselor_daily_metrics_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "counselor_daily_metrics_counselor_id_fkey"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_daily_metrics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_daily_metrics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      v_funnel_analytics: {
+        Row: {
+          active_count: number | null
+          alert_level: string | null
+          avg_days_in_stage: number | null
+          institution_id: string | null
+          lead_count: number | null
+          percentage_of_total: number | null
+          previous_week_count: number | null
+          stage_name: string | null
+          stage_order: number | null
+          stuck_count: number | null
+          wow_change_percent: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      v_funnel_drop_off: {
+        Row: {
+          active_leads: number | null
+          at_stage_count: number | null
+          avg_days_in_stage: number | null
+          conversion_rate: number | null
+          drop_off_rate: number | null
+          institution_id: string | null
+          percentage_reached: number | null
+          reached_stage_count: number | null
+          stage_name: string | null
+          stage_order: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      v_okr_cascade: {
+        Row: {
+          depth: number | null
+          id: string | null
+          level: string | null
+          overall_progress: number | null
+          owner_avatar: string | null
+          owner_email: string | null
+          owner_id: string | null
+          owner_name: string | null
+          parent_objective_id: string | null
+          path: string[] | null
+          tier: string | null
+          title: string | null
+        }
+        Relationships: []
+      }
+      v_okr_comment_counts: {
+        Row: {
+          entity_id: string | null
+          entity_type: string | null
+          last_comment_at: string | null
+          root_comments: number | null
+          total_comments: number | null
+        }
+        Relationships: []
+      }
+      v_okr_reaction_counts: {
+        Row: {
+          count: number | null
+          entity_id: string | null
+          entity_type: string | null
+          reaction_type: string | null
+          user_ids: string[] | null
+        }
+        Relationships: []
+      }
+      v_payment_summary: {
+        Row: {
+          application_fee: number | null
+          application_fee_paid: number | null
+          application_id: string | null
+          application_number: string | null
+          full_fee: number | null
+          full_fee_paid: number | null
+          institution_id: string | null
+          token_fee: number | null
+          token_fee_paid: number | null
+          total_due: number | null
+          total_paid: number | null
+          total_pending: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_payments_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "admission_applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_payments_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "v_application_summary"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_pending_escalations: {
+        Row: {
+          created_at: string | null
+          escalated_from: string | null
+          escalated_from_name: string | null
+          escalated_to: string | null
+          escalated_to_name: string | null
+          hours_since_escalation: number | null
+          id: string | null
+          institution_id: string | null
+          lead_id: string | null
+          lead_name: string | null
+          lead_phone: string | null
+          learner_profile_id: string | null
+          rule_name: string | null
+          status: Database["public"]["Enums"]["escalation_status"] | null
+          trigger_data: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "escalation_log_escalated_from_fkey"
+            columns: ["escalated_from"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "escalation_log_escalated_from_fkey"
+            columns: ["escalated_from"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_log_escalated_to_fkey"
+            columns: ["escalated_to"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "escalation_log_escalated_to_fkey"
+            columns: ["escalated_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "escalation_log_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escalation_log_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+        ]
+      }
+      v_pending_verifications: {
+        Row: {
+          application_id: string | null
+          application_number: string | null
+          document_id: string | null
+          document_type: string | null
+          file_name: string | null
+          hours_pending: number | null
+          institution_id: string | null
+          uploaded_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "application_documents_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "admission_applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "application_documents_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "v_application_summary"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_source_performance: {
+        Row: {
+          avg_score: number | null
+          conversion_rate: number | null
+          enrolled_count: number | null
+          institution_id: string | null
+          lead_count: number | null
+          source_name: string | null
+          source_type: Database["public"]["Enums"]["source_type"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      v_stuck_leads: {
+        Row: {
+          assigned_counselor_id: string | null
+          combined_score: number | null
+          counselor_name: string | null
+          current_stage: string | null
+          days_in_stage: number | null
+          engagement_score: number | null
+          institution_id: string | null
+          is_hot_lead: boolean | null
+          last_activity_at: string | null
+          last_contact_at: string | null
+          lead_id: string | null
+          quality_score: number | null
+          suggested_action: string | null
+          urgency_level: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_leads_assigned_counselor_id_fkey"
+            columns: ["assigned_counselor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_leads_assigned_counselor_id_fkey"
+            columns: ["assigned_counselor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      v_team_okr_summary: {
+        Row: {
+          at_risk_count: number | null
+          behind_count: number | null
+          blocked_count: number | null
+          manager_id: string | null
+          on_track_count: number | null
+          overdue_checkins: number | null
+          total_objectives: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_user_status_user_profile_fkey"
+            columns: ["manager_id"]
+            isOneToOne: true
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "okr_user_status_user_profile_fkey"
+            columns: ["manager_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_team_performance_summary: {
+        Row: {
+          avg_team_response_time: number | null
+          institution_id: string | null
+          team_conversion_rate: number | null
+          total_calls: number | null
+          total_counselors: number | null
+          total_leads_assigned: number | null
+          total_leads_contacted: number | null
+          total_leads_converted: number | null
+          total_tasks_completed: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "counselor_daily_metrics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counselor_daily_metrics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      v_workflow_stats: {
+        Row: {
+          created_at: string | null
+          failed_executions: number | null
+          id: string | null
+          institution_id: string | null
+          is_active: boolean | null
+          name: string | null
+          running_count: number | null
+          success_rate: number | null
+          successful_executions: number | null
+          total_executions: number | null
+          trigger_event:
+            | Database["public"]["Enums"]["workflow_trigger_type"]
+            | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          failed_executions?: number | null
+          id?: string | null
+          institution_id?: string | null
+          is_active?: boolean | null
+          name?: string | null
+          running_count?: never
+          success_rate?: never
+          successful_executions?: number | null
+          total_executions?: number | null
+          trigger_event?:
+            | Database["public"]["Enums"]["workflow_trigger_type"]
+            | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          failed_executions?: number | null
+          id?: string | null
+          institution_id?: string | null
+          is_active?: boolean | null
+          name?: string | null
+          running_count?: never
+          success_rate?: never
+          successful_executions?: number | null
+          total_executions?: number | null
+          trigger_event?:
+            | Database["public"]["Enums"]["workflow_trigger_type"]
+            | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflows_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflows_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      whatsapp_active_connections: {
+        Row: {
+          connected_at: string | null
+          connected_by_name: string | null
+          id: string | null
+          institution_id: string | null
+          institution_name: string | null
+          jid: string | null
+          last_health_check: string | null
+          phone_number: string | null
+          push_name: string | null
+          service_url: string | null
+          status: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_connections_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: true
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_connections_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: true
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      whatsapp_message_stats: {
+        Row: {
+          delivered_count: number | null
+          failed_count: number | null
+          institution_id: string | null
+          read_count: number | null
+          sent_count: number | null
+          stat_date: string | null
+          total_messages: number | null
+          total_recipients: number | null
+          unique_recipients: number | null
+          unique_senders: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_message_logs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_message_logs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
           },
         ]
       }
@@ -6049,6 +15826,10 @@ export type Database = {
         }
         Returns: Json
       }
+      ai_rpc_hierarchy_summary: {
+        Args: { p_institution_id?: string; p_user_id: string }
+        Returns: Json
+      }
       ai_rpc_institution_access: {
         Args: {
           p_institution_id?: string
@@ -6057,6 +15838,10 @@ export type Database = {
           p_target_user_id?: string
           p_user_id: string
         }
+        Returns: Json
+      }
+      ai_rpc_kpi_summary: {
+        Args: { p_institution_id?: string; p_user_id: string }
         Returns: Json
       }
       ai_rpc_learners_by_location: {
@@ -6237,7 +16022,7 @@ export type Database = {
           p_limit?: number
           p_offset?: number
           p_search_fields?: string[]
-          p_search_query: string
+          p_search_query?: string
           p_status?: string
           p_user_id: string
         }
@@ -6332,6 +16117,21 @@ export type Database = {
         Args: { p_permission: string; p_user_id: string }
         Returns: boolean
       }
+      allocate_hostel_bed: {
+        Args: {
+          p_academic_year: string
+          p_application_id?: string
+          p_approved_by?: string
+          p_bed_id: string
+          p_end_date?: string
+          p_institution_id: string
+          p_semester: string
+          p_start_date: string
+          p_student_id: string
+          p_student_type: string
+        }
+        Returns: string
+      }
       analyze_faculty_corrections: {
         Args: never
         Returns: {
@@ -6350,6 +16150,14 @@ export type Database = {
       api_key_has_permission: {
         Args: { permission_name: string }
         Returns: boolean
+      }
+      assign_lead_round_robin: {
+        Args: { p_lead_id: string; p_rule_id: string }
+        Returns: string
+      }
+      auto_qualify_scholarships: {
+        Args: { p_application_id: string }
+        Returns: number
       }
       bulk_calculate_student_outstanding: {
         Args: { student_ids: string[] }
@@ -6371,6 +16179,15 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: undefined
       }
+      calculate_engagement_score: {
+        Args: { p_lead_id: string }
+        Returns: number
+      }
+      calculate_kr_progress: {
+        Args: { current_val: number; start_val: number; target_val: number }
+        Returns: number
+      }
+      calculate_quality_score: { Args: { p_lead_id: string }; Returns: number }
       calculate_student_outstanding: {
         Args: { student_uuid: string }
         Returns: number
@@ -6385,6 +16202,11 @@ export type Database = {
       }
       can_manage_user_roles: {
         Args: { checking_user_id: string }
+        Returns: boolean
+      }
+      can_send_message: { Args: { p_lead_id: string }; Returns: boolean }
+      can_send_whatsapp: {
+        Args: { p_institution_id: string; p_user_id: string }
         Returns: boolean
       }
       can_user_access_attendance: {
@@ -6424,6 +16246,14 @@ export type Database = {
         Returns: boolean
       }
       check_email_available: { Args: { check_email: string }; Returns: boolean }
+      check_escalations: { Args: { p_institution_id: string }; Returns: number }
+      check_lateral_eligibility: {
+        Args: { p_application_id: string }
+        Returns: {
+          eligibility_notes: string
+          is_eligible: boolean
+        }[]
+      }
       check_orphaned_auth_users: {
         Args: never
         Returns: {
@@ -6503,6 +16333,16 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: number
       }
+      cleanup_whatsapp_message_logs: { Args: never; Returns: number }
+      complete_workflow_step: {
+        Args: {
+          p_execution_id: string
+          p_result?: Json
+          p_status: string
+          p_step_number: number
+        }
+        Returns: boolean
+      }
       convert_to_date: { Args: { input_date: string }; Returns: string }
       create_api_key: {
         Args: { p_name: string; p_scopes: string[]; p_user_id: string }
@@ -6545,6 +16385,7 @@ export type Database = {
           is_pre_registered: boolean | null
           is_super_admin: boolean | null
           last_login: string | null
+          learner_id: string | null
           phone_number: string | null
           profile_completed: boolean
           role: string
@@ -6632,6 +16473,8 @@ export type Database = {
         }
         Returns: Json
       }
+      ensure_student_role: { Args: never; Returns: string }
+      execute_workflow_step: { Args: { p_execution_id: string }; Returns: Json }
       find_correct_semester_for_student: {
         Args: {
           p_current_semester_name: string
@@ -6678,13 +16521,33 @@ export type Database = {
       generate_api_key:
         | { Args: never; Returns: string }
         | { Args: { length?: number }; Returns: string }
+      generate_auto_invoice_for_bill: {
+        Args: { p_bill_id: string }
+        Returns: string
+      }
       generate_bug_display_id: { Args: never; Returns: string }
+      generate_commission_transaction_number: { Args: never; Returns: string }
+      generate_consultant_code: {
+        Args: { consultant_type_param: string }
+        Returns: string
+      }
+      generate_funnel_snapshot: {
+        Args: { p_institution_id: string }
+        Returns: undefined
+      }
       generate_invoice_number: { Args: never; Returns: string }
+      generate_lateral_application_number: {
+        Args: { p_application_type: string; p_institution_id: string }
+        Returns: string
+      }
       generate_learner_application_id: {
         Args: { institution_id_param: string }
         Returns: string
       }
+      generate_payment_query_number: { Args: never; Returns: string }
+      generate_payout_batch_number: { Args: never; Returns: string }
       generate_receipt_number: { Args: never; Returns: string }
+      generate_referral_reward_number: { Args: never; Returns: string }
       generate_temp_password: { Args: never; Returns: string }
       generate_usage_report: {
         Args: {
@@ -6838,6 +16701,7 @@ export type Database = {
           is_pre_registered: boolean | null
           is_super_admin: boolean | null
           last_login: string | null
+          learner_id: string | null
           phone_number: string | null
           profile_completed: boolean
           role: string
@@ -6916,6 +16780,132 @@ export type Database = {
           id: string
         }[]
       }
+      get_learners_count_by_status: {
+        Args: {
+          filter_academic_year_id?: string
+          filter_date_from?: string
+          filter_date_to?: string
+          filter_degree_id?: string
+          filter_department_id?: string
+          filter_gender?: string
+          filter_institution_ids?: string[]
+          filter_is_profile_complete?: boolean
+          filter_lifecycle_statuses?: string[]
+          filter_program_id?: string
+          filter_section_id?: string
+          filter_semester_id?: string
+        }
+        Returns: {
+          count: number
+          percentage: number
+          status: string
+        }[]
+      }
+      get_learners_dashboard_stats_complete: {
+        Args: {
+          filter_academic_year_id?: string
+          filter_date_from?: string
+          filter_date_to?: string
+          filter_degree_id?: string
+          filter_department_id?: string
+          filter_gender?: string
+          filter_institution_ids?: string[]
+          filter_is_profile_complete?: boolean
+          filter_lifecycle_statuses?: string[]
+          filter_program_id?: string
+          filter_section_id?: string
+          filter_semester_id?: string
+        }
+        Returns: Json
+      }
+      get_learners_distribution_by_department: {
+        Args: {
+          filter_academic_year_id?: string
+          filter_date_from?: string
+          filter_date_to?: string
+          filter_degree_id?: string
+          filter_department_id?: string
+          filter_gender?: string
+          filter_institution_ids?: string[]
+          filter_is_profile_complete?: boolean
+          filter_lifecycle_statuses?: string[]
+          filter_program_id?: string
+          filter_section_id?: string
+          filter_semester_id?: string
+        }
+        Returns: {
+          count: number
+          id: string
+          name: string
+          percentage: number
+        }[]
+      }
+      get_learners_distribution_by_gender: {
+        Args: {
+          filter_academic_year_id?: string
+          filter_date_from?: string
+          filter_date_to?: string
+          filter_degree_id?: string
+          filter_department_id?: string
+          filter_gender?: string
+          filter_institution_ids?: string[]
+          filter_is_profile_complete?: boolean
+          filter_lifecycle_statuses?: string[]
+          filter_program_id?: string
+          filter_section_id?: string
+          filter_semester_id?: string
+        }
+        Returns: {
+          count: number
+          id: string
+          name: string
+          percentage: number
+        }[]
+      }
+      get_learners_distribution_by_institution: {
+        Args: {
+          filter_academic_year_id?: string
+          filter_date_from?: string
+          filter_date_to?: string
+          filter_degree_id?: string
+          filter_department_id?: string
+          filter_gender?: string
+          filter_institution_ids?: string[]
+          filter_is_profile_complete?: boolean
+          filter_lifecycle_statuses?: string[]
+          filter_program_id?: string
+          filter_section_id?: string
+          filter_semester_id?: string
+        }
+        Returns: {
+          count: number
+          id: string
+          name: string
+          percentage: number
+        }[]
+      }
+      get_learners_distribution_by_program: {
+        Args: {
+          filter_academic_year_id?: string
+          filter_date_from?: string
+          filter_date_to?: string
+          filter_degree_id?: string
+          filter_department_id?: string
+          filter_gender?: string
+          filter_institution_ids?: string[]
+          filter_is_profile_complete?: boolean
+          filter_lifecycle_statuses?: string[]
+          filter_program_id?: string
+          filter_section_id?: string
+          filter_semester_id?: string
+        }
+        Returns: {
+          count: number
+          id: string
+          name: string
+          percentage: number
+        }[]
+      }
       get_learners_missing_profiles: {
         Args: never
         Returns: {
@@ -6945,10 +16935,75 @@ export type Database = {
           status: string
         }[]
       }
+      get_lti_launch_stats: {
+        Args: {
+          p_end_date: string
+          p_institution_id: string
+          p_start_date: string
+        }
+        Returns: {
+          faculty_launches: number
+          student_launches: number
+          tool_name: string
+          total_launches: number
+          unique_users: number
+        }[]
+      }
+      get_lti_roster: {
+        Args: {
+          p_institution_id: string
+          p_program_id: string
+          p_section_id: string
+          p_semester_id: string
+        }
+        Returns: {
+          email: string
+          full_name: string
+          learner_profile_id: string
+          role: string
+          status: string
+          user_id: string
+        }[]
+      }
       get_my_claim: { Args: { claim: string }; Returns: Json }
       get_my_department_id: { Args: never; Returns: string }
       get_my_institution_id: { Args: never; Returns: string }
       get_my_role: { Args: never; Returns: string }
+      get_okr_reaction_summary: {
+        Args: { p_entity_id: string; p_entity_type: string }
+        Returns: {
+          count: number
+          reaction_type: string
+          user_has_reacted: boolean
+        }[]
+      }
+      get_or_create_whatsapp_settings: {
+        Args: { p_institution_id: string }
+        Returns: {
+          api_key: string | null
+          bulk_delay_ms: number | null
+          created_at: string
+          enable_auto_replies: boolean | null
+          enable_bulk_messaging: boolean | null
+          enable_scheduled_messages: boolean | null
+          enable_templates: boolean | null
+          id: string
+          institution_id: string
+          max_bulk_recipients: number | null
+          message_log_retention_days: number | null
+          messages_per_minute: number | null
+          notify_email: string | null
+          notify_on_disconnect: boolean | null
+          service_url: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "whatsapp_settings"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       get_period_course_id: {
         Args: { p_period_id: string; p_timetable_id: string }
         Returns: string
@@ -7140,6 +17195,15 @@ export type Database = {
       is_profile_complete: { Args: { profile_id: string }; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       is_valid_api_key: { Args: never; Returns: boolean }
+      link_existing_profiles_to_approved_learners: {
+        Args: never
+        Returns: {
+          email: string
+          learner_id: string
+          profile_id: string
+          status: string
+        }[]
+      }
       log_ai_query: {
         Args: {
           p_error_code?: string
@@ -7172,6 +17236,21 @@ export type Database = {
         }[]
       }
       mark_overdue_bills: { Args: never; Returns: number }
+      okr_actual_progress: { Args: { user_id_param: string }; Returns: number }
+      okr_calculate_badge: { Args: { user_id_param: string }; Returns: string }
+      okr_expected_progress: {
+        Args: { user_id_param: string }
+        Returns: number
+      }
+      okr_get_week_start: { Args: { check_date?: string }; Returns: string }
+      okr_is_check_in_overdue: {
+        Args: { user_id_param: string }
+        Returns: boolean
+      }
+      okr_time_progress_percent: {
+        Args: { end_date: string; start_date: string }
+        Returns: number
+      }
       populate_attendance_hierarchy: { Args: never; Returns: number }
       preview_bill_deletion: {
         Args: { bill_id_param: string }
@@ -7198,6 +17277,10 @@ export type Database = {
         Returns: undefined
       }
       refresh_activity_stats: { Args: never; Returns: undefined }
+      refresh_student_billing_summary: {
+        Args: { p_student_id: string }
+        Returns: undefined
+      }
       reset_receipt_number_sequence_for_year: {
         Args: never
         Returns: undefined
@@ -7236,6 +17319,22 @@ export type Database = {
         Returns: boolean
       }
       sync_user_role_enum: { Args: never; Returns: undefined }
+      toggle_okr_reaction: {
+        Args: {
+          p_entity_id: string
+          p_entity_type: string
+          p_reaction_type: string
+        }
+        Returns: boolean
+      }
+      trigger_workflow: {
+        Args: {
+          p_lead_id: string
+          p_trigger_data?: Json
+          p_trigger_event: Database["public"]["Enums"]["workflow_trigger_type"]
+        }
+        Returns: string[]
+      }
       update_analytics_with_activity: {
         Args: {
           p_action: string
@@ -7261,6 +17360,14 @@ export type Database = {
           update_status: string
         }[]
       }
+      update_counselor_daily_metrics: {
+        Args: {
+          p_counselor_id: string
+          p_date?: string
+          p_institution_id: string
+        }
+        Returns: undefined
+      }
       update_daily_analytics: {
         Args: { p_app_id: string; p_date: string; p_stats: Json }
         Returns: undefined
@@ -7283,6 +17390,10 @@ export type Database = {
           can_view?: boolean
           target_role_key: string
         }
+        Returns: undefined
+      }
+      update_template_usage: {
+        Args: { p_template_id: string }
         Returns: undefined
       }
       update_timetable_slot: {
@@ -7327,6 +17438,14 @@ export type Database = {
             Args: { permission_key: string; user_id: string }
             Returns: boolean
           }
+      vacate_hostel_bed: {
+        Args: {
+          p_allocation_id: string
+          p_vacate_note?: string
+          p_vacate_reason?: string
+        }
+        Returns: boolean
+      }
       validate_and_use_auth_code: {
         Args: { p_app_id: string; p_code: string }
         Returns: Json
@@ -7362,10 +17481,52 @@ export type Database = {
       }
     }
     Enums: {
+      admission_lead_stage:
+        | "new"
+        | "contacted"
+        | "engaged"
+        | "qualified"
+        | "application_started"
+        | "application_submitted"
+        | "documents_pending"
+        | "documents_verified"
+        | "interview_scheduled"
+        | "interview_completed"
+        | "offer_sent"
+        | "offer_accepted"
+        | "token_paid"
+        | "applied"
+        | "interviewed"
+        | "offered"
+        | "enrolled"
+        | "lost"
+        | "dormant"
+      admission_payment_type:
+        | "application_fee"
+        | "token_fee"
+        | "full_fee"
+        | "hostel_fee"
+        | "other"
       api_key_status: "active" | "inactive" | "expired"
       app_type: "internal" | "external"
+      application_status:
+        | "draft"
+        | "submitted"
+        | "under_review"
+        | "documents_pending"
+        | "interview_scheduled"
+        | "interviewed"
+        | "approved"
+        | "waitlisted"
+        | "rejected"
+        | "withdrawn"
       application_type: "Internal" | "External"
       approval_status: "pending" | "approved" | "rejected" | "escalated"
+      assignment_type:
+        | "round_robin"
+        | "load_balanced"
+        | "skill_based"
+        | "manual"
       attribute_type:
         | "text"
         | "number"
@@ -7377,7 +17538,20 @@ export type Database = {
         | "url"
       auth_method: "sso" | "separate_login" | "none"
       authentication_method: "SSO" | "Separate Login" | "No Authentication"
+      campaign_status: "draft" | "active" | "paused" | "completed" | "archived"
       category_status: "active" | "inactive" | "archived"
+      commission_transaction_type: "earned" | "paid" | "clawback" | "adjustment"
+      commission_type: "percentage" | "flat"
+      communication_channel_type:
+        | "whatsapp"
+        | "sms"
+        | "email"
+        | "voice"
+        | "push"
+      consultant_status: "draft" | "active" | "inactive" | "blacklisted"
+      consultant_tier: "bronze" | "silver" | "gold" | "platinum" | "diamond"
+      consultant_type: "external" | "student" | "alumni"
+      contract_status: "draft" | "active" | "expired" | "terminated"
       day_of_week:
         | "MONDAY"
         | "TUESDAY"
@@ -7388,7 +17562,37 @@ export type Database = {
         | "SUNDAY"
       department: "engineering" | "science" | "arts" | "medical"
       department_status: "active" | "inactive" | "archived"
+      dependency_status: "pending" | "in_progress" | "completed" | "blocked"
+      document_verification_status:
+        | "pending"
+        | "verified"
+        | "rejected"
+        | "reupload_requested"
+      escalation_status: "triggered" | "acknowledged" | "resolved" | "expired"
+      exam_status:
+        | "scheduled"
+        | "in_progress"
+        | "completed"
+        | "no_show"
+        | "cancelled"
+      exam_type: "online" | "offline" | "third_party"
       integration_type: "direct_link" | "embedded" | "api"
+      interview_outcome: "selected" | "waitlisted" | "rejected" | "pending"
+      interview_status:
+        | "scheduled"
+        | "completed"
+        | "no_show"
+        | "rescheduled"
+        | "cancelled"
+      kr_data_source: "manual" | "auto"
+      kr_status:
+        | "not_started"
+        | "on_track"
+        | "at_risk"
+        | "behind"
+        | "blocked"
+        | "completed"
+      lead_ownership_mode: "permanent" | "flexible" | "stage_based" | "pool"
       lifecycle_status:
         | "enquiry"
         | "pending"
@@ -7400,7 +17604,44 @@ export type Database = {
         | "exited"
         | "graduated"
         | "alumni"
+      message_direction: "inbound" | "outbound"
+      message_status:
+        | "queued"
+        | "sent"
+        | "delivered"
+        | "read"
+        | "failed"
+        | "replied"
+      offer_response: "pending" | "accepted" | "rejected" | "expired"
+      okr_cycle_type: "annual" | "quarterly" | "semester"
+      okr_entity_type: "objective" | "key_result" | "check_in"
+      okr_level: "institution" | "department" | "individual"
+      okr_reaction_type:
+        | "like"
+        | "celebrate"
+        | "support"
+        | "insightful"
+        | "concern"
+        | "question"
+      okr_status: "draft" | "active" | "completed" | "archived"
+      okr_tier: "tier_1" | "tier_2" | "tier_3"
+      payment_query_status: "open" | "in_progress" | "resolved" | "closed"
+      payment_status:
+        | "pending"
+        | "processing"
+        | "paid"
+        | "failed"
+        | "refunded"
+        | "partially_refunded"
+      payout_batch_status:
+        | "draft"
+        | "pending_approval"
+        | "approved"
+        | "processing"
+        | "completed"
+        | "cancelled"
       platform_type: "web" | "mobile" | "both"
+      referral_reward_type: "discount" | "cashback" | "credits"
       reservation_status:
         | "pending"
         | "approved"
@@ -7414,9 +17655,38 @@ export type Database = {
         | "maintenance"
         | "out_of_order"
         | "retired"
+      scholarship_type:
+        | "merit"
+        | "need_based"
+        | "sports"
+        | "minority"
+        | "special"
+        | "government"
       sensitivity_level: "public" | "restricted" | "confidential"
+      source_type:
+        | "organic"
+        | "paid"
+        | "referral"
+        | "direct"
+        | "partner"
+        | "walk_in"
+        | "phone"
+        | "event"
       student_status: "active" | "inactive" | "exited" | "graduated" | "pending"
       supported_platform: "Web" | "Mobile" | "Both"
+      task_status:
+        | "pending"
+        | "in_progress"
+        | "completed"
+        | "overdue"
+        | "cancelled"
+      task_type:
+        | "follow_up_call"
+        | "send_document"
+        | "schedule_interview"
+        | "verify_documents"
+        | "collect_payment"
+        | "custom"
       user_role:
         | "super_admin"
         | "administrator"
@@ -7427,6 +17697,30 @@ export type Database = {
         | "guest"
         | "staff"
         | "driver"
+      workflow_status:
+        | "running"
+        | "completed"
+        | "failed"
+        | "cancelled"
+        | "paused"
+      workflow_trigger_type:
+        | "lead.created"
+        | "lead.stage_changed"
+        | "lead.score_changed"
+        | "lead.assigned"
+        | "message.sent"
+        | "message.delivered"
+        | "message.read"
+        | "message.replied"
+        | "task.created"
+        | "task.completed"
+        | "task.overdue"
+        | "application.started"
+        | "application.submitted"
+        | "document.uploaded"
+        | "payment.received"
+        | "interview.scheduled"
+        | "schedule"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -7552,12 +17846,61 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
+      admission_lead_stage: [
+        "new",
+        "contacted",
+        "engaged",
+        "qualified",
+        "application_started",
+        "application_submitted",
+        "documents_pending",
+        "documents_verified",
+        "interview_scheduled",
+        "interview_completed",
+        "offer_sent",
+        "offer_accepted",
+        "token_paid",
+        "applied",
+        "interviewed",
+        "offered",
+        "enrolled",
+        "lost",
+        "dormant",
+      ],
+      admission_payment_type: [
+        "application_fee",
+        "token_fee",
+        "full_fee",
+        "hostel_fee",
+        "other",
+      ],
       api_key_status: ["active", "inactive", "expired"],
       app_type: ["internal", "external"],
+      application_status: [
+        "draft",
+        "submitted",
+        "under_review",
+        "documents_pending",
+        "interview_scheduled",
+        "interviewed",
+        "approved",
+        "waitlisted",
+        "rejected",
+        "withdrawn",
+      ],
       application_type: ["Internal", "External"],
       approval_status: ["pending", "approved", "rejected", "escalated"],
+      assignment_type: [
+        "round_robin",
+        "load_balanced",
+        "skill_based",
+        "manual",
+      ],
       attribute_type: [
         "text",
         "number",
@@ -7570,7 +17913,15 @@ export const Constants = {
       ],
       auth_method: ["sso", "separate_login", "none"],
       authentication_method: ["SSO", "Separate Login", "No Authentication"],
+      campaign_status: ["draft", "active", "paused", "completed", "archived"],
       category_status: ["active", "inactive", "archived"],
+      commission_transaction_type: ["earned", "paid", "clawback", "adjustment"],
+      commission_type: ["percentage", "flat"],
+      communication_channel_type: ["whatsapp", "sms", "email", "voice", "push"],
+      consultant_status: ["draft", "active", "inactive", "blacklisted"],
+      consultant_tier: ["bronze", "silver", "gold", "platinum", "diamond"],
+      consultant_type: ["external", "student", "alumni"],
+      contract_status: ["draft", "active", "expired", "terminated"],
       day_of_week: [
         "MONDAY",
         "TUESDAY",
@@ -7582,7 +17933,41 @@ export const Constants = {
       ],
       department: ["engineering", "science", "arts", "medical"],
       department_status: ["active", "inactive", "archived"],
+      dependency_status: ["pending", "in_progress", "completed", "blocked"],
+      document_verification_status: [
+        "pending",
+        "verified",
+        "rejected",
+        "reupload_requested",
+      ],
+      escalation_status: ["triggered", "acknowledged", "resolved", "expired"],
+      exam_status: [
+        "scheduled",
+        "in_progress",
+        "completed",
+        "no_show",
+        "cancelled",
+      ],
+      exam_type: ["online", "offline", "third_party"],
       integration_type: ["direct_link", "embedded", "api"],
+      interview_outcome: ["selected", "waitlisted", "rejected", "pending"],
+      interview_status: [
+        "scheduled",
+        "completed",
+        "no_show",
+        "rescheduled",
+        "cancelled",
+      ],
+      kr_data_source: ["manual", "auto"],
+      kr_status: [
+        "not_started",
+        "on_track",
+        "at_risk",
+        "behind",
+        "blocked",
+        "completed",
+      ],
+      lead_ownership_mode: ["permanent", "flexible", "stage_based", "pool"],
       lifecycle_status: [
         "enquiry",
         "pending",
@@ -7595,7 +17980,48 @@ export const Constants = {
         "graduated",
         "alumni",
       ],
+      message_direction: ["inbound", "outbound"],
+      message_status: [
+        "queued",
+        "sent",
+        "delivered",
+        "read",
+        "failed",
+        "replied",
+      ],
+      offer_response: ["pending", "accepted", "rejected", "expired"],
+      okr_cycle_type: ["annual", "quarterly", "semester"],
+      okr_entity_type: ["objective", "key_result", "check_in"],
+      okr_level: ["institution", "department", "individual"],
+      okr_reaction_type: [
+        "like",
+        "celebrate",
+        "support",
+        "insightful",
+        "concern",
+        "question",
+      ],
+      okr_status: ["draft", "active", "completed", "archived"],
+      okr_tier: ["tier_1", "tier_2", "tier_3"],
+      payment_query_status: ["open", "in_progress", "resolved", "closed"],
+      payment_status: [
+        "pending",
+        "processing",
+        "paid",
+        "failed",
+        "refunded",
+        "partially_refunded",
+      ],
+      payout_batch_status: [
+        "draft",
+        "pending_approval",
+        "approved",
+        "processing",
+        "completed",
+        "cancelled",
+      ],
       platform_type: ["web", "mobile", "both"],
+      referral_reward_type: ["discount", "cashback", "credits"],
       reservation_status: [
         "pending",
         "approved",
@@ -7611,9 +18037,42 @@ export const Constants = {
         "out_of_order",
         "retired",
       ],
+      scholarship_type: [
+        "merit",
+        "need_based",
+        "sports",
+        "minority",
+        "special",
+        "government",
+      ],
       sensitivity_level: ["public", "restricted", "confidential"],
+      source_type: [
+        "organic",
+        "paid",
+        "referral",
+        "direct",
+        "partner",
+        "walk_in",
+        "phone",
+        "event",
+      ],
       student_status: ["active", "inactive", "exited", "graduated", "pending"],
       supported_platform: ["Web", "Mobile", "Both"],
+      task_status: [
+        "pending",
+        "in_progress",
+        "completed",
+        "overdue",
+        "cancelled",
+      ],
+      task_type: [
+        "follow_up_call",
+        "send_document",
+        "schedule_interview",
+        "verify_documents",
+        "collect_payment",
+        "custom",
+      ],
       user_role: [
         "super_admin",
         "administrator",
@@ -7624,6 +18083,32 @@ export const Constants = {
         "guest",
         "staff",
         "driver",
+      ],
+      workflow_status: [
+        "running",
+        "completed",
+        "failed",
+        "cancelled",
+        "paused",
+      ],
+      workflow_trigger_type: [
+        "lead.created",
+        "lead.stage_changed",
+        "lead.score_changed",
+        "lead.assigned",
+        "message.sent",
+        "message.delivered",
+        "message.read",
+        "message.replied",
+        "task.created",
+        "task.completed",
+        "task.overdue",
+        "application.started",
+        "application.submitted",
+        "document.uploaded",
+        "payment.received",
+        "interview.scheduled",
+        "schedule",
       ],
     },
   },

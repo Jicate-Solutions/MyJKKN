@@ -1,5 +1,101 @@
 # Claude Code MCP Servers Usage Guide
 
+---
+
+## ⛔ CRITICAL: GIT BRANCH SAFETY RULES
+
+| Branch | Rule |
+|--------|------|
+| **main** | **NEVER TOUCH - PROTECTED** |
+| **omm-dev** | Safe for all development work |
+
+### Non-Negotiable Rules:
+1. **NEVER push to main branch** - not even with `--force`
+2. **NEVER checkout main branch** - stay on omm-dev
+3. **NEVER merge into main** - only developers do this via GitHub PR
+4. **NEVER create PRs to main** - that's for the human developer
+5. **All Claude Code work happens on omm-dev only**
+
+### Why This Exists:
+- User is a non-coder using vibe coding
+- Main branch is for production-ready code
+- Developer reviews and merges omm-dev → main via PR
+- Local git hooks will BLOCK any main branch operations, but don't even try
+
+### Your Only Allowed Git Commands:
+```bash
+git checkout omm-dev           # ✅ OK
+git add .                      # ✅ OK (on omm-dev)
+git commit -m "message"        # ✅ OK (on omm-dev)
+git push origin omm-dev        # ✅ OK
+git pull origin omm-dev        # ✅ OK
+```
+
+### FORBIDDEN Git Commands:
+```bash
+git checkout main              # ❌ BLOCKED
+git push origin main           # ❌ BLOCKED
+git push --force origin main   # ❌ BLOCKED
+git merge omm-dev (on main)    # ❌ BLOCKED
+gh pr create --base main       # ❌ DO NOT DO
+```
+
+---
+
+## ⛔ CRITICAL: SUPABASE SAFETY RULES
+
+| Database | Project ID | Rule |
+|----------|------------|------|
+| **Production** | `kvizhngldtiuufknvehv` | **NEVER EDIT - READ ONLY** |
+| **Staging** | `hhprjbgknupaplivtoib` | Safe for all development work |
+
+### Non-Negotiable Rules:
+1. **NEVER make any changes to production Supabase** (kvizhngldtiuufknvehv)
+2. **READ-ONLY access to production** - only to sync schema to staging
+3. **All development work happens in staging** (hhprjbgknupaplivtoib)
+4. When syncing schema: **copy FROM production, apply TO staging**
+
+### Schema Pull Script: `scripts/pull-schema-from-production.sh`
+
+**Purpose:** ONE-WAY pull of schema from production to staging
+
+| What It Does | What It NEVER Does |
+|--------------|-------------------|
+| ✅ READS schema from production | ❌ Never WRITES to production |
+| ✅ WRITES schema to staging | ❌ Never syncs data (only structure) |
+| ✅ Requires manual confirmation | ❌ Never runs automatically |
+
+**What Gets Pulled (Schema Only):**
+- Table structures (columns, types, constraints)
+- Enums and custom types
+- Functions and triggers
+- Indexes
+- RLS policies
+
+**What Does NOT Get Pulled:**
+- Actual data/records (staging has test data)
+- User sessions or auth data
+- File storage contents
+
+**Usage:**
+```bash
+# Preview changes only (no modifications)
+./scripts/pull-schema-from-production.sh --dry-run
+
+# Pull and apply (with confirmation prompts)
+./scripts/pull-schema-from-production.sh
+```
+
+**Requirements:**
+- Docker must be running
+- Supabase CLI installed and logged in
+
+**Dashboard Links:**
+- Production (VIEW ONLY): https://supabase.com/dashboard/project/kvizhngldtiuufknvehv
+- Staging (SAFE TO EDIT): https://supabase.com/dashboard/project/hhprjbgknupaplivtoib
+
+---
+
 ## Overview
 This guide explains how to effectively use the Memory and Sequential Thinking MCP servers in your MyJKKN development workflow.
 
