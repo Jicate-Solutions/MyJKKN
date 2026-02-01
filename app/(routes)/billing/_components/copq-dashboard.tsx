@@ -221,7 +221,7 @@ export function COPQDashboard({
                         </div>
                       </div>
                       <div className='w-24 text-right text-sm font-medium'>
-                        {formatCurrency(amount || 0)}
+                        {formatCurrency(Number(amount) || 0)}
                       </div>
                       <div className='w-12 text-right text-sm text-muted-foreground'>
                         {percentage}%

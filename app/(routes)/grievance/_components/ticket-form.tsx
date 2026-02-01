@@ -86,7 +86,7 @@ export function TicketForm({
       raised_by_email: data.raised_by_email ?? undefined,
       raised_by_phone: data.raised_by_phone ?? undefined,
       attachments: (data.attachments ?? []) as { name: string; url: string; type: string; size: number }[],
-      metadata: data.metadata ?? {}
+      metadata: (data.metadata ?? {}) as Record<string, unknown>
     }, {
       onSuccess: (ticket) => {
         router.push(`/grievance/tickets/${ticket.id}`);
