@@ -482,7 +482,7 @@ CREATE INDEX IF NOT EXISTS idx_learner_engagements_competencies
 CREATE INDEX IF NOT EXISTS idx_learner_engagements_dates
     ON public.learner_industry_engagements(start_date, actual_end_date);
 
-RAISE NOTICE 'Created indexes for industry integration tables';
+-- Created indexes for industry integration tables
 
 -- ============================================================================
 -- STEP 7: Create Updated_at Triggers
@@ -509,7 +509,7 @@ BEGIN
     END LOOP;
 END $$;
 
-RAISE NOTICE 'Created updated_at triggers for industry integration tables';
+-- Created updated_at triggers for industry integration tables
 
 -- ============================================================================
 -- STEP 8: Enable RLS and Create Policies
@@ -680,7 +680,7 @@ CREATE POLICY "learner_engagements_delete" ON public.learner_industry_engagement
     FOR DELETE TO authenticated
     USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
 
-RAISE NOTICE 'Created RLS policies for industry integration tables';
+-- Created RLS policies for industry integration tables
 
 -- ============================================================================
 -- STEP 9: Add audit log entry

@@ -15,7 +15,9 @@ import { Briefcase, Pencil, ArrowLeft, Target, Users, Calendar, Clock, Star, Awa
 import type { EngagementStatus } from '@/types/industry';
 
 const STATUS_COLORS: Record<EngagementStatus, string> = {
-  pending: 'bg-gray-100 text-gray-800',
+  pending: 'bg-gray-100 text-gray-800',  // Legacy/alias
+  applied: 'bg-gray-100 text-gray-800',
+  approved: 'bg-yellow-100 text-yellow-800',
   active: 'bg-blue-100 text-blue-800',
   completed: 'bg-emerald-100 text-emerald-800',
   withdrawn: 'bg-orange-100 text-orange-800',
@@ -49,13 +51,15 @@ export default function EngagementDetailPage() {
 
   // Calculate a simple progress based on status
   const progressMap: Record<EngagementStatus, number> = {
-    pending: 10,
+    pending: 5,      // Legacy/alias
+    applied: 5,
+    approved: 20,
     active: 50,
     completed: 100,
     withdrawn: 0,
     terminated: 0
   };
-  const progress = progressMap[engagement.status];
+  const progress = progressMap[engagement.status] ?? 0;
 
   return (
     <PermissionGuard module="industry.engagements" action="view">

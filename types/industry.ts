@@ -21,13 +21,29 @@ export type ProjectStatus = 'draft' | 'open' | 'assigned' | 'in_progress' | 'com
 
 /**
  * Type of learner engagement
+ * Must match engagement_type ENUM in database migration
  */
-export type EngagementType = 'project' | 'internship' | 'mentorship' | 'placement' | 'workshop';
+export type EngagementType =
+  | 'project'       // Industry project participation
+  | 'internship'    // Internship placement
+  | 'mentorship'    // Mentorship relationship
+  | 'workshop'      // Industry workshop attendance
+  | 'site_visit'    // Company/factory visit
+  | 'guest_lecture' // Attended industry expert lecture
+  | 'hackathon';    // Hackathon/competition
 
 /**
  * Status of learner engagement
+ * Must match engagement_status ENUM in database migration
  */
-export type EngagementStatus = 'pending' | 'active' | 'completed' | 'withdrawn' | 'terminated';
+export type EngagementStatus =
+  | 'pending'     // Legacy/UI friendly alias for 'applied'
+  | 'applied'     // Applied/requested
+  | 'approved'    // Approved, not started
+  | 'active'      // Currently engaged
+  | 'completed'   // Successfully completed
+  | 'withdrawn'   // Withdrawn by learner
+  | 'terminated'; // Terminated early
 
 /**
  * Difficulty level for projects
@@ -345,6 +361,7 @@ export interface UpdateIndustryProjectDTO {
  */
 export interface CreateLearnerEngagementDTO {
   learner_id: string;
+  institution_id: string;  // Required - NOT NULL in database
   engagement_type: EngagementType;
   project_id?: string;
   mentor_id?: string;

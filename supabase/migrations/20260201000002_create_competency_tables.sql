@@ -307,7 +307,7 @@ CREATE INDEX IF NOT EXISTS idx_learner_competencies_progress
 CREATE INDEX IF NOT EXISTS idx_learner_competencies_recent
     ON public.learner_competencies(last_activity_at DESC);
 
-RAISE NOTICE 'Created indexes for competency tables';
+-- Created indexes for competency tables
 
 -- ============================================================================
 -- STEP 7: Create Updated_at Triggers
@@ -335,7 +335,7 @@ BEGIN
     END LOOP;
 END $$;
 
-RAISE NOTICE 'Created updated_at triggers for competency tables';
+-- Created updated_at triggers for competency tables
 
 -- ============================================================================
 -- STEP 8: Enable RLS and Create Policies
@@ -553,7 +553,7 @@ CREATE POLICY "learner_competencies_delete" ON public.learner_competencies
         )
     );
 
-RAISE NOTICE 'Created RLS policies for competency tables';
+-- Created RLS policies for competency tables
 
 -- ============================================================================
 -- STEP 9: Add audit log entry

@@ -471,7 +471,7 @@ CREATE INDEX IF NOT EXISTS idx_parent_comms_important
     ON public.parent_communications(learner_id, is_important)
     WHERE is_important = true;
 
-RAISE NOTICE 'Created indexes for personalization tables';
+-- Created indexes for personalization tables
 
 -- ============================================================================
 -- STEP 7: Create Updated_at Triggers
@@ -498,7 +498,7 @@ BEGIN
     END LOOP;
 END $$;
 
-RAISE NOTICE 'Created updated_at triggers for personalization tables';
+-- Created updated_at triggers for personalization tables
 
 -- ============================================================================
 -- STEP 8: Enable RLS and Create Policies
@@ -731,7 +731,7 @@ CREATE POLICY "parent_communications_delete" ON public.parent_communications
     FOR DELETE TO authenticated
     USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
 
-RAISE NOTICE 'Created RLS policies for personalization tables';
+-- Created RLS policies for personalization tables
 
 -- ============================================================================
 -- STEP 9: Create Helper Functions
@@ -800,7 +800,7 @@ CREATE TRIGGER update_learning_path_progress_trigger
     FOR EACH ROW
     EXECUTE FUNCTION update_learning_path_progress();
 
-RAISE NOTICE 'Created helper functions for personalization module';
+-- Created helper functions for personalization module
 
 -- ============================================================================
 -- STEP 10: Add audit log entry

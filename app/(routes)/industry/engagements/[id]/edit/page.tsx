@@ -21,9 +21,9 @@ import { Loader2, Save, X, Briefcase } from 'lucide-react';
 import type { EngagementStatus, EngagementType } from '@/types/industry';
 
 const engagementSchema = z.object({
-  engagement_type: z.enum(['project', 'internship', 'mentorship', 'placement', 'workshop'] as const),
+  engagement_type: z.enum(['project', 'internship', 'mentorship', 'workshop', 'site_visit', 'guest_lecture', 'hackathon'] as const),
   mentor_id: z.string().optional(),
-  status: z.enum(['pending', 'active', 'completed', 'withdrawn', 'terminated'] as const),
+  status: z.enum(['applied', 'approved', 'active', 'completed', 'withdrawn', 'terminated'] as const),
   start_date: z.string().optional(),
   expected_end_date: z.string().optional(),
   end_date: z.string().optional(),
@@ -53,7 +53,7 @@ export default function EditEngagementPage() {
     defaultValues: {
       engagement_type: 'project',
       mentor_id: '',
-      status: 'pending',
+      status: 'applied',
       start_date: '',
       expected_end_date: '',
       end_date: '',
@@ -65,10 +65,16 @@ export default function EditEngagementPage() {
 
   useEffect(() => {
     if (engagement) {
+      // Map legacy statuses to new values (database might have old values)
+      const statusStr = engagement.status as string;
+      const mappedStatus = statusStr === 'pending' ? 'applied' : statusStr;
+      // Map legacy engagement types to new values
+      const typeStr = engagement.engagement_type as string;
+      const mappedType = typeStr === 'placement' ? 'internship' : typeStr;
       form.reset({
-        engagement_type: engagement.engagement_type,
+        engagement_type: mappedType as 'project' | 'internship' | 'mentorship' | 'workshop' | 'site_visit' | 'guest_lecture' | 'hackathon',
         mentor_id: engagement.mentor_id || '',
-        status: engagement.status,
+        status: mappedStatus as EngagementFormValues['status'],
         start_date: engagement.start_date || '',
         expected_end_date: engagement.expected_end_date || '',
         end_date: engagement.end_date || '',
@@ -158,8 +164,10 @@ export default function EditEngagementPage() {
                             <SelectItem value="project">Project</SelectItem>
                             <SelectItem value="internship">Internship</SelectItem>
                             <SelectItem value="mentorship">Mentorship</SelectItem>
-                            <SelectItem value="placement">Placement</SelectItem>
                             <SelectItem value="workshop">Workshop</SelectItem>
+                            <SelectItem value="site_visit">Site Visit</SelectItem>
+                            <SelectItem value="guest_lecture">Guest Lecture</SelectItem>
+                            <SelectItem value="hackathon">Hackathon</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -171,7 +179,8 @@ export default function EditEngagementPage() {
                         <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                           <SelectContent>
-                            <SelectItem value="pending">Pending</SelectItem>
+                            <SelectItem value="applied">Applied</SelectItem>
+                            <SelectItem value="approved">Approved</SelectItem>
                             <SelectItem value="active">Active</SelectItem>
                             <SelectItem value="completed">Completed</SelectItem>
                             <SelectItem value="withdrawn">Withdrawn</SelectItem>

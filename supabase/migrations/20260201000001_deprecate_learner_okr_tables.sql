@@ -33,7 +33,7 @@ ADD COLUMN IF NOT EXISTS deprecated_at TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE public.learner_elective_okrs
 ADD COLUMN IF NOT EXISTS deprecated_at TIMESTAMPTZ DEFAULT NOW();
 
-RAISE NOTICE 'Added deprecated_at columns to learner OKR tables';
+-- Added deprecated_at columns to learner OKR tables
 
 -- ============================================================================
 -- STEP 2: Update table comments with deprecation notices
@@ -58,7 +58,7 @@ COMMENT ON COLUMN public.learner_core_okrs.deprecated_at IS 'Timestamp when this
 COMMENT ON COLUMN public.learner_okr_assignments.deprecated_at IS 'Timestamp when this table was deprecated. All records have this set.';
 COMMENT ON COLUMN public.learner_elective_okrs.deprecated_at IS 'Timestamp when this table was deprecated. All records have this set.';
 
-RAISE NOTICE 'Updated table comments with deprecation notices';
+-- Updated table comments with deprecation notices
 
 -- ============================================================================
 -- STEP 3: Create RLS policies to block NEW inserts
@@ -86,7 +86,7 @@ CREATE POLICY "block_new_learner_elective_okrs" ON public.learner_elective_okrs
     FOR INSERT TO authenticated
     WITH CHECK (false);
 
-RAISE NOTICE 'Created RLS policies to block new inserts on deprecated learner OKR tables';
+-- Created RLS policies to block new inserts on deprecated learner OKR tables
 
 -- ============================================================================
 -- STEP 4: Create indexes for deprecated_at column (for cleanup queries if needed)
@@ -101,7 +101,7 @@ ON public.learner_okr_assignments(deprecated_at);
 CREATE INDEX IF NOT EXISTS idx_learner_elective_okrs_deprecated_at
 ON public.learner_elective_okrs(deprecated_at);
 
-RAISE NOTICE 'Created indexes on deprecated_at columns';
+-- Created indexes on deprecated_at columns
 
 -- ============================================================================
 -- STEP 5: Add audit comment tracking the deprecation

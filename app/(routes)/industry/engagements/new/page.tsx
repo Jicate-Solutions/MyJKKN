@@ -20,7 +20,7 @@ import { Loader2, Save, X } from 'lucide-react';
 
 const engagementSchema = z.object({
   learner_id: z.string().min(1, 'Learner ID is required'),
-  engagement_type: z.enum(['project', 'internship', 'mentorship', 'placement', 'workshop']),
+  engagement_type: z.enum(['project', 'internship', 'mentorship', 'workshop', 'site_visit', 'guest_lecture', 'hackathon']),
   project_id: z.string().optional(),
   mentor_id: z.string().optional(),
   partner_id: z.string().optional(),
@@ -67,8 +67,13 @@ export default function NewEngagementPage() {
 
   const onSubmit = async (values: EngagementFormValues) => {
     try {
+      if (!institutionId) {
+        toast({ title: 'No institution selected', variant: 'destructive' });
+        return;
+      }
       await createMutation.mutateAsync({
         learner_id: values.learner_id,
+        institution_id: institutionId,  // Required field
         engagement_type: values.engagement_type,
         project_id: values.project_id || undefined,
         mentor_id: values.mentor_id || undefined,
@@ -123,8 +128,10 @@ export default function NewEngagementPage() {
                             <SelectItem value="project">Project</SelectItem>
                             <SelectItem value="internship">Internship</SelectItem>
                             <SelectItem value="mentorship">Mentorship</SelectItem>
-                            <SelectItem value="placement">Placement</SelectItem>
                             <SelectItem value="workshop">Workshop</SelectItem>
+                            <SelectItem value="site_visit">Site Visit</SelectItem>
+                            <SelectItem value="guest_lecture">Guest Lecture</SelectItem>
+                            <SelectItem value="hackathon">Hackathon</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />

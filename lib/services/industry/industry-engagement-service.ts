@@ -173,7 +173,7 @@ export class IndustryEngagementService {
   static async getActiveLearnerEngagements(
     learnerId: string
   ): Promise<LearnerIndustryEngagement[]> {
-    return this.getEngagementsByLearnerId(learnerId, ['pending', 'active']);
+    return this.getEngagementsByLearnerId(learnerId, ['applied', 'approved', 'active']);
   }
 
   /**
@@ -184,11 +184,16 @@ export class IndustryEngagementService {
   ): Promise<LearnerIndustryEngagement> {
     const supabase = createClientSupabaseClient();
 
+    // Validate required institution_id
+    if (!dto.institution_id) {
+      throw new Error('institution_id is required');
+    }
+
     const { data, error } = await (supabase as any)
       .from('learner_industry_engagements')
       .insert({
         ...dto,
-        status: dto.status || 'pending',
+        status: dto.status || 'applied', // Use 'applied' as default (matches DB ENUM)
         hours_completed: 0,
         competencies_demonstrated: []
       })
@@ -469,7 +474,7 @@ export class IndustryEngagementService {
       total_projects: projectList.length,
       open_projects: projectList.filter((p: any) => p.status === 'open').length,
       total_engagements: engagementList.length,
-      active_engagements: engagementList.filter((e: any) => ['pending', 'active'].includes(e.status)).length,
+      active_engagements: engagementList.filter((e: any) => ['applied', 'approved', 'active'].includes(e.status)).length,
       by_partnership_type: byPartnershipType as any,
       by_project_status: byProjectStatus as any,
       by_engagement_type: byEngagementType as any

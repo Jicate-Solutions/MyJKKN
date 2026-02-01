@@ -70,7 +70,7 @@ COMMENT ON COLUMN public.courses.practical_hours IS 'Lab/practical hours per wee
 COMMENT ON COLUMN public.courses.theory_hours IS 'Lecture/theory hours per week';
 COMMENT ON COLUMN public.courses.competency_coverage IS 'JSON array mapping competencies to this course with target levels and weights';
 
-RAISE NOTICE 'Modified courses table - added learning hours and competency coverage fields';
+-- Modified courses table - added learning hours and competency coverage fields
 
 -- ============================================================================
 -- STEP 2: Modify learners_profiles table
@@ -139,7 +139,7 @@ COMMENT ON COLUMN public.learners_profiles.career_aspirations IS 'JSON object fo
 COMMENT ON COLUMN public.learners_profiles.industry_readiness_score IS 'Computed score (0-100) indicating readiness for industry placement';
 COMMENT ON COLUMN public.learners_profiles.portfolio_url IS 'URL to learner portfolio showcasing projects and achievements';
 
-RAISE NOTICE 'Modified learners_profiles table - added capabilities, career tracking, and readiness score';
+-- Modified learners_profiles table - added capabilities, career tracking, and readiness score
 
 -- ============================================================================
 -- STEP 3: Modify staff table
@@ -198,7 +198,7 @@ COMMENT ON COLUMN public.staff.role_type IS 'Staff role: teacher (traditional), 
 COMMENT ON COLUMN public.staff.facilitator_certification IS 'JSON array of certifications relevant to facilitator role';
 COMMENT ON COLUMN public.staff.outcome_metrics IS 'JSON object tracking outcome-based performance metrics';
 
-RAISE NOTICE 'Modified staff table - added facilitator role and outcome metrics fields';
+-- Modified staff table - added facilitator role and outcome metrics fields
 
 -- ============================================================================
 -- STEP 4: Modify billing_discounts table
@@ -253,7 +253,7 @@ COMMENT ON COLUMN public.billing_discounts.is_outcome_based IS 'True if this dis
 COMMENT ON COLUMN public.billing_discounts.outcome_criteria IS 'JSON defining competency/outcome criteria for automatic qualification';
 COMMENT ON COLUMN public.billing_discounts.outcome_verification IS 'JSON tracking verification of outcome criteria fulfillment';
 
-RAISE NOTICE 'Modified billing_discounts table - added outcome-based discount support';
+-- Modified billing_discounts table - added outcome-based discount support
 
 -- ============================================================================
 -- STEP 5: Add audit log entry

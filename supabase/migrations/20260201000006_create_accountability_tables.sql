@@ -680,7 +680,7 @@ CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_featured
 CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_learnings
     ON public.facilitator_industry_immersion USING GIN(learnings);
 
-RAISE NOTICE 'Created indexes for accountability tables';
+-- Created indexes for accountability tables
 
 -- ============================================================================
 -- STEP 7: Create Updated_at Triggers
@@ -707,7 +707,7 @@ BEGIN
     END LOOP;
 END $$;
 
-RAISE NOTICE 'Created updated_at triggers for accountability tables';
+-- Created updated_at triggers for accountability tables
 
 -- ============================================================================
 -- STEP 8: Enable RLS and Create Policies
@@ -928,7 +928,7 @@ CREATE POLICY "facilitator_immersion_delete" ON public.facilitator_industry_imme
     FOR DELETE TO authenticated
     USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
 
-RAISE NOTICE 'Created RLS policies for accountability tables';
+-- Created RLS policies for accountability tables
 
 -- ============================================================================
 -- STEP 9: Create Helper Functions
@@ -1063,7 +1063,7 @@ CREATE TRIGGER update_facilitator_stats_trigger
     FOR EACH ROW
     EXECUTE FUNCTION trigger_update_facilitator_stats();
 
-RAISE NOTICE 'Created helper functions for accountability module';
+-- Created helper functions for accountability module
 
 -- ============================================================================
 -- STEP 10: Add audit log entry

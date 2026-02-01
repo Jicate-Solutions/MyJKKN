@@ -19,7 +19,9 @@ import { Plus, Search, MoreHorizontal, Eye, Pencil, Briefcase, ChevronLeft, Chev
 import type { EngagementStatus } from '@/types/industry';
 
 const STATUS_COLORS: Record<EngagementStatus, string> = {
-  pending: 'bg-gray-100 text-gray-800',
+  pending: 'bg-gray-100 text-gray-800',  // Legacy/alias
+  applied: 'bg-gray-100 text-gray-800',
+  approved: 'bg-yellow-100 text-yellow-800',
   active: 'bg-blue-100 text-blue-800',
   completed: 'bg-emerald-100 text-emerald-800',
   withdrawn: 'bg-orange-100 text-orange-800',
@@ -80,7 +82,8 @@ export default function EngagementsPage() {
                   <SelectTrigger className="w-[150px]"><SelectValue placeholder="Status" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="applied">Applied</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="withdrawn">Withdrawn</SelectItem>
@@ -117,7 +120,10 @@ export default function EngagementsPage() {
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => router.push(`/industry/engagements/${engagement.id}`)}><Eye className="h-4 w-4 mr-2" />View</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => router.push(`/industry/engagements/${engagement.id}/edit`)}><Pencil className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
-                              {engagement.status === 'pending' && (
+                              {(engagement.status === 'applied' || engagement.status === 'pending') && (
+                                <DropdownMenuItem onClick={() => handleStatusUpdate(engagement.id, 'approved')}><Play className="h-4 w-4 mr-2" />Approve</DropdownMenuItem>
+                              )}
+                              {engagement.status === 'approved' && (
                                 <DropdownMenuItem onClick={() => handleStatusUpdate(engagement.id, 'active')}><Play className="h-4 w-4 mr-2" />Activate</DropdownMenuItem>
                               )}
                               {engagement.status === 'active' && (
