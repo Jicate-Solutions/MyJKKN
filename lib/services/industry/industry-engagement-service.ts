@@ -18,6 +18,28 @@ import type {
 
 export class IndustryEngagementService {
   /**
+   * Validate UUID format to prevent "invalid input syntax for type uuid" errors
+   */
+  private static isValidUUID(id: string | undefined | null): boolean {
+    if (!id || typeof id !== 'string' || id === 'undefined' || id === 'null' || id.trim() === '') {
+      return false;
+    }
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(id);
+  }
+
+  /**
+   * Validate ID and throw descriptive error if invalid
+   */
+  private static validateId(id: string | undefined | null, fieldName: string = 'ID'): void {
+    if (!this.isValidUUID(id)) {
+      const actualValue = id === undefined ? 'undefined' : id === null ? 'null' : `"${id}"`;
+      console.error(`[IndustryEngagementService] Invalid ${fieldName}: ${actualValue}`);
+      throw new Error(`Invalid ${fieldName}: ${actualValue}. Expected a valid UUID.`);
+    }
+  }
+
+  /**
    * Get paginated list of learner engagements
    */
   static async getEngagements(
@@ -107,6 +129,7 @@ export class IndustryEngagementService {
    * Get single engagement by ID
    */
   static async getEngagementById(id: string): Promise<LearnerIndustryEngagement> {
+    this.validateId(id, 'engagement ID');
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
@@ -135,6 +158,7 @@ export class IndustryEngagementService {
     learnerId: string,
     status?: string | string[]
   ): Promise<LearnerIndustryEngagement[]> {
+    this.validateId(learnerId, 'learner ID');
     const supabase = createClientSupabaseClient();
 
     let query = (supabase as any)
@@ -410,44 +434,56 @@ export class IndustryEngagementService {
 
     const partnerIds = (partners || []).map((p: any) => p.id);
 
-    // Get mentor stats
-    const { data: mentors, error: mentorError } = await (supabase as any)
-      .from('industry_mentors')
-      .select('id, is_active')
-      .in('partner_id', partnerIds.length > 0 ? partnerIds : ['none']);
+    // Initialize empty arrays for when there are no partners
+    // This avoids the "invalid input syntax for type uuid" error from ['none']
+    let mentors: any[] = [];
+    let projects: any[] = [];
+    let engagements: any[] = [];
 
-    if (mentorError) {
-      console.error('[IndustryEngagementService] getIndustryStats mentor error:', mentorError);
-      throw new Error(mentorError.message);
-    }
+    // Only query related tables if we have partner IDs
+    if (partnerIds.length > 0) {
+      // Get mentor stats
+      const { data: mentorData, error: mentorError } = await (supabase as any)
+        .from('industry_mentors')
+        .select('id, is_active')
+        .in('partner_id', partnerIds);
 
-    // Get project stats
-    const { data: projects, error: projectError } = await (supabase as any)
-      .from('industry_projects')
-      .select('id, status')
-      .in('partner_id', partnerIds.length > 0 ? partnerIds : ['none']);
+      if (mentorError) {
+        console.error('[IndustryEngagementService] getIndustryStats mentor error:', mentorError);
+        throw new Error(mentorError.message);
+      }
+      mentors = mentorData || [];
 
-    if (projectError) {
-      console.error('[IndustryEngagementService] getIndustryStats project error:', projectError);
-      throw new Error(projectError.message);
-    }
+      // Get project stats
+      const { data: projectData, error: projectError } = await (supabase as any)
+        .from('industry_projects')
+        .select('id, status')
+        .in('partner_id', partnerIds);
 
-    // Get engagement stats
-    const { data: engagements, error: engagementError } = await (supabase as any)
-      .from('learner_industry_engagements')
-      .select('id, status, engagement_type')
-      .in('partner_id', partnerIds.length > 0 ? partnerIds : ['none']);
+      if (projectError) {
+        console.error('[IndustryEngagementService] getIndustryStats project error:', projectError);
+        throw new Error(projectError.message);
+      }
+      projects = projectData || [];
 
-    if (engagementError) {
-      console.error('[IndustryEngagementService] getIndustryStats engagement error:', engagementError);
-      throw new Error(engagementError.message);
+      // Get engagement stats
+      const { data: engagementData, error: engagementError } = await (supabase as any)
+        .from('learner_industry_engagements')
+        .select('id, status, engagement_type')
+        .in('partner_id', partnerIds);
+
+      if (engagementError) {
+        console.error('[IndustryEngagementService] getIndustryStats engagement error:', engagementError);
+        throw new Error(engagementError.message);
+      }
+      engagements = engagementData || [];
     }
 
     // Calculate stats
     const partnerList = partners || [];
-    const mentorList = mentors || [];
-    const projectList = projects || [];
-    const engagementList = engagements || [];
+    const mentorList = mentors;
+    const projectList = projects;
+    const engagementList = engagements;
 
     const byPartnershipType = partnerList.reduce((acc: Record<string, number>, p: any) => {
       if (p.partnership_type) {

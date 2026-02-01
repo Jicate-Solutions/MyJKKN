@@ -18,6 +18,28 @@ import type {
 
 export class IndustryProjectService {
   /**
+   * Validate UUID format to prevent "invalid input syntax for type uuid" errors
+   */
+  private static isValidUUID(id: string | undefined | null): boolean {
+    if (!id || typeof id !== 'string' || id === 'undefined' || id === 'null' || id.trim() === '') {
+      return false;
+    }
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(id);
+  }
+
+  /**
+   * Validate ID and throw descriptive error if invalid
+   */
+  private static validateId(id: string | undefined | null, fieldName: string = 'ID'): void {
+    if (!this.isValidUUID(id)) {
+      const actualValue = id === undefined ? 'undefined' : id === null ? 'null' : `"${id}"`;
+      console.error(`[IndustryProjectService] Invalid ${fieldName}: ${actualValue}`);
+      throw new Error(`Invalid ${fieldName}: ${actualValue}. Expected a valid UUID.`);
+    }
+  }
+
+  /**
    * Get paginated list of industry projects
    */
   static async getProjects(
@@ -113,6 +135,7 @@ export class IndustryProjectService {
    * Get single project by ID
    */
   static async getProjectById(id: string): Promise<IndustryProject> {
+    this.validateId(id, 'project ID');
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
@@ -138,6 +161,7 @@ export class IndustryProjectService {
    * Get projects by partner ID
    */
   static async getProjectsByPartnerId(partnerId: string): Promise<IndustryProject[]> {
+    this.validateId(partnerId, 'partner ID');
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
@@ -173,6 +197,10 @@ export class IndustryProjectService {
    * Create new industry project
    */
   static async createProject(dto: CreateIndustryProjectDTO): Promise<IndustryProject> {
+    this.validateId(dto.partner_id, 'partner_id');
+    if (dto.mentor_id) {
+      this.validateId(dto.mentor_id, 'mentor_id');
+    }
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
@@ -200,6 +228,10 @@ export class IndustryProjectService {
     id: string,
     dto: UpdateIndustryProjectDTO
   ): Promise<IndustryProject> {
+    this.validateId(id, 'project ID');
+    if (dto.mentor_id) {
+      this.validateId(dto.mentor_id, 'mentor_id');
+    }
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
@@ -224,6 +256,7 @@ export class IndustryProjectService {
     id: string,
     status: IndustryProject['status']
   ): Promise<void> {
+    this.validateId(id, 'project ID');
     const supabase = createClientSupabaseClient();
 
     const { error } = await (supabase as any)
@@ -241,6 +274,7 @@ export class IndustryProjectService {
    * Delete project (only if draft)
    */
   static async deleteProject(id: string): Promise<void> {
+    this.validateId(id, 'project ID');
     const supabase = createClientSupabaseClient();
 
     // First check if project is in draft status

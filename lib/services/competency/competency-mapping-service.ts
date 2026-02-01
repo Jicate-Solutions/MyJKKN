@@ -494,6 +494,7 @@ export class CompetencyMappingService {
 
   /**
    * Bulk map competencies to program
+   * Uses batch insert instead of N individual inserts to avoid N+1 queries
    */
   static async bulkMapToProgram(
     programId: string,
@@ -504,23 +505,55 @@ export class CompetencyMappingService {
     try {
       this.validateId(programId, 'program_id');
 
-      const result = { success: 0, failed: 0 };
-
-      for (const competencyId of competencyIds) {
-        try {
-          await this.createProgramMapping({
-            program_id: programId,
-            competency_id: competencyId,
-            required_level: requiredLevel as any,
-            is_mandatory: isMandatory
-          });
-          result.success++;
-        } catch {
-          result.failed++;
-        }
+      if (competencyIds.length === 0) {
+        return { success: 0, failed: 0 };
       }
 
-      return result;
+      // Validate all competency IDs upfront
+      for (const id of competencyIds) {
+        this.validateId(id, 'competency_id');
+      }
+
+      // Check for existing mappings in one query
+      const { data: existing, error: checkError } = await (this.getSupabase() as any)
+        .from('competency_program_mapping')
+        .select('competency_id')
+        .eq('program_id', programId)
+        .in('competency_id', competencyIds);
+
+      if (checkError) throw checkError;
+
+      const existingSet = new Set((existing || []).map((e: any) => e.competency_id));
+      const newCompetencyIds = competencyIds.filter(id => !existingSet.has(id));
+
+      if (newCompetencyIds.length === 0) {
+        toast.success('All competencies already mapped');
+        return { success: 0, failed: competencyIds.length };
+      }
+
+      // Batch insert all new mappings at once
+      const mappingsToInsert = newCompetencyIds.map(competencyId => ({
+        program_id: programId,
+        competency_id: competencyId,
+        required_level: requiredLevel,
+        is_mandatory: isMandatory,
+        created_at: new Date().toISOString()
+      }));
+
+      const { data, error } = await (this.getSupabase() as any)
+        .from('competency_program_mapping')
+        .insert(mappingsToInsert)
+        .select();
+
+      if (error) throw error;
+
+      const successCount = data?.length || 0;
+      toast.success(`Mapped ${successCount} competencies to program`);
+
+      return {
+        success: successCount,
+        failed: competencyIds.length - successCount
+      };
     } catch (error) {
       console.error('[CompetencyMapping] Error bulk mapping:', this.formatError(error));
       throw error;
@@ -529,6 +562,7 @@ export class CompetencyMappingService {
 
   /**
    * Bulk map competencies to course
+   * Uses batch insert instead of N individual inserts to avoid N+1 queries
    */
   static async bulkMapToCourse(
     courseId: string,
@@ -539,23 +573,55 @@ export class CompetencyMappingService {
     try {
       this.validateId(courseId, 'course_id');
 
-      const result = { success: 0, failed: 0 };
-
-      for (const competencyId of competencyIds) {
-        try {
-          await this.createCourseMapping({
-            course_id: courseId,
-            competency_id: competencyId,
-            contribution_level: contributionLevel as any,
-            assessment_method: assessmentMethod as any
-          });
-          result.success++;
-        } catch {
-          result.failed++;
-        }
+      if (competencyIds.length === 0) {
+        return { success: 0, failed: 0 };
       }
 
-      return result;
+      // Validate all competency IDs upfront
+      for (const id of competencyIds) {
+        this.validateId(id, 'competency_id');
+      }
+
+      // Check for existing mappings in one query
+      const { data: existing, error: checkError } = await (this.getSupabase() as any)
+        .from('course_competency_mapping')
+        .select('competency_id')
+        .eq('course_id', courseId)
+        .in('competency_id', competencyIds);
+
+      if (checkError) throw checkError;
+
+      const existingSet = new Set((existing || []).map((e: any) => e.competency_id));
+      const newCompetencyIds = competencyIds.filter(id => !existingSet.has(id));
+
+      if (newCompetencyIds.length === 0) {
+        toast.success('All competencies already mapped');
+        return { success: 0, failed: competencyIds.length };
+      }
+
+      // Batch insert all new mappings at once
+      const mappingsToInsert = newCompetencyIds.map(competencyId => ({
+        course_id: courseId,
+        competency_id: competencyId,
+        contribution_level: contributionLevel,
+        assessment_method: assessmentMethod,
+        created_at: new Date().toISOString()
+      }));
+
+      const { data, error } = await (this.getSupabase() as any)
+        .from('course_competency_mapping')
+        .insert(mappingsToInsert)
+        .select();
+
+      if (error) throw error;
+
+      const successCount = data?.length || 0;
+      toast.success(`Mapped ${successCount} competencies to course`);
+
+      return {
+        success: successCount,
+        failed: competencyIds.length - successCount
+      };
     } catch (error) {
       console.error('[CompetencyMapping] Error bulk mapping:', this.formatError(error));
       throw error;

@@ -15,7 +15,6 @@ import { Briefcase, Pencil, ArrowLeft, Target, Users, Calendar, Clock, Star, Awa
 import type { EngagementStatus } from '@/types/industry';
 
 const STATUS_COLORS: Record<EngagementStatus, string> = {
-  pending: 'bg-gray-100 text-gray-800',  // Legacy/alias
   applied: 'bg-gray-100 text-gray-800',
   approved: 'bg-yellow-100 text-yellow-800',
   active: 'bg-blue-100 text-blue-800',
@@ -23,6 +22,12 @@ const STATUS_COLORS: Record<EngagementStatus, string> = {
   withdrawn: 'bg-orange-100 text-orange-800',
   terminated: 'bg-red-100 text-red-800'
 };
+
+// Helper function to get status color for backwards compatibility with 'pending' in DB
+function getStatusColor(status: string): string {
+  if (status === 'pending') return STATUS_COLORS.applied;
+  return STATUS_COLORS[status as EngagementStatus] || 'bg-gray-100 text-gray-800';
+}
 
 export default function EngagementDetailPage() {
   const params = useParams();
@@ -51,7 +56,6 @@ export default function EngagementDetailPage() {
 
   // Calculate a simple progress based on status
   const progressMap: Record<EngagementStatus, number> = {
-    pending: 5,      // Legacy/alias
     applied: 5,
     approved: 20,
     active: 50,
@@ -59,7 +63,11 @@ export default function EngagementDetailPage() {
     withdrawn: 0,
     terminated: 0
   };
-  const progress = progressMap[engagement.status] ?? 0;
+  // Handle legacy 'pending' status from database
+  const statusStr = engagement.status as string;
+  const progress = statusStr === 'pending'
+    ? 5
+    : (progressMap[statusStr as EngagementStatus] ?? 0);
 
   return (
     <PermissionGuard module="industry.engagements" action="view">
@@ -86,7 +94,7 @@ export default function EngagementDetailPage() {
               <div>
                 <h2 className="text-2xl font-bold">{project?.project_title || `${engagement.engagement_type} Engagement`}</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge className={STATUS_COLORS[engagement.status]}>{engagement.status}</Badge>
+                  <Badge className={getStatusColor(engagement.status as string)}>{statusStr === 'pending' ? 'applied' : engagement.status}</Badge>
                   <Badge variant="outline" className="capitalize">{engagement.engagement_type}</Badge>
                 </div>
               </div>

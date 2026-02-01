@@ -18,6 +18,28 @@ import type {
 
 export class IndustryPartnerService {
   /**
+   * Validate UUID format to prevent "invalid input syntax for type uuid" errors
+   */
+  private static isValidUUID(id: string | undefined | null): boolean {
+    if (!id || typeof id !== 'string' || id === 'undefined' || id === 'null' || id.trim() === '') {
+      return false;
+    }
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(id);
+  }
+
+  /**
+   * Validate ID and throw descriptive error if invalid
+   */
+  private static validateId(id: string | undefined | null, fieldName: string = 'ID'): void {
+    if (!this.isValidUUID(id)) {
+      const actualValue = id === undefined ? 'undefined' : id === null ? 'null' : `"${id}"`;
+      console.error(`[IndustryPartnerService] Invalid ${fieldName}: ${actualValue}`);
+      throw new Error(`Invalid ${fieldName}: ${actualValue}. Expected a valid UUID.`);
+    }
+  }
+
+  /**
    * Get paginated list of industry partners
    */
   static async getPartners(
@@ -95,6 +117,7 @@ export class IndustryPartnerService {
    * Get single partner by ID
    */
   static async getPartnerById(id: string): Promise<IndustryPartner> {
+    this.validateId(id, 'partner ID');
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
@@ -119,6 +142,7 @@ export class IndustryPartnerService {
    * Create new industry partner
    */
   static async createPartner(dto: CreateIndustryPartnerDTO): Promise<IndustryPartner> {
+    this.validateId(dto.institution_id, 'institution_id');
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
@@ -142,6 +166,7 @@ export class IndustryPartnerService {
     id: string,
     dto: UpdateIndustryPartnerDTO
   ): Promise<IndustryPartner> {
+    this.validateId(id, 'partner ID');
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
@@ -163,6 +188,7 @@ export class IndustryPartnerService {
    * Archive partner (soft delete)
    */
   static async archivePartner(id: string): Promise<void> {
+    this.validateId(id, 'partner ID');
     const supabase = createClientSupabaseClient();
 
     const { error } = await (supabase as any)
@@ -180,6 +206,7 @@ export class IndustryPartnerService {
    * Restore archived partner
    */
   static async restorePartner(id: string): Promise<void> {
+    this.validateId(id, 'partner ID');
     const supabase = createClientSupabaseClient();
 
     const { error } = await (supabase as any)
@@ -197,6 +224,7 @@ export class IndustryPartnerService {
    * Get partner options for picker
    */
   static async getPartnerOptions(institutionId: string): Promise<PartnerPickerOption[]> {
+    this.validateId(institutionId, 'institution ID');
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)

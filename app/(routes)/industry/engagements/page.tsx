@@ -19,7 +19,6 @@ import { Plus, Search, MoreHorizontal, Eye, Pencil, Briefcase, ChevronLeft, Chev
 import type { EngagementStatus } from '@/types/industry';
 
 const STATUS_COLORS: Record<EngagementStatus, string> = {
-  pending: 'bg-gray-100 text-gray-800',  // Legacy/alias
   applied: 'bg-gray-100 text-gray-800',
   approved: 'bg-yellow-100 text-yellow-800',
   active: 'bg-blue-100 text-blue-800',
@@ -27,6 +26,12 @@ const STATUS_COLORS: Record<EngagementStatus, string> = {
   withdrawn: 'bg-orange-100 text-orange-800',
   terminated: 'bg-red-100 text-red-800'
 };
+
+// Helper function to get status color for backwards compatibility with 'pending' in DB
+function getStatusColor(status: string): string {
+  if (status === 'pending') return STATUS_COLORS.applied;
+  return STATUS_COLORS[status as EngagementStatus] || 'bg-gray-100 text-gray-800';
+}
 
 export default function EngagementsPage() {
   const router = useRouter();
@@ -107,7 +112,7 @@ export default function EngagementsPage() {
                             <p className="font-medium">{(engagement.project as any)?.project_title || 'Industry Engagement'}</p>
                             <p className="text-sm text-muted-foreground">{engagement.engagement_type} - {(engagement.partner as any)?.company_name}</p>
                             <div className="flex gap-2 mt-1">
-                              <Badge className={STATUS_COLORS[engagement.status]}>{engagement.status}</Badge>
+                              <Badge className={getStatusColor(engagement.status as string)}>{(engagement.status as string) === 'pending' ? 'applied' : engagement.status}</Badge>
                               {engagement.hours_completed > 0 && (
                                 <Badge variant="outline">{engagement.hours_completed} hrs</Badge>
                               )}
@@ -120,7 +125,7 @@ export default function EngagementsPage() {
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => router.push(`/industry/engagements/${engagement.id}`)}><Eye className="h-4 w-4 mr-2" />View</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => router.push(`/industry/engagements/${engagement.id}/edit`)}><Pencil className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
-                              {(engagement.status === 'applied' || engagement.status === 'pending') && (
+                              {((engagement.status as string) === 'applied' || (engagement.status as string) === 'pending') && (
                                 <DropdownMenuItem onClick={() => handleStatusUpdate(engagement.id, 'approved')}><Play className="h-4 w-4 mr-2" />Approve</DropdownMenuItem>
                               )}
                               {engagement.status === 'approved' && (

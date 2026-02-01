@@ -36,7 +36,7 @@ const projectSchema = z.object({
   location: z.string().optional(),
   is_remote: z.boolean().default(false),
   mentor_id: z.string().optional(),
-  status: z.enum(['draft', 'open', 'assigned', 'in_progress', 'completed', 'cancelled'])
+  status: z.enum(['draft', 'open', 'assigned', 'in_progress', 'completed', 'cancelled', 'under_review'])
 });
 
 type ProjectFormValues = z.infer<typeof projectSchema>;
@@ -157,6 +157,7 @@ export default function EditProjectPage() {
                             <SelectItem value="open">Open</SelectItem>
                             <SelectItem value="assigned">Assigned</SelectItem>
                             <SelectItem value="in_progress">In Progress</SelectItem>
+                            <SelectItem value="under_review">Under Review</SelectItem>
                             <SelectItem value="completed">Completed</SelectItem>
                             <SelectItem value="cancelled">Cancelled</SelectItem>
                           </SelectContent>

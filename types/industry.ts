@@ -11,13 +11,15 @@
 
 /**
  * Type of partnership with industry partner
+ * Must match partnership_type values used in database
  */
-export type PartnershipType = 'mou' | 'placement' | 'project' | 'mentorship' | 'sponsorship';
+export type PartnershipType = 'mou' | 'placement' | 'project' | 'mentorship' | 'sponsorship' | 'internship' | 'training';
 
 /**
  * Status of industry project
+ * Must match project_status values used in database
  */
-export type ProjectStatus = 'draft' | 'open' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
+export type ProjectStatus = 'draft' | 'open' | 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'under_review';
 
 /**
  * Type of learner engagement
@@ -35,9 +37,9 @@ export type EngagementType =
 /**
  * Status of learner engagement
  * Must match engagement_status ENUM in database migration
+ * Note: 'pending' was removed - use 'applied' instead
  */
 export type EngagementStatus =
-  | 'pending'     // Legacy/UI friendly alias for 'applied'
   | 'applied'     // Applied/requested
   | 'approved'    // Approved, not started
   | 'active'      // Currently engaged

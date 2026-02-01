@@ -341,9 +341,10 @@ export class CompetencyCatalogService {
       this.validateId(institutionId, 'institution_id');
 
       // Get all competencies for the institution
+      // CRITICAL: Include 'id' to enable .in() queries below
       const { data: competencies, error: compError } = await (this.getSupabase() as any)
         .from('competency_catalog')
-        .select('competency_type, bloom_taxonomy_level, is_active')
+        .select('id, competency_type, bloom_taxonomy_level, is_active')
         .eq('institution_id', institutionId);
 
       if (compError) throw compError;

@@ -23,6 +23,7 @@ const STATUS_COLORS: Record<ProjectStatus, string> = {
   open: 'bg-green-100 text-green-800',
   assigned: 'bg-blue-100 text-blue-800',
   in_progress: 'bg-purple-100 text-purple-800',
+  under_review: 'bg-yellow-100 text-yellow-800',
   completed: 'bg-emerald-100 text-emerald-800',
   cancelled: 'bg-red-100 text-red-800'
 };
@@ -86,6 +87,7 @@ export default function ProjectsPage() {
                     <SelectItem value="open">Open</SelectItem>
                     <SelectItem value="assigned">Assigned</SelectItem>
                     <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="under_review">Under Review</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>

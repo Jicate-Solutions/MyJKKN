@@ -41,7 +41,9 @@ const PARTNERSHIP_TYPES: { value: PartnershipType; label: string }[] = [
   { value: 'placement', label: 'Placement Partner' },
   { value: 'project', label: 'Project Collaboration' },
   { value: 'mentorship', label: 'Mentorship Program' },
-  { value: 'sponsorship', label: 'Sponsorship' }
+  { value: 'sponsorship', label: 'Sponsorship' },
+  { value: 'internship', label: 'Internship Program' },
+  { value: 'training', label: 'Training Partner' }
 ];
 
 const INDUSTRY_SECTORS = [
@@ -65,7 +67,7 @@ const INDUSTRY_SECTORS = [
 const partnerSchema = z.object({
   company_name: z.string().min(1, 'Company name is required'),
   industry_sector: z.string().optional(),
-  partnership_type: z.enum(['mou', 'placement', 'project', 'mentorship', 'sponsorship']).optional(),
+  partnership_type: z.enum(['mou', 'placement', 'project', 'mentorship', 'sponsorship', 'internship', 'training']).optional(),
   contact_person: z.string().optional(),
   contact_email: z.string().email('Invalid email').optional().or(z.literal('')),
   contact_phone: z.string().optional(),
