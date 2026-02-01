@@ -26,14 +26,17 @@ export function useProcessMetrics(filters: ProcessMetricsFilters) {
   });
 }
 
-// Hook for fetching dashboard data
+/**
+ * Hook for fetching dashboard data
+ * FIXED: Removed aggressive auto-refresh, use manual refetch instead
+ */
 export function useProcessExcellenceDashboard(institutionId: string) {
   return useQuery({
     queryKey: processMetricsKeys.dashboard(institutionId),
     queryFn: () => ProcessExcellenceService.getDashboard(institutionId),
     enabled: !!institutionId,
-    staleTime: 2 * 60 * 1000, // 2 minutes - dashboard needs fresher data
-    refetchInterval: 5 * 60 * 1000 // Refetch every 5 minutes
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    refetchOnWindowFocus: true // Refresh when user returns to tab
   });
 }
 

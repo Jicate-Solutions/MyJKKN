@@ -25,31 +25,18 @@ export const maturityAssessmentKeys = {
 };
 
 /**
- * Hook for fetching assessments with filters and pagination (state-based)
+ * Hook for fetching assessments with filters and pagination (React Query based)
+ * FIXED: Removed manual state management to prevent memory leaks and stale data
  */
 export function useMaturityAssessments(initialFilters: MaturityAssessmentFilters = {}) {
   const [filters, setFilters] = useState<MaturityAssessmentFilters>(initialFilters);
-  const [response, setResponse] = useState<MaturityAssessmentListResponse>({
-    data: [],
-    metadata: { total: 0, page: 1, limit: 10, totalPages: 0 }
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchAssessments = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await MaturityAssessmentService.getAssessments(filters);
-      setResponse(result);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch assessments';
-      setError(message);
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  }, [filters]);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: maturityAssessmentKeys.list(filters),
+    queryFn: () => MaturityAssessmentService.getAssessments(filters),
+    staleTime: 2 * 60 * 1000,
+    placeholderData: (previousData) => previousData // Keep previous data while loading
+  });
 
   const updateFilters = useCallback((newFilters: Partial<MaturityAssessmentFilters>) => {
     setFilters((prev) => ({ ...prev, ...newFilters, page: 1 }));
@@ -59,19 +46,15 @@ export function useMaturityAssessments(initialFilters: MaturityAssessmentFilters
     setFilters((prev) => ({ ...prev, page }));
   }, []);
 
-  useEffect(() => {
-    fetchAssessments();
-  }, [fetchAssessments]);
-
   return {
-    assessments: response.data,
-    loading,
-    error,
-    metadata: response.metadata,
+    assessments: data?.data || [],
+    loading: isLoading,
+    error: error?.message || null,
+    metadata: data?.metadata || { total: 0, page: 1, limit: 10, totalPages: 0 },
     filters,
     updateFilters,
     changePage,
-    refetch: fetchAssessments
+    refetch
   };
 }
 

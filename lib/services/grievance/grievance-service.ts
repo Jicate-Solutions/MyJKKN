@@ -21,7 +21,7 @@ import type {
 } from '@/types/grievance';
 
 export class GrievanceService {
-  private static supabase = createClientSupabaseClient();
+  private static supabase: any = createClientSupabaseClient();
 
   // ============================================================================
   // CATEGORY METHODS
@@ -80,19 +80,33 @@ export class GrievanceService {
   /**
    * Get a single category by ID
    */
-  static async getCategory(id: string): Promise<GrievanceCategory> {
-    const { data, error } = await this.supabase
+  static async getCategory(id: string, institutionId?: string): Promise<GrievanceCategory> {
+    let query = this.supabase
       .from('grievance_categories')
       .select(`
         *,
         parent:grievance_categories!parent_id(id, name)
       `)
-      .eq('id', id)
-      .single();
+      .eq('id', id);
+
+    // SECURITY: Filter by institution_id if provided to prevent cross-institution access
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { data, error } = await query.single();
 
     if (error) {
       console.error('[GrievanceService] Error fetching category:', error);
-      throw new Error(`Failed to fetch category: ${error.message}`);
+      // SECURITY: Don't expose internal error details
+      if (error.code === 'PGRST116') {
+        throw new Error('Category not found or access denied');
+      }
+      throw new Error('Failed to fetch category');
+    }
+
+    if (!data) {
+      throw new Error('Category not found');
     }
 
     return data as GrievanceCategory;
@@ -211,7 +225,9 @@ export class GrievanceService {
       query = query.eq('department_id', filters.department_id);
     }
     if (filters.search) {
-      query = query.or(`subject.ilike.%${filters.search}%,ticket_number.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+      // Sanitize search to prevent SQL injection
+      const sanitizedSearch = filters.search.replace(/[%_]/g, '\\$&');
+      query = query.or(`subject.ilike.%${sanitizedSearch}%,ticket_number.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%`);
     }
     if (filters.date_from) {
       query = query.gte('created_at', filters.date_from);
@@ -254,8 +270,8 @@ export class GrievanceService {
   /**
    * Get a single ticket by ID
    */
-  static async getTicket(id: string): Promise<GrievanceTicket> {
-    const { data, error } = await this.supabase
+  static async getTicket(id: string, institutionId?: string): Promise<GrievanceTicket> {
+    let query = this.supabase
       .from('grievance_tickets')
       .select(`
         *,
@@ -264,12 +280,26 @@ export class GrievanceService {
         department:departments(id, name),
         resolver:users_profiles!resolved_by(id, full_name)
       `)
-      .eq('id', id)
-      .single();
+      .eq('id', id);
+
+    // SECURITY: Filter by institution_id if provided to prevent cross-institution access
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { data, error } = await query.single();
 
     if (error) {
       console.error('[GrievanceService] Error fetching ticket:', error);
-      throw new Error(`Failed to fetch ticket: ${error.message}`);
+      // SECURITY: Don't expose internal error details
+      if (error.code === 'PGRST116') {
+        throw new Error('Ticket not found or access denied');
+      }
+      throw new Error('Failed to fetch ticket');
+    }
+
+    if (!data) {
+      throw new Error('Ticket not found');
     }
 
     return data as GrievanceTicket;
@@ -303,16 +333,22 @@ export class GrievanceService {
    * Create a new ticket
    */
   static async createTicket(ticketData: CreateGrievanceTicketDto): Promise<GrievanceTicket> {
-    // Get category to determine SLA
+    // SECURITY: Validate institution_id is provided
+    if (!ticketData.institution_id) {
+      throw new Error('Institution ID is required');
+    }
+
+    // Get category to determine SLA - also verify it belongs to the same institution
     const { data: category, error: categoryError } = await this.supabase
       .from('grievance_categories')
-      .select('default_sla_hours')
+      .select('default_sla_hours, institution_id')
       .eq('id', ticketData.category_id)
+      .eq('institution_id', ticketData.institution_id)
       .single();
 
-    if (categoryError) {
+    if (categoryError || !category) {
       console.error('[GrievanceService] Error fetching category for SLA:', categoryError);
-      throw new Error('Invalid category');
+      throw new Error('Invalid category for this institution');
     }
 
     const slaHours = category?.default_sla_hours || 48;

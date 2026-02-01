@@ -23,6 +23,7 @@ export const npsResponseKeys = {
 
 /**
  * Hook for managing responses list with filters and pagination
+ * FIXED: Added placeholderData for better UX during filter changes
  */
 export function useNPSResponses(initialFilters: ResponseFilters = {}) {
   const [filters, setFilters] = useState<ResponseFilters>(initialFilters);
@@ -30,7 +31,8 @@ export function useNPSResponses(initialFilters: ResponseFilters = {}) {
   const query = useQuery({
     queryKey: npsResponseKeys.list(filters),
     queryFn: () => NPSService.getResponses(filters),
-    staleTime: 2 * 60 * 1000 // 2 minutes
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    placeholderData: (previousData) => previousData
   });
 
   const updateFilters = useCallback((newFilters: Partial<ResponseFilters>) => {
@@ -134,37 +136,47 @@ export function useSubmitNPSResponse() {
 
 /**
  * Hook for exporting survey responses
+ * FIXED: Better error handling and cleanup
  */
 export function useExportResponses() {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const exportResponses = useCallback(async (surveyId: string, surveyTitle?: string) => {
+    let url: string | null = null;
     try {
       setLoading(true);
+      setError(null);
       const csv = await NPSService.exportResponses(surveyId);
 
       // Create blob and download
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
+      url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = `nps-responses-${surveyTitle || surveyId}-${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
 
       toast.success('Responses exported successfully');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to export responses';
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to export responses';
+      setError(message);
       toast.error(message);
+      throw err; // Re-throw for caller to handle if needed
     } finally {
+      // Cleanup blob URL to prevent memory leak
+      if (url) {
+        URL.revokeObjectURL(url);
+      }
       setLoading(false);
     }
   }, []);
 
   return {
     exportResponses,
-    loading
+    loading,
+    error
   };
 }

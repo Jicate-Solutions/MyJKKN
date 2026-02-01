@@ -28,7 +28,7 @@ import type {
 } from '@/types/maturity-assessment';
 
 export class MaturityAssessmentService {
-  private static supabase = createClientSupabaseClient();
+  private static supabase: any = createClientSupabaseClient();
 
   // ============================================================
   // Default Dimensions
@@ -123,7 +123,17 @@ export class MaturityAssessmentService {
   }
 
   static async createFramework(dto: CreateMaturityFrameworkDto): Promise<MaturityFramework> {
+    // SECURITY: Validate institution_id is provided
+    if (!dto.institution_id) {
+      throw new Error('Institution ID is required');
+    }
+
     const user = await this.supabase.auth.getUser();
+
+    // SECURITY: Validate user is authenticated
+    if (!user?.data?.user?.id) {
+      throw new Error('User must be authenticated');
+    }
 
     const { data, error } = await this.supabase
       .from('maturity_frameworks')
@@ -132,7 +142,7 @@ export class MaturityAssessmentService {
         name: dto.name || 'Excellence Journey',
         description: dto.description || 'Based on TQM International Education Excellence Model',
         dimensions: dto.dimensions || this.getDefaultDimensions(),
-        created_by: user.data.user?.id
+        created_by: user.data.user.id
       })
       .select()
       .single();
@@ -250,8 +260,8 @@ export class MaturityAssessmentService {
     };
   }
 
-  static async getAssessmentById(id: string): Promise<MaturityAssessment | null> {
-    const { data, error } = await this.supabase
+  static async getAssessmentById(id: string, institutionId?: string): Promise<MaturityAssessment | null> {
+    let query = this.supabase
       .from('maturity_assessments')
       .select(
         `
@@ -264,12 +274,19 @@ export class MaturityAssessmentService {
         progress_items:maturity_progress(*)
       `
       )
-      .eq('id', id)
-      .single();
+      .eq('id', id);
+
+    // SECURITY: Filter by institution_id if provided to prevent cross-institution access
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { data, error } = await query.single();
 
     if (error && error.code !== 'PGRST116') {
       console.error('[MaturityAssessmentService] Error fetching assessment:', error);
-      throw new Error(`Failed to fetch assessment: ${error.message}`);
+      // SECURITY: Don't expose internal error details
+      throw new Error('Failed to fetch assessment');
     }
 
     return data as MaturityAssessment | null;
@@ -322,7 +339,29 @@ export class MaturityAssessmentService {
   }
 
   static async createAssessment(dto: CreateMaturityAssessmentDto): Promise<MaturityAssessment> {
+    // SECURITY: Validate required fields
+    if (!dto.institution_id || !dto.framework_id || !dto.dimension_scores) {
+      throw new Error('Institution ID, framework ID, and dimension scores are required');
+    }
+
     const user = await this.supabase.auth.getUser();
+
+    // SECURITY: Validate user is authenticated
+    if (!user?.data?.user?.id) {
+      throw new Error('User must be authenticated');
+    }
+
+    // SECURITY: Verify framework belongs to the institution
+    const { data: framework, error: frameworkError } = await this.supabase
+      .from('maturity_frameworks')
+      .select('institution_id')
+      .eq('id', dto.framework_id)
+      .eq('institution_id', dto.institution_id)
+      .single();
+
+    if (frameworkError || !framework) {
+      throw new Error('Invalid framework for this institution');
+    }
 
     // Calculate overall stage
     const overall_stage = this.calculateOverallStage(dto.dimension_scores);
@@ -334,7 +373,7 @@ export class MaturityAssessmentService {
         framework_id: dto.framework_id,
         department_id: dto.department_id || null,
         assessment_date: dto.assessment_date,
-        assessor_id: dto.assessor_id || user.data.user?.id,
+        assessor_id: dto.assessor_id || user.data.user.id,
         dimension_scores: dto.dimension_scores,
         overall_stage,
         evidence: dto.evidence || null,
@@ -342,7 +381,7 @@ export class MaturityAssessmentService {
         target_stage: dto.target_stage || null,
         target_date: dto.target_date || null,
         status: 'draft',
-        created_by: user.data.user?.id
+        created_by: user.data.user.id
       })
       .select()
       .single();

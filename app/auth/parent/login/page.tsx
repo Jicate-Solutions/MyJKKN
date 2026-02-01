@@ -1,10 +1,14 @@
-import { Metadata } from 'next';
-import { ParentLoginClient } from './parent-login-client';
+'use client';
 
-export const metadata: Metadata = {
-  title: 'Parent Login | MyJKKN',
-  description: 'Login to the parent portal to view your child\'s academic progress',
-};
+import dynamic from 'next/dynamic';
+
+const ParentLoginClient = dynamic(
+  () => import('./parent-login-client').then(mod => ({ default: mod.ParentLoginClient })),
+  {
+    ssr: false,
+    loading: () => <div className="flex min-h-screen items-center justify-center">Loading...</div>
+  }
+);
 
 export default function ParentLoginPage() {
   return <ParentLoginClient />;

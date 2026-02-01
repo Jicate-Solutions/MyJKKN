@@ -40,13 +40,17 @@ export function useParentCommunication(id: string) {
   });
 }
 
+/**
+ * Hook to fetch unread communication count
+ * FIXED: Removed aggressive auto-refresh, use manual refetch or window focus instead
+ */
 export function useUnreadCommunicationCount(parentId: string) {
   return useQuery({
     queryKey: parentCommunicationKeys.unreadCount(parentId),
     queryFn: () => ParentPortalService.getUnreadCount(parentId),
     enabled: !!parentId,
-    staleTime: 1 * 60 * 1000, // Refresh every minute
-    refetchInterval: 5 * 60 * 1000, // Auto-refresh every 5 minutes
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    refetchOnWindowFocus: true // Refresh when user returns to tab
   });
 }
 

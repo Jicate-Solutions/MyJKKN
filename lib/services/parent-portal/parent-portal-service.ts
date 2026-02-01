@@ -31,38 +31,70 @@ export class ParentPortalService {
   // PARENT PROFILE METHODS
   // ============================================================================
 
-  static async getParentProfile(userId: string): Promise<ParentProfile | null> {
-    const supabase = createClientSupabaseClient();
-    const { data, error } = await supabase
+  static async getParentProfile(userId: string, institutionId?: string): Promise<ParentProfile | null> {
+    const supabase: any = createClientSupabaseClient();
+
+    // SECURITY: Validate userId is provided
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+
+    let query = supabase
       .from('parent_profiles')
       .select(`
         *,
         institution:institutions(id, name, logo_url)
       `)
-      .eq('user_id', userId)
-      .single();
+      .eq('user_id', userId);
 
-    if (error && error.code !== 'PGRST116') throw error;
+    // SECURITY: Filter by institution_id if provided to prevent cross-institution access
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { data, error } = await query.single();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('[parent-portal] Error fetching parent profile:', error);
+      throw new Error('Failed to fetch parent profile');
+    }
+
     return data;
   }
 
-  static async getParentProfileById(id: string): Promise<ParentProfile | null> {
-    const supabase = createClientSupabaseClient();
-    const { data, error } = await supabase
+  static async getParentProfileById(id: string, institutionId?: string): Promise<ParentProfile | null> {
+    const supabase: any = createClientSupabaseClient();
+
+    // SECURITY: Validate id is provided
+    if (!id) {
+      throw new Error('Profile ID is required');
+    }
+
+    let query = supabase
       .from('parent_profiles')
       .select(`
         *,
         institution:institutions(id, name, logo_url)
       `)
-      .eq('id', id)
-      .single();
+      .eq('id', id);
 
-    if (error && error.code !== 'PGRST116') throw error;
+    // SECURITY: Filter by institution_id if provided to prevent cross-institution access
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { data, error } = await query.single();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('[parent-portal] Error fetching parent profile:', error);
+      throw new Error('Failed to fetch parent profile');
+    }
+
     return data;
   }
 
   static async getParentProfiles(filters: ParentProfileFilters = {}) {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { page = 1, limit = 20 } = filters;
     const offset = (page - 1) * limit;
 
@@ -78,7 +110,9 @@ export class ParentPortalService {
     }
 
     if (filters.search) {
-      query = query.or(`name.ilike.%${filters.search}%,phone.ilike.%${filters.search}%,email.ilike.%${filters.search}%`);
+      // Sanitize search to prevent SQL injection
+      const sanitizedSearch = filters.search.replace(/[%_]/g, '\\$&');
+      query = query.or(`name.ilike.%${sanitizedSearch}%,phone.ilike.%${sanitizedSearch}%,email.ilike.%${sanitizedSearch}%`);
     }
 
     if (filters.is_verified !== undefined) {
@@ -107,7 +141,7 @@ export class ParentPortalService {
   }
 
   static async createParentProfile(input: CreateParentProfileDto): Promise<ParentProfile> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('parent_profiles')
       .insert(input)
@@ -125,7 +159,7 @@ export class ParentPortalService {
     id: string,
     input: UpdateParentProfileDto
   ): Promise<ParentProfile> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('parent_profiles')
       .update(input)
@@ -141,7 +175,7 @@ export class ParentPortalService {
   }
 
   static async verifyParent(id: string): Promise<ParentProfile> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('parent_profiles')
       .update({ is_verified: true })
@@ -158,7 +192,7 @@ export class ParentPortalService {
   // ============================================================================
 
   static async getLinkedLearners(parentId: string): Promise<ParentLearnerLink[]> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('parent_learner_links')
       .select(`
@@ -179,7 +213,22 @@ export class ParentPortalService {
   }
 
   static async linkLearner(input: LinkLearnerDto): Promise<ParentLearnerLink> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
+
+    // SECURITY: Validate that parent and learner belong to the same institution
+    const [parentCheck, learnerCheck] = await Promise.all([
+      supabase.from('parent_profiles').select('institution_id').eq('id', input.parent_id).single(),
+      supabase.from('learners_profiles').select('institution_id').eq('id', input.learner_id).single()
+    ]);
+
+    if (parentCheck.error || learnerCheck.error) {
+      throw new Error('Parent or learner not found');
+    }
+
+    if (parentCheck.data?.institution_id !== learnerCheck.data?.institution_id) {
+      throw new Error('Parent and learner must belong to the same institution');
+    }
+
     const { data, error } = await supabase
       .from('parent_learner_links')
       .insert(input)
@@ -198,7 +247,7 @@ export class ParentPortalService {
   }
 
   static async unlinkLearner(linkId: string): Promise<void> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { error } = await supabase
       .from('parent_learner_links')
       .delete()
@@ -208,7 +257,7 @@ export class ParentPortalService {
   }
 
   static async verifyLink(linkId: string, verifiedBy: string): Promise<ParentLearnerLink> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('parent_learner_links')
       .update({
@@ -224,7 +273,7 @@ export class ParentPortalService {
   }
 
   static async setPrimaryLink(linkId: string): Promise<ParentLearnerLink> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('parent_learner_links')
       .update({ is_primary: true })
@@ -241,7 +290,7 @@ export class ParentPortalService {
   // ============================================================================
 
   static async getDashboard(parentId: string): Promise<ParentDashboardData> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
 
     // Use the database function for optimized query
     const { data, error } = await supabase.rpc('get_parent_dashboard', {
@@ -287,7 +336,7 @@ export class ParentPortalService {
   }
 
   static async getLearnerAttendance(learnerId: string): Promise<LearnerAttendanceSummary> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase.rpc('get_learner_attendance_for_parent', {
       p_learner_id: learnerId,
       p_days: 30,
@@ -298,7 +347,7 @@ export class ParentPortalService {
   }
 
   static async getLearnerFees(learnerId: string): Promise<LearnerFeeSummary> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase.rpc('get_learner_fees_for_parent', {
       p_learner_id: learnerId,
     });
@@ -312,7 +361,7 @@ export class ParentPortalService {
   // ============================================================================
 
   static async getCommunications(filters: CommunicationFilters = {}) {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { page = 1, limit = 20 } = filters;
     const offset = (page - 1) * limit;
 
@@ -378,7 +427,7 @@ export class ParentPortalService {
   }
 
   static async getCommunication(id: string): Promise<ParentCommunication | null> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('parent_communications')
       .select(`
@@ -394,7 +443,7 @@ export class ParentPortalService {
   }
 
   static async createCommunication(input: CreateCommunicationDto): Promise<ParentCommunication> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('parent_communications')
       .insert(input)
@@ -409,7 +458,7 @@ export class ParentPortalService {
   }
 
   static async markCommunicationRead(id: string): Promise<void> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { error } = await supabase
       .from('parent_communications')
       .update({ read_at: new Date().toISOString() })
@@ -419,7 +468,7 @@ export class ParentPortalService {
   }
 
   static async markAllCommunicationsRead(parentId: string): Promise<void> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { error } = await supabase
       .from('parent_communications')
       .update({ read_at: new Date().toISOString() })
@@ -430,7 +479,7 @@ export class ParentPortalService {
   }
 
   static async getUnreadCount(parentId: string): Promise<number> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { count, error } = await supabase
       .from('parent_communications')
       .select('*', { count: 'exact', head: true })
@@ -446,7 +495,7 @@ export class ParentPortalService {
   // ============================================================================
 
   static async getActivityLog(filters: ActivityLogFilters = {}) {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { page = 1, limit = 50 } = filters;
     const offset = (page - 1) * limit;
 
@@ -488,7 +537,7 @@ export class ParentPortalService {
   }
 
   static async logActivity(input: LogActivityDto): Promise<ParentActivityLog> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('parent_activity_log')
       .insert(input)
@@ -504,7 +553,7 @@ export class ParentPortalService {
   // ============================================================================
 
   static async requestOTP(input: OTPRequest): Promise<OTPResponse> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase.rpc('send_parent_otp', {
       p_phone: input.phone,
       p_institution_id: input.institution_id,
@@ -515,7 +564,7 @@ export class ParentPortalService {
   }
 
   static async verifyOTP(input: OTPVerification): Promise<ParentAuthResult> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase.rpc('verify_parent_otp', {
       p_phone: input.phone,
       p_otp: input.otp,
@@ -541,7 +590,24 @@ export class ParentPortalService {
   // ============================================================================
 
   static async registerParent(input: ParentRegistrationData): Promise<RegistrationResult> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
+
+    // SECURITY: Validate required fields
+    if (!input.phone || !input.learner_enrollment_number || !input.institution_id) {
+      return {
+        success: false,
+        message: 'Phone, enrollment number, and institution ID are required',
+      };
+    }
+
+    // Sanitize phone number to prevent SQL injection
+    const sanitizedPhone = input.phone.replace(/[^\d+]/g, '');
+    if (sanitizedPhone !== input.phone) {
+      return {
+        success: false,
+        message: 'Invalid phone number format',
+      };
+    }
 
     // First, find the learner by enrollment number
     const { data: learner, error: learnerError } = await supabase
@@ -610,7 +676,7 @@ export class ParentPortalService {
     userId: string,
     input: ParentRegistrationData
   ): Promise<RegistrationResult> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
 
     // Find the learner
     const { data: learner, error: learnerError } = await supabase
@@ -667,7 +733,7 @@ export class ParentPortalService {
     phone: string,
     institutionId: string
   ): Promise<ParentProfile | null> {
-    const supabase = createClientSupabaseClient();
+    const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('parent_profiles')
       .select('*')

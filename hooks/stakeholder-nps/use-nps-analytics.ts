@@ -16,6 +16,7 @@ export const npsAnalyticsKeys = {
 
 /**
  * Hook for fetching analytics data with filters
+ * FIXED: Added placeholderData for better UX during filter changes
  */
 export function useNPSAnalytics(initialFilters: AnalyticsFilters = {}) {
   const [filters, setFilters] = useState<AnalyticsFilters>(initialFilters);
@@ -23,7 +24,8 @@ export function useNPSAnalytics(initialFilters: AnalyticsFilters = {}) {
   const query = useQuery({
     queryKey: npsAnalyticsKeys.list(filters),
     queryFn: () => NPSService.getAnalytics(filters),
-    staleTime: 5 * 60 * 1000 // 5 minutes
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    placeholderData: (previousData) => previousData
   });
 
   const updateFilters = useCallback((newFilters: Partial<AnalyticsFilters>) => {
@@ -89,20 +91,25 @@ export function useNPSDashboard(institutionId: string) {
 
 /**
  * Hook for recalculating analytics
+ * FIXED: Better error handling and return error state
  */
 export function useRecalculateAnalytics() {
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const recalculate = useCallback(async (surveyId: string) => {
     try {
       setLoading(true);
+      setError(null);
       await NPSService.recalculateAnalytics(surveyId);
       queryClient.invalidateQueries({ queryKey: npsAnalyticsKeys.all });
       toast.success('Analytics recalculated successfully');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to recalculate analytics';
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to recalculate analytics';
+      setError(message);
       toast.error(message);
+      throw err; // Re-throw for caller to handle if needed
     } finally {
       setLoading(false);
     }
@@ -110,6 +117,7 @@ export function useRecalculateAnalytics() {
 
   return {
     recalculate,
-    loading
+    loading,
+    error
   };
 }

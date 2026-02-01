@@ -45,7 +45,7 @@ export const PRIORITY_LABELS: Record<CommunicationPriority, string> = {
 
 export interface ParentProfile {
   id: string;
-  user_id: string;
+  user_id: string; // References auth.users(id)
   institution_id: string;
   name: string;
   phone: string | null;

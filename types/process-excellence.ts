@@ -106,8 +106,8 @@ export interface ProcessDefinition {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  created_by?: string | null;
-  updated_by?: string | null;
+  created_by: string | null;
+  updated_by: string | null;
   // Joined relations
   institution?: {
     id: string;
@@ -180,7 +180,7 @@ export interface ProcessAudit {
   abcd_rating: ABCDRating | null;
   status: AuditStatus;
   created_at: string;
-  finalized_at?: string | null;
+  finalized_at: string | null;
   // Joined relations
   process?: ProcessDefinition;
   auditor?: {

@@ -28,6 +28,7 @@ export interface GrievanceCategory {
   is_active: boolean;
   sort_order: number;
   created_at: string;
+  updated_at: string;
 
   // Nested children for tree structure
   children?: GrievanceCategory[];

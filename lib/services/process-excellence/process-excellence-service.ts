@@ -34,7 +34,7 @@ import type {
 } from '@/types/process-excellence';
 
 export class ProcessExcellenceService {
-  private static supabase = createClientSupabaseClient();
+  private static supabase: any = createClientSupabaseClient();
 
   // =============================================
   // Process Definitions
@@ -68,8 +68,10 @@ export class ProcessExcellenceService {
       }
 
       if (filters.search) {
+        // Sanitize search to prevent SQL injection
+        const sanitizedSearch = filters.search.replace(/[%_]/g, '\\$&');
         query = query.or(
-          `name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`
+          `name.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%`
         );
       }
 
@@ -107,9 +109,9 @@ export class ProcessExcellenceService {
     }
   }
 
-  static async getProcessDefinition(id: string): Promise<ProcessDefinition> {
+  static async getProcessDefinition(id: string, institutionId?: string): Promise<ProcessDefinition> {
     try {
-      const { data, error } = await this.supabase
+      let query = this.supabase
         .from('process_definitions')
         .select(
           `
@@ -117,12 +119,22 @@ export class ProcessExcellenceService {
           institution:institutions(id, name)
         `
         )
-        .eq('id', id)
-        .single();
+        .eq('id', id);
+
+      // SECURITY: Filter by institution_id if provided to prevent cross-institution access
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      const { data, error } = await query.single();
 
       if (error) {
         console.error('[process-excellence] Error fetching definition:', error);
-        throw new Error(`Failed to fetch process definition: ${error.message}`);
+        // SECURITY: Don't expose internal error details
+        if (error.code === 'PGRST116') {
+          throw new Error('Process definition not found or access denied');
+        }
+        throw new Error('Failed to fetch process definition');
       }
 
       if (!data) {
@@ -307,26 +319,36 @@ export class ProcessExcellenceService {
     }
   }
 
-  static async getProcessInstance(id: string): Promise<ProcessInstance> {
+  static async getProcessInstance(id: string, institutionId?: string): Promise<ProcessInstance> {
     try {
-      const { data, error } = await this.supabase
+      let query = this.supabase
         .from('process_instances')
         .select(
           `
           *,
-          process:process_definitions(*)
+          process:process_definitions!inner(*, institution_id)
         `
         )
-        .eq('id', id)
-        .single();
+        .eq('id', id);
+
+      const { data, error } = await query.single();
 
       if (error) {
         console.error('[process-excellence] Error fetching instance:', error);
-        throw new Error(`Failed to fetch process instance: ${error.message}`);
+        // SECURITY: Don't expose internal error details
+        if (error.code === 'PGRST116') {
+          throw new Error('Process instance not found or access denied');
+        }
+        throw new Error('Failed to fetch process instance');
       }
 
       if (!data) {
         throw new Error('Process instance not found');
+      }
+
+      // SECURITY: Verify institution access if institutionId provided
+      if (institutionId && (data.process as any)?.institution_id !== institutionId) {
+        throw new Error('Process instance not found or access denied');
       }
 
       return data as unknown as ProcessInstance;
@@ -383,22 +405,31 @@ export class ProcessExcellenceService {
   static async advanceStage(
     instanceId: string,
     newStage: string,
-    isValueAdd?: boolean
+    isValueAdd?: boolean,
+    institutionId?: string
   ): Promise<ProcessInstance> {
     try {
-      // Get current instance
-      const { data: instance, error: fetchError } = await this.supabase
+      // RACE CONDITION FIX: Use a transaction-like approach with optimistic locking
+      // Get current instance with version check
+      let query = this.supabase
         .from('process_instances')
-        .select('*')
-        .eq('id', instanceId)
-        .single();
+        .select('*, process:process_definitions!inner(institution_id)')
+        .eq('id', instanceId);
+
+      const { data: instance, error: fetchError } = await query.single();
 
       if (fetchError || !instance) {
         throw new Error('Process instance not found');
       }
 
+      // SECURITY: Verify institution access
+      if (institutionId && (instance.process as any)?.institution_id !== institutionId) {
+        throw new Error('Access denied');
+      }
+
       const now = new Date().toISOString();
-      const history = (instance.stage_history as StageHistory[]) || [];
+      // Create a new copy to avoid mutation issues
+      const history = JSON.parse(JSON.stringify(instance.stage_history || [])) as StageHistory[];
 
       // Close current stage
       const lastStage = history[history.length - 1];
@@ -418,13 +449,21 @@ export class ProcessExcellenceService {
         is_value_add: isValueAdd
       });
 
-      const { data, error } = await this.supabase
+      // Use the original updated_at as optimistic lock
+      let updateQuery = this.supabase
         .from('process_instances')
         .update({
           current_stage: newStage,
           stage_history: history
         })
-        .eq('id', instanceId)
+        .eq('id', instanceId);
+
+      // Add optimistic locking by checking updated_at hasn't changed
+      if (instance.updated_at) {
+        updateQuery = updateQuery.eq('updated_at', instance.updated_at);
+      }
+
+      const { data, error } = await updateQuery
         .select(
           `
           *,

@@ -20,7 +20,7 @@ import type {
 } from '@/types/stakeholder-nps';
 
 export class NPSService {
-  private static supabase = createClientSupabaseClient();
+  private static supabase: any = createClientSupabaseClient();
 
   // =====================================================
   // SURVEY OPERATIONS
@@ -71,7 +71,9 @@ export class NPSService {
       query = query.eq('program_id', program_id);
     }
     if (search) {
-      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+      // Sanitize search to prevent SQL injection
+      const sanitizedSearch = search.replace(/[%_]/g, '\\$&');
+      query = query.or(`title.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%`);
     }
     if (start_date_from) {
       query = query.gte('start_date', start_date_from);
@@ -127,8 +129,8 @@ export class NPSService {
   /**
    * Get a single survey by ID
    */
-  static async getSurvey(id: string): Promise<NPSSurvey> {
-    const { data, error } = await this.supabase
+  static async getSurvey(id: string, institutionId?: string): Promise<NPSSurvey> {
+    let query = this.supabase
       .from('nps_surveys')
       .select(`
         *,
@@ -136,12 +138,26 @@ export class NPSService {
         program:programs(id, program_name),
         creator:users_profiles!nps_surveys_created_by_fkey(id, full_name, email)
       `)
-      .eq('id', id)
-      .single();
+      .eq('id', id);
+
+    // SECURITY: Filter by institution_id if provided to prevent cross-institution access
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { data, error } = await query.single();
 
     if (error) {
       console.error('[stakeholder-nps] Error fetching survey:', error);
-      throw new Error(`Failed to fetch survey: ${error.message}`);
+      // SECURITY: Don't expose internal error details
+      if (error.code === 'PGRST116') {
+        throw new Error('Survey not found or access denied');
+      }
+      throw new Error('Failed to fetch survey');
+    }
+
+    if (!data) {
+      throw new Error('Survey not found');
     }
 
     // Get response count
@@ -289,6 +305,30 @@ export class NPSService {
    * Submit a survey response
    */
   static async submitResponse(responseData: SubmitResponseDto): Promise<NPSResponse> {
+    // SECURITY: Validate NPS score is in valid range (0-10)
+    if (responseData.nps_score < 0 || responseData.nps_score > 10) {
+      throw new Error('NPS score must be between 0 and 10');
+    }
+
+    // SECURITY: Verify survey exists and is active
+    const { data: survey, error: surveyError } = await this.supabase
+      .from('nps_surveys')
+      .select('id, status, end_date, institution_id')
+      .eq('id', responseData.survey_id)
+      .single();
+
+    if (surveyError || !survey) {
+      throw new Error('Survey not found');
+    }
+
+    if (survey.status !== 'active') {
+      throw new Error('Survey is not currently active');
+    }
+
+    if (new Date(survey.end_date) < new Date()) {
+      throw new Error('Survey has ended');
+    }
+
     const { data, error } = await this.supabase
       .from('nps_responses')
       .insert({
@@ -391,20 +431,34 @@ export class NPSService {
   /**
    * Get a single response by ID
    */
-  static async getResponse(id: string): Promise<NPSResponse> {
-    const { data, error } = await this.supabase
+  static async getResponse(id: string, institutionId?: string): Promise<NPSResponse> {
+    let query = this.supabase
       .from('nps_responses')
       .select(`
         *,
-        survey:nps_surveys(id, title, stakeholder_type, questions),
+        survey:nps_surveys!inner(id, title, stakeholder_type, questions, institution_id),
         department:departments(id, department_name)
       `)
-      .eq('id', id)
-      .single();
+      .eq('id', id);
+
+    const { data, error } = await query.single();
 
     if (error) {
       console.error('[stakeholder-nps] Error fetching response:', error);
-      throw new Error(`Failed to fetch response: ${error.message}`);
+      // SECURITY: Don't expose internal error details
+      if (error.code === 'PGRST116') {
+        throw new Error('Response not found or access denied');
+      }
+      throw new Error('Failed to fetch response');
+    }
+
+    if (!data) {
+      throw new Error('Response not found');
+    }
+
+    // SECURITY: Verify institution access if institutionId provided
+    if (institutionId && (data.survey as any)?.institution_id !== institutionId) {
+      throw new Error('Response not found or access denied');
     }
 
     return data as NPSResponse;

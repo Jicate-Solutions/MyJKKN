@@ -18,14 +18,15 @@ export const grievanceDashboardKeys = {
 
 /**
  * Hook to fetch dashboard stats
+ * FIXED: Removed aggressive auto-refresh, use manual refetch instead
  */
 export function useGrievanceDashboardStats(institutionId: string) {
   return useQuery({
     queryKey: grievanceDashboardKeys.stats(institutionId),
     queryFn: () => GrievanceService.getDashboardStats(institutionId),
     enabled: !!institutionId,
-    staleTime: 60 * 1000, // 1 minute
-    refetchInterval: 60 * 1000 // Auto-refresh every minute
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    refetchOnWindowFocus: true // Refresh when user returns to tab
   });
 }
 

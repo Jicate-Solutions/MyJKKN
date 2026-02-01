@@ -16,7 +16,7 @@ import type {
 import { COPQ_CATEGORY_LABELS } from '@/types/billing-copq';
 
 export class BillingCOPQService {
-  private static supabase = createClientSupabaseClient();
+  private static supabase: any = createClientSupabaseClient();
 
   /**
    * Log a new COPQ incident
@@ -30,7 +30,7 @@ export class BillingCOPQService {
         data: { user }
       } = await this.supabase.auth.getUser();
 
-      const result: any = await this.supabase
+      const { data, error } = await this.supabase
         .from('billing_copq_incidents')
         .insert({
           ...incident,
@@ -39,24 +39,21 @@ export class BillingCOPQService {
         .select('*')
         .single();
 
-      const { data, error } = result;
-
       if (error) throw error;
       return data as unknown as BillingCOPQIncident;
     } catch (error) {
       console.error('[billing/copq] Error logging incident:', error);
-      throw new Error(
-        error instanceof Error ? error.message : 'Failed to log COPQ incident'
-      );
+      // SECURITY: Don't expose internal error details
+      throw new Error('Failed to log COPQ incident');
     }
   }
 
   /**
    * Get a single COPQ incident by ID
    */
-  static async getIncident(id: string): Promise<BillingCOPQIncident> {
+  static async getIncident(id: string, institutionId?: string): Promise<BillingCOPQIncident> {
     try {
-      const { data, error } = await this.supabase
+      let query = this.supabase
         .from('billing_copq_incidents')
         .select(
           `
@@ -66,10 +63,26 @@ export class BillingCOPQService {
           reporter:profiles!reported_by(id, full_name)
         `
         )
-        .eq('id', id)
-        .single();
+        .eq('id', id);
 
-      if (error) throw error;
+      // SECURITY: Filter by institution_id if provided to prevent cross-institution access
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      const { data, error } = await query.single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          throw new Error('COPQ incident not found or access denied');
+        }
+        throw error;
+      }
+
+      if (!data) {
+        throw new Error('COPQ incident not found');
+      }
+
       return data as unknown as BillingCOPQIncident;
     } catch (error) {
       console.error('[billing/copq] Error fetching incident:', error);
@@ -121,8 +134,10 @@ export class BillingCOPQService {
       }
 
       if (filters.search) {
+        // Sanitize search to prevent SQL injection
+        const sanitizedSearch = filters.search.replace(/[%_]/g, '\\$&');
         query = query.or(
-          `description.ilike.%${filters.search}%,root_cause.ilike.%${filters.search}%`
+          `description.ilike.%${sanitizedSearch}%,root_cause.ilike.%${sanitizedSearch}%`
         );
       }
 
@@ -157,13 +172,21 @@ export class BillingCOPQService {
    */
   static async updateIncident(
     id: string,
-    updates: UpdateCOPQIncidentDto
+    updates: UpdateCOPQIncidentDto,
+    institutionId?: string
   ): Promise<BillingCOPQIncident> {
     try {
-      const { data, error } = await this.supabase
+      let query = this.supabase
         .from('billing_copq_incidents')
         .update(updates)
-        .eq('id', id)
+        .eq('id', id);
+
+      // SECURITY: Filter by institution_id if provided to prevent unauthorized updates
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      const { data, error } = await query
         .select(
           `
           *,

@@ -28,17 +28,20 @@ export function ParentPortalClient() {
   // In production, get parent ID from auth context
   useEffect(() => {
     // TODO: Replace with actual auth check
-    // const session = await getSession();
-    // if (!session?.user?.parentId) {
-    //   router.push('/auth/parent/login');
-    //   return;
-    // }
-    // setParentId(session.user.parentId);
+    // SECURITY WARNING: Using localStorage for authentication is insecure
+    // This should be replaced with proper session management (JWT, cookies, etc.)
+    // Current implementation is for demo purposes only
 
-    // For now, check if we have a parent session
-    const storedParentId = localStorage.getItem('parent_portal_id');
+    const storedParentId = sessionStorage.getItem('parent_portal_id');
     if (storedParentId) {
-      setParentId(storedParentId);
+      // Validate the stored ID format to prevent injection
+      if (/^[a-zA-Z0-9-_]+$/.test(storedParentId)) {
+        setParentId(storedParentId);
+      } else {
+        console.error('[Security] Invalid parent ID format');
+        sessionStorage.removeItem('parent_portal_id');
+        router.push('/auth/parent/login');
+      }
     } else {
       // Redirect to login if no parent session
       router.push('/auth/parent/login');
@@ -67,7 +70,7 @@ export function ParentPortalClient() {
   }, [dashboardData?.pending_surveys, activeSurvey]);
 
   const handleLogout = () => {
-    localStorage.removeItem('parent_portal_id');
+    sessionStorage.removeItem('parent_portal_id');
     router.push('/auth/parent/login');
   };
 

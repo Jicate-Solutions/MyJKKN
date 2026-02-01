@@ -73,6 +73,7 @@ export interface BillingCOPQIncident {
   status: COPQStatus;
   resolved_at: string | null;
   created_at: string;
+  updated_at: string;
   // Joined data
   bill?: {
     id: string;
