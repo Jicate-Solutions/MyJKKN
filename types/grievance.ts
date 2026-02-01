@@ -199,14 +199,14 @@ export interface GrievanceHistory {
 
 // Filter interfaces
 export interface GrievanceCategoryFilters {
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   parent_id?: string;
   is_active?: boolean;
   search?: string;
 }
 
 export interface GrievanceTicketFilters {
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   status?: GrievanceStatus;
   sla_status?: GrievanceSLAStatus;
   priority?: GrievancePriority;

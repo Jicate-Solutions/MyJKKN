@@ -41,10 +41,20 @@ export const createCOPQIncidentSchema = z.object({
   visible_cost: z
     .number()
     .min(0, 'Visible cost cannot be negative')
+    .max(999999999.99, 'Visible cost exceeds maximum allowed value')
+    .refine(
+      (val) => Number.isFinite(val) && Math.round(val * 100) === val * 100,
+      'Visible cost must have at most 2 decimal places (paisa precision)'
+    )
     .default(0),
   hidden_cost_estimate: z
     .number()
     .min(0, 'Hidden cost cannot be negative')
+    .max(999999999.99, 'Hidden cost exceeds maximum allowed value')
+    .refine(
+      (val) => Number.isFinite(val) && Math.round(val * 100) === val * 100,
+      'Hidden cost must have at most 2 decimal places (paisa precision)'
+    )
     .default(0),
   time_spent_hours: z
     .number()
@@ -87,10 +97,20 @@ export const updateCOPQIncidentSchema = z.object({
   visible_cost: z
     .number()
     .min(0, 'Visible cost cannot be negative')
+    .max(999999999.99, 'Visible cost exceeds maximum allowed value')
+    .refine(
+      (val) => Number.isFinite(val) && Math.round(val * 100) === val * 100,
+      'Visible cost must have at most 2 decimal places (paisa precision)'
+    )
     .optional(),
   hidden_cost_estimate: z
     .number()
     .min(0, 'Hidden cost cannot be negative')
+    .max(999999999.99, 'Hidden cost exceeds maximum allowed value')
+    .refine(
+      (val) => Number.isFinite(val) && Math.round(val * 100) === val * 100,
+      'Hidden cost must have at most 2 decimal places (paisa precision)'
+    )
     .optional(),
   time_spent_hours: z
     .number()

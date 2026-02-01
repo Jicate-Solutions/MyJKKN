@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { parentRegistrationSchema } from '@/lib/validations/parent-portal';
+import { ParentSessionService } from '@/lib/services/parent-portal/parent-session-service';
+import { setCSRFCookie } from '@/lib/utils/csrf';
 import { z } from 'zod';
 
 export async function POST(request: NextRequest) {
@@ -68,11 +70,27 @@ export async function POST(request: NextRequest) {
 
       if (linkError) throw linkError;
 
+      // Create secure session for existing parent
+      const ipAddress = request.headers.get('x-forwarded-for') ||
+                       request.headers.get('x-real-ip') ||
+                       'unknown';
+      const userAgent = request.headers.get('user-agent') || 'unknown';
+
+      const sessionData = await ParentSessionService.createSession(
+        existingParent.id,
+        ipAddress,
+        userAgent
+      );
+
+      await ParentSessionService.setSessionCookie(sessionData.sessionToken);
+      const csrfToken = await setCSRFCookie();
+
       return NextResponse.json({
         success: true,
         message: 'Learner added to your account. Please verify your phone.',
         parent_id: existingParent.id,
         requires_verification: true,
+        csrf_token: csrfToken,
       });
     }
 

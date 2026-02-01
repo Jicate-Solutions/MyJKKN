@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { ParentSessionService } from '@/lib/services/parent-portal/parent-session-service';
 import {
   createCommunicationSchema,
   communicationFiltersSchema,
@@ -10,12 +11,22 @@ import { z } from 'zod';
 
 export async function GET(request: NextRequest) {
   try {
+    // Validate session - REQUIRED for all protected routes
+    const parentId = await ParentSessionService.getCurrentParentId();
+
+    if (!parentId) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
 
     const filters = communicationFiltersSchema.parse({
       institution_id: searchParams.get('institution_id') || undefined,
-      parent_id: searchParams.get('parent_id') || undefined,
+      parent_id: parentId, // Force authenticated parent's ID
       learner_id: searchParams.get('learner_id') || undefined,
       type: searchParams.get('type') || undefined,
       priority: searchParams.get('priority') || undefined,
@@ -109,6 +120,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Validate session for creating communications (admin only typically)
+    const parentId = await ParentSessionService.getCurrentParentId();
+
+    if (!parentId) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
     const supabase = await createClient();
     const body = await request.json();
 

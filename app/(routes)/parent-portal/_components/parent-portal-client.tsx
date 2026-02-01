@@ -10,6 +10,7 @@ import {
   useMarkCommunicationRead,
 } from '@/hooks/parent-portal';
 import { useSubmitNPSResponse } from '@/hooks/stakeholder-nps';
+import { ensureArray, ensureNumber } from '@/lib/utils/validation';
 import { ParentHeader } from './parent-header';
 import { DashboardOverview } from './dashboard-overview';
 import { LearnerCard } from './learner-card';
@@ -22,36 +23,29 @@ const DEMO_PARENT_ID = 'demo-parent-id';
 
 export function ParentPortalClient() {
   const router = useRouter();
-  const [parentId, setParentId] = useState<string | null>(null);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
+
   const [activeSurvey, setActiveSurvey] = useState<NPSSurvey | null>(null);
 
-  // In production, get parent ID from auth context
-  useEffect(() => {
-    // TODO: Replace with actual auth check
-    // SECURITY WARNING: Using localStorage for authentication is insecure
-    // This should be replaced with proper session management (JWT, cookies, etc.)
-    // Current implementation is for demo purposes only
+  // Authentication is now handled server-side via httpOnly cookies
+  // The dashboard hook will automatically validate the session
+  const { data: dashboardData, isLoading, error } = useParentDashboard();
 
-    const storedParentId = sessionStorage.getItem('parent_portal_id');
-    if (storedParentId) {
-      // Validate the stored ID format to prevent injection
-      if (/^[a-zA-Z0-9-_]+$/.test(storedParentId)) {
-        setParentId(storedParentId);
-      } else {
-        console.error('[Security] Invalid parent ID format');
-        sessionStorage.removeItem('parent_portal_id');
+  // Check authentication status
+  useEffect(() => {
+    if (!isLoading && error) {
+      // If error is 401, redirect to login
+      const errorMessage = error?.message || '';
+      if (errorMessage.includes('Authentication') || errorMessage.includes('401')) {
         router.push('/auth/parent/login');
       }
-    } else {
-      // Redirect to login if no parent session
-      router.push('/auth/parent/login');
     }
-  }, [router]);
-
-  const { data: dashboardData, isLoading, error } = useParentDashboard(parentId || '');
+    if (!isLoading) {
+      setIsAuthChecked(true);
+    }
+  }, [isLoading, error, router]);
 
   const { data: communications } = useParentCommunications({
-    parent_id: parentId || '',
     limit: 5,
   });
 
@@ -60,17 +54,24 @@ export function ParentPortalClient() {
 
   // Show survey prompt if there are pending surveys
   useEffect(() => {
-    if (dashboardData?.pending_surveys?.length && !activeSurvey) {
+    // SAFETY: Ensure pending_surveys is an array
+    const pendingSurveys = ensureArray(dashboardData?.pending_surveys, []);
+
+    if (pendingSurveys.length > 0 && !activeSurvey) {
       // Show the first pending survey after a short delay
       const timer = setTimeout(() => {
-        setActiveSurvey(dashboardData.pending_surveys[0]);
+        setActiveSurvey(pendingSurveys[0]);
       }, 2000);
       return () => clearTimeout(timer);
     }
   }, [dashboardData?.pending_surveys, activeSurvey]);
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('parent_portal_id');
+  const handleLogout = async () => {
+    // Call logout endpoint to revoke session
+    await fetch('/api/parent-portal/auth/logout', {
+      method: 'POST',
+      credentials: 'include', // Include cookies
+    });
     router.push('/auth/parent/login');
   };
 
@@ -88,17 +89,15 @@ export function ParentPortalClient() {
   };
 
   const handleMarkRead = (id: string) => {
-    if (parentId) {
-      markRead({ id, parentId });
-    }
+    markRead({ id });
   };
 
   const handleSurveySubmit = (surveyId: string, score: number, feedback: string) => {
-    if (parentId) {
+    if (dashboardData?.parent?.id) {
       submitNPS(
         {
           survey_id: surveyId,
-          respondent_id: parentId,
+          respondent_id: dashboardData.parent.id,
           respondent_type: 'parent',
           nps_score: score,
           additional_feedback: feedback,
@@ -113,7 +112,7 @@ export function ParentPortalClient() {
     }
   };
 
-  if (!parentId) {
+  if (!isAuthChecked) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -180,7 +179,8 @@ export function ParentPortalClient() {
               Your Children
             </h3>
             <div className="space-y-4">
-              {dashboardData.learners.length === 0 ? (
+              {/* SAFETY: Ensure learners is always an array */}
+              {ensureArray(dashboardData.learners, []).length === 0 ? (
                 <div className="rounded-lg border border-dashed bg-white p-8 text-center">
                   <p className="text-gray-500">No learners linked yet</p>
                   <p className="mt-1 text-sm text-gray-400">
@@ -189,7 +189,7 @@ export function ParentPortalClient() {
                   </p>
                 </div>
               ) : (
-                dashboardData.learners.map((learnerData) => (
+                ensureArray(dashboardData.learners, []).map((learnerData) => (
                   <LearnerCard
                     key={learnerData.learner.id}
                     data={learnerData}
@@ -203,7 +203,7 @@ export function ParentPortalClient() {
           {/* Communications */}
           <div>
             <CommunicationList
-              communications={(communications?.data || []) as any}
+              communications={ensureArray(communications?.data, []) as any}
               onMarkRead={handleMarkRead}
               onViewAll={handleViewMessages}
             />

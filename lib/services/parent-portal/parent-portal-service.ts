@@ -28,6 +28,40 @@ import type {
 
 export class ParentPortalService {
   /**
+   * SECURITY: Validate institution access
+   * Ensures user has permission to access the requested institution's data
+   * @throws Error if institution_id is invalid or user lacks access
+   */
+  private static async validateInstitutionAccess(
+    institutionId: string
+  ): Promise<void> {
+    if (!institutionId || institutionId.trim() === '') {
+      throw new Error('Institution ID is required');
+    }
+
+    const supabase: any = createClientSupabaseClient();
+
+    // Get current user
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      throw new Error('Authentication required');
+    }
+
+    // Check user's institution access
+    const { data: access, error } = await supabase
+      .from('user_institution_access')
+      .select('institution_id')
+      .eq('user_id', user.id)
+      .eq('institution_id', institutionId)
+      .single();
+
+    if (error || !access) {
+      console.error('[parent-portal] Access denied:', { userId: user.id, institutionId });
+      throw new Error('Access denied: Institution not accessible to user');
+    }
+  }
+
+  /**
    * Sanitize search input to prevent SQL injection
    * Escapes wildcards and special characters used in ILIKE queries
    * @security CRITICAL - All user search inputs MUST pass through this
@@ -301,50 +335,22 @@ export class ParentPortalService {
   // DASHBOARD METHODS
   // ============================================================================
 
-  static async getDashboard(parentId: string): Promise<ParentDashboardData> {
-    const supabase: any = createClientSupabaseClient();
-
-    // Use the database function for optimized query
-    const { data, error } = await supabase.rpc('get_parent_dashboard', {
-      p_parent_id: parentId,
+  /**
+   * Get parent dashboard data using server-side session validation
+   * No parentId parameter needed - uses authenticated session
+   */
+  static async getDashboard(): Promise<ParentDashboardData> {
+    // This now calls the API route which validates the session server-side
+    const response = await fetch('/api/parent-portal/dashboard', {
+      credentials: 'include', // Include httpOnly cookies
     });
 
-    if (error) throw error;
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch dashboard data');
+    }
 
-    // Get full learner data with summaries
-    const learners = await this.getLinkedLearners(parentId);
-    const learnersWithData: LearnerDashboardData[] = await Promise.all(
-      learners.map(async (link) => {
-        const [attendance, fees] = await Promise.all([
-          this.getLearnerAttendance(link.learner_id),
-          this.getLearnerFees(link.learner_id),
-        ]);
-
-        return {
-          learner: link.learner!,
-          link,
-          attendance,
-          fees,
-          grades: {
-            current_gpa: null,
-            current_cgpa: null,
-            recent_grades: [],
-          },
-          upcoming_events: [],
-        };
-      })
-    );
-
-    // Get recent activities
-    const activities = await this.getActivityLog({ parent_id: parentId, limit: 10 });
-
-    return {
-      parent: data.parent,
-      learners: learnersWithData,
-      unread_messages: data.unread_messages,
-      pending_surveys: data.pending_surveys || [],
-      recent_activities: activities.data,
-    };
+    return response.json();
   }
 
   static async getLearnerAttendance(learnerId: string): Promise<LearnerAttendanceSummary> {

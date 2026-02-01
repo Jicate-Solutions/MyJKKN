@@ -206,7 +206,7 @@ export interface SubmitResponseDto {
 
 // Filter Interfaces
 export interface SurveyFilters {
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   stakeholder_type?: StakeholderType;
   status?: SurveyStatus;
   department_id?: string;
@@ -235,7 +235,7 @@ export interface ResponseFilters {
 }
 
 export interface AnalyticsFilters {
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   stakeholder_type?: StakeholderType;
   department_id?: string;
   period_start?: string;

@@ -743,7 +743,7 @@ export interface CreateOKRRiskDTO {
 
 export interface OKRObjectiveFilters {
   owner_id?: string;
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   department_id?: string;
   tier?: OKRTier;
   level?: OKRLevel;
@@ -767,7 +767,7 @@ export interface OKRCheckInFilters {
 
 export interface OKRTeamFilters {
   manager_id?: string;
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   department_id?: string;
   include_blocked?: boolean;
 }

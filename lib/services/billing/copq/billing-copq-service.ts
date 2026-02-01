@@ -19,6 +19,38 @@ export class BillingCOPQService {
   private static supabase: any = createClientSupabaseClient();
 
   /**
+   * SECURITY: Validate institution access
+   * Ensures user has permission to access the requested institution's data
+   * @throws Error if institution_id is invalid or user lacks access
+   */
+  private static async validateInstitutionAccess(
+    institutionId: string
+  ): Promise<void> {
+    if (!institutionId || institutionId.trim() === '') {
+      throw new Error('Institution ID is required');
+    }
+
+    // Get current user
+    const { data: { user }, error: authError } = await this.supabase.auth.getUser();
+    if (authError || !user) {
+      throw new Error('Authentication required');
+    }
+
+    // Check user's institution access
+    const { data: access, error } = await this.supabase
+      .from('user_institution_access')
+      .select('institution_id')
+      .eq('user_id', user.id)
+      .eq('institution_id', institutionId)
+      .single();
+
+    if (error || !access) {
+      console.error('[billing-copq] Access denied:', { userId: user.id, institutionId });
+      throw new Error('Access denied: Institution not accessible to user');
+    }
+  }
+
+  /**
    * Convert rupees to paisa for storage
    * ₹100.50 → 10050 paisa
    * Uses Math.round to handle floating-point input safely
@@ -608,48 +640,62 @@ export class BillingCOPQService {
         .gte('incident_date', yearStart)
         .lte('incident_date', yearEnd);
 
-      const categoryVisible: Partial<Record<COPQCategory, number>> = {};
-      const categoryHidden: Partial<Record<COPQCategory, number>> = {};
-      let totalVisible = 0;
-      let totalHidden = 0;
+      // Use integer arithmetic (paisa) for all calculations
+      const categoryVisiblePaisa: Partial<Record<COPQCategory, number>> = {};
+      const categoryHiddenPaisa: Partial<Record<COPQCategory, number>> = {};
+      let totalVisiblePaisa = 0;
+      let totalHiddenPaisa = 0;
 
       (incidents || []).forEach((i) => {
         const category = i.category as COPQCategory;
-        const visible = i.visible_cost || 0;
-        const hidden = i.hidden_cost_estimate || 0;
+        // Values from DB are already in paisa
+        const visiblePaisa = i.visible_cost || 0;
+        const hiddenPaisa = i.hidden_cost_estimate || 0;
 
-        categoryVisible[category] = (categoryVisible[category] || 0) + visible;
-        categoryHidden[category] = (categoryHidden[category] || 0) + hidden;
-        totalVisible += visible;
-        totalHidden += hidden;
+        const currentVisiblePaisa = categoryVisiblePaisa[category] || 0;
+        const currentHiddenPaisa = categoryHiddenPaisa[category] || 0;
+        categoryVisiblePaisa[category] = this.addMoney(currentVisiblePaisa, visiblePaisa);
+        categoryHiddenPaisa[category] = this.addMoney(currentHiddenPaisa, hiddenPaisa);
+        totalVisiblePaisa = this.addMoney(totalVisiblePaisa, visiblePaisa);
+        totalHiddenPaisa = this.addMoney(totalHiddenPaisa, hiddenPaisa);
       });
 
-      const visibleCosts = Object.entries(categoryVisible)
-        .filter(([, amount]) => amount > 0)
-        .map(([category, amount]) => ({
-          category: category as COPQCategory,
-          label: COPQ_CATEGORY_LABELS[category as COPQCategory],
-          amount,
-          percentage: totalVisible > 0 ? (amount / totalVisible) * 100 : 0
-        }))
+      // Convert to rupees for API response
+      const visibleCosts = Object.entries(categoryVisiblePaisa)
+        .filter(([, amountPaisa]) => amountPaisa > 0)
+        .map(([category, amountPaisa]) => {
+          const amountRupees = this.paisaToRupees(amountPaisa);
+          return {
+            category: category as COPQCategory,
+            label: COPQ_CATEGORY_LABELS[category as COPQCategory],
+            amount: amountRupees,
+            percentage: totalVisiblePaisa > 0 ? (amountPaisa / totalVisiblePaisa) * 100 : 0
+          };
+        })
         .sort((a, b) => b.amount - a.amount);
 
-      const hiddenCosts = Object.entries(categoryHidden)
-        .filter(([, amount]) => amount > 0)
-        .map(([category, amount]) => ({
-          category: category as COPQCategory,
-          label: COPQ_CATEGORY_LABELS[category as COPQCategory],
-          amount,
-          percentage: totalHidden > 0 ? (amount / totalHidden) * 100 : 0
-        }))
+      const hiddenCosts = Object.entries(categoryHiddenPaisa)
+        .filter(([, amountPaisa]) => amountPaisa > 0)
+        .map(([category, amountPaisa]) => {
+          const amountRupees = this.paisaToRupees(amountPaisa);
+          return {
+            category: category as COPQCategory,
+            label: COPQ_CATEGORY_LABELS[category as COPQCategory],
+            amount: amountRupees,
+            percentage: totalHiddenPaisa > 0 ? (amountPaisa / totalHiddenPaisa) * 100 : 0
+          };
+        })
         .sort((a, b) => b.amount - a.amount);
+
+      const totalVisibleRupees = this.paisaToRupees(totalVisiblePaisa);
+      const totalHiddenRupees = this.paisaToRupees(totalHiddenPaisa);
 
       return {
         visible_costs: visibleCosts,
         hidden_costs: hiddenCosts,
-        total_visible: totalVisible,
-        total_hidden: totalHidden,
-        ratio: totalVisible > 0 ? totalHidden / totalVisible : 0
+        total_visible: totalVisibleRupees,
+        total_hidden: totalHiddenRupees,
+        ratio: totalVisibleRupees > 0 ? totalHiddenRupees / totalVisibleRupees : 0
       };
     } catch (error) {
       console.error('[billing/copq] Error fetching iceberg data:', error);

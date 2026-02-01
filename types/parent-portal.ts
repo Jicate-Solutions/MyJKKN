@@ -293,7 +293,7 @@ export interface LogActivityDto {
 // ============================================================================
 
 export interface ParentProfileFilters {
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   search?: string;
   is_verified?: boolean;
   relationship?: ParentRelationship;
@@ -302,7 +302,7 @@ export interface ParentProfileFilters {
 }
 
 export interface CommunicationFilters {
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   parent_id?: string;
   learner_id?: string;
   type?: CommunicationType;

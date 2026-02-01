@@ -91,9 +91,8 @@ export function ParentRegisterClient() {
       {
         onSuccess: (result) => {
           if (result.success) {
-            if (result.parent?.id) {
-              localStorage.setItem('parent_portal_id', result.parent.id);
-            }
+            // Session is now stored securely in httpOnly cookie
+            // No need to store in localStorage
             setStep('success');
           }
         },

@@ -111,7 +111,7 @@ export interface UpdateCOPQIncidentDto extends Partial<CreateCOPQIncidentDto> {
 }
 
 export interface COPQFilters {
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   category?: COPQCategory;
   status?: COPQStatus;
   date_from?: string;

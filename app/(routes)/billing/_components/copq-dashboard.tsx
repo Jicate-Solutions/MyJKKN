@@ -16,6 +16,7 @@ import {
 import type { COPQDashboard as COPQDashboardType } from '@/types/billing-copq';
 import { COPQ_CATEGORY_LABELS, COPQ_STATUS_COLORS } from '@/types/billing-copq';
 import { formatCurrency } from '@/lib/utils';
+import { ensureNumber, ensureObject, ensureArray } from '@/lib/utils/validation';
 import {
   Table,
   TableBody,
@@ -56,8 +57,32 @@ export function COPQDashboard({
     );
   }
 
-  const { total_copq_ytd, visible_vs_hidden, stats, by_category, top_incidents } =
-    dashboard;
+  // SAFETY: Validate all dashboard fields with defaults
+  const total_copq_ytd = ensureNumber(dashboard.total_copq_ytd, 0);
+  const visible_vs_hidden = ensureObject(dashboard.visible_vs_hidden, {
+    visible: 0,
+    hidden: 0
+  });
+  const stats = ensureObject(dashboard.stats, {
+    total_incidents: 0,
+    open_incidents: 0,
+    resolved_incidents: 0,
+    avg_resolution_time_days: 0
+  });
+  const by_category = ensureObject(dashboard.by_category, {});
+  const top_incidents = ensureArray(dashboard.top_incidents, []);
+
+  // SAFETY: Ensure numeric values in nested objects
+  const safeVisibleHidden = {
+    visible: ensureNumber(visible_vs_hidden.visible, 0),
+    hidden: ensureNumber(visible_vs_hidden.hidden, 0)
+  };
+  const safeStats = {
+    total_incidents: ensureNumber(stats.total_incidents, 0),
+    open_incidents: ensureNumber(stats.open_incidents, 0),
+    resolved_incidents: ensureNumber(stats.resolved_incidents, 0),
+    avg_resolution_time_days: ensureNumber(stats.avg_resolution_time_days, 0)
+  };
 
   return (
     <div className='space-y-6'>
@@ -72,33 +97,33 @@ export function COPQDashboard({
         />
         <MetricCard
           title='Visible Costs'
-          value={formatCurrency(visible_vs_hidden.visible)}
+          value={formatCurrency(safeVisibleHidden.visible)}
           icon={<Eye className='h-4 w-4' />}
           description='Direct financial impact'
           subValue={`${
             total_copq_ytd > 0
-              ? Math.round((visible_vs_hidden.visible / total_copq_ytd) * 100)
+              ? Math.round((safeVisibleHidden.visible / total_copq_ytd) * 100)
               : 0
           }% of total`}
         />
         <MetricCard
           title='Hidden Costs'
-          value={formatCurrency(visible_vs_hidden.hidden)}
+          value={formatCurrency(safeVisibleHidden.hidden)}
           icon={<EyeOff className='h-4 w-4' />}
           description='Estimated indirect costs'
           subValue={`${
             total_copq_ytd > 0
-              ? Math.round((visible_vs_hidden.hidden / total_copq_ytd) * 100)
+              ? Math.round((safeVisibleHidden.hidden / total_copq_ytd) * 100)
               : 0
           }% of total`}
           trend='negative'
         />
         <MetricCard
           title='Open Incidents'
-          value={stats.open_incidents.toString()}
+          value={safeStats.open_incidents.toString()}
           icon={<AlertCircle className='h-4 w-4' />}
-          description={`${stats.resolved_incidents} resolved`}
-          subValue={`${stats.total_incidents} total`}
+          description={`${safeStats.resolved_incidents} resolved`}
+          subValue={`${safeStats.total_incidents} total`}
         />
       </div>
 
@@ -111,13 +136,13 @@ export function COPQDashboard({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className='text-2xl font-bold'>{stats.total_incidents}</div>
+            <div className='text-2xl font-bold'>{safeStats.total_incidents}</div>
             <div className='flex gap-2 mt-2'>
               <Badge variant='outline' className='bg-blue-50 text-blue-700'>
-                {stats.open_incidents} open
+                {safeStats.open_incidents} open
               </Badge>
               <Badge variant='outline' className='bg-green-50 text-green-700'>
-                {stats.resolved_incidents} resolved
+                {safeStats.resolved_incidents} resolved
               </Badge>
             </div>
           </CardContent>
@@ -131,7 +156,7 @@ export function COPQDashboard({
           <CardContent>
             <div className='text-2xl font-bold flex items-center gap-2'>
               <Clock className='h-5 w-5 text-muted-foreground' />
-              {stats.avg_resolution_time_days} days
+              {safeStats.avg_resolution_time_days} days
             </div>
             <p className='text-xs text-muted-foreground mt-1'>
               From logged to resolved
@@ -146,19 +171,15 @@ export function COPQDashboard({
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold'>
-              {visible_vs_hidden.visible > 0
-                ? (visible_vs_hidden.hidden / visible_vs_hidden.visible).toFixed(
-                    1
-                  )
+              {safeVisibleHidden.visible > 0
+                ? (safeVisibleHidden.hidden / safeVisibleHidden.visible).toFixed(1)
                 : '0'}
               x
             </div>
             <p className='text-xs text-muted-foreground mt-1'>
               Hidden costs are{' '}
-              {visible_vs_hidden.visible > 0
-                ? (
-                    visible_vs_hidden.hidden / visible_vs_hidden.visible
-                  ).toFixed(1)
+              {safeVisibleHidden.visible > 0
+                ? (safeVisibleHidden.hidden / safeVisibleHidden.visible).toFixed(1)
                 : '0'}
               x visible costs
             </p>

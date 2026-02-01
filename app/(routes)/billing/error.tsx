@@ -1,0 +1,78 @@
+'use client';
+
+import { useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle, RefreshCcw, ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+
+/**
+ * Billing Module Error Boundary
+ *
+ * Catches errors within the billing module and displays a contextual error page
+ */
+export default function BillingError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  const router = useRouter();
+
+  useEffect(() => {
+    // Log error to error tracking service
+    console.error('[Billing Module Error]', {
+      name: error.name,
+      message: error.message,
+      digest: error.digest,
+      stack: error.stack,
+    });
+  }, [error]);
+
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center p-4">
+      <div className="max-w-md text-center">
+        <div className="mb-6 flex justify-center">
+          <div className="rounded-full bg-destructive/10 p-6">
+            <AlertTriangle className="h-12 w-12 text-destructive" />
+          </div>
+        </div>
+
+        <h2 className="mb-2 text-2xl font-bold tracking-tight">
+          Billing Error
+        </h2>
+
+        <p className="mb-6 text-muted-foreground">
+          There was an error processing your billing request. Please try again or contact support if the problem persists.
+        </p>
+
+        {process.env.NODE_ENV === 'development' && error.message && (
+          <div className="mb-6 rounded-lg bg-muted p-4 text-left">
+            <p className="text-sm font-mono text-destructive">{error.message}</p>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+          <Button onClick={reset} variant="default" className="gap-2">
+            <RefreshCcw className="h-4 w-4" />
+            Try Again
+          </Button>
+          <Button
+            onClick={() => router.push('/billing')}
+            variant="outline"
+            className="gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Billing
+          </Button>
+        </div>
+
+        {error.digest && (
+          <p className="mt-6 text-xs text-muted-foreground">
+            Error ID: {error.digest}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

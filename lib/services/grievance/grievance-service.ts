@@ -25,6 +25,38 @@ export class GrievanceService {
   private static supabase: any = createClientSupabaseClient();
 
   /**
+   * SECURITY: Validate institution access
+   * Ensures user has permission to access the requested institution's data
+   * @throws Error if institution_id is invalid or user lacks access
+   */
+  private static async validateInstitutionAccess(
+    institutionId: string
+  ): Promise<void> {
+    if (!institutionId || institutionId.trim() === '') {
+      throw new Error('Institution ID is required');
+    }
+
+    // Get current user
+    const { data: { user }, error: authError } = await this.supabase.auth.getUser();
+    if (authError || !user) {
+      throw new Error('Authentication required');
+    }
+
+    // Check user's institution access
+    const { data: access, error } = await this.supabase
+      .from('user_institution_access')
+      .select('institution_id')
+      .eq('user_id', user.id)
+      .eq('institution_id', institutionId)
+      .single();
+
+    if (error || !access) {
+      console.error('[grievance] Access denied:', { userId: user.id, institutionId });
+      throw new Error('Access denied: Institution not accessible to user');
+    }
+  }
+
+  /**
    * Sanitize search input to prevent SQL injection
    * Escapes wildcards and special characters used in ILIKE queries
    * @security CRITICAL - All user search inputs MUST pass through this
@@ -597,7 +629,8 @@ export class GrievanceService {
       throw new Error(`Failed to fetch comments: ${error.message}`);
     }
 
-    return (data || []) as GrievanceComment[];
+    // SAFETY: Ensure data is always an array
+    return ensureArray(data, []) as GrievanceComment[];
   }
 
   /**
@@ -648,7 +681,8 @@ export class GrievanceService {
       throw new Error(`Failed to fetch history: ${error.message}`);
     }
 
-    return (data || []) as GrievanceHistory[];
+    // SAFETY: Ensure data is always an array
+    return ensureArray(data, []) as GrievanceHistory[];
   }
 
   /**

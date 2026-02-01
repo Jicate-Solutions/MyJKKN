@@ -201,7 +201,7 @@ export interface UpdateMaturityProgressItemDto {
 
 // Filter Interfaces
 export interface MaturityAssessmentFilters {
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   department_id?: string;
   status?: AssessmentStatus;
   date_from?: string;

@@ -5,6 +5,12 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
+import {
+  ensureNumber,
+  ensureArray,
+  isValidNumber,
+  clampNumber
+} from '@/lib/utils/validation';
 import type {
   OKRKeyResult,
   OKRListResponse,
@@ -20,6 +26,40 @@ export class OKRKeyResultService {
   // Get fresh client for each request to ensure auth token is current
   private static getSupabase() {
     return createClientSupabaseClient();
+  }
+
+  /**
+   * SECURITY: Validate institution access
+   * Ensures user has permission to access the requested institution's data
+   * @throws Error if institution_id is invalid or user lacks access
+   */
+  private static async validateInstitutionAccess(
+    institutionId: string
+  ): Promise<void> {
+    if (!institutionId || institutionId.trim() === '') {
+      throw new Error('Institution ID is required');
+    }
+
+    const supabase = this.getSupabase();
+
+    // Get current user
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      throw new Error('Authentication required');
+    }
+
+    // Check user's institution access
+    const { data: access, error } = await (supabase as any)
+      .from('user_institution_access')
+      .select('institution_id')
+      .eq('user_id', user.id)
+      .eq('institution_id', institutionId)
+      .single();
+
+    if (error || !access) {
+      console.error('[OKR] Access denied:', { userId: user.id, institutionId });
+      throw new Error('Access denied: Institution not accessible to user');
+    }
   }
 
   /**
@@ -317,14 +357,17 @@ export class OKRKeyResultService {
     notes?: string
   ): Promise<OKRKeyResult> {
     try {
-      if (rating < 1 || rating > 5) {
-        throw new Error('Process rating must be between 1 and 5');
+      // SAFETY: Validate and clamp rating to 1-5 range
+      const validRating = clampNumber(rating, 1, 5, 3);
+
+      if (validRating !== rating) {
+        console.warn('[OKR] Process rating clamped from', rating, 'to', validRating);
       }
 
       const { data, error } = await (this.getSupabase() as any)
         .from('okr_key_results')
         .update({
-          process_rating: rating,
+          process_rating: validRating,
           process_notes: notes || null,
           updated_at: new Date().toISOString()
         })
@@ -399,7 +442,16 @@ export class OKRKeyResultService {
         });
 
       if (error) throw error;
-      return data || [];
+
+      // SAFETY: Ensure data is array and validate numeric fields
+      const safeData = ensureArray(data, []);
+
+      return safeData.map((item: any) => ({
+        ...item,
+        count: ensureNumber(item.count, 0),
+        avg_progress: ensureNumber(item.avg_progress, 0),
+        avg_process_rating: ensureNumber(item.avg_process_rating, 0)
+      }));
     } catch (error: any) {
       console.error('[OKR] Error fetching ABCD distribution:', error?.message || error?.code || error?.details || JSON.stringify(error));
       throw error;

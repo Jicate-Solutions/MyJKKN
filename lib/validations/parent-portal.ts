@@ -1,6 +1,7 @@
 // lib/validations/parent-portal.ts
 
 import { z } from 'zod';
+import { InputValidator } from '@/lib/utils/input-validator';
 
 // ============================================================================
 // CONSTANTS
@@ -25,27 +26,50 @@ const ACTIVITY_TYPE_VALUES = [
 // ============================================================================
 
 export const createParentProfileSchema = z.object({
-  user_id: z.string().uuid('Invalid user ID'),
-  institution_id: z.string().uuid('Invalid institution ID'),
-  name: z.string().min(2, 'Name must be at least 2 characters').max(255),
+  user_id: z.string().transform((val) => InputValidator.uuid(val, 'User ID')),
+  institution_id: z.string().transform((val) => InputValidator.uuid(val, 'Institution ID')),
+  name: z.string()
+    .min(2, 'Name must be at least 2 characters')
+    .max(255, 'Name too long')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 2,
+      maxLength: 255,
+      fieldName: 'Name'
+    })),
   phone: z
     .string()
-    .regex(/^\+?[0-9]{10,15}$/, 'Invalid phone number')
+    .transform((val) => InputValidator.phoneNumber(val))
     .optional(),
-  email: z.string().email('Invalid email address').optional(),
+  email: z.string()
+    .transform((val) => InputValidator.email(val))
+    .optional(),
   relationship: z.enum(RELATIONSHIP_VALUES).optional(),
 });
 
 export const updateParentProfileSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters').max(255).optional(),
+  name: z.string()
+    .min(2, 'Name must be at least 2 characters')
+    .max(255, 'Name too long')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 2,
+      maxLength: 255,
+      fieldName: 'Name'
+    }))
+    .optional(),
   phone: z
     .string()
-    .regex(/^\+?[0-9]{10,15}$/, 'Invalid phone number')
+    .transform((val) => InputValidator.phoneNumber(val))
     .optional()
     .nullable(),
-  email: z.string().email('Invalid email address').optional().nullable(),
+  email: z.string()
+    .transform((val) => InputValidator.email(val))
+    .optional()
+    .nullable(),
   relationship: z.enum(RELATIONSHIP_VALUES).optional().nullable(),
-  avatar_url: z.string().url('Invalid URL').optional().nullable(),
+  avatar_url: z.string()
+    .transform((val) => InputValidator.url(val, { fieldName: 'Avatar URL' }))
+    .optional()
+    .nullable(),
 });
 
 // ============================================================================
@@ -53,8 +77,8 @@ export const updateParentProfileSchema = z.object({
 // ============================================================================
 
 export const linkLearnerSchema = z.object({
-  parent_id: z.string().uuid('Invalid parent ID'),
-  learner_id: z.string().uuid('Invalid learner ID'),
+  parent_id: z.string().transform((val) => InputValidator.uuid(val, 'Parent ID')),
+  learner_id: z.string().transform((val) => InputValidator.uuid(val, 'Learner ID')),
   relationship: z.enum(RELATIONSHIP_VALUES, {
     required_error: 'Relationship is required',
   }),
@@ -71,24 +95,59 @@ export const verifyLinkSchema = z.object({
 // ============================================================================
 
 const attachmentSchema = z.object({
-  name: z.string().min(1),
-  url: z.string().url(),
-  type: z.string().min(1),
-  size: z.number().min(0),
+  name: z.string()
+    .min(1, 'Attachment name is required')
+    .max(255, 'Attachment name too long')
+    .transform((val) => InputValidator.text(val, {
+      maxLength: 255,
+      fieldName: 'Attachment name'
+    })),
+  url: z.string().transform((val) => InputValidator.url(val, { fieldName: 'Attachment URL' })),
+  type: z.string()
+    .min(1, 'File type is required')
+    .max(100, 'File type too long'),
+  size: z.number()
+    .transform((val) => InputValidator.number(val, {
+      min: 0,
+      max: 100 * 1024 * 1024, // 100 MB max
+      fieldName: 'File size'
+    })),
 });
 
 export const createCommunicationSchema = z.object({
-  institution_id: z.string().uuid('Invalid institution ID'),
-  parent_id: z.string().uuid('Invalid parent ID').optional(),
-  learner_id: z.string().uuid('Invalid learner ID').optional(),
+  institution_id: z.string().transform((val) => InputValidator.uuid(val, 'Institution ID')),
+  parent_id: z.string()
+    .transform((val) => InputValidator.uuid(val, 'Parent ID'))
+    .optional(),
+  learner_id: z.string()
+    .transform((val) => InputValidator.uuid(val, 'Learner ID'))
+    .optional(),
   type: z.enum(COMMUNICATION_TYPE_VALUES, {
     required_error: 'Communication type is required',
   }),
-  subject: z.string().min(1, 'Subject is required').max(255),
-  content: z.string().min(1, 'Content is required'),
+  subject: z.string()
+    .min(1, 'Subject is required')
+    .max(255, 'Subject too long')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 1,
+      maxLength: 255,
+      fieldName: 'Subject'
+    })),
+  content: z.string()
+    .min(1, 'Content is required')
+    .max(10000, 'Content too long')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 1,
+      maxLength: 10000,
+      fieldName: 'Content'
+    })),
   priority: z.enum(PRIORITY_VALUES).default('normal'),
-  sender_id: z.string().uuid('Invalid sender ID').optional(),
-  attachments: z.array(attachmentSchema).default([]),
+  sender_id: z.string()
+    .transform((val) => InputValidator.uuid(val, 'Sender ID'))
+    .optional(),
+  attachments: z.array(attachmentSchema)
+    .max(10, 'Too many attachments (max 10)')
+    .default([]),
 });
 
 export const updateCommunicationSchema = z.object({
@@ -100,14 +159,28 @@ export const updateCommunicationSchema = z.object({
 // ============================================================================
 
 export const logActivitySchema = z.object({
-  parent_id: z.string().uuid('Invalid parent ID'),
+  parent_id: z.string().transform((val) => InputValidator.uuid(val, 'Parent ID')),
   activity_type: z.enum(ACTIVITY_TYPE_VALUES, {
     required_error: 'Activity type is required',
   }),
-  description: z.string().max(500).optional(),
-  metadata: z.record(z.unknown()).default({}),
+  description: z.string()
+    .max(500, 'Description too long')
+    .transform((val) => InputValidator.text(val, {
+      maxLength: 500,
+      fieldName: 'Description'
+    }))
+    .optional(),
+  metadata: z.record(z.unknown())
+    .transform((val) => InputValidator.json(val, 50000))
+    .default({}),
   ip_address: z.string().ip().optional(),
-  user_agent: z.string().max(500).optional(),
+  user_agent: z.string()
+    .max(500, 'User agent too long')
+    .transform((val) => InputValidator.text(val, {
+      maxLength: 500,
+      fieldName: 'User agent'
+    }))
+    .optional(),
 });
 
 // ============================================================================
@@ -115,21 +188,23 @@ export const logActivitySchema = z.object({
 // ============================================================================
 
 export const requestOTPSchema = z.object({
-  phone: z
-    .string()
-    .regex(/^\+?[0-9]{10,15}$/, 'Invalid phone number format'),
-  institution_id: z.string().uuid('Invalid institution ID'),
+  phone: z.string().transform((val) => InputValidator.phoneNumber(val)),
+  institution_id: z.string().transform((val) => InputValidator.uuid(val, 'Institution ID')),
 });
 
 export const verifyOTPSchema = z.object({
-  phone: z
-    .string()
-    .regex(/^\+?[0-9]{10,15}$/, 'Invalid phone number format'),
+  phone: z.string().transform((val) => InputValidator.phoneNumber(val)),
   otp: z
     .string()
     .length(6, 'OTP must be 6 digits')
-    .regex(/^[0-9]+$/, 'OTP must contain only numbers'),
-  institution_id: z.string().uuid('Invalid institution ID'),
+    .regex(/^[0-9]+$/, 'OTP must contain only numbers')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 6,
+      maxLength: 6,
+      allowedChars: /^[0-9]+$/,
+      fieldName: 'OTP'
+    })),
+  institution_id: z.string().transform((val) => InputValidator.uuid(val, 'Institution ID')),
 });
 
 // ============================================================================
@@ -137,19 +212,32 @@ export const verifyOTPSchema = z.object({
 // ============================================================================
 
 export const parentRegistrationSchema = z.object({
-  phone: z
-    .string()
-    .regex(/^\+?[0-9]{10,15}$/, 'Invalid phone number format'),
-  name: z.string().min(2, 'Name must be at least 2 characters').max(255),
-  email: z.string().email('Invalid email address').optional(),
+  phone: z.string().transform((val) => InputValidator.phoneNumber(val)),
+  name: z.string()
+    .min(2, 'Name must be at least 2 characters')
+    .max(255, 'Name too long')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 2,
+      maxLength: 255,
+      fieldName: 'Name'
+    })),
+  email: z.string()
+    .transform((val) => InputValidator.email(val))
+    .optional(),
   relationship: z.enum(RELATIONSHIP_VALUES, {
     required_error: 'Relationship is required',
   }),
   learner_enrollment_number: z
     .string()
     .min(1, 'Enrollment number is required')
-    .max(50),
-  institution_id: z.string().uuid('Invalid institution ID'),
+    .max(50, 'Enrollment number too long')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 1,
+      maxLength: 50,
+      allowedChars: /^[A-Za-z0-9\-_]+$/,
+      fieldName: 'Enrollment number'
+    })),
+  institution_id: z.string().transform((val) => InputValidator.uuid(val, 'Institution ID')),
 });
 
 // ============================================================================

@@ -293,7 +293,7 @@ export interface UpdateProcessAuditDto {
 
 export interface ProcessDefinitionFilters {
   search?: string;
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   category?: ProcessCategory;
   is_active?: boolean;
   page?: number;
@@ -304,7 +304,7 @@ export interface ProcessDefinitionFilters {
 
 export interface ProcessInstanceFilters {
   search?: string;
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   process_id?: string;
   reference_type?: string;
   sla_status?: SLAStatus;
@@ -319,7 +319,7 @@ export interface ProcessInstanceFilters {
 
 export interface WasteIncidentFilters {
   search?: string;
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   process_id?: string;
   process_instance_id?: string;
   waste_category?: WasteCategory;
@@ -334,7 +334,7 @@ export interface WasteIncidentFilters {
 
 export interface ProcessAuditFilters {
   search?: string;
-  institution_id?: string;
+  institution_id: string; // REQUIRED for security - prevents cross-institution access
   process_id?: string;
   auditor_id?: string;
   abcd_rating?: ABCDRating;

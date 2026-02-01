@@ -2,6 +2,7 @@
 // F004: Grievance Ticketing System - Zod Validation Schemas
 
 import * as z from 'zod';
+import { InputValidator } from '@/lib/utils/input-validator';
 
 // Enums as Zod schemas
 export const grievancePrioritySchema = z.enum(['low', 'medium', 'high', 'urgent']);
@@ -12,10 +13,24 @@ export const commentAuthorTypeSchema = z.enum(['staff', 'learner', 'parent', 'sy
 
 // Attachment schema
 export const attachmentSchema = z.object({
-  name: z.string().min(1, 'File name is required'),
-  url: z.string().url('Invalid URL format'),
-  type: z.string().min(1, 'File type is required'),
-  size: z.number().min(0, 'File size must be positive')
+  name: z.string()
+    .min(1, 'File name is required')
+    .max(255, 'File name too long')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 1,
+      maxLength: 255,
+      fieldName: 'File name'
+    })),
+  url: z.string().transform((val) => InputValidator.url(val, { fieldName: 'File URL' })),
+  type: z.string()
+    .min(1, 'File type is required')
+    .max(100, 'File type too long'),
+  size: z.number()
+    .transform((val) => InputValidator.number(val, {
+      min: 0,
+      max: 100 * 1024 * 1024, // 100 MB max
+      fieldName: 'File size'
+    }))
 });
 
 // ============================================================================
@@ -23,30 +38,57 @@ export const attachmentSchema = z.object({
 // ============================================================================
 
 export const createGrievanceCategorySchema = z.object({
-  institution_id: z.string().uuid('Invalid institution ID'),
+  institution_id: z.string().transform((val) => InputValidator.uuid(val, 'Institution ID')),
   name: z
     .string()
     .min(1, 'Category name is required')
-    .max(100, 'Category name must be less than 100 characters'),
+    .max(100, 'Category name must be less than 100 characters')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 1,
+      maxLength: 100,
+      fieldName: 'Category name'
+    })),
   description: z
     .string()
     .max(500, 'Description must be less than 500 characters')
+    .transform((val) => InputValidator.text(val, {
+      maxLength: 500,
+      fieldName: 'Description'
+    }))
     .optional()
     .nullable(),
-  parent_id: z.string().uuid('Invalid parent category ID').optional().nullable(),
+  parent_id: z.string()
+    .transform((val) => InputValidator.uuid(val, 'Parent category ID'))
+    .optional()
+    .nullable(),
   default_sla_hours: z
     .number()
-    .min(1, 'SLA hours must be at least 1')
-    .max(720, 'SLA hours cannot exceed 720 (30 days)')
+    .transform((val) => InputValidator.number(val, {
+      min: 1,
+      max: 720,
+      integer: true,
+      fieldName: 'SLA hours'
+    }))
     .optional()
     .default(48),
   default_assignee_role: z
     .string()
     .max(100, 'Role must be less than 100 characters')
+    .transform((val) => InputValidator.text(val, {
+      maxLength: 100,
+      fieldName: 'Assignee role'
+    }))
     .optional()
     .nullable(),
   is_active: z.boolean().optional().default(true),
-  sort_order: z.number().min(0).optional().default(0)
+  sort_order: z.number()
+    .transform((val) => InputValidator.number(val, {
+      min: 0,
+      integer: true,
+      fieldName: 'Sort order'
+    }))
+    .optional()
+    .default(0)
 });
 
 export const updateGrievanceCategorySchema = createGrievanceCategorySchema.partial().omit({
@@ -65,37 +107,61 @@ export const categoryFiltersSchema = z.object({
 // ============================================================================
 
 export const createGrievanceTicketSchema = z.object({
-  institution_id: z.string().uuid('Invalid institution ID'),
-  category_id: z.string().uuid('Invalid category ID'),
+  institution_id: z.string().transform((val) => InputValidator.uuid(val, 'Institution ID')),
+  category_id: z.string().transform((val) => InputValidator.uuid(val, 'Category ID')),
   subject: z
     .string()
     .min(3, 'Subject must be at least 3 characters')
-    .max(255, 'Subject must be less than 255 characters'),
+    .max(255, 'Subject must be less than 255 characters')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 3,
+      maxLength: 255,
+      fieldName: 'Subject'
+    })),
   description: z
     .string()
     .min(10, 'Description must be at least 10 characters')
-    .max(5000, 'Description must be less than 5000 characters'),
+    .max(5000, 'Description must be less than 5000 characters')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 10,
+      maxLength: 5000,
+      fieldName: 'Description'
+    })),
   priority: grievancePrioritySchema.optional().default('medium'),
   raised_by_type: raiserTypeSchema,
-  raised_by_id: z.string().uuid('Invalid raiser ID').optional().nullable(),
+  raised_by_id: z.string()
+    .transform((val) => InputValidator.uuid(val, 'Raiser ID'))
+    .optional()
+    .nullable(),
   raised_by_name: z
     .string()
     .min(2, 'Name must be at least 2 characters')
-    .max(255, 'Name must be less than 255 characters'),
+    .max(255, 'Name must be less than 255 characters')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 2,
+      maxLength: 255,
+      fieldName: 'Raiser name'
+    })),
   raised_by_email: z
     .string()
-    .email('Invalid email format')
+    .transform((val) => val ? InputValidator.email(val) : val)
     .optional()
     .nullable()
     .or(z.literal('')),
   raised_by_phone: z
     .string()
-    .regex(/^[0-9+][0-9\s-]{9,14}$/, 'Invalid phone number format')
+    .transform((val) => val ? InputValidator.phoneNumber(val) : val)
     .optional()
     .nullable()
     .or(z.literal('')),
-  attachments: z.array(attachmentSchema).optional().default([]),
-  metadata: z.record(z.unknown()).optional().default({})
+  attachments: z.array(attachmentSchema)
+    .max(10, 'Too many attachments (max 10)')
+    .optional()
+    .default([]),
+  metadata: z.record(z.unknown())
+    .transform((val) => InputValidator.json(val, 100000))
+    .optional()
+    .default({})
 });
 
 export const updateGrievanceTicketSchema = z.object({
@@ -167,18 +233,34 @@ export const ticketFiltersSchema = z.object({
 // ============================================================================
 
 export const createGrievanceCommentSchema = z.object({
-  author_id: z.string().uuid('Invalid author ID').optional().nullable(),
+  author_id: z.string()
+    .transform((val) => InputValidator.uuid(val, 'Author ID'))
+    .optional()
+    .nullable(),
   author_name: z
     .string()
     .min(2, 'Author name must be at least 2 characters')
-    .max(255, 'Author name must be less than 255 characters'),
+    .max(255, 'Author name must be less than 255 characters')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 2,
+      maxLength: 255,
+      fieldName: 'Author name'
+    })),
   author_type: commentAuthorTypeSchema,
   content: z
     .string()
     .min(1, 'Comment content is required')
-    .max(5000, 'Comment must be less than 5000 characters'),
+    .max(5000, 'Comment must be less than 5000 characters')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 1,
+      maxLength: 5000,
+      fieldName: 'Comment content'
+    })),
   is_internal: z.boolean().optional().default(false),
-  attachments: z.array(attachmentSchema).optional().default([])
+  attachments: z.array(attachmentSchema)
+    .max(10, 'Too many attachments (max 10)')
+    .optional()
+    .default([])
 });
 
 // ============================================================================

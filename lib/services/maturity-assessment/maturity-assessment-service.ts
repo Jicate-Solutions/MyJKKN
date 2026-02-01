@@ -1,6 +1,13 @@
 // lib/services/maturity-assessment/maturity-assessment-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  ensureObject,
+  ensureArray,
+  ensureNumber,
+  isValidNumber,
+  validateJsonField
+} from '@/lib/utils/validation';
 import type {
   MaturityFramework,
   MaturityAssessment,
@@ -28,6 +35,40 @@ import type {
 } from '@/types/maturity-assessment';
 
 export class MaturityAssessmentService {
+  private static supabase: any = createClientSupabaseClient();
+
+  /**
+   * SECURITY: Validate institution access
+   * Ensures user has permission to access the requested institution's data
+   * @throws Error if institution_id is invalid or user lacks access
+   */
+  private static async validateInstitutionAccess(
+    institutionId: string
+  ): Promise<void> {
+    if (!institutionId || institutionId.trim() === '') {
+      throw new Error('Institution ID is required');
+    }
+
+    // Get current user
+    const { data: { user }, error: authError } = await this.supabase.auth.getUser();
+    if (authError || !user) {
+      throw new Error('Authentication required');
+    }
+
+    // Check user's institution access
+    const { data: access, error } = await this.supabase
+      .from('user_institution_access')
+      .select('institution_id')
+      .eq('user_id', user.id)
+      .eq('institution_id', institutionId)
+      .single();
+
+    if (error || !access) {
+      console.error('[maturity-assessment] Access denied:', { userId: user.id, institutionId });
+      throw new Error('Access denied: Institution not accessible to user');
+    }
+  }
+
   private static supabase: any = createClientSupabaseClient();
 
   // ============================================================
@@ -328,14 +369,20 @@ export class MaturityAssessmentService {
   }
 
   static calculateOverallStage(dimensionScores: Record<string, number>): MaturityStage {
-    const scores = Object.values(dimensionScores).filter(
-      (s) => typeof s === 'number' && s >= 1 && s <= 4
+    // SAFETY: Validate dimensionScores is an object
+    const validatedScores = ensureObject(dimensionScores, {});
+
+    const scores = Object.values(validatedScores).filter(
+      (s) => isValidNumber(s) && s >= 1 && s <= 4
     );
 
-    if (scores.length === 0) return 1;
+    if (scores.length === 0) {
+      console.warn('[MaturityAssessment] No valid dimension scores, defaulting to stage 1');
+      return 1;
+    }
 
     const average = scores.reduce((a, b) => a + b, 0) / scores.length;
-    return Math.floor(average) as MaturityStage;
+    return Math.max(1, Math.min(4, Math.floor(average))) as MaturityStage;
   }
 
   static async createAssessment(dto: CreateMaturityAssessmentDto): Promise<MaturityAssessment> {
@@ -692,16 +739,20 @@ export class MaturityAssessmentService {
       throw new Error(`Failed to fetch dashboard data: ${assessmentError.message}`);
     }
 
+    // SAFETY: Ensure assessments is an array
+    const safeAssessments = ensureArray(assessments, []);
+
     // Calculate by department (latest only)
     const byDepartment: Record<string, MaturityStage> = {};
     const seenDepts = new Set<string>();
 
-    assessments?.forEach((a) => {
+    safeAssessments.forEach((a) => {
       const deptId = a.department_id || 'institution';
       if (!seenDepts.has(deptId)) {
         seenDepts.add(deptId);
         const deptName = (a.department as { name: string } | null)?.name || 'Institution-wide';
-        byDepartment[deptName] = a.overall_stage as MaturityStage;
+        // SAFETY: Ensure overall_stage is valid
+        byDepartment[deptName] = ensureNumber(a.overall_stage, 1) as MaturityStage;
       }
     });
 
@@ -717,14 +768,19 @@ export class MaturityAssessmentService {
     const dimensionCounts: Record<string, number> = {};
 
     // Use only latest 10 assessments for dimension averages
-    assessments?.slice(0, 10).forEach((a) => {
-      const scores = a.dimension_scores as Record<string, number>;
+    safeAssessments.slice(0, 10).forEach((a) => {
+      // SAFETY: Validate dimension_scores exists and is an object
+      const scores = ensureObject(a.dimension_scores, {});
+
       Object.entries(scores).forEach(([dim, score]) => {
+        // SAFETY: Ensure score is a valid number
+        const validScore = ensureNumber(score, 1);
+
         if (!byDimension[dim as MaturityDimensionName]) {
           byDimension[dim as MaturityDimensionName] = 0;
           dimensionCounts[dim] = 0;
         }
-        byDimension[dim as MaturityDimensionName] += score;
+        byDimension[dim as MaturityDimensionName] += validScore;
         dimensionCounts[dim] = (dimensionCounts[dim] || 0) + 1;
       });
     });
@@ -735,25 +791,26 @@ export class MaturityAssessmentService {
       }
     });
 
-    // Calculate overall
-    const overallScores = assessments?.map((a) => a.overall_stage) || [1];
-    const institutionOverall = Math.round(
-      overallScores.reduce((a, b) => a + b, 0) / overallScores.length
-    ) as MaturityStage;
+    // Calculate overall - SAFETY: Ensure we have valid stages
+    const overallScores = safeAssessments.map((a) => ensureNumber(a.overall_stage, 1));
+    const institutionOverall = overallScores.length > 0
+      ? Math.max(1, Math.min(4, Math.round(
+          overallScores.reduce((a, b) => a + b, 0) / overallScores.length
+        ))) as MaturityStage
+      : 1;
 
     // Trend (last 12 assessments)
-    const trend =
-      assessments
-        ?.slice(0, 12)
-        .map((a) => ({
-          date: a.assessment_date,
-          stage: a.overall_stage,
-          department: (a.department as { name: string } | null)?.name
-        }))
-        .reverse() || [];
+    const trend = safeAssessments
+      .slice(0, 12)
+      .map((a) => ({
+        date: a.assessment_date,
+        stage: ensureNumber(a.overall_stage, 1),
+        department: (a.department as { name: string } | null)?.name
+      }))
+      .reverse();
 
     // Progress items summary
-    const assessmentIds = assessments?.map((a) => a.id) || [];
+    const assessmentIds = safeAssessments.map((a) => a.id);
     let progressSummary = {
       total: 0,
       completed: 0,
@@ -769,17 +826,19 @@ export class MaturityAssessmentService {
         .select('status, due_date')
         .in('assessment_id', assessmentIds);
 
+      // SAFETY: Ensure progressItems is an array
+      const safeProgressItems = ensureArray(progressItems, []);
       const now = new Date();
+
       progressSummary = {
-        total: progressItems?.length || 0,
-        completed: progressItems?.filter((p) => p.status === 'completed').length || 0,
-        in_progress: progressItems?.filter((p) => p.status === 'in_progress').length || 0,
-        pending: progressItems?.filter((p) => p.status === 'pending').length || 0,
-        blocked: progressItems?.filter((p) => p.status === 'blocked').length || 0,
-        overdue:
-          progressItems?.filter(
-            (p) => p.status !== 'completed' && p.due_date && new Date(p.due_date) < now
-          ).length || 0
+        total: safeProgressItems.length,
+        completed: safeProgressItems.filter((p) => p.status === 'completed').length,
+        in_progress: safeProgressItems.filter((p) => p.status === 'in_progress').length,
+        pending: safeProgressItems.filter((p) => p.status === 'pending').length,
+        blocked: safeProgressItems.filter((p) => p.status === 'blocked').length,
+        overdue: safeProgressItems.filter(
+          (p) => p.status !== 'completed' && p.due_date && new Date(p.due_date) < now
+        ).length
       };
     }
 
@@ -789,7 +848,7 @@ export class MaturityAssessmentService {
       by_dimension: byDimension,
       trend,
       improvement_items: progressSummary,
-      latest_assessments: (assessments?.slice(0, 5) as MaturityAssessment[]) || []
+      latest_assessments: safeAssessments.slice(0, 5) as MaturityAssessment[]
     };
   }
 

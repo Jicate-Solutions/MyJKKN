@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { verifyOTPSchema } from '@/lib/validations/parent-portal';
+import { ParentSessionService } from '@/lib/services/parent-portal/parent-session-service';
+import { setCSRFCookie } from '@/lib/utils/csrf';
 import { z } from 'zod';
 
 export async function POST(request: NextRequest) {
@@ -31,19 +33,47 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // If parent exists, log activity
+    // If parent exists, create secure session
     if (data.parent_id) {
+      // Get client info for session tracking
+      const ipAddress = request.headers.get('x-forwarded-for') ||
+                       request.headers.get('x-real-ip') ||
+                       'unknown';
+      const userAgent = request.headers.get('user-agent') || 'unknown';
+
+      // Create secure session
+      const sessionData = await ParentSessionService.createSession(
+        data.parent_id,
+        ipAddress,
+        userAgent
+      );
+
+      // Set httpOnly session cookie
+      await ParentSessionService.setSessionCookie(sessionData.sessionToken);
+
+      // Set CSRF token
+      const csrfToken = await setCSRFCookie();
+
+      // Log activity
       await supabase.from('parent_activity_log').insert({
         parent_id: data.parent_id,
         activity_type: 'login',
         description: 'Logged in via OTP verification',
       });
+
+      return NextResponse.json({
+        success: true,
+        parent_id: data.parent_id,
+        is_new: data.is_new,
+        message: data.message,
+        csrf_token: csrfToken, // Send CSRF token to client
+      });
     }
 
+    // New parent - no session yet
     return NextResponse.json({
       success: true,
-      parent_id: data.parent_id,
-      is_new: data.is_new,
+      is_new: true,
       message: data.message,
     });
   } catch (error) {
