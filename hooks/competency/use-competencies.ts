@@ -106,9 +106,39 @@ export function useCompetencyStats(
 ): UseQueryResult<CompetencyStats, Error> {
   const { profile, isLoading: authLoading } = useAuth();
 
+  const queryFn = useCallback(async () => {
+    try {
+      return await CompetencyCatalogService.getCompetencyStats(institutionId);
+    } catch (error) {
+      console.error('[useCompetencyStats] Error fetching stats:', error);
+      // Return empty stats instead of throwing to prevent page crash
+      return {
+        total_competencies: 0,
+        by_type: {
+          technical: 0,
+          behavioral: 0,
+          domain: 0,
+          soft_skill: 0
+        },
+        by_taxonomy_level: {
+          remember: 0,
+          understand: 0,
+          apply: 0,
+          analyze: 0,
+          evaluate: 0,
+          create: 0
+        },
+        mapped_to_programs: 0,
+        mapped_to_courses: 0,
+        active_count: 0,
+        inactive_count: 0
+      };
+    }
+  }, [institutionId]);
+
   return useQuery({
     queryKey: competencyKeys.stats(institutionId),
-    queryFn: () => CompetencyCatalogService.getCompetencyStats(institutionId),
+    queryFn,
     enabled: !authLoading && !!profile && !!institutionId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA
   });

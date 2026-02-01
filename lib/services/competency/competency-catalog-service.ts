@@ -347,22 +347,48 @@ export class CompetencyCatalogService {
         .select('id, competency_type, bloom_taxonomy_level, is_active')
         .eq('institution_id', institutionId);
 
-      if (compError) throw compError;
+      if (compError) {
+        console.error('[Competency] Error fetching competencies:', this.formatError(compError));
+        throw compError;
+      }
 
-      // Get mapped counts
-      const { count: programMappedCount, error: pmError } = await (this.getSupabase() as any)
-        .from('competency_program_mapping')
-        .select('competency_id', { count: 'exact', head: true })
-        .in('competency_id', (competencies || []).map((c: any) => c.id));
+      // Initialize default counts
+      let programMappedCount = 0;
+      let courseMappedCount = 0;
 
-      if (pmError) throw pmError;
+      // Only query mappings if there are competencies
+      // CRITICAL: Supabase .in() with empty array causes errors
+      if (competencies && competencies.length > 0) {
+        const competencyIds = competencies.map((c: any) => c.id);
 
-      const { count: courseMappedCount, error: cmError } = await (this.getSupabase() as any)
-        .from('course_competency_mapping')
-        .select('competency_id', { count: 'exact', head: true })
-        .in('competency_id', (competencies || []).map((c: any) => c.id));
+        // Get mapped counts for programs
+        const { count: pmCount, error: pmError } = await (this.getSupabase() as any)
+          .from('competency_program_mapping')
+          .select('competency_id', { count: 'exact', head: true })
+          .in('competency_id', competencyIds);
 
-      if (cmError) throw cmError;
+        if (pmError) {
+          console.error('[Competency] Error fetching program mappings:', this.formatError(pmError));
+          // Don't throw - just log warning and continue with 0 count
+          console.warn('[Competency] Continuing with 0 program mappings due to error');
+        } else {
+          programMappedCount = pmCount || 0;
+        }
+
+        // Get mapped counts for courses
+        const { count: cmCount, error: cmError } = await (this.getSupabase() as any)
+          .from('course_competency_mapping')
+          .select('competency_id', { count: 'exact', head: true })
+          .in('competency_id', competencyIds);
+
+        if (cmError) {
+          console.error('[Competency] Error fetching course mappings:', this.formatError(cmError));
+          // Don't throw - just log warning and continue with 0 count
+          console.warn('[Competency] Continuing with 0 course mappings due to error');
+        } else {
+          courseMappedCount = cmCount || 0;
+        }
+      }
 
       // Calculate stats
       const stats: CompetencyStats = {
