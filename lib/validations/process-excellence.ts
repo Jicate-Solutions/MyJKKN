@@ -2,6 +2,7 @@
 // Zod validation schemas for Process Excellence module
 
 import { z } from 'zod';
+import { InputValidator } from '@/lib/utils/input-validator';
 
 // =============================================
 // Enums
@@ -21,13 +22,33 @@ export const auditStatusSchema = z.enum(['draft', 'in_review', 'finalized']);
 export const processStageSchema = z.object({
   name: z.string()
     .min(1, 'Stage name is required')
-    .max(100, 'Stage name must be less than 100 characters'),
+    .max(100, 'Stage name must be less than 100 characters')
+    .transform((val) => InputValidator.text(val, {
+      minLength: 1,
+      maxLength: 100,
+      fieldName: 'Stage name'
+    })),
   expected_duration_hours: z.number()
-    .min(0, 'Duration must be non-negative')
-    .max(8760, 'Duration cannot exceed 1 year (8760 hours)'),
+    .transform((val) => InputValidator.number(val, {
+      min: 0,
+      max: 8760,
+      fieldName: 'Duration'
+    })),
   is_value_add: z.boolean(),
-  description: z.string().max(500).optional(),
-  order: z.number().int().min(0).optional()
+  description: z.string()
+    .max(500)
+    .transform((val) => InputValidator.text(val, {
+      maxLength: 500,
+      fieldName: 'Description'
+    }))
+    .optional(),
+  order: z.number()
+    .transform((val) => InputValidator.number(val, {
+      min: 0,
+      integer: true,
+      fieldName: 'Order'
+    }))
+    .optional()
 });
 
 // =============================================
@@ -35,15 +56,28 @@ export const processStageSchema = z.object({
 // =============================================
 
 export const createProcessDefinitionSchema = z.object({
-  institution_id: z.string().uuid('Invalid institution ID'),
+  institution_id: z.string().transform((val) => InputValidator.uuid(val, 'Institution ID')),
   name: z.string()
     .min(1, 'Process name is required')
     .max(255, 'Process name must be less than 255 characters')
     .regex(
       /^[a-zA-Z0-9\s\-_()]+$/,
       'Process name can only contain letters, numbers, spaces, hyphens, underscores, and parentheses'
-    ),
-  description: z.string().max(2000, 'Description must be less than 2000 characters').nullable().optional(),
+    )
+    .transform((val) => InputValidator.text(val, {
+      minLength: 1,
+      maxLength: 255,
+      allowedChars: /^[a-zA-Z0-9\s\-_()]+$/,
+      fieldName: 'Process name'
+    })),
+  description: z.string()
+    .max(2000, 'Description must be less than 2000 characters')
+    .transform((val) => InputValidator.text(val, {
+      maxLength: 2000,
+      fieldName: 'Description'
+    }))
+    .nullable()
+    .optional(),
   category: processCategorySchema,
   stages: z.array(processStageSchema)
     .min(1, 'At least one stage is required')
