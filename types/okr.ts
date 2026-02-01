@@ -55,6 +55,142 @@ export type RiskLevel = 'high' | 'medium' | 'low';
 export type MilestoneType = '50_percent' | '75_percent' | '100_percent' | 'exceeded';
 
 // ============================================================================
+// A/B/C/D MATRIX TYPES
+// ============================================================================
+
+/**
+ * A/B/C/D Category for process vs. result analysis
+ * - A: Good Process (4-5) + Good Result (>=70%) - "Sustainable Success"
+ * - B: Good Process (4-5) + Poor Result (<70%) - "Learning Opportunity"
+ * - C: Poor Process (1-3) + Poor Result (<70%) - "Expected Failure"
+ * - D: Poor Process (1-3) + Good Result (>=70%) - "False Security" (DANGER!)
+ */
+export type ABCDCategory = 'A' | 'B' | 'C' | 'D' | null;
+
+/**
+ * Process rating labels for UI display
+ */
+export const PROCESS_RATING_LABELS: Record<number, string> = {
+  1: 'Poor',
+  2: 'Below Average',
+  3: 'Average',
+  4: 'Good',
+  5: 'Excellent'
+};
+
+/**
+ * ABCD Category display configuration
+ */
+export const ABCD_CATEGORY_CONFIG: Record<string, {
+  label: string;
+  description: string;
+  action: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  icon: string;
+  priority: number;
+}> = {
+  A: {
+    label: 'Sustainable Success',
+    description: 'Good Process + Good Result',
+    action: 'Replicate this approach',
+    color: 'text-emerald-700',
+    bgColor: 'bg-emerald-50',
+    borderColor: 'border-emerald-200',
+    icon: 'CheckCircle2',
+    priority: 4
+  },
+  B: {
+    label: 'Learning Opportunity',
+    description: 'Good Process + Poor Result',
+    action: 'Investigate external factors',
+    color: 'text-blue-700',
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-200',
+    icon: 'Search',
+    priority: 3
+  },
+  C: {
+    label: 'Expected Failure',
+    description: 'Poor Process + Poor Result',
+    action: 'Improve both process and execution',
+    color: 'text-amber-700',
+    bgColor: 'bg-amber-50',
+    borderColor: 'border-amber-200',
+    icon: 'AlertTriangle',
+    priority: 2
+  },
+  D: {
+    label: 'FALSE SECURITY',
+    description: 'Poor Process + Good Result',
+    action: 'DANGER! Fix process immediately',
+    color: 'text-red-700',
+    bgColor: 'bg-red-50',
+    borderColor: 'border-red-200',
+    icon: 'AlertOctagon',
+    priority: 1
+  }
+};
+
+/**
+ * ABCD Analysis view row - from okr_abcd_analysis view
+ */
+export interface ABCDAnalysis {
+  objective_id: string;
+  objective_title: string;
+  owner_type: OKRLevel;
+  owner_id: string;
+  institution_id: string | null;
+  department_id: string | null;
+  objective_status: OKRStatus;
+  key_result_id: string;
+  key_result_title: string;
+  progress: number;
+  process_rating: number | null;
+  process_notes: string | null;
+  abcd_category: ABCDCategory;
+  analysis: string;
+  priority_order: number;
+  deadline: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * ABCD Distribution for pie charts
+ */
+export interface ABCDDistribution {
+  category: ABCDCategory;
+  count: number;
+  percentage: number;
+}
+
+/**
+ * D-Category Alert - items requiring immediate attention
+ */
+export interface DCategoryAlert {
+  key_result_id: string;
+  key_result_title: string;
+  objective_id: string;
+  objective_title: string;
+  owner_id: string;
+  progress: number;
+  process_rating: number;
+  process_notes: string | null;
+  deadline: string | null;
+  days_until_deadline: number | null;
+}
+
+/**
+ * Update process rating DTO
+ */
+export interface UpdateProcessRatingDTO {
+  process_rating: number;
+  process_notes?: string;
+}
+
+// ============================================================================
 // TIER SECTION MAPPING
 // ============================================================================
 
@@ -214,6 +350,10 @@ export interface OKRKeyResult {
   order_index: number;
   created_at: string;
   updated_at: string;
+  // A/B/C/D Matrix fields
+  process_rating: number | null;  // 1-5 rating
+  process_notes: string | null;
+  abcd_category: ABCDCategory;  // Computed from process_rating + progress
   // Relations
   objective?: OKRObjective;
   updates?: OKRKRUpdate[];

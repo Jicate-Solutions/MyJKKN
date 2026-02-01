@@ -1,0 +1,693 @@
+{
+  "project": "MyJKKN TQM Excellence Implementation",
+  "version": "1.0.0",
+  "created": "2026-02-01",
+  "source": "Young Edupreneurs Meet Goa 2026 - TQM International Session",
+  "features": [
+    {
+      "id": "F001",
+      "name": "stakeholder-nps",
+      "type": "new_module",
+      "priority": "high",
+      "description": "Net Promoter Score tracking for 5 stakeholder types with department-level breakdown",
+      "dependencies": [],
+      "files_to_create": [
+        "app/(routes)/stakeholder-nps/page.tsx",
+        "app/(routes)/stakeholder-nps/layout.tsx",
+        "app/(routes)/stakeholder-nps/surveys/page.tsx",
+        "app/(routes)/stakeholder-nps/responses/page.tsx",
+        "app/(routes)/stakeholder-nps/analytics/page.tsx",
+        "app/(routes)/stakeholder-nps/_components/surveys-list.tsx",
+        "app/(routes)/stakeholder-nps/_components/survey-form.tsx",
+        "app/(routes)/stakeholder-nps/_components/nps-dashboard.tsx",
+        "app/(routes)/stakeholder-nps/_components/nps-trend-chart.tsx",
+        "app/api/stakeholder-nps/surveys/route.ts",
+        "app/api/stakeholder-nps/surveys/[id]/route.ts",
+        "app/api/stakeholder-nps/responses/route.ts",
+        "app/api/stakeholder-nps/analytics/route.ts",
+        "components/stakeholder-nps/nps-survey-modal.tsx",
+        "components/stakeholder-nps/nps-score-input.tsx",
+        "components/stakeholder-nps/stakeholder-filter.tsx",
+        "hooks/stakeholder-nps/use-nps-surveys.ts",
+        "hooks/stakeholder-nps/use-nps-responses.ts",
+        "hooks/stakeholder-nps/use-nps-analytics.ts",
+        "lib/services/stakeholder-nps/nps-service.ts",
+        "lib/validations/stakeholder-nps.ts",
+        "types/stakeholder-nps.ts",
+        "supabase/migrations/20260201000001_create_nps_tables.sql"
+      ],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Create NPS survey",
+          "input": "Survey for Parents, title 'Semester Feedback Q1 2026'",
+          "expected": "Survey created with status 'draft', visible in surveys list"
+        },
+        {
+          "step": 2,
+          "action": "Add custom questions",
+          "input": "Add 2 additional questions: text and rating type",
+          "expected": "Questions saved in survey.questions JSONB"
+        },
+        {
+          "step": 3,
+          "action": "Activate survey",
+          "input": "Click 'Activate' button",
+          "expected": "Status changes to 'active', survey appears for target stakeholders"
+        },
+        {
+          "step": 4,
+          "action": "Submit NPS response",
+          "input": "Score: 9, Feedback: 'Great experience'",
+          "expected": "Response saved, nps_category = 'promoter' (computed)"
+        },
+        {
+          "step": 5,
+          "action": "Submit detractor response",
+          "input": "Score: 4, Feedback: 'Needs improvement'",
+          "expected": "Response saved, nps_category = 'detractor'"
+        },
+        {
+          "step": 6,
+          "action": "View analytics",
+          "input": "Navigate to /stakeholder-nps/analytics",
+          "expected": "Shows NPS score = 0 (1 promoter - 1 detractor = 0%)"
+        },
+        {
+          "step": 7,
+          "action": "Filter by stakeholder type",
+          "input": "Select 'Parent' filter",
+          "expected": "Only parent surveys and responses shown"
+        },
+        {
+          "step": 8,
+          "action": "View department breakdown",
+          "input": "Expand department view in analytics",
+          "expected": "NPS scores grouped by department"
+        },
+        {
+          "step": 9,
+          "action": "Close survey",
+          "input": "Click 'Close Survey' button",
+          "expected": "Status changes to 'closed', no new responses accepted"
+        },
+        {
+          "step": 10,
+          "action": "Export responses",
+          "input": "Click 'Export CSV' button",
+          "expected": "CSV downloaded with all responses including nps_category"
+        }
+      ]
+    },
+    {
+      "id": "F002",
+      "name": "process-excellence",
+      "type": "new_module",
+      "priority": "high",
+      "description": "TIMWOOD waste audits, value-add ratio tracking, and process SLA monitoring",
+      "dependencies": [],
+      "files_to_create": [
+        "app/(routes)/process-excellence/page.tsx",
+        "app/(routes)/process-excellence/layout.tsx",
+        "app/(routes)/process-excellence/definitions/page.tsx",
+        "app/(routes)/process-excellence/audits/page.tsx",
+        "app/(routes)/process-excellence/waste/page.tsx",
+        "app/(routes)/process-excellence/metrics/page.tsx",
+        "app/(routes)/process-excellence/_components/process-definition-form.tsx",
+        "app/(routes)/process-excellence/_components/waste-report-form.tsx",
+        "app/(routes)/process-excellence/_components/timwood-breakdown.tsx",
+        "app/(routes)/process-excellence/_components/value-add-chart.tsx",
+        "app/api/process-excellence/definitions/route.ts",
+        "app/api/process-excellence/instances/route.ts",
+        "app/api/process-excellence/waste/route.ts",
+        "app/api/process-excellence/metrics/route.ts",
+        "components/process-excellence/process-timeline.tsx",
+        "components/process-excellence/sla-indicator.tsx",
+        "components/process-excellence/waste-category-badge.tsx",
+        "hooks/process-excellence/use-process-definitions.ts",
+        "hooks/process-excellence/use-process-instances.ts",
+        "hooks/process-excellence/use-waste-incidents.ts",
+        "lib/services/process-excellence/process-excellence-service.ts",
+        "lib/validations/process-excellence.ts",
+        "types/process-excellence.ts",
+        "supabase/migrations/20260201000002_create_process_excellence_tables.sql"
+      ],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Define process",
+          "input": "Name: 'Admission Process', 5 stages with value-add flags",
+          "expected": "Process definition saved with stages JSONB"
+        },
+        {
+          "step": 2,
+          "action": "Set SLA",
+          "input": "Target cycle time: 720 hours (30 days), SLA: 504 hours (21 days)",
+          "expected": "SLA thresholds saved"
+        },
+        {
+          "step": 3,
+          "action": "Start process instance",
+          "input": "Link to admission ID, trigger on status change",
+          "expected": "Instance created with started_at, initial stage logged"
+        },
+        {
+          "step": 4,
+          "action": "Advance stage",
+          "input": "Move from 'Document Collection' to 'Verification'",
+          "expected": "Stage history updated, duration calculated"
+        },
+        {
+          "step": 5,
+          "action": "Complete process",
+          "input": "Mark final stage complete",
+          "expected": "Value-add ratio calculated, SLA status determined"
+        },
+        {
+          "step": 6,
+          "action": "Report waste incident",
+          "input": "Category: 'W' (Waiting), Description: 'Approval delayed 48hrs'",
+          "expected": "Waste incident logged, linked to process"
+        },
+        {
+          "step": 7,
+          "action": "View TIMWOOD breakdown",
+          "input": "Navigate to waste analytics",
+          "expected": "Pie chart showing distribution by waste category"
+        },
+        {
+          "step": 8,
+          "action": "View value-add metrics",
+          "input": "Navigate to metrics dashboard",
+          "expected": "Average value-add ratio displayed (target: >10%)"
+        },
+        {
+          "step": 9,
+          "action": "Generate audit report",
+          "input": "Select period, click 'Generate Audit'",
+          "expected": "Audit created with findings, A/B/C/D rating"
+        },
+        {
+          "step": 10,
+          "action": "Track SLA compliance",
+          "input": "View SLA dashboard",
+          "expected": "Shows on_track/at_risk/breached counts"
+        }
+      ]
+    },
+    {
+      "id": "F003",
+      "name": "parent-portal",
+      "type": "new_module",
+      "priority": "high",
+      "description": "Full parent authentication, learner progress dashboard, and communication center",
+      "dependencies": ["F001"],
+      "files_to_create": [
+        "app/(routes)/parent-portal/page.tsx",
+        "app/(routes)/parent-portal/layout.tsx",
+        "app/(routes)/parent-portal/dashboard/page.tsx",
+        "app/(routes)/parent-portal/learner/[id]/page.tsx",
+        "app/(routes)/parent-portal/communication/page.tsx",
+        "app/(routes)/parent-portal/fees/page.tsx",
+        "app/(routes)/parent-portal/_components/parent-dashboard.tsx",
+        "app/(routes)/parent-portal/_components/learner-card.tsx",
+        "app/(routes)/parent-portal/_components/communication-list.tsx",
+        "app/(routes)/parent-portal/_components/fee-status.tsx",
+        "app/api/parent-portal/profile/route.ts",
+        "app/api/parent-portal/learners/route.ts",
+        "app/api/parent-portal/communications/route.ts",
+        "app/auth/parent/page.tsx",
+        "app/auth/parent/callback/route.ts",
+        "components/parent-portal/attendance-summary.tsx",
+        "components/parent-portal/upcoming-events.tsx",
+        "components/parent-portal/nps-survey-prompt.tsx",
+        "hooks/parent-portal/use-parent-profile.ts",
+        "hooks/parent-portal/use-parent-learners.ts",
+        "hooks/parent-portal/use-parent-dashboard.ts",
+        "lib/services/parent-portal/parent-portal-service.ts",
+        "lib/validations/parent-portal.ts",
+        "types/parent-portal.ts",
+        "supabase/migrations/20260201000003_create_parent_portal_tables.sql"
+      ],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Parent registration",
+          "input": "Phone number linked to learner record",
+          "expected": "Parent profile created, pending verification"
+        },
+        {
+          "step": 2,
+          "action": "Link verification",
+          "input": "Admin verifies parent-learner link",
+          "expected": "verified_at timestamp set, parent can access learner data"
+        },
+        {
+          "step": 3,
+          "action": "Parent login",
+          "input": "Phone/OTP authentication",
+          "expected": "JWT issued, redirect to parent dashboard"
+        },
+        {
+          "step": 4,
+          "action": "View dashboard",
+          "input": "Navigate to /parent-portal/dashboard",
+          "expected": "Shows all linked learners with summary stats"
+        },
+        {
+          "step": 5,
+          "action": "View learner attendance",
+          "input": "Click on learner card",
+          "expected": "30-day attendance percentage displayed"
+        },
+        {
+          "step": 6,
+          "action": "View fee status",
+          "input": "Navigate to fees section",
+          "expected": "Pending invoices and payment history shown"
+        },
+        {
+          "step": 7,
+          "action": "Read communication",
+          "input": "Click on announcement",
+          "expected": "Communication content shown, read_at updated"
+        },
+        {
+          "step": 8,
+          "action": "NPS survey prompt",
+          "input": "Active survey for parents exists",
+          "expected": "Survey prompt modal appears on dashboard"
+        },
+        {
+          "step": 9,
+          "action": "Submit NPS from portal",
+          "input": "Complete NPS survey",
+          "expected": "Response saved with parent_id, modal closes"
+        },
+        {
+          "step": 10,
+          "action": "Activity logging",
+          "input": "Any parent action",
+          "expected": "Activity logged in parent_activity_log"
+        }
+      ]
+    },
+    {
+      "id": "F004",
+      "name": "grievance",
+      "type": "new_module",
+      "priority": "high",
+      "description": "Full ticketing system with 48-hour SLA tracking (GIIS benchmark)",
+      "dependencies": [],
+      "files_to_create": [
+        "app/(routes)/grievance/page.tsx",
+        "app/(routes)/grievance/layout.tsx",
+        "app/(routes)/grievance/tickets/page.tsx",
+        "app/(routes)/grievance/tickets/[id]/page.tsx",
+        "app/(routes)/grievance/tickets/new/page.tsx",
+        "app/(routes)/grievance/sla/page.tsx",
+        "app/(routes)/grievance/_components/ticket-list.tsx",
+        "app/(routes)/grievance/_components/ticket-detail.tsx",
+        "app/(routes)/grievance/_components/ticket-form.tsx",
+        "app/(routes)/grievance/_components/sla-dashboard.tsx",
+        "app/(routes)/grievance/_components/comment-thread.tsx",
+        "app/api/grievance/categories/route.ts",
+        "app/api/grievance/tickets/route.ts",
+        "app/api/grievance/tickets/[id]/route.ts",
+        "app/api/grievance/tickets/[id]/comments/route.ts",
+        "app/api/grievance/sla-report/route.ts",
+        "components/grievance/sla-badge.tsx",
+        "components/grievance/priority-badge.tsx",
+        "components/grievance/status-select.tsx",
+        "components/grievance/satisfaction-rating.tsx",
+        "hooks/grievance/use-grievance-tickets.ts",
+        "hooks/grievance/use-grievance-categories.ts",
+        "hooks/grievance/use-ticket-detail.ts",
+        "lib/services/grievance/grievance-service.ts",
+        "lib/validations/grievance.ts",
+        "types/grievance.ts",
+        "supabase/migrations/20260201000004_create_grievance_tables.sql"
+      ],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Create category",
+          "input": "Name: 'Academic', SLA: 48 hours",
+          "expected": "Category created with default_sla_hours = 48"
+        },
+        {
+          "step": 2,
+          "action": "Submit ticket",
+          "input": "Subject: 'Grade dispute', Category: Academic",
+          "expected": "Ticket created, ticket_number generated (GRV-YYYYMMDD-XXXX)"
+        },
+        {
+          "step": 3,
+          "action": "Verify SLA deadline",
+          "input": "Check ticket detail",
+          "expected": "sla_deadline = created_at + 48 hours"
+        },
+        {
+          "step": 4,
+          "action": "Assign ticket",
+          "input": "Assign to staff member",
+          "expected": "assigned_to set, status changes to 'in_progress'"
+        },
+        {
+          "step": 5,
+          "action": "Add comment",
+          "input": "Staff adds response",
+          "expected": "Comment saved, updated_at refreshed"
+        },
+        {
+          "step": 6,
+          "action": "Add internal note",
+          "input": "Staff adds internal note (is_internal=true)",
+          "expected": "Note saved, not visible to raiser"
+        },
+        {
+          "step": 7,
+          "action": "Resolve ticket",
+          "input": "Enter resolution text",
+          "expected": "Status = 'resolved', resolved_at set"
+        },
+        {
+          "step": 8,
+          "action": "Rate satisfaction",
+          "input": "Raiser rates 4/5 stars",
+          "expected": "satisfaction_rating saved, status = 'closed'"
+        },
+        {
+          "step": 9,
+          "action": "SLA breach detection",
+          "input": "Ticket exceeds 48 hours unresolved",
+          "expected": "sla_status automatically updates to 'breached'"
+        },
+        {
+          "step": 10,
+          "action": "View SLA report",
+          "input": "Navigate to /grievance/sla",
+          "expected": "Shows compliance rate, avg resolution time, by category"
+        }
+      ]
+    },
+    {
+      "id": "F005",
+      "name": "maturity-assessment",
+      "type": "new_module",
+      "priority": "medium",
+      "description": "4-stage Excellence Journey maturity self-assessment with progress tracking",
+      "dependencies": [],
+      "files_to_create": [
+        "app/(routes)/maturity-assessment/page.tsx",
+        "app/(routes)/maturity-assessment/layout.tsx",
+        "app/(routes)/maturity-assessment/assess/page.tsx",
+        "app/(routes)/maturity-assessment/assess/[id]/page.tsx",
+        "app/(routes)/maturity-assessment/progress/page.tsx",
+        "app/(routes)/maturity-assessment/_components/assessment-form.tsx",
+        "app/(routes)/maturity-assessment/_components/maturity-radar.tsx",
+        "app/(routes)/maturity-assessment/_components/maturity-dashboard.tsx",
+        "app/(routes)/maturity-assessment/_components/progress-tracker.tsx",
+        "app/api/maturity-assessment/frameworks/route.ts",
+        "app/api/maturity-assessment/assessments/route.ts",
+        "app/api/maturity-assessment/assessments/[id]/route.ts",
+        "app/api/maturity-assessment/progress/route.ts",
+        "app/api/maturity-assessment/dashboard/route.ts",
+        "components/maturity-assessment/stage-indicator.tsx",
+        "components/maturity-assessment/dimension-card.tsx",
+        "components/maturity-assessment/criteria-tooltip.tsx",
+        "hooks/maturity-assessment/use-maturity-framework.ts",
+        "hooks/maturity-assessment/use-maturity-assessments.ts",
+        "hooks/maturity-assessment/use-maturity-dashboard.ts",
+        "lib/services/maturity-assessment/maturity-assessment-service.ts",
+        "lib/validations/maturity-assessment.ts",
+        "types/maturity-assessment.ts",
+        "supabase/migrations/20260201000005_create_maturity_assessment_tables.sql"
+      ],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Initialize framework",
+          "input": "First access to maturity module",
+          "expected": "Default 6-dimension framework created automatically"
+        },
+        {
+          "step": 2,
+          "action": "Start assessment",
+          "input": "Select department, begin assessment",
+          "expected": "Assessment created with status 'draft'"
+        },
+        {
+          "step": 3,
+          "action": "Rate dimensions",
+          "input": "Rate each dimension 1-4 with criteria guidance",
+          "expected": "dimension_scores JSONB populated"
+        },
+        {
+          "step": 4,
+          "action": "Overall stage calculation",
+          "input": "Complete all dimensions",
+          "expected": "overall_stage = floor(average of dimension scores)"
+        },
+        {
+          "step": 5,
+          "action": "Add evidence",
+          "input": "Enter evidence text for ratings",
+          "expected": "evidence field saved"
+        },
+        {
+          "step": 6,
+          "action": "Set improvement target",
+          "input": "Target stage: 3, Target date: 2026-12-31",
+          "expected": "target_stage and target_date saved"
+        },
+        {
+          "step": 7,
+          "action": "Submit assessment",
+          "input": "Click 'Submit for Review'",
+          "expected": "Status changes to 'submitted'"
+        },
+        {
+          "step": 8,
+          "action": "Approve assessment",
+          "input": "Reviewer approves",
+          "expected": "Status = 'approved', reviewed_by set"
+        },
+        {
+          "step": 9,
+          "action": "Add improvement actions",
+          "input": "Create action items per dimension",
+          "expected": "Progress items created, linked to assessment"
+        },
+        {
+          "step": 10,
+          "action": "View radar chart",
+          "input": "Navigate to assessment detail",
+          "expected": "6-axis radar chart showing dimension scores"
+        }
+      ]
+    },
+    {
+      "id": "F006",
+      "name": "okr-abcd-extension",
+      "type": "extension",
+      "priority": "medium",
+      "description": "Add process rating and A/B/C/D strategy matrix to existing OKR module",
+      "dependencies": [],
+      "files_to_modify": [
+        "types/okr.ts",
+        "lib/services/okr/okr-service.ts",
+        "hooks/okr/use-okr.ts",
+        "app/(routes)/okr/_components/key-result-card.tsx",
+        "app/(routes)/okr/_components/okr-review-form.tsx"
+      ],
+      "files_to_create": [
+        "app/(routes)/okr/abcd/page.tsx",
+        "app/(routes)/okr/_components/abcd-matrix.tsx",
+        "app/(routes)/okr/_components/process-rating-input.tsx",
+        "app/(routes)/okr/_components/abcd-distribution.tsx",
+        "supabase/migrations/20260201000006_extend_okr_abcd.sql"
+      ],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Add process rating to KR",
+          "input": "Rate process 1-5 on existing Key Result",
+          "expected": "process_rating saved in okr_key_results"
+        },
+        {
+          "step": 2,
+          "action": "Add process notes",
+          "input": "Enter notes about process quality",
+          "expected": "process_notes saved"
+        },
+        {
+          "step": 3,
+          "action": "A/B/C/D auto-calculation",
+          "input": "KR progress: 80%, process_rating: 4",
+          "expected": "abcd_category = 'A' (good process + good result)"
+        },
+        {
+          "step": 4,
+          "action": "Category D detection",
+          "input": "KR progress: 85%, process_rating: 2",
+          "expected": "abcd_category = 'D', warning indicator shown"
+        },
+        {
+          "step": 5,
+          "action": "View A/B/C/D matrix",
+          "input": "Navigate to /okr/abcd",
+          "expected": "2x2 grid with KRs plotted by process/result"
+        },
+        {
+          "step": 6,
+          "action": "View distribution chart",
+          "input": "Check summary section",
+          "expected": "Pie chart showing A/B/C/D distribution"
+        },
+        {
+          "step": 7,
+          "action": "Filter by category",
+          "input": "Select 'Show only D category'",
+          "expected": "Only false-security items shown"
+        },
+        {
+          "step": 8,
+          "action": "Quarterly review prompt",
+          "input": "End of quarter",
+          "expected": "Prompt to rate process for all unrated KRs"
+        }
+      ]
+    },
+    {
+      "id": "F007",
+      "name": "billing-copq",
+      "type": "extension",
+      "priority": "medium",
+      "description": "Cost of Poor Quality tracking in billing module (visible + hidden costs)",
+      "dependencies": [],
+      "files_to_modify": [
+        "app/(routes)/billing/page.tsx",
+        "app/(routes)/billing/layout.tsx"
+      ],
+      "files_to_create": [
+        "app/(routes)/billing/copq/page.tsx",
+        "app/(routes)/billing/_components/copq-dashboard.tsx",
+        "app/(routes)/billing/_components/copq-incident-form.tsx",
+        "app/(routes)/billing/_components/copq-iceberg.tsx",
+        "app/(routes)/billing/_components/copq-trend-chart.tsx",
+        "app/api/billing/copq/route.ts",
+        "app/api/billing/copq/[id]/route.ts",
+        "app/api/billing/copq/summary/route.ts",
+        "components/billing/copq-category-select.tsx",
+        "hooks/billing/use-billing-copq.ts",
+        "lib/services/billing/billing-copq-service.ts",
+        "lib/validations/billing-copq.ts",
+        "types/billing-copq.ts",
+        "supabase/migrations/20260201000007_create_billing_copq.sql"
+      ],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Log COPQ incident",
+          "input": "Category: 'invoice_error', visible_cost: 500",
+          "expected": "Incident created with timestamp"
+        },
+        {
+          "step": 2,
+          "action": "Estimate hidden cost",
+          "input": "Hidden cost estimate: 2000 (staff time, reputation)",
+          "expected": "hidden_cost_estimate saved"
+        },
+        {
+          "step": 3,
+          "action": "Link to bill",
+          "input": "Associate with specific invoice",
+          "expected": "bill_id foreign key set"
+        },
+        {
+          "step": 4,
+          "action": "Add root cause",
+          "input": "Root cause: 'Manual data entry error'",
+          "expected": "root_cause saved for pattern analysis"
+        },
+        {
+          "step": 5,
+          "action": "View iceberg chart",
+          "input": "Navigate to /billing/copq",
+          "expected": "Iceberg visualization: visible above, hidden below waterline"
+        },
+        {
+          "step": 6,
+          "action": "View category breakdown",
+          "input": "Check category section",
+          "expected": "Bar chart by COPQ category"
+        },
+        {
+          "step": 7,
+          "action": "View YTD total",
+          "input": "Check dashboard header",
+          "expected": "Total COPQ = sum(visible + hidden) YTD"
+        },
+        {
+          "step": 8,
+          "action": "Resolve incident",
+          "input": "Add preventive action, mark resolved",
+          "expected": "status = 'resolved', resolved_at set"
+        },
+        {
+          "step": 9,
+          "action": "View trend chart",
+          "input": "Check trend section",
+          "expected": "Monthly COPQ trend line chart"
+        },
+        {
+          "step": 10,
+          "action": "Export report",
+          "input": "Click 'Export COPQ Report'",
+          "expected": "PDF/Excel with all incidents and totals"
+        }
+      ]
+    }
+  ],
+  "implementation_order": [
+    "F001",
+    "F004",
+    "F002",
+    "F003",
+    "F005",
+    "F006",
+    "F007"
+  ],
+  "estimated_complexity": {
+    "F001": "medium",
+    "F002": "high",
+    "F003": "high",
+    "F004": "medium",
+    "F005": "medium",
+    "F006": "low",
+    "F007": "low"
+  },
+  "risks": [
+    {
+      "risk": "Performance with large datasets",
+      "mitigation": "Pagination on all lists, materialized views for analytics, proper indexing"
+    },
+    {
+      "risk": "User adoption resistance",
+      "mitigation": "Progressive disclosure, simple UX, clear value proposition"
+    },
+    {
+      "risk": "Integration complexity",
+      "mitigation": "Clear API contracts, minimal cross-module coupling, event-driven updates"
+    }
+  ],
+  "success_criteria": {
+    "build": "npm run build passes without errors",
+    "lint": "npm run lint passes without errors",
+    "types": "npx tsc --noEmit passes without errors",
+    "migrations": "All migrations apply successfully to Supabase",
+    "test_coverage": "All test_steps pass manual verification",
+    "performance": "List pages load < 2s with 1000+ records"
+  }
+}

@@ -19,6 +19,8 @@ export interface InstitutionAccessHook {
   ) => T[];
   getInstitutionFilterClause: () => string;
   isUserRestrictedToInstitutions: boolean;
+  /** The first accessible institution ID, or undefined if none */
+  selectedInstitutionId: string | undefined;
 }
 
 export function useUserInstitutionAccess(): InstitutionAccessHook {
@@ -121,6 +123,7 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
     canAccessAllInstitutions: canAccessAllInstitutions(),
     createInstitutionFilter,
     getInstitutionFilterClause,
-    isUserRestrictedToInstitutions: isUserRestrictedToInstitutions()
+    isUserRestrictedToInstitutions: isUserRestrictedToInstitutions(),
+    selectedInstitutionId: institutions[0]?.institution_id
   };
 }

@@ -10,7 +10,11 @@ import {
 import {
   OKRKeyResult,
   CreateOKRKeyResultDTO,
-  UpdateOKRKeyResultDTO
+  UpdateOKRKeyResultDTO,
+  ABCDAnalysis,
+  ABCDDistribution,
+  DCategoryAlert,
+  ABCDCategory
 } from '@/types/okr';
 import { OKRKeyResultService } from '@/lib/services/okr';
 import { useAuth } from '../use-auth';
@@ -24,7 +28,14 @@ export const keyResultKeys = {
     [...keyResultKeys.all, 'objective', objectiveId] as const,
   details: () => [...keyResultKeys.all, 'detail'] as const,
   detail: (id: string) => [...keyResultKeys.details(), id] as const,
-  autoTracked: () => [...keyResultKeys.all, 'auto-tracked'] as const
+  autoTracked: () => [...keyResultKeys.all, 'auto-tracked'] as const,
+  // ABCD Matrix keys
+  abcdAnalysis: (filters?: { institution_id?: string; department_id?: string; owner_id?: string; category?: ABCDCategory }) =>
+    [...keyResultKeys.all, 'abcd-analysis', filters] as const,
+  abcdDistribution: (filters?: { institution_id?: string; department_id?: string; owner_id?: string }) =>
+    [...keyResultKeys.all, 'abcd-distribution', filters] as const,
+  dCategoryAlerts: (institutionId?: string) =>
+    [...keyResultKeys.all, 'd-category-alerts', institutionId] as const
 };
 
 /**
@@ -176,5 +187,96 @@ export function useReorderKeyResults(objectiveId: string) {
         queryKey: keyResultKeys.byObjective(objectiveId)
       });
     }
+  });
+}
+
+// ============================================================================
+// A/B/C/D MATRIX HOOKS
+// ============================================================================
+
+/**
+ * Update process rating mutation
+ */
+export function useUpdateProcessRating() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      keyResultId,
+      rating,
+      notes
+    }: {
+      keyResultId: string;
+      rating: number;
+      notes?: string;
+    }) => OKRKeyResultService.updateProcessRating(keyResultId, rating, notes),
+    onSuccess: (data) => {
+      // Invalidate related queries
+      queryClient.invalidateQueries({ queryKey: keyResultKeys.detail(data.id) });
+      queryClient.invalidateQueries({
+        queryKey: keyResultKeys.byObjective(data.objective_id)
+      });
+      // Invalidate ABCD queries
+      queryClient.invalidateQueries({
+        queryKey: ['okr-key-results', 'abcd-analysis']
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['okr-key-results', 'abcd-distribution']
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['okr-key-results', 'd-category-alerts']
+      });
+    }
+  });
+}
+
+/**
+ * Get ABCD analysis for key results
+ */
+export function useABCDAnalysis(filters?: {
+  institution_id?: string;
+  department_id?: string;
+  owner_id?: string;
+  category?: ABCDCategory;
+}): UseQueryResult<ABCDAnalysis[], Error> {
+  const { profile, isLoading: authLoading } = useAuth();
+
+  return useQuery({
+    queryKey: keyResultKeys.abcdAnalysis(filters),
+    queryFn: () => OKRKeyResultService.getABCDAnalysis(filters),
+    enabled: !authLoading && !!profile,
+    ...QUERY_CONFIG.DYNAMIC_DATA
+  });
+}
+
+/**
+ * Get ABCD distribution for charts
+ */
+export function useABCDDistribution(filters?: {
+  institution_id?: string;
+  department_id?: string;
+  owner_id?: string;
+}): UseQueryResult<ABCDDistribution[], Error> {
+  const { profile, isLoading: authLoading } = useAuth();
+
+  return useQuery({
+    queryKey: keyResultKeys.abcdDistribution(filters),
+    queryFn: () => OKRKeyResultService.getABCDDistribution(filters),
+    enabled: !authLoading && !!profile,
+    ...QUERY_CONFIG.DYNAMIC_DATA
+  });
+}
+
+/**
+ * Get D-category alerts (False Security items)
+ */
+export function useDCategoryAlerts(institutionId?: string): UseQueryResult<DCategoryAlert[], Error> {
+  const { profile, isLoading: authLoading } = useAuth();
+
+  return useQuery({
+    queryKey: keyResultKeys.dCategoryAlerts(institutionId),
+    queryFn: () => OKRKeyResultService.getDCategoryAlerts(institutionId),
+    enabled: !authLoading && !!profile,
+    ...QUERY_CONFIG.DYNAMIC_DATA
   });
 }

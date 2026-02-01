@@ -36,7 +36,8 @@ import {
   Flag,
   Shield,
   Compass,
-  Globe
+  Globe,
+  Star
 } from 'lucide-react';
 
 // UI Components
@@ -45,6 +46,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 import {
   Collapsible,
   CollapsibleContent,
@@ -106,6 +108,11 @@ import type {
   DependencyStatus,
   RiskLevel
 } from '@/types/okr';
+
+import { ABCD_CATEGORY_CONFIG, PROCESS_RATING_LABELS } from '@/types/okr';
+
+// ABCD Components
+import { ProcessRatingInput } from '../../_components/process-rating-input';
 
 // ============================================================================
 // STATUS BADGES
@@ -299,6 +306,21 @@ function KeyResultCard({
                 </div>
               </div>
               <div className="flex items-center gap-3">
+                {/* ABCD Category Badge */}
+                {keyResult.abcd_category && (
+                  <Badge
+                    className={cn(
+                      'shrink-0',
+                      keyResult.abcd_category === 'A' && 'bg-emerald-600 hover:bg-emerald-700',
+                      keyResult.abcd_category === 'B' && 'bg-blue-600 hover:bg-blue-700',
+                      keyResult.abcd_category === 'C' && 'bg-amber-600 hover:bg-amber-700',
+                      keyResult.abcd_category === 'D' && 'bg-red-600 hover:bg-red-700 animate-pulse'
+                    )}
+                    title={keyResult.abcd_category ? ABCD_CATEGORY_CONFIG[keyResult.abcd_category]?.label : ''}
+                  >
+                    {keyResult.abcd_category}
+                  </Badge>
+                )}
                 <div className="w-32">
                   <Progress value={progress} className="h-2" />
                 </div>
@@ -317,6 +339,56 @@ function KeyResultCard({
         <CollapsibleContent>
           <CardContent className="pt-0">
             <Separator className="mb-4" />
+
+            {/* ABCD Category Info */}
+            {keyResult.abcd_category && (
+              <div className={cn(
+                'p-3 rounded-lg mb-4',
+                ABCD_CATEGORY_CONFIG[keyResult.abcd_category]?.bgColor,
+                ABCD_CATEGORY_CONFIG[keyResult.abcd_category]?.borderColor,
+                'border'
+              )}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className={cn('font-semibold', ABCD_CATEGORY_CONFIG[keyResult.abcd_category]?.color)}>
+                      Category {keyResult.abcd_category}: {ABCD_CATEGORY_CONFIG[keyResult.abcd_category]?.label}
+                    </span>
+                    <p className={cn('text-sm', ABCD_CATEGORY_CONFIG[keyResult.abcd_category]?.color)}>
+                      {ABCD_CATEGORY_CONFIG[keyResult.abcd_category]?.action}
+                    </p>
+                  </div>
+                  {keyResult.process_rating && (
+                    <div className="flex items-center gap-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star
+                          key={star}
+                          className={cn(
+                            'h-4 w-4',
+                            star <= keyResult.process_rating!
+                              ? 'text-amber-400 fill-amber-400'
+                              : 'text-gray-300'
+                          )}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {keyResult.process_notes && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Note: {keyResult.process_notes}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Process Rating Button */}
+            <div className="mb-4">
+              <ProcessRatingInput
+                keyResultId={keyResult.id}
+                currentRating={keyResult.process_rating}
+                currentNotes={keyResult.process_notes}
+              />
+            </div>
 
             {/* Check-in History */}
             <div className="space-y-3">

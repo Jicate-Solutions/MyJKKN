@@ -52,6 +52,7 @@ import {
   Award,
   CheckSquare,
   TrendingUp,
+  TrendingDown,
   Wrench,
   FileBarChart2,
   History,
@@ -275,6 +276,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/invoices/[id]': 'billing.invoices.view',
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
   '/billing/reports': 'billing.reports.view',
+  '/billing/copq': 'billing.copq.view',
 
 
   // Resource Management
@@ -1357,6 +1359,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Reports',
           active: pathname.startsWith('/billing/reports'),
           icon: BarChart,
+          submenus: []
+        },
+        {
+          href: '/billing/copq',
+          label: 'Cost of Poor Quality',
+          active: pathname.startsWith('/billing/copq'),
+          icon: TrendingDown,
           submenus: []
         }
       ]

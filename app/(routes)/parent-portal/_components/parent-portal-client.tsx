@@ -1,0 +1,222 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import { useParentDashboard } from '@/hooks/parent-portal';
+import {
+  useParentCommunications,
+  useMarkCommunicationRead,
+} from '@/hooks/parent-portal';
+import { useSubmitNPSResponse } from '@/hooks/stakeholder-nps';
+import { ParentHeader } from './parent-header';
+import { DashboardOverview } from './dashboard-overview';
+import { LearnerCard } from './learner-card';
+import { CommunicationList } from './communication-list';
+import { NPSSurveyPrompt } from './nps-survey-prompt';
+import type { NPSSurvey } from '@/types/stakeholder-nps';
+
+// For demo purposes - in production, this would come from auth context
+const DEMO_PARENT_ID = 'demo-parent-id';
+
+export function ParentPortalClient() {
+  const router = useRouter();
+  const [parentId, setParentId] = useState<string | null>(null);
+  const [activeSurvey, setActiveSurvey] = useState<NPSSurvey | null>(null);
+
+  // In production, get parent ID from auth context
+  useEffect(() => {
+    // TODO: Replace with actual auth check
+    // const session = await getSession();
+    // if (!session?.user?.parentId) {
+    //   router.push('/auth/parent/login');
+    //   return;
+    // }
+    // setParentId(session.user.parentId);
+
+    // For now, check if we have a parent session
+    const storedParentId = localStorage.getItem('parent_portal_id');
+    if (storedParentId) {
+      setParentId(storedParentId);
+    } else {
+      // Redirect to login if no parent session
+      router.push('/auth/parent/login');
+    }
+  }, [router]);
+
+  const { data: dashboardData, isLoading, error } = useParentDashboard(parentId || '');
+
+  const { data: communications } = useParentCommunications({
+    parent_id: parentId || '',
+    limit: 5,
+  });
+
+  const { mutate: markRead } = useMarkCommunicationRead();
+  const { submit: submitNPS } = useSubmitNPSResponse();
+
+  // Show survey prompt if there are pending surveys
+  useEffect(() => {
+    if (dashboardData?.pending_surveys?.length && !activeSurvey) {
+      // Show the first pending survey after a short delay
+      const timer = setTimeout(() => {
+        setActiveSurvey(dashboardData.pending_surveys[0]);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [dashboardData?.pending_surveys, activeSurvey]);
+
+  const handleLogout = () => {
+    localStorage.removeItem('parent_portal_id');
+    router.push('/auth/parent/login');
+  };
+
+  const handleViewMessages = () => {
+    router.push('/parent-portal/communication');
+  };
+
+  const handleViewProfile = () => {
+    // TODO: Implement profile page
+    toast.success('Profile settings coming soon');
+  };
+
+  const handleViewLearnerDetails = (learnerId: string) => {
+    router.push(`/parent-portal/learner/${learnerId}`);
+  };
+
+  const handleMarkRead = (id: string) => {
+    if (parentId) {
+      markRead({ id, parentId });
+    }
+  };
+
+  const handleSurveySubmit = (surveyId: string, score: number, feedback: string) => {
+    if (parentId) {
+      submitNPS(
+        {
+          survey_id: surveyId,
+          respondent_id: parentId,
+          respondent_type: 'parent',
+          nps_score: score,
+          additional_feedback: feedback,
+        },
+        {
+          onSuccess: () => {
+            toast.success('Thank you for your feedback!');
+            setActiveSurvey(null);
+          },
+        }
+      );
+    }
+  };
+
+  if (!parentId) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+          <p className="mt-2 text-sm text-gray-500">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !dashboardData) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-500">Failed to load dashboard</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-2 text-sm text-primary underline"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <ParentHeader
+        parent={dashboardData.parent}
+        unreadCount={dashboardData.unread_messages}
+        onLogout={handleLogout}
+        onViewMessages={handleViewMessages}
+        onViewProfile={handleViewProfile}
+      />
+
+      <main className="mx-auto max-w-7xl px-4 py-6">
+        {/* Welcome */}
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold text-gray-900">
+            Welcome back, {dashboardData.parent.name.split(' ')[0]}!
+          </h2>
+          <p className="text-gray-600">
+            Here&apos;s an overview of your children&apos;s progress.
+          </p>
+        </div>
+
+        {/* Overview Stats */}
+        <DashboardOverview data={dashboardData} />
+
+        {/* Main Content */}
+        <div className="mt-6 grid gap-6 lg:grid-cols-3">
+          {/* Learner Cards */}
+          <div className="lg:col-span-2">
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">
+              Your Children
+            </h3>
+            <div className="space-y-4">
+              {dashboardData.learners.length === 0 ? (
+                <div className="rounded-lg border border-dashed bg-white p-8 text-center">
+                  <p className="text-gray-500">No learners linked yet</p>
+                  <p className="mt-1 text-sm text-gray-400">
+                    Contact the institution to link your children to your
+                    account
+                  </p>
+                </div>
+              ) : (
+                dashboardData.learners.map((learnerData) => (
+                  <LearnerCard
+                    key={learnerData.learner.id}
+                    data={learnerData}
+                    onViewDetails={handleViewLearnerDetails}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Communications */}
+          <div>
+            <CommunicationList
+              communications={(communications?.data || []) as any}
+              onMarkRead={handleMarkRead}
+              onViewAll={handleViewMessages}
+            />
+          </div>
+        </div>
+      </main>
+
+      {/* NPS Survey Prompt */}
+      {activeSurvey && (
+        <NPSSurveyPrompt
+          survey={activeSurvey}
+          open={!!activeSurvey}
+          onClose={() => setActiveSurvey(null)}
+          onSubmit={handleSurveySubmit}
+        />
+      )}
+    </div>
+  );
+}

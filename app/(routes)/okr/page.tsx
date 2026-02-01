@@ -29,7 +29,8 @@ import {
   Users,
   BarChart,
   FolderTree,
-  Info
+  Info,
+  Grid2X2
 } from 'lucide-react';
 import { useUserBadge, useMyComplianceStatus, useIsUserBlocked } from '@/hooks/okr/use-compliance';
 import { useObjectives } from '@/hooks/okr/use-objectives';
@@ -350,7 +351,7 @@ export default function OKRDashboardPage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-5">
           <Link href="/okr/objectives/create">
             <Card className="hover:border-primary transition-colors cursor-pointer h-full">
               <CardContent className="pt-6">
@@ -378,6 +379,23 @@ export default function OKRDashboardPage() {
                   <div className="flex-1">
                     <h3 className="font-semibold">Weekly Check-in</h3>
                     <p className="text-sm text-muted-foreground">Update progress</p>
+                  </div>
+                  <ArrowRight className="h-5 w-5 text-muted-foreground" />
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link href="/okr/abcd">
+            <Card className="hover:border-primary transition-colors cursor-pointer h-full border-purple-200">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-full bg-purple-100">
+                    <Grid2X2 className="h-6 w-6 text-purple-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold">A/B/C/D Matrix</h3>
+                    <p className="text-sm text-muted-foreground">Process vs Result</p>
                   </div>
                   <ArrowRight className="h-5 w-5 text-muted-foreground" />
                 </div>

@@ -1,0 +1,174 @@
+# MyJKKN TQM Extension - Progress Tracker
+# Generated: 2026-02-01
+# Source: Young Edupreneurs Meet Goa 2026 Workshop Insights
+
+## Project Status: PLANNING COMPLETE - READY FOR IMPLEMENTATION
+
+---
+
+## DECISIONS MADE (Interview Session)
+
+### 1. Deliverables
+- SPECS.md with full requirements
+- features.json with test_steps for each feature
+- progress.txt with decisions made
+
+### 2. Scope Decision
+- Full scope (all capabilities from TQM workshop)
+- Not MVP or phased approach
+
+### 3. Target Audience
+- Claude Code (for autonomous build)
+- Spec written for AI implementation, not human developers
+
+### 4. Codebase Location
+- /Users/omm/PROJECTS/MyJKKN
+- Existing Next.js 16.1.1 application
+
+### 5. Architecture Approach
+- HYBRID: New modules + Extensions to existing
+- New modules: stakeholder-nps, process-excellence, parent-portal, grievance, maturity-assessment
+- Extensions: OKR module (A/B/C/D), Billing module (COPQ)
+
+### 6. Stakeholder NPS
+- All 5 stakeholders: Students, Parents, Faculty, Employers, Alumni
+- Separate survey templates per stakeholder type
+- Role-based dashboards
+
+### 7. Survey Delivery
+- In-app surveys (not email or SMS)
+- Triggered post-interaction within MyJKKN
+
+### 8. Process Excellence Scope
+- All core workflows
+- TIMWOOD,T waste tracking for: Transport, Inventory, Motion, Waiting, Over-processing, Over-production, Defects, Talent
+
+### 9. Parent Portal
+- Full build from scratch (no existing portal)
+- Complete new module with auth, dashboard, student view
+
+### 10. Grievance System
+- Full ticketing with 48hr SLA
+- Categories, escalation paths, resolution tracking
+- Integrated into learners module
+
+### 11. COPQ Tracking
+- All hidden costs: rework, delays, complaints, expediting, scrap
+- Visual iceberg representation
+- Linked to billing/finance
+
+### 12. Maturity Assessment
+- Yes, with self-assessment capability
+- 4-stage model: Crisis → Survival → Stability → Excellence
+- Progress visualization
+
+### 13. A/B/C/D Strategy
+- Extend existing OKR module
+- Four quadrants: A (Today + Important), B (Future + Important), C (Today + Less Important), D (Future + Less Important)
+- Label recommendations based on student data
+
+### 14. Success Criteria
+- Production-ready (not proof of concept)
+- Must pass: build, lint, types, migrations, test coverage, performance
+
+### 15. Constraints
+- Follow existing MyJKKN patterns STRICTLY
+- 5-layer architecture: Page → Component → Hook → Service → Database
+- Service class pattern with static methods
+- React Query hooks with query key factories
+- Supabase RLS policies for multi-tenancy
+
+### 16. Identified Risks
+1. Performance with large datasets (10K+ students)
+2. User adoption resistance (change management)
+3. Integration complexity (touching multiple existing modules)
+
+### 17. Spec Structure
+- Single comprehensive spec (SPECS.md)
+- Not split by module
+
+### 18. Output Location
+- /Users/omm/PROJECTS/MyJKKN-TQM-Specs/
+- Separate from main codebase for clean handoff
+
+---
+
+## IMPLEMENTATION ORDER
+
+| Priority | Feature ID | Module | Rationale |
+|----------|------------|--------|-----------|
+| 1 | F001 | stakeholder-nps | Foundation for all metrics |
+| 2 | F004 | grievance | Integrates into existing learners |
+| 3 | F002 | process-excellence | TIMWOOD tracking |
+| 4 | F003 | parent-portal | New stakeholder access |
+| 5 | F005 | maturity-assessment | Depends on NPS + process data |
+| 6 | F006 | okr-abcd-extension | Extend existing OKR |
+| 7 | F007 | billing-copq | Extend existing billing |
+
+---
+
+## SOURCE CONTEXT
+
+### Workshop Insights Applied
+- Day 1 (Dr. Dubey): WHAT to measure - outcomes, competencies, CLOs, SLOs
+- Day 2 (TQM Session): HOW to improve - NPS, TIMWOOD, COPQ, A/B/C/D, maturity model
+
+### Key Frameworks Integrated
+1. Net Promoter Score (NPS) - 5 stakeholder types
+2. TIMWOOD,T - 8 waste categories for education
+3. COPQ Iceberg - Hidden cost identification
+4. A/B/C/D Strategy Matrix - Student prioritization
+5. 4-Stage Maturity Model - Crisis → Excellence journey
+6. VLSE vs CLSE - Vision-led transformation approach
+
+### Benchmark References
+- GIIS Tokyo: 11-year journey, 95% satisfaction, 75+ NPS
+- Manav Rachna: Wave 1 projects, measurable outcomes
+
+---
+
+## FILES CREATED
+
+| File | Location | Status |
+|------|----------|--------|
+| SPECS.md | /Users/omm/PROJECTS/MyJKKN-TQM-Specs/SPECS.md | COMPLETE |
+| features.json | /Users/omm/PROJECTS/MyJKKN-TQM-Specs/features.json | COMPLETE |
+| progress.txt | /Users/omm/PROJECTS/MyJKKN-TQM-Specs/progress.txt | COMPLETE |
+
+---
+
+## NEXT STEPS FOR IMPLEMENTATION
+
+1. Read SPECS.md for full technical requirements
+2. Follow features.json for implementation order and test steps
+3. Start with F001 (stakeholder-nps) - creates foundation
+4. Each feature has 8-10 test steps - complete all before moving to next
+5. Run full test suite after each feature completion
+6. Performance test with simulated 10K+ records
+
+---
+
+## TIMELINE ESTIMATE (Based on TQM Workshop)
+
+- Full implementation: 3-5 years for excellence maturity
+- Initial deployment (all features): Autonomous build capability
+- Continuous improvement: Ongoing based on NPS feedback loops
+
+---
+
+## QUALITY GATES
+
+Before marking any feature complete:
+- [ ] Build passes (npm run build)
+- [ ] Lint clean (npm run lint)
+- [ ] Types valid (npm run type-check)
+- [ ] Migrations applied successfully
+- [ ] Test coverage > 80%
+- [ ] Performance: < 200ms API response
+- [ ] RLS policies verified
+- [ ] Mobile responsive verified
+
+---
+
+Last Updated: 2026-02-01
+Status: READY FOR IMPLEMENTATION

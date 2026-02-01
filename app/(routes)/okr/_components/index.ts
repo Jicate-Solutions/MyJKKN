@@ -15,3 +15,8 @@ export {
   OKRCheckInSkeleton,
   OKRAnalyticsSkeleton
 } from './okr-loading-skeleton';
+
+// A/B/C/D Matrix Components
+export { ProcessRatingInput } from './process-rating-input';
+export { ABCDMatrix, ABCDMatrixCompact } from './abcd-matrix';
+export { ABCDDistribution, ABCDDistributionBar } from './abcd-distribution';
