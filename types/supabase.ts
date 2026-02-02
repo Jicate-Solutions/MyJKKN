@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       academic_years: {
@@ -18495,6 +18470,47 @@ export type Database = {
           period_name: string
         }[]
       }
+      get_attendance_report_list: {
+        Args: {
+          p_academic_year_id?: string
+          p_degree_id?: string
+          p_department_id?: string
+          p_end_date?: string
+          p_institution_id?: string
+          p_limit?: number
+          p_page?: number
+          p_program_id?: string
+          p_section_id?: string
+          p_semester_id?: string
+          p_sort_by?: string
+          p_sort_order?: string
+          p_staff_id?: string
+          p_start_date?: string
+        }
+        Returns: {
+          absent_count: number
+          attendance_date: string
+          attendance_percentage: number
+          course_code: string
+          course_name: string
+          department_name: string
+          end_time: string
+          faculty_name: string
+          id: string
+          institution_name: string
+          marked_at: string
+          marked_by: string
+          period_id: string
+          period_name: string
+          present_count: number
+          program_name: string
+          section_name: string
+          semester_name: string
+          start_time: string
+          total_count: number
+          total_students: number
+        }[]
+      }
       get_attendance_staff_conflicts: {
         Args: {
           p_date_end?: string
@@ -19796,9 +19812,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       admission_lead_stage: [

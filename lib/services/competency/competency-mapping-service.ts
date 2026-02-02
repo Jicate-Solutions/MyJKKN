@@ -1,6 +1,7 @@
 // ============================================================================
 // Competency Mapping Service
 // Handles competency-to-program and competency-to-course mappings
+// Supports Fink's Taxonomy for measuring significant learning outcomes
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -18,6 +19,8 @@ import type {
   ProgramCompetencyCoverage,
   CourseCompetencyContribution
 } from '@/types/competency';
+import type { FinksDimensions } from '@/lib/services/learners/learner-profile-service';
+import { calculateFinkAggregate } from '@/lib/services/learners/learner-profile-service';
 
 export class CompetencyMappingService {
   private static getSupabase() {
@@ -624,6 +627,217 @@ export class CompetencyMappingService {
       };
     } catch (error) {
       console.error('[CompetencyMapping] Error bulk mapping:', this.formatError(error));
+      throw error;
+    }
+  }
+
+  // ============================================================================
+  // FINK'S TAXONOMY ANALYTICS
+  // ============================================================================
+
+  /**
+   * Get aggregated Fink's dimensions for a program
+   * Calculates weighted average across all mapped competencies
+   */
+  static async getProgramFinksDimensionsAggregate(programId: string): Promise<{
+    aggregate_dimensions: Partial<FinksDimensions>;
+    overall_score: number;
+    total_competencies: number;
+  }> {
+    try {
+      this.validateId(programId, 'program_id');
+
+      // Get all competencies mapped to this program with their Fink's dimensions
+      const { data: mappings, error } = await (this.getSupabase() as any)
+        .from('competency_program_mapping')
+        .select(`
+          competency_id,
+          weight_percentage,
+          competency:competency_catalog(id, finks_dimensions)
+        `)
+        .eq('program_id', programId);
+
+      if (error) throw error;
+
+      if (!mappings || mappings.length === 0) {
+        return {
+          aggregate_dimensions: {},
+          overall_score: 0,
+          total_competencies: 0
+        };
+      }
+
+      // Calculate weighted average for each dimension
+      const dimensionSums: Record<string, number> = {};
+      const dimensionWeights: Record<string, number> = {};
+      let totalWeight = 0;
+
+      mappings.forEach((mapping: any) => {
+        const dimensions = mapping.competency?.finks_dimensions;
+        const weight = mapping.weight_percentage || 100 / mappings.length;
+
+        if (dimensions) {
+          Object.entries(dimensions).forEach(([dimension, score]) => {
+            if (typeof score === 'number') {
+              dimensionSums[dimension] = (dimensionSums[dimension] || 0) + (score * weight);
+              dimensionWeights[dimension] = (dimensionWeights[dimension] || 0) + weight;
+            }
+          });
+        }
+        totalWeight += weight;
+      });
+
+      // Calculate averages
+      const aggregateDimensions: Partial<FinksDimensions> = {};
+      Object.keys(dimensionSums).forEach(dimension => {
+        const avg = dimensionSums[dimension] / (dimensionWeights[dimension] || 1);
+        aggregateDimensions[dimension as keyof FinksDimensions] = Math.round(avg);
+      });
+
+      const overallScore = calculateFinkAggregate(aggregateDimensions);
+
+      return {
+        aggregate_dimensions: aggregateDimensions,
+        overall_score: overallScore,
+        total_competencies: mappings.length
+      };
+    } catch (error) {
+      console.error('[CompetencyMapping] Error calculating program Fink\'s aggregate:', this.formatError(error));
+      throw error;
+    }
+  }
+
+  /**
+   * Get aggregated Fink's dimensions for a course
+   * Calculates weighted average across all mapped competencies
+   */
+  static async getCourseFinksDimensionsAggregate(courseId: string): Promise<{
+    aggregate_dimensions: Partial<FinksDimensions>;
+    overall_score: number;
+    total_competencies: number;
+  }> {
+    try {
+      this.validateId(courseId, 'course_id');
+
+      // Get all competencies mapped to this course with their Fink's dimensions
+      const { data: mappings, error } = await (this.getSupabase() as any)
+        .from('course_competency_mapping')
+        .select(`
+          competency_id,
+          learning_hours,
+          competency:competency_catalog(id, finks_dimensions)
+        `)
+        .eq('course_id', courseId);
+
+      if (error) throw error;
+
+      if (!mappings || mappings.length === 0) {
+        return {
+          aggregate_dimensions: {},
+          overall_score: 0,
+          total_competencies: 0
+        };
+      }
+
+      // Calculate weighted average based on learning_hours
+      const totalHours = mappings.reduce((sum: number, m: any) => sum + (m.learning_hours || 0), 0);
+      const dimensionSums: Record<string, number> = {};
+      const dimensionWeights: Record<string, number> = {};
+
+      mappings.forEach((mapping: any) => {
+        const dimensions = mapping.competency?.finks_dimensions;
+        const hours = mapping.learning_hours || totalHours / mappings.length;
+
+        if (dimensions) {
+          Object.entries(dimensions).forEach(([dimension, score]) => {
+            if (typeof score === 'number') {
+              dimensionSums[dimension] = (dimensionSums[dimension] || 0) + (score * hours);
+              dimensionWeights[dimension] = (dimensionWeights[dimension] || 0) + hours;
+            }
+          });
+        }
+      });
+
+      // Calculate averages
+      const aggregateDimensions: Partial<FinksDimensions> = {};
+      Object.keys(dimensionSums).forEach(dimension => {
+        const avg = dimensionSums[dimension] / (dimensionWeights[dimension] || 1);
+        aggregateDimensions[dimension as keyof FinksDimensions] = Math.round(avg);
+      });
+
+      const overallScore = calculateFinkAggregate(aggregateDimensions);
+
+      return {
+        aggregate_dimensions: aggregateDimensions,
+        overall_score: overallScore,
+        total_competencies: mappings.length
+      };
+    } catch (error) {
+      console.error('[CompetencyMapping] Error calculating course Fink\'s aggregate:', this.formatError(error));
+      throw error;
+    }
+  }
+
+  /**
+   * Compare program Fink's dimensions with learner achievement
+   * Identifies gaps between program expectations and learner performance
+   */
+  static async compareProgramLearnerFinks(
+    programId: string,
+    learnerId: string
+  ): Promise<{
+    program_dimensions: Partial<FinksDimensions>;
+    learner_dimensions: Partial<FinksDimensions>;
+    gaps: Array<{
+      dimension: keyof FinksDimensions;
+      program_score: number;
+      learner_score: number;
+      gap: number;
+    }>;
+  }> {
+    try {
+      this.validateId(programId, 'program_id');
+      this.validateId(learnerId, 'learner_id');
+
+      // Get program aggregate dimensions
+      const programData = await this.getProgramFinksDimensionsAggregate(programId);
+
+      // Get learner dimensions
+      const { LearnerProfileService } = await import('@/lib/services/learners/learner-profile-service');
+      const learnerDimensions = await LearnerProfileService.getFinksDimensions(learnerId);
+
+      // Calculate gaps
+      const gaps: Array<{
+        dimension: keyof FinksDimensions;
+        program_score: number;
+        learner_score: number;
+        gap: number;
+      }> = [];
+
+      Object.entries(programData.aggregate_dimensions).forEach(([dimension, programScore]) => {
+        if (typeof programScore === 'number') {
+          const learnerScore = learnerDimensions[dimension as keyof FinksDimensions] || 0;
+          const gap = programScore - learnerScore;
+
+          gaps.push({
+            dimension: dimension as keyof FinksDimensions,
+            program_score: programScore,
+            learner_score: learnerScore,
+            gap
+          });
+        }
+      });
+
+      // Sort by gap size (largest gaps first)
+      gaps.sort((a, b) => b.gap - a.gap);
+
+      return {
+        program_dimensions: programData.aggregate_dimensions,
+        learner_dimensions: learnerDimensions,
+        gaps
+      };
+    } catch (error) {
+      console.error('[CompetencyMapping] Error comparing program-learner Finks:', this.formatError(error));
       throw error;
     }
   }

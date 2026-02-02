@@ -19,8 +19,68 @@ export type CompetencyType =
   | 'soft_skill';    // Communication, teamwork, etc.
 
 /**
- * Bloom's Taxonomy levels for learning objectives
- * Lower to higher order thinking skills
+ * Fink's Taxonomy Dimensions (0-100 scale)
+ * Replaces Bloom's Taxonomy to align with AI-era significant learning framework
+ *
+ * @see /Users/omm/Vaults/Claude Setup/Capture/FST-Blooms-vs-Finks-Taxonomy.md
+ *
+ * Each dimension represents a critical aspect of transformational learning:
+ * - foundational_knowledge: Facts, concepts, principles (AI can do this - lowest priority)
+ * - application: Using knowledge in new contexts (AI-augmented - medium priority)
+ * - integration: Connecting ideas across disciplines and lived experience (HIGH priority)
+ * - human_dimension: Self-awareness, relationships, social context (CRITICAL - AI cannot do)
+ * - caring: Values, interests, ethical judgment (CRITICAL - AI is amoral)
+ * - learning_how_to_learn: Metacognition, self-directed learning (CRITICAL - adapting to AI evolution)
+ */
+export interface FinksDimensions {
+  /**
+   * Foundational Knowledge (0-100)
+   * Facts, terms, formulas, concepts, principles, theories
+   * AI Era: Lowest priority - AI has perfect recall
+   */
+  foundational_knowledge: number;
+
+  /**
+   * Application (0-100)
+   * Critical/creative thinking, practical skills, managing projects
+   * AI Era: Medium priority - AI applies knowledge, humans direct and curate
+   */
+  application: number;
+
+  /**
+   * Integration (0-100)
+   * Connecting ideas, people, realms of life; seeing patterns across disciplines
+   * AI Era: HIGH priority - requires human context and lived experience
+   */
+  integration: number;
+
+  /**
+   * Human Dimension (0-100)
+   * Learning about oneself and others; understanding social contexts
+   * AI Era: CRITICAL - AI lacks self-awareness and authentic relationships
+   */
+  human_dimension: number;
+
+  /**
+   * Caring (0-100)
+   * Developing new feelings, interests, values; ethical judgment
+   * AI Era: CRITICAL - AI has no intrinsic values or moral compass
+   */
+  caring: number;
+
+  /**
+   * Learning How to Learn (0-100)
+   * Becoming self-directed learner; learning to ask/answer questions
+   * AI Era: CRITICAL - meta-skill for adapting as AI capabilities evolve
+   */
+  learning_how_to_learn: number;
+}
+
+/**
+ * @deprecated Use FinksDimensions instead. Bloom's Taxonomy describes AI capabilities.
+ * Fink's Taxonomy describes human differentiation in the AI era.
+ *
+ * Kept for backward compatibility during migration.
  */
 export type BloomTaxonomyLevel =
   | 'remember'    // Recall facts and basic concepts
@@ -110,7 +170,18 @@ export interface Competency {
   proficiency_levels: ProficiencyLevelDefinition[];
   evidence_requirements: EvidenceRequirement[] | null;
   industry_tags: string[];
-  bloom_taxonomy_level: BloomTaxonomyLevel | null;
+
+  /**
+   * Fink's Taxonomy dimensions for this competency (0-100 scale)
+   * Defines the transformational learning profile of this competency
+   */
+  finks_dimensions: FinksDimensions;
+
+  /**
+   * @deprecated Use finks_dimensions instead. Kept for backward compatibility.
+   */
+  bloom_taxonomy_level?: BloomTaxonomyLevel | null;
+
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -256,7 +327,18 @@ export interface CreateCompetencyDTO {
   proficiency_levels: ProficiencyLevelDefinition[];
   evidence_requirements?: EvidenceRequirement[];
   industry_tags?: string[];
+
+  /**
+   * Fink's Taxonomy dimensions (0-100 scale)
+   * Required for AI-era competency definition
+   */
+  finks_dimensions: FinksDimensions;
+
+  /**
+   * @deprecated Use finks_dimensions instead
+   */
   bloom_taxonomy_level?: BloomTaxonomyLevel;
+
   is_active?: boolean;
 }
 
@@ -271,7 +353,17 @@ export interface UpdateCompetencyDTO {
   proficiency_levels?: ProficiencyLevelDefinition[];
   evidence_requirements?: EvidenceRequirement[];
   industry_tags?: string[];
+
+  /**
+   * Fink's Taxonomy dimensions (0-100 scale)
+   */
+  finks_dimensions?: FinksDimensions;
+
+  /**
+   * @deprecated Use finks_dimensions instead
+   */
   bloom_taxonomy_level?: BloomTaxonomyLevel;
+
   is_active?: boolean;
 }
 
@@ -364,7 +456,22 @@ export interface VerifyLearnerCompetencyDTO {
 export interface CompetencyFilters {
   institution_id?: string;
   competency_type?: CompetencyType | CompetencyType[];
+
+  /**
+   * Filter by Fink's dimension strength
+   * Format: { dimension: 'caring', min_score: 70 } to find competencies with high caring dimension
+   */
+  finks_dimension_filter?: {
+    dimension: keyof FinksDimensions;
+    min_score?: number;
+    max_score?: number;
+  };
+
+  /**
+   * @deprecated Use finks_dimension_filter instead
+   */
   bloom_taxonomy_level?: BloomTaxonomyLevel | BloomTaxonomyLevel[];
+
   industry_tags?: string[];
   is_active?: boolean;
   search?: string;
@@ -434,7 +541,24 @@ export interface CompetencyListResponse<T> {
 export interface CompetencyStats {
   total_competencies: number;
   by_type: Record<CompetencyType, number>;
-  by_taxonomy_level: Record<BloomTaxonomyLevel, number>;
+
+  /**
+   * Average Fink's dimensions scores across all competencies
+   * Helps institutions understand their learning focus areas
+   */
+  avg_finks_dimensions: FinksDimensions;
+
+  /**
+   * Distribution of competencies by dominant Fink's dimension
+   * Shows which dimension has the highest score for each competency
+   */
+  by_dominant_finks_dimension: Record<keyof FinksDimensions, number>;
+
+  /**
+   * @deprecated Use avg_finks_dimensions instead
+   */
+  by_taxonomy_level?: Record<BloomTaxonomyLevel, number>;
+
   mapped_to_programs: number;
   mapped_to_courses: number;
   active_count: number;

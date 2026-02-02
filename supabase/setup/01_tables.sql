@@ -1525,6 +1525,9 @@ EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
 -- competency_catalog: Master competency/skill taxonomy
+-- Updated: 2026-02-02 - Migrated from Bloom's to Fink's Taxonomy
+-- bloom_taxonomy_level_deprecated: DEPRECATED (cognitive-only, AI can do this)
+-- finks_dimensions: NEW STANDARD (holistic learning for AI era)
 CREATE TABLE IF NOT EXISTS public.competency_catalog (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
@@ -1535,12 +1538,21 @@ CREATE TABLE IF NOT EXISTS public.competency_catalog (
     proficiency_levels JSONB NOT NULL DEFAULT '[]'::jsonb,
     evidence_requirements JSONB DEFAULT '[]'::jsonb,
     industry_tags TEXT[] DEFAULT '{}',
-    bloom_taxonomy_level bloom_taxonomy_level,
+    bloom_taxonomy_level_deprecated bloom_taxonomy_level, -- DEPRECATED (2026-02-02): Use finks_dimensions
+    finks_dimensions JSONB DEFAULT '{"foundational_knowledge":0,"application":0,"integration":0,"human_dimension":0,"caring":0,"learning_how_to_learn":0}'::jsonb,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_by UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_competency_code_per_institution UNIQUE (institution_id, competency_code)
+    CONSTRAINT unique_competency_code_per_institution UNIQUE (institution_id, competency_code),
+    CONSTRAINT check_competency_finks_range CHECK (
+        (finks_dimensions->>'foundational_knowledge')::int BETWEEN 0 AND 100 AND
+        (finks_dimensions->>'application')::int BETWEEN 0 AND 100 AND
+        (finks_dimensions->>'integration')::int BETWEEN 0 AND 100 AND
+        (finks_dimensions->>'human_dimension')::int BETWEEN 0 AND 100 AND
+        (finks_dimensions->>'caring')::int BETWEEN 0 AND 100 AND
+        (finks_dimensions->>'learning_how_to_learn')::int BETWEEN 0 AND 100
+    )
 );
 
 -- competency_program_mapping: Links competencies to programs
@@ -1559,6 +1571,7 @@ CREATE TABLE IF NOT EXISTS public.competency_program_mapping (
 );
 
 -- course_competency_mapping: Links courses to competencies
+-- Updated: 2026-02-02 - Added finks_contribution for holistic assessment
 CREATE TABLE IF NOT EXISTS public.course_competency_mapping (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
@@ -1566,13 +1579,23 @@ CREATE TABLE IF NOT EXISTS public.course_competency_mapping (
     contribution_level proficiency_level DEFAULT 'beginner',
     learning_hours INTEGER CHECK (learning_hours IS NULL OR learning_hours >= 0),
     assessment_method VARCHAR(255),
+    finks_contribution JSONB DEFAULT '{"foundational_knowledge":0,"application":0,"integration":0,"human_dimension":0,"caring":0,"learning_how_to_learn":0}'::jsonb,
     created_by UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_course_competency UNIQUE (course_id, competency_id)
+    CONSTRAINT unique_course_competency UNIQUE (course_id, competency_id),
+    CONSTRAINT check_course_finks_range CHECK (
+        (finks_contribution->>'foundational_knowledge')::int BETWEEN 0 AND 100 AND
+        (finks_contribution->>'application')::int BETWEEN 0 AND 100 AND
+        (finks_contribution->>'integration')::int BETWEEN 0 AND 100 AND
+        (finks_contribution->>'human_dimension')::int BETWEEN 0 AND 100 AND
+        (finks_contribution->>'caring')::int BETWEEN 0 AND 100 AND
+        (finks_contribution->>'learning_how_to_learn')::int BETWEEN 0 AND 100
+    )
 );
 
 -- learner_competencies: Individual learner competency tracking
+-- Updated: 2026-02-02 - Added finks_dimensions for holistic progress tracking
 CREATE TABLE IF NOT EXISTS public.learner_competencies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     learner_id UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
@@ -1580,20 +1603,33 @@ CREATE TABLE IF NOT EXISTS public.learner_competencies (
     current_level proficiency_level NOT NULL DEFAULT 'novice',
     evidence JSONB DEFAULT '[]'::jsonb,
     assessments JSONB DEFAULT '[]'::jsonb,
+    finks_dimensions JSONB DEFAULT '{"foundational_knowledge":0,"application":0,"integration":0,"human_dimension":0,"caring":0,"learning_how_to_learn":0}'::jsonb,
     verified_by UUID REFERENCES public.staff(id) ON DELETE SET NULL,
     verified_at TIMESTAMPTZ,
     progress_percentage NUMERIC(5,2) DEFAULT 0 CHECK (progress_percentage >= 0 AND progress_percentage <= 100),
     last_activity_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_learner_competency UNIQUE (learner_id, competency_id)
+    CONSTRAINT unique_learner_competency UNIQUE (learner_id, competency_id),
+    CONSTRAINT check_learner_finks_range CHECK (
+        (finks_dimensions->>'foundational_knowledge')::int BETWEEN 0 AND 100 AND
+        (finks_dimensions->>'application')::int BETWEEN 0 AND 100 AND
+        (finks_dimensions->>'integration')::int BETWEEN 0 AND 100 AND
+        (finks_dimensions->>'human_dimension')::int BETWEEN 0 AND 100 AND
+        (finks_dimensions->>'caring')::int BETWEEN 0 AND 100 AND
+        (finks_dimensions->>'learning_how_to_learn')::int BETWEEN 0 AND 100
+    )
 );
 
 -- Competency module indexes
+-- Updated: 2026-02-02 - Added Fink's Taxonomy GIN indexes
 CREATE INDEX IF NOT EXISTS idx_competency_catalog_institution ON public.competency_catalog(institution_id);
 CREATE INDEX IF NOT EXISTS idx_competency_catalog_type ON public.competency_catalog(competency_type);
 CREATE INDEX IF NOT EXISTS idx_competency_catalog_active ON public.competency_catalog(institution_id, is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_competency_catalog_industry_tags ON public.competency_catalog USING GIN(industry_tags);
+CREATE INDEX IF NOT EXISTS idx_competency_finks ON public.competency_catalog USING GIN(finks_dimensions);
+CREATE INDEX IF NOT EXISTS idx_learner_finks ON public.learner_competencies USING GIN(finks_dimensions);
+CREATE INDEX IF NOT EXISTS idx_course_finks ON public.course_competency_mapping USING GIN(finks_contribution);
 CREATE INDEX IF NOT EXISTS idx_competency_program_competency ON public.competency_program_mapping(competency_id);
 CREATE INDEX IF NOT EXISTS idx_competency_program_program ON public.competency_program_mapping(program_id);
 CREATE INDEX IF NOT EXISTS idx_course_competency_course ON public.course_competency_mapping(course_id);

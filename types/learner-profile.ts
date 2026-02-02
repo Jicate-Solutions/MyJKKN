@@ -35,11 +35,26 @@ export type MigrationSource = 'merged' | 'admission' | 'student' | 'direct';
 
 /**
  * Individual competency tracking within capabilities JSONB
+ * Extended with Fink's Taxonomy dimensions for transformational learning tracking
  */
 export interface LearnerCapabilityCompetency {
   competency_id: string;
   competency_name?: string;
   current_level: 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert';
+
+  /**
+   * Learner's current Fink's dimensions scores for this competency (0-100)
+   * Tracks transformational learning progress across all 6 dimensions
+   */
+  finks_progress?: {
+    foundational_knowledge: number;
+    application: number;
+    integration: number;
+    human_dimension: number;
+    caring: number;
+    learning_how_to_learn: number;
+  };
+
   evidence: string[]; // URLs to certificates, projects, etc.
   verified_at?: string;
   verified_by?: string;
@@ -57,10 +72,36 @@ export interface LearnerCapabilitySummary {
 
 /**
  * Learner capabilities JSONB structure
+ * Tracks competency mastery and transformational learning dimensions
  */
 export interface LearnerCapabilities {
   competencies: LearnerCapabilityCompetency[];
   summary?: LearnerCapabilitySummary;
+
+  /**
+   * Overall Fink's dimensions profile for this learner (0-100)
+   * Aggregated across all competencies to show transformational learning progress
+   *
+   * AI Era Significance:
+   * - High human_dimension, caring, learning_how_to_learn = AI-proof human skills
+   * - Low scores = Over-reliance on AI-commoditized skills (risk of irrelevance)
+   */
+  overall_finks_profile?: {
+    foundational_knowledge: number;
+    application: number;
+    integration: number;
+    human_dimension: number;
+    caring: number;
+    learning_how_to_learn: number;
+  };
+
+  /**
+   * AI-era readiness score (0-100)
+   * Weighted average prioritizing human_dimension, caring, learning_how_to_learn
+   * Formula: (human_dimension * 0.3) + (caring * 0.3) + (learning_how_to_learn * 0.3) + (integration * 0.1)
+   */
+  ai_era_readiness_score?: number;
+
   last_updated?: string;
 }
 

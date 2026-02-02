@@ -1,6 +1,7 @@
 // ============================================================================
 // Competency Catalog Service
 // Handles CRUD operations for the master competency catalog
+// Supports Fink's Taxonomy for measuring significant learning dimensions
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -16,6 +17,12 @@ import type {
   BulkImportCompetencyRow,
   BulkImportResult
 } from '@/types/competency';
+import type { FinksDimensions } from '@/lib/services/learners/learner-profile-service';
+import {
+  calculateFinkAggregate,
+  getFinksDimensionGaps,
+  getFinksDimensionStrengths
+} from '@/lib/services/learners/learner-profile-service';
 
 export class CompetencyCatalogService {
   // Get fresh client for each request to ensure auth token is current
@@ -191,11 +198,38 @@ export class CompetencyCatalogService {
   }
 
   /**
-   * Create new competency
+   * Validate Fink's dimensions if provided (0-100 range)
    */
-  static async createCompetency(input: CreateCompetencyDTO): Promise<Competency> {
+  private static validateFinksDimensions(dimensions: Partial<FinksDimensions> | undefined): void {
+    if (!dimensions) return;
+
+    const validDimensions = [
+      'foundational_knowledge',
+      'application',
+      'integration',
+      'human_dimension',
+      'caring',
+      'learning_to_learn'
+    ];
+
+    for (const [key, value] of Object.entries(dimensions)) {
+      if (!validDimensions.includes(key)) {
+        throw new Error(`Invalid Fink's dimension: ${key}`);
+      }
+      if (typeof value !== 'number' || value < 0 || value > 100) {
+        throw new Error(`Fink's dimension ${key} must be between 0 and 100, got ${value}`);
+      }
+    }
+  }
+
+  /**
+   * Create new competency
+   * Supports optional Fink's dimensions for assessment mapping
+   */
+  static async createCompetency(input: CreateCompetencyDTO & { finks_dimensions?: Partial<FinksDimensions> }): Promise<Competency> {
     try {
       this.validateId(input.institution_id, 'institution_id');
+      this.validateFinksDimensions(input.finks_dimensions);
 
       // Check for duplicate competency code within institution
       const { data: existing } = await (this.getSupabase() as any)
@@ -209,15 +243,22 @@ export class CompetencyCatalogService {
         throw new Error(`Competency code "${input.competency_code}" already exists in this institution`);
       }
 
+      const insertData: any = {
+        ...input,
+        is_active: input.is_active ?? true,
+        industry_tags: input.industry_tags || [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      // Add finks_dimensions if provided
+      if (input.finks_dimensions) {
+        insertData.finks_dimensions = input.finks_dimensions;
+      }
+
       const { data, error } = await (this.getSupabase() as any)
         .from('competency_catalog')
-        .insert([{
-          ...input,
-          is_active: input.is_active ?? true,
-          industry_tags: input.industry_tags || [],
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }])
+        .insert([insertData])
         .select()
         .single();
 
@@ -234,10 +275,12 @@ export class CompetencyCatalogService {
 
   /**
    * Update competency
+   * Supports updating Fink's dimensions
    */
-  static async updateCompetency(id: string, input: UpdateCompetencyDTO): Promise<Competency> {
+  static async updateCompetency(id: string, input: UpdateCompetencyDTO & { finks_dimensions?: Partial<FinksDimensions> }): Promise<Competency> {
     try {
       this.validateId(id, 'competency ID');
+      this.validateFinksDimensions(input.finks_dimensions);
 
       // If updating competency_code, check for duplicates
       if (input.competency_code) {
@@ -262,12 +305,28 @@ export class CompetencyCatalogService {
         }
       }
 
+      const updateData: any = {
+        ...input,
+        updated_at: new Date().toISOString()
+      };
+
+      // Merge finks_dimensions if provided
+      if (input.finks_dimensions) {
+        const { data: current } = await (this.getSupabase() as any)
+          .from('competency_catalog')
+          .select('finks_dimensions')
+          .eq('id', id)
+          .single();
+
+        updateData.finks_dimensions = {
+          ...(current?.finks_dimensions || {}),
+          ...input.finks_dimensions
+        };
+      }
+
       const { data, error } = await (this.getSupabase() as any)
         .from('competency_catalog')
-        .update({
-          ...input,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', id)
         .select()
         .single();
@@ -390,6 +449,25 @@ export class CompetencyCatalogService {
         }
       }
 
+      // Initialize dimension accumulators
+      const dimensionTotals = {
+        foundational_knowledge: 0,
+        application: 0,
+        integration: 0,
+        human_dimension: 0,
+        caring: 0,
+        learning_how_to_learn: 0
+      };
+
+      const dimensionCounts: Record<keyof typeof dimensionTotals, number> = {
+        foundational_knowledge: 0,
+        application: 0,
+        integration: 0,
+        human_dimension: 0,
+        caring: 0,
+        learning_how_to_learn: 0
+      };
+
       // Calculate stats
       const stats: CompetencyStats = {
         total_competencies: competencies?.length || 0,
@@ -410,7 +488,23 @@ export class CompetencyCatalogService {
         mapped_to_programs: programMappedCount || 0,
         mapped_to_courses: courseMappedCount || 0,
         active_count: 0,
-        inactive_count: 0
+        inactive_count: 0,
+        avg_finks_dimensions: {
+          foundational_knowledge: 0,
+          application: 0,
+          integration: 0,
+          human_dimension: 0,
+          caring: 0,
+          learning_how_to_learn: 0
+        },
+        by_dominant_finks_dimension: {
+          foundational_knowledge: 0,
+          application: 0,
+          integration: 0,
+          human_dimension: 0,
+          caring: 0,
+          learning_how_to_learn: 0
+        }
       };
 
       (competencies || []).forEach((c: any) => {
@@ -424,6 +518,40 @@ export class CompetencyCatalogService {
           stats.active_count++;
         } else {
           stats.inactive_count++;
+        }
+
+        // Aggregate Fink's dimensions
+        if (c.finks_dimensions) {
+          Object.keys(dimensionTotals).forEach(key => {
+            const dimKey = key as keyof typeof dimensionTotals;
+            if (typeof c.finks_dimensions[dimKey] === 'number') {
+              dimensionTotals[dimKey] += c.finks_dimensions[dimKey];
+              dimensionCounts[dimKey]++;
+            }
+          });
+
+          // Find dominant dimension
+          const dimensions = c.finks_dimensions;
+          let maxDim: keyof typeof dimensionTotals = 'foundational_knowledge';
+          let maxValue = 0;
+          Object.keys(dimensions).forEach(key => {
+            const dimKey = key as keyof typeof dimensionTotals;
+            if (dimensions[dimKey] > maxValue) {
+              maxValue = dimensions[dimKey];
+              maxDim = dimKey;
+            }
+          });
+          if (maxValue > 0) {
+            stats.by_dominant_finks_dimension[maxDim]++;
+          }
+        }
+      });
+
+      // Calculate averages
+      Object.keys(dimensionTotals).forEach(key => {
+        const dimKey = key as keyof typeof dimensionTotals;
+        if (dimensionCounts[dimKey] > 0) {
+          stats.avg_finks_dimensions[dimKey] = Math.round(dimensionTotals[dimKey] / dimensionCounts[dimKey]);
         }
       });
 
@@ -554,6 +682,118 @@ export class CompetencyCatalogService {
     }
     if (result.failed > 0) {
       toast.error(`${result.failed} competencies failed to import`);
+    }
+
+    return result;
+  }
+
+  // ============================================================================
+  // FINK'S TAXONOMY HELPER METHODS
+  // ============================================================================
+
+  /**
+   * Get competency's Fink's dimensions
+   */
+  static async getCompetencyFinksDimensions(competencyId: string): Promise<Partial<FinksDimensions>> {
+    try {
+      this.validateId(competencyId, 'competency_id');
+
+      const { data, error } = await (this.getSupabase() as any)
+        .from('competency_catalog')
+        .select('finks_dimensions')
+        .eq('id', competencyId)
+        .single();
+
+      if (error) throw error;
+
+      return data?.finks_dimensions || {};
+    } catch (error) {
+      console.error('[Competency] Error fetching Fink\'s dimensions:', this.formatError(error));
+      throw error;
+    }
+  }
+
+  /**
+   * Calculate aggregate Fink's score for a competency
+   */
+  static async calculateCompetencyFinkAggregate(
+    competencyId: string,
+    weights?: Partial<FinksDimensions>
+  ): Promise<number> {
+    try {
+      const dimensions = await this.getCompetencyFinksDimensions(competencyId);
+      return calculateFinkAggregate(dimensions, weights);
+    } catch (error) {
+      console.error('[Competency] Error calculating aggregate:', this.formatError(error));
+      throw error;
+    }
+  }
+
+  /**
+   * Get competency dimension gaps (areas needing definition)
+   */
+  static async getCompetencyDimensionGaps(
+    competencyId: string,
+    threshold: number = 70
+  ): Promise<Array<{ dimension: keyof FinksDimensions; score: number; gap: number }>> {
+    try {
+      const dimensions = await this.getCompetencyFinksDimensions(competencyId);
+      return getFinksDimensionGaps(dimensions, threshold);
+    } catch (error) {
+      console.error('[Competency] Error getting gaps:', this.formatError(error));
+      throw error;
+    }
+  }
+
+  /**
+   * Get competency dimension strengths
+   */
+  static async getCompetencyDimensionStrengths(
+    competencyId: string,
+    threshold: number = 85
+  ): Promise<Array<{ dimension: keyof FinksDimensions; score: number }>> {
+    try {
+      const dimensions = await this.getCompetencyFinksDimensions(competencyId);
+      return getFinksDimensionStrengths(dimensions, threshold);
+    } catch (error) {
+      console.error('[Competency] Error getting strengths:', this.formatError(error));
+      throw error;
+    }
+  }
+
+  /**
+   * Batch update Fink's dimensions for multiple competencies
+   * Useful when mapping competencies to Fink's taxonomy
+   */
+  static async batchUpdateCompetencyFinksDimensions(
+    updates: Array<{
+      competency_id: string;
+      dimensions: Partial<FinksDimensions>;
+    }>
+  ): Promise<{ success: number; failed: number; errors: string[] }> {
+    const result = {
+      success: 0,
+      failed: 0,
+      errors: [] as string[]
+    };
+
+    for (const update of updates) {
+      try {
+        await this.updateCompetency(update.competency_id, {
+          finks_dimensions: update.dimensions
+        } as any);
+        result.success++;
+      } catch (error) {
+        result.failed++;
+        result.errors.push(`${update.competency_id}: ${this.formatError(error)}`);
+      }
+    }
+
+    if (result.success > 0) {
+      toast.success(`Updated ${result.success} competency dimension profiles`);
+    }
+    if (result.failed > 0) {
+      toast.error(`Failed to update ${result.failed} competencies`);
     }
 
     return result;

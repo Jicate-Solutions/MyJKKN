@@ -192,6 +192,83 @@ When updating any SQL file:
 
 ## 📝 Change Log
 
+### 2026-02-02: Fink's Taxonomy Migration (CRITICAL - AI Era Education) 🚀
+
+- **File**: `migrations/20260202000001_migrate_to_finks_taxonomy.sql` ✅ **READY FOR REVIEW**
+
+  **Purpose**: Replace Bloom's Taxonomy (cognitive-only) with Fink's Taxonomy (holistic learning) in competency catalog. This is CRITICAL for AI-era education where AI can handle all cognitive tasks (Bloom's) but humans must develop caring, relationships, and transformation (Fink's).
+
+  **CRITICAL CONTEXT - WHY THIS MATTERS**:
+  - **Bloom's Taxonomy (1956)**: Focuses on cognitive skills - remember, understand, apply, analyze, evaluate, create
+  - **Problem**: AI/LLMs can now perform ALL cognitive tasks at expert level
+  - **Fink's Taxonomy (2003)**: Designed for significant learning beyond cognition
+  - **Solution**: Focuses on what makes humans uniquely valuable in AI era
+
+  **Fink's 6 Dimensions** (replacing single bloom_taxonomy_level):
+  1. **foundational_knowledge** (0-100) - Understanding and remembering information
+  2. **application** (0-100) - Skills, critical thinking, managing projects
+  3. **integration** (0-100) - Connecting ideas, people, and realms of life
+  4. **human_dimension** (0-100) - Learning about oneself and others (CRITICAL in AI era)
+  5. **caring** (0-100) - Developing new feelings, interests, values (CRITICAL in AI era)
+  6. **learning_how_to_learn** (0-100) - Becoming a better student (CRITICAL in AI era)
+
+  **Database Changes**:
+  - **Added Column**: `fink_taxonomy_scores JSONB` to `competency_catalog` table
+    - Structure: All 6 dimensions with scores 0-100 (nullable)
+    - Default: All dimensions set to null (to be populated)
+  - **Deprecated Column**: `bloom_taxonomy_level` (NOT deleted, kept for backward compatibility)
+    - Marked as DEPRECATED in comments
+    - Will be removed in future version after data migration
+  - **Constraint Added**: `check_fink_scores_range` - Validates all scores are 0-100 or null
+  - **Indexes Created** (5):
+    - `idx_competency_catalog_fink_scores` - GIN index for JSONB queries
+    - `idx_competency_catalog_fink_foundational` - Partial index for foundational_knowledge
+    - `idx_competency_catalog_fink_application` - Partial index for application
+    - `idx_competency_catalog_fink_human_dimension` - Partial index for human_dimension (CRITICAL)
+    - `idx_competency_catalog_fink_caring` - Partial index for caring (CRITICAL)
+
+  **Functions Created** (2):
+  1. `calculate_fink_overall_score(fink_scores, weights)` - Calculates weighted average
+     - Default weights favor human-centric dimensions (human_dimension: 20%, caring: 15%, learning: 15%)
+     - Returns NUMERIC(5,2) overall score
+     - Immutable function for performance
+
+  2. `get_human_centric_competencies(institution_id, min_score)` - Finds competencies strong in human dimensions
+     - Returns competencies with high scores in human_dimension, caring, or learning_how_to_learn
+     - Default min_score: 70 (advanced level)
+     - Critical for identifying AI-era essential competencies
+
+  **Backward Compatibility**:
+  - ✅ NO breaking changes - bloom_taxonomy_level column preserved
+  - ✅ Existing queries continue working
+  - ✅ New field is JSONB with sensible defaults
+  - ✅ All scores nullable for gradual migration
+
+  **Migration Strategy**:
+  - Phase 1: ✅ Add column and indexes (this migration)
+  - Phase 2: ⏳ Update types/competency.ts with Fink's types
+  - Phase 3: ⏳ Update service layer to use fink_taxonomy_scores
+  - Phase 4: ⏳ Update UI to display 6 dimensions
+  - Phase 5: ⏳ Data migration script (convert bloom → fink)
+  - Phase 6: ⏳ Drop bloom_taxonomy_level column
+
+  **Impact on MyJKKN**:
+  - ✅ Competencies now aligned with AI-era educational goals
+  - ✅ Focus shifts from "what AI can do" to "what makes humans valuable"
+  - ✅ Human-centric dimensions (caring, relationships, transformation) become measurable
+  - ✅ Program outcomes can emphasize uniquely human competencies
+  - ✅ Foundation for future AI-integrated curriculum design
+
+  **Setup Files Updated**:
+  - `supabase/setup/01_tables.sql` - Updated competency_catalog table definition
+  - `supabase/SQL_FILE_INDEX.md` - This entry
+
+  **Related Documentation**:
+  - Fink, L. D. (2003). Creating Significant Learning Experiences
+  - Workshop Transformation initiative (AI-era education redesign)
+
+---
+
 ### 2026-02-01: Workshop Transformation - Accountability Module (Phase 4)
 
 - **File**: `migrations/20260201_create_accountability_tables.sql` ⏳ **PENDING REVIEW**

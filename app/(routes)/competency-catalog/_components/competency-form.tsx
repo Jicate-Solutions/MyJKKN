@@ -36,6 +36,7 @@ import {
 
 // Components
 import { ProficiencyLevelBuilder } from './proficiency-level-builder';
+import { FinksDimensionInput } from './finks-dimension-input';
 
 // Types
 import type {
@@ -43,6 +44,7 @@ import type {
   CompetencyType,
   BloomTaxonomyLevel,
   ProficiencyLevelDefinition,
+  FinksDimensions,
   CreateCompetencyDTO,
   UpdateCompetencyDTO
 } from '@/types/competency';
@@ -97,6 +99,14 @@ const competencyFormSchema = z.object({
     criteria: z.array(z.string()),
     typical_duration_hours: z.number().optional()
   })).min(1, 'At least one proficiency level is required'),
+  finks_dimensions: z.object({
+    foundational_knowledge: z.number().min(0).max(100).default(0),
+    application: z.number().min(0).max(100).default(0),
+    integration: z.number().min(0).max(100).default(0),
+    human_dimension: z.number().min(0).max(100).default(0),
+    caring: z.number().min(0).max(100).default(0),
+    learning_how_to_learn: z.number().min(0).max(100).default(0)
+  }),
   is_active: z.boolean().default(true)
 });
 
@@ -139,6 +149,14 @@ export function CompetencyForm({
       bloom_taxonomy_level: competency?.bloom_taxonomy_level || null,
       industry_tags: competency?.industry_tags || [],
       proficiency_levels: competency?.proficiency_levels || [],
+      finks_dimensions: competency?.finks_dimensions || {
+        foundational_knowledge: 0,
+        application: 0,
+        integration: 0,
+        human_dimension: 0,
+        caring: 0,
+        learning_how_to_learn: 0
+      },
       is_active: competency?.is_active ?? true
     }
   });
@@ -152,6 +170,16 @@ export function CompetencyForm({
       typical_duration_hours: pl.typical_duration_hours
     }));
 
+    // Ensure finks_dimensions is properly typed
+    const finksDimensions: FinksDimensions = {
+      foundational_knowledge: data.finks_dimensions.foundational_knowledge ?? 0,
+      application: data.finks_dimensions.application ?? 0,
+      integration: data.finks_dimensions.integration ?? 0,
+      human_dimension: data.finks_dimensions.human_dimension ?? 0,
+      caring: data.finks_dimensions.caring ?? 0,
+      learning_how_to_learn: data.finks_dimensions.learning_how_to_learn ?? 0
+    };
+
     if (isEditing) {
       const updateData: UpdateCompetencyDTO = {
         competency_code: data.competency_code,
@@ -161,6 +189,7 @@ export function CompetencyForm({
         bloom_taxonomy_level: data.bloom_taxonomy_level || undefined,
         industry_tags: data.industry_tags,
         proficiency_levels: mappedProficiencyLevels,
+        finks_dimensions: finksDimensions,
         is_active: data.is_active
       };
       await onSubmit(updateData);
@@ -174,6 +203,7 @@ export function CompetencyForm({
         bloom_taxonomy_level: data.bloom_taxonomy_level || undefined,
         industry_tags: data.industry_tags,
         proficiency_levels: mappedProficiencyLevels,
+        finks_dimensions: finksDimensions,
         is_active: data.is_active
       };
       await onSubmit(createData);
@@ -398,6 +428,46 @@ export function CompetencyForm({
                   <FormMessage />
                 </FormItem>
               )}
+            />
+          </CardContent>
+        </Card>
+
+        {/* Fink's Dimensions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Fink&apos;s Taxonomy - Significant Learning Dimensions</CardTitle>
+            <CardDescription>
+              Measure what makes this competency uniquely human in the AI era (0-100 scale)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FormField
+              control={form.control}
+              name="finks_dimensions"
+              render={({ field }) => {
+                // Ensure all fields have values
+                const dimensions: FinksDimensions = {
+                  foundational_knowledge: field.value.foundational_knowledge ?? 0,
+                  application: field.value.application ?? 0,
+                  integration: field.value.integration ?? 0,
+                  human_dimension: field.value.human_dimension ?? 0,
+                  caring: field.value.caring ?? 0,
+                  learning_how_to_learn: field.value.learning_how_to_learn ?? 0
+                };
+
+                return (
+                  <FormItem>
+                    <FinksDimensionInput
+                      value={dimensions}
+                      onChange={field.onChange}
+                      disabled={isSubmitting}
+                      showDescriptions={true}
+                      highlightAiProof={true}
+                    />
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
             />
           </CardContent>
         </Card>

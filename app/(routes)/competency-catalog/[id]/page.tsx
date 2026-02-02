@@ -53,6 +53,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 
+// Components
+import { FinksRadarChart } from '../_components/finks-radar-chart';
+
 // Hooks
 import { useCompetency, useArchiveCompetency, useRestoreCompetency } from '@/hooks/competency';
 import { toast } from 'sonner';
@@ -412,6 +415,18 @@ export default function CompetencyDetailPage() {
 
             {/* Sidebar */}
             <div className="space-y-6">
+              {/* Fink's Taxonomy Radar Chart */}
+              {competency.finks_dimensions && (
+                <FinksRadarChart
+                  currentDimensions={competency.finks_dimensions}
+                  title="AI-Era Competency Profile"
+                  description="Measuring human differentiation across Fink's 6 dimensions"
+                  showLegend={false}
+                  highlightAiProof={true}
+                  size="md"
+                />
+              )}
+
               {/* Details Card */}
               <Card>
                 <CardHeader>
@@ -420,8 +435,8 @@ export default function CompetencyDetailPage() {
                 <CardContent className="space-y-4">
                   {competency.bloom_taxonomy_level && (
                     <div>
-                      <p className="text-sm text-muted-foreground mb-1">Bloom's Taxonomy</p>
-                      <Badge variant="outline">
+                      <p className="text-sm text-muted-foreground mb-1">Bloom's Taxonomy (Legacy)</p>
+                      <Badge variant="outline" className="text-xs">
                         {BLOOM_LABELS[competency.bloom_taxonomy_level]}
                       </Badge>
                     </div>

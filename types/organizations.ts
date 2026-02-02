@@ -273,12 +273,43 @@ export interface ProgramListResponse {
 
 /**
  * Competency coverage mapping for courses
- * Links a course to competencies it develops
+ * Links a course to competencies it develops with Fink's Taxonomy focus areas
  */
 export interface CourseCompetencyCoverage {
   competency_id: string;
   target_level: 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert';
   weight: number; // 0-1, relative importance of this competency in the course
+
+  /**
+   * Fink's Taxonomy focus areas for this competency in this course (0-100)
+   * Defines which dimensions this course emphasizes for this competency
+   *
+   * Example:
+   * - Ethics course: high caring (90), human_dimension (85)
+   * - Research methods: high learning_how_to_learn (90), application (80)
+   * - Team project: high integration (85), human_dimension (80)
+   */
+  finks_focus?: {
+    foundational_knowledge?: number;
+    application?: number;
+    integration?: number;
+    human_dimension?: number;
+    caring?: number;
+    learning_how_to_learn?: number;
+  };
+
+  /**
+   * Learning hours breakdown per Fink's dimension
+   * Helps track where course time is spent in transformational learning
+   */
+  hours_by_dimension?: {
+    foundational_knowledge?: number;
+    application?: number;
+    integration?: number;
+    human_dimension?: number;
+    caring?: number;
+    learning_how_to_learn?: number;
+  };
 }
 
 export interface Course {
@@ -298,6 +329,35 @@ export interface Course {
 
   // Competency coverage (added for Workshop Transformation)
   competency_coverage?: CourseCompetencyCoverage[];
+
+  /**
+   * Overall Fink's Taxonomy profile for this course (0-100)
+   * Aggregated across all mapped competencies
+   *
+   * AI Era Course Design Principle:
+   * - High human_dimension, caring, learning_how_to_learn = Prepares students for AI era
+   * - High foundational_knowledge only = Teaches what AI can do (low strategic value)
+   *
+   * Recommended minimums for AI-era courses:
+   * - human_dimension: 60+
+   * - caring: 50+
+   * - learning_how_to_learn: 70+
+   */
+  overall_finks_profile?: {
+    foundational_knowledge: number;
+    application: number;
+    integration: number;
+    human_dimension: number;
+    caring: number;
+    learning_how_to_learn: number;
+  };
+
+  /**
+   * AI-era strategic value score (0-100)
+   * High score = Course prepares students for human differentiation in AI era
+   * Low score = Course teaches AI-commoditized skills (strategic risk)
+   */
+  ai_era_strategic_value?: number;
 
   // Include related data
   institution?: {
