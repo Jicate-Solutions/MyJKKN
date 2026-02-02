@@ -17,14 +17,13 @@ export async function getTickets(
     throw new Error('institution_id is required to fetch grievance tickets');
   }
 
+  // Simplified query without profile joins until schema cache refreshes
   let query = supabase
     .from('grievance_tickets')
     .select(`
       *,
       category:grievance_categories(id, name, default_sla_hours),
-      assignee:users_profiles!assigned_to(id, full_name, email),
-      department:departments(id, name),
-      resolver:users_profiles!resolved_by(id, full_name)
+      department:departments(id, department_name)
     `, { count: 'exact' });
 
   // Apply filters
@@ -100,14 +99,13 @@ export async function getTickets(
 export async function getTicket(id: string): Promise<GrievanceTicket> {
   const supabase = await createClient();
 
+  // Simplified query without profile joins until schema cache refreshes
   const { data, error } = await supabase
     .from('grievance_tickets')
     .select(`
       *,
       category:grievance_categories(id, name, default_sla_hours, description),
-      assignee:users_profiles!assigned_to(id, full_name, email),
-      department:departments(id, name),
-      resolver:users_profiles!resolved_by(id, full_name)
+      department:departments(id, department_name)
     `)
     .eq('id', id)
     .single();

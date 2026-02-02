@@ -28,14 +28,13 @@ export async function getAssessments(
     throw new Error('institution_id is required to fetch maturity assessments');
   }
 
+  // Simplified query - profile joins removed until schema cache refreshes
   let query = supabase
     .from('maturity_assessments')
     .select(
       `
       *,
-      department:departments(id, name),
-      assessor:users_profiles!assessor_id(id, full_name, email),
-      reviewer:users_profiles!reviewed_by(id, full_name, email),
+      department:departments(id, department_name),
       framework:maturity_frameworks(id, name),
       institution:institutions(id, name, counselling_code)
     `,
@@ -95,14 +94,13 @@ export async function getAssessmentById(
 ): Promise<MaturityAssessment | null> {
   const supabase = await createClient();
 
+  // Simplified query - profile joins removed until schema cache refreshes
   const { data, error } = await supabase
     .from('maturity_assessments')
     .select(
       `
       *,
-      department:departments(id, name),
-      assessor:users_profiles!assessor_id(id, full_name, email),
-      reviewer:users_profiles!reviewed_by(id, full_name, email),
+      department:departments(id, department_name),
       framework:maturity_frameworks(*),
       institution:institutions(id, name, counselling_code),
       progress_items:maturity_progress(*)

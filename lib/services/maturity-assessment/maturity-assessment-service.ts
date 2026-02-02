@@ -240,7 +240,7 @@ export class MaturityAssessmentService {
       .select(
         `
         *,
-        department:departments(id, name),
+        department:departments(id, department_name),
         assessor:users_profiles!assessor_id(id, full_name, email),
         reviewer:users_profiles!reviewed_by(id, full_name, email),
         framework:maturity_frameworks(id, name, dimensions),
@@ -305,7 +305,7 @@ export class MaturityAssessmentService {
       .select(
         `
         *,
-        department:departments(id, name),
+        department:departments(id, department_name),
         assessor:users_profiles!assessor_id(id, full_name, email),
         reviewer:users_profiles!reviewed_by(id, full_name, email),
         framework:maturity_frameworks(*),
@@ -340,7 +340,7 @@ export class MaturityAssessmentService {
       .select(
         `
         *,
-        department:departments(id, name),
+        department:departments(id, department_name),
         assessor:users_profiles!assessor_id(id, full_name, email),
         framework:maturity_frameworks(id, name, dimensions)
       `
@@ -726,7 +726,7 @@ export class MaturityAssessmentService {
       .select(
         `
         *,
-        department:departments(id, name)
+        department:departments(id, department_name)
       `
       )
       .eq('institution_id', institutionId)
@@ -899,7 +899,7 @@ export class MaturityAssessmentService {
         `
         id,
         department_id,
-        department:departments(id, name),
+        department:departments(id, department_name),
         overall_stage,
         dimension_scores,
         assessment_date

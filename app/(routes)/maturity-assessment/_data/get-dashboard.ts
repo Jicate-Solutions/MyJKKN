@@ -20,7 +20,7 @@ export async function getDashboardData(
     .select(
       `
       *,
-      department:departments(id, name)
+      department:departments(id, department_name)
     `
     )
     .eq('institution_id', institutionId)

@@ -236,9 +236,9 @@ export class GrievanceService {
       .select(`
         *,
         category:grievance_categories(id, name, default_sla_hours),
-        assignee:users_profiles!assigned_to(id, full_name, email),
-        department:departments(id, name),
-        resolver:users_profiles!resolved_by(id, full_name)
+        assignee:profiles!grievance_tickets_assigned_to_fkey(id, full_name, email),
+        department:departments(id, department_name),
+        resolver:profiles!grievance_tickets_resolved_by_fkey(id, full_name)
       `, { count: 'exact' });
 
     // Apply filters
@@ -321,9 +321,9 @@ export class GrievanceService {
       .select(`
         *,
         category:grievance_categories(id, name, default_sla_hours),
-        assignee:users_profiles!assigned_to(id, full_name, email),
-        department:departments(id, name),
-        resolver:users_profiles!resolved_by(id, full_name)
+        assignee:profiles!grievance_tickets_assigned_to_fkey(id, full_name, email),
+        department:departments(id, department_name),
+        resolver:profiles!grievance_tickets_resolved_by_fkey(id, full_name)
       `)
       .eq('id', id);
 
@@ -359,9 +359,9 @@ export class GrievanceService {
       .select(`
         *,
         category:grievance_categories(id, name, default_sla_hours),
-        assignee:users_profiles!assigned_to(id, full_name, email),
-        department:departments(id, name),
-        resolver:users_profiles!resolved_by(id, full_name)
+        assignee:profiles!grievance_tickets_assigned_to_fkey(id, full_name, email),
+        department:departments(id, department_name),
+        resolver:profiles!grievance_tickets_resolved_by_fkey(id, full_name)
       `)
       .eq('ticket_number', ticketNumber)
       .single();
@@ -671,7 +671,7 @@ export class GrievanceService {
       .from('grievance_history')
       .select(`
         *,
-        performer:users_profiles!performed_by(id, full_name)
+        performer:profiles!grievance_history_performed_by_fkey(id, full_name)
       `)
       .eq('ticket_id', ticketId)
       .order('performed_at', { ascending: false });
