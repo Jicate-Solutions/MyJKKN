@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm, useFieldArray } from 'react-hook-form';
@@ -33,14 +32,18 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { ArrowLeft, Plus, Trash2, GripVertical, Loader2 } from 'lucide-react';
-import type { StakeholderType, QuestionType, NPSQuestion } from '@/types/stakeholder-nps';
+import type { StakeholderType, QuestionType } from '@/types/stakeholder-nps';
+import { toast } from 'react-hot-toast';
 
 const stakeholderOptions: { value: StakeholderType; label: string }[] = [
   { value: 'parent', label: 'Parents' },
   { value: 'learner', label: 'Learners' },
+  { value: 'student', label: 'Students' },
   { value: 'alumni', label: 'Alumni' },
   { value: 'industry', label: 'Industry Partners' },
-  { value: 'staff', label: 'Staff' }
+  { value: 'employer', label: 'Employers' },
+  { value: 'staff', label: 'Staff' },
+  { value: 'community', label: 'Community' }
 ];
 
 const questionTypeOptions: { value: QuestionType; label: string }[] = [
@@ -54,7 +57,9 @@ const questionTypeOptions: { value: QuestionType; label: string }[] = [
 export default function NewSurveyPage() {
   const router = useRouter();
   const { selectedInstitutionId: institutionId } = useUserInstitutionAccess();
-  const { createSurvey, loading } = useCreateNPSSurvey();
+
+  // Use the mutation hook correctly
+  const createMutation = useCreateNPSSurvey();
 
   const form = useForm<CreateSurveyFormValues>({
     resolver: zodResolver(createSurveySchema),
@@ -83,21 +88,23 @@ export default function NewSurveyPage() {
 
   const onSubmit = async (data: CreateSurveyFormValues) => {
     try {
-      // Ensure all required fields are set
-      await createSurvey({
+      // Convert form data to the DTO format expected by the service
+      // The service expects stakeholder_types as an array
+      await createMutation.mutateAsync({
         institution_id: institutionId || data.institution_id,
         title: data.title,
-        description: data.description ?? undefined,
-        stakeholder_type: data.stakeholder_type,
-        start_date: data.start_date,
-        end_date: data.end_date,
-        program_id: data.program_id ?? undefined,
-        department_id: data.department_id ?? undefined,
-        questions: (data.questions ?? []) as any
+        description: data.description || undefined,
+        stakeholder_types: [data.stakeholder_type], // Convert single type to array
+        question: data.questions?.[0]?.question || 'How likely are you to recommend our institution to others?',
+        start_date: new Date(data.start_date).toISOString(),
+        end_date: new Date(data.end_date).toISOString(),
+        status: 'draft'
       });
+      toast.success('Survey created successfully');
       router.push('/stakeholder-nps');
     } catch (error) {
-      // Error handled by hook
+      toast.error('Failed to create survey');
+      console.error('[NewSurveyPage] Create failed:', error);
     }
   };
 
@@ -201,7 +208,7 @@ export default function NewSurveyPage() {
                   )}
                 />
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="start_date"
@@ -249,6 +256,11 @@ export default function NewSurveyPage() {
                       <div className="flex items-center gap-2">
                         <GripVertical className="h-4 w-4 text-muted-foreground" />
                         <span className="font-medium">Question {index + 1}</span>
+                        {index === 0 && (
+                          <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
+                            Primary NPS
+                          </span>
+                        )}
                       </div>
                       {index > 0 && (
                         <Button
@@ -318,8 +330,13 @@ export default function NewSurveyPage() {
                       control={form.control}
                       name={`questions.${index}.required`}
                       render={({ field }) => (
-                        <FormItem className="flex items-center justify-between">
-                          <FormLabel>Required</FormLabel>
+                        <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                          <div className="space-y-0.5">
+                            <FormLabel>Required</FormLabel>
+                            <FormDescription>
+                              Respondents must answer this question
+                            </FormDescription>
+                          </div>
                           <FormControl>
                             <Switch
                               checked={field.value}
@@ -340,8 +357,8 @@ export default function NewSurveyPage() {
               <Button type="button" variant="outline" asChild>
                 <Link href="/stakeholder-nps">Cancel</Link>
               </Button>
-              <Button type="submit" disabled={loading}>
-                {loading ? (
+              <Button type="submit" disabled={createMutation.isPending}>
+                {createMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Creating...

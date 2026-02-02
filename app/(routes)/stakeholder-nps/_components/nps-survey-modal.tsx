@@ -41,7 +41,7 @@ export function NPSSurveyModal({
   const [score, setScore] = useState<number | null>(null);
   const [feedback, setFeedback] = useState('');
   const [submitted, setSubmitted] = useState(false);
-  const { submitResponse, loading, isSuccess } = useSubmitNPSResponse();
+  const { mutateAsync: submitResponse, isPending: loading, isSuccess } = useSubmitNPSResponse();
 
   const handleSubmit = async () => {
     if (score === null) return;
@@ -49,14 +49,12 @@ export function NPSSurveyModal({
     try {
       await submitResponse({
         survey_id: survey.id,
-        respondent_id: respondentId,
-        respondent_type: respondentType,
-        respondent_email: respondentEmail,
-        respondent_name: respondentName,
-        nps_score: score,
-        additional_feedback: feedback || undefined,
-        question_responses: {},
-        department_id: departmentId
+        stakeholder_id: respondentId,
+        stakeholder_type: respondentType as 'student' | 'parent' | 'staff' | 'alumni',
+        stakeholder_email: respondentEmail,
+        stakeholder_name: respondentName,
+        score: score as 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10,
+        feedback: feedback || undefined,
       });
 
       setSubmitted(true);

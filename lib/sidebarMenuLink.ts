@@ -69,7 +69,13 @@ import {
   MessageSquarePlus,
   Trophy,
   FileSpreadsheet,
-  PhoneCall
+  PhoneCall,
+  // TQM Module Icons
+  BarChart3,
+  Settings2,
+  MessageSquareWarning,
+  CircleDot,
+  UsersRound
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
@@ -391,7 +397,33 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/industry/engagements': 'industry.engagements.view',
   '/industry/engagements/new': 'industry.engagements.create',
   '/industry/engagements/[id]': 'industry.engagements.view',
-  '/industry/engagements/[id]/edit': 'industry.engagements.edit'
+  '/industry/engagements/[id]/edit': 'industry.engagements.edit',
+
+  // TQM (Total Quality Management) Module
+  '/stakeholder-nps': 'tqm.nps.view',
+  '/stakeholder-nps/surveys': 'tqm.nps.surveys.view',
+  '/stakeholder-nps/surveys/new': 'tqm.nps.surveys.create',
+  '/stakeholder-nps/analytics': 'tqm.nps.analytics.view',
+  '/stakeholder-nps/feedback': 'tqm.nps.feedback.view',
+  '/process-excellence': 'tqm.process.view',
+  '/process-excellence/workflows': 'tqm.process.workflows.view',
+  '/process-excellence/metrics': 'tqm.process.metrics.view',
+  '/process-excellence/improvements': 'tqm.process.improvements.view',
+  '/parent-portal': 'tqm.parent_portal.view',
+  '/parent-portal/dashboard': 'tqm.parent_portal.dashboard.view',
+  '/parent-portal/communication': 'tqm.parent_portal.communication.view',
+  '/parent-portal/feedback': 'tqm.parent_portal.feedback.view',
+  '/grievance': 'tqm.grievance.view',
+  '/grievance/tickets': 'tqm.grievance.tickets.view',
+  '/grievance/tickets/new': 'tqm.grievance.tickets.create',
+  '/grievance/analytics': 'tqm.grievance.analytics.view',
+  '/grievance/escalations': 'tqm.grievance.escalations.view',
+  '/maturity-assessment': 'tqm.maturity.view',
+  '/maturity-assessment/assessments': 'tqm.maturity.assessments.view',
+  '/maturity-assessment/assessments/new': 'tqm.maturity.assessments.create',
+  '/maturity-assessment/roadmap': 'tqm.maturity.roadmap.view',
+  '/maturity-assessment/benchmarks': 'tqm.maturity.benchmarks.view',
+  '/okr/abcd': 'okr.abcd.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -998,6 +1030,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/okr/admin'),
           icon: Shield,
           submenus: []
+        },
+        {
+          href: '/okr/abcd',
+          label: 'ABCD Matrix',
+          active: pathname.startsWith('/okr/abcd'),
+          icon: CircleDot,
+          submenus: []
         }
       ]
     },
@@ -1080,6 +1119,146 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/industry/engagements/new',
               label: 'New Engagement',
               active: pathname === '/industry/engagements/new'
+            }
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Quality Management',
+      menus: [
+        {
+          href: '/stakeholder-nps',
+          label: 'Stakeholder NPS',
+          active: pathname.startsWith('/stakeholder-nps'),
+          icon: BarChart3,
+          submenus: [
+            {
+              href: '/stakeholder-nps',
+              label: 'Dashboard',
+              active: pathname === '/stakeholder-nps'
+            },
+            {
+              href: '/stakeholder-nps/surveys',
+              label: 'Surveys',
+              active: pathname.startsWith('/stakeholder-nps/surveys')
+            },
+            {
+              href: '/stakeholder-nps/analytics',
+              label: 'Analytics',
+              active: pathname === '/stakeholder-nps/analytics'
+            },
+            {
+              href: '/stakeholder-nps/feedback',
+              label: 'Feedback',
+              active: pathname === '/stakeholder-nps/feedback'
+            }
+          ]
+        },
+        {
+          href: '/process-excellence',
+          label: 'Process Excellence',
+          active: pathname.startsWith('/process-excellence'),
+          icon: Settings2,
+          submenus: [
+            {
+              href: '/process-excellence',
+              label: 'Dashboard',
+              active: pathname === '/process-excellence'
+            },
+            {
+              href: '/process-excellence/workflows',
+              label: 'Workflows',
+              active: pathname === '/process-excellence/workflows'
+            },
+            {
+              href: '/process-excellence/metrics',
+              label: 'Metrics',
+              active: pathname === '/process-excellence/metrics'
+            },
+            {
+              href: '/process-excellence/improvements',
+              label: 'Improvements',
+              active: pathname === '/process-excellence/improvements'
+            }
+          ]
+        },
+        {
+          href: '/parent-portal',
+          label: 'Parent Portal',
+          active: pathname.startsWith('/parent-portal'),
+          icon: UsersRound,
+          submenus: [
+            {
+              href: '/parent-portal',
+              label: 'Dashboard',
+              active: pathname === '/parent-portal'
+            },
+            {
+              href: '/parent-portal/communication',
+              label: 'Communication',
+              active: pathname === '/parent-portal/communication'
+            },
+            {
+              href: '/parent-portal/feedback',
+              label: 'Feedback',
+              active: pathname === '/parent-portal/feedback'
+            }
+          ]
+        },
+        {
+          href: '/grievance',
+          label: 'Grievance System',
+          active: pathname.startsWith('/grievance'),
+          icon: MessageSquareWarning,
+          submenus: [
+            {
+              href: '/grievance',
+              label: 'Dashboard',
+              active: pathname === '/grievance'
+            },
+            {
+              href: '/grievance/tickets',
+              label: 'Tickets',
+              active: pathname.startsWith('/grievance/tickets')
+            },
+            {
+              href: '/grievance/analytics',
+              label: 'Analytics',
+              active: pathname === '/grievance/analytics'
+            },
+            {
+              href: '/grievance/escalations',
+              label: 'Escalations',
+              active: pathname === '/grievance/escalations'
+            }
+          ]
+        },
+        {
+          href: '/maturity-assessment',
+          label: 'Maturity Assessment',
+          active: pathname.startsWith('/maturity-assessment'),
+          icon: Award,
+          submenus: [
+            {
+              href: '/maturity-assessment',
+              label: 'Dashboard',
+              active: pathname === '/maturity-assessment'
+            },
+            {
+              href: '/maturity-assessment/assessments',
+              label: 'Assessments',
+              active: pathname.startsWith('/maturity-assessment/assessments')
+            },
+            {
+              href: '/maturity-assessment/roadmap',
+              label: 'Roadmap',
+              active: pathname === '/maturity-assessment/roadmap'
+            },
+            {
+              href: '/maturity-assessment/benchmarks',
+              label: 'Benchmarks',
+              active: pathname === '/maturity-assessment/benchmarks'
             }
           ]
         }

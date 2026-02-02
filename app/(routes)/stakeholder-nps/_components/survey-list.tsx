@@ -96,7 +96,11 @@ export function SurveyList({ surveys }: SurveyListProps) {
                   )}
                 </TableCell>
                 <TableCell>
-                  <StakeholderTypeBadge type={survey.stakeholder_type} />
+                  <div className="flex flex-wrap gap-1">
+                    {survey.stakeholder_types.map((type) => (
+                      <StakeholderTypeBadge key={type} type={type} />
+                    ))}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <SurveyStatusBadge status={survey.status} />

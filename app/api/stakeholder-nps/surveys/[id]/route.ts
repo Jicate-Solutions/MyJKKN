@@ -21,7 +21,7 @@ export async function GET(request: Request, context: RouteContext) {
       return NextResponse.json({ error: 'Survey ID is required' }, { status: 400 });
     }
 
-    const survey = await NPSService.getSurvey(id);
+    const survey = await NPSService.getSurveyById(id);
 
     return NextResponse.json(survey);
   } catch (error) {

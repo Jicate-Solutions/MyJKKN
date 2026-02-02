@@ -48,7 +48,7 @@ export function DashboardMetrics({ dashboard, loading }: DashboardMetricsProps) 
     0
   );
 
-  const stakeholderTypes: StakeholderType[] = ['parent', 'learner', 'alumni', 'industry', 'staff'];
+  const stakeholderTypes: StakeholderType[] = ['student', 'learner', 'parent', 'alumni', 'staff', 'industry', 'employer', 'community'];
 
   return (
     <div className="space-y-6">

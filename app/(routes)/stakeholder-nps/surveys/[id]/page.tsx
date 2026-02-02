@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import { notFound } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
-import { useNPSSurvey, useSurveyResponseSummary } from '@/hooks/stakeholder-nps';
+import { useNPSSurvey, useNPSSurveyAnalytics } from '@/hooks/stakeholder-nps';
 import { useExportResponses } from '@/hooks/stakeholder-nps/use-nps-responses';
 import {
   useActivateSurvey,
@@ -42,8 +42,9 @@ export default function SurveyDetailPage({ params }: SurveyDetailPageProps) {
   const { id } = use(params);
   const [copied, setCopied] = useState(false);
 
-  const { survey, loading, error } = useNPSSurvey(id);
-  const { summary, loading: summaryLoading } = useSurveyResponseSummary(id);
+  // Use React Query hooks with correct property names
+  const { data: survey, isLoading: loading, error } = useNPSSurvey(id);
+  const { data: analytics, isLoading: analyticsLoading } = useNPSSurveyAnalytics(id);
   const { activateSurvey, loading: activating } = useActivateSurvey();
   const { closeSurvey, loading: closing } = useCloseSurvey();
   const { archiveSurvey, loading: archiving } = useArchiveSurvey();
@@ -77,6 +78,9 @@ export default function SurveyDetailPage({ params }: SurveyDetailPageProps) {
       toast.error('Failed to copy link');
     }
   };
+
+  // Use response_count from survey or analytics
+  const totalResponses = analytics?.total_responses || survey.response_count || 0;
 
   return (
     <ContentLayout title="Survey Details">
@@ -138,7 +142,7 @@ export default function SurveyDetailPage({ params }: SurveyDetailPageProps) {
               </Button>
             )}
 
-            {summary.total > 0 && (
+            {totalResponses > 0 && (
               <Button
                 variant="outline"
                 onClick={() => exportResponses(survey.id, survey.title)}
@@ -202,8 +206,12 @@ export default function SurveyDetailPage({ params }: SurveyDetailPageProps) {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-sm text-muted-foreground">Stakeholder Type</p>
-                  <StakeholderTypeBadge type={survey.stakeholder_type} className="mt-1" />
+                  <p className="text-sm text-muted-foreground">Stakeholder Types</p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {survey.stakeholder_types.map((type) => (
+                      <StakeholderTypeBadge key={type} type={type} />
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
@@ -221,40 +229,29 @@ export default function SurveyDetailPage({ params }: SurveyDetailPageProps) {
                     {format(new Date(survey.end_date), 'PPP')}
                   </p>
                 </div>
-                {survey.department && (
-                  <div>
-                    <p className="text-sm text-muted-foreground">Department</p>
-                    <p className="font-medium">{survey.department.department_name}</p>
-                  </div>
-                )}
-                {survey.program && (
-                  <div>
-                    <p className="text-sm text-muted-foreground">Program</p>
-                    <p className="font-medium">{survey.program.program_name}</p>
-                  </div>
-                )}
+                <div>
+                  <p className="text-sm text-muted-foreground">Created</p>
+                  <p className="font-medium">
+                    {format(new Date(survey.created_at), 'PPP')}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Responses</p>
+                  <p className="font-medium">{totalResponses}</p>
+                </div>
               </div>
 
               <Separator />
 
               <div>
-                <p className="text-sm text-muted-foreground mb-2">Questions ({survey.questions.length})</p>
-                <div className="space-y-2">
-                  {survey.questions.map((q, idx) => (
-                    <div key={q.id} className="p-3 bg-muted rounded-lg">
-                      <div className="flex items-start gap-2">
-                        <span className="text-sm font-medium text-muted-foreground">
-                          {idx + 1}.
-                        </span>
-                        <div>
-                          <p className="font-medium">{q.question}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Type: {q.type} {q.required && '(Required)'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                <p className="text-sm text-muted-foreground mb-2">NPS Question</p>
+                <div className="p-3 bg-muted rounded-lg">
+                  <p className="font-medium">
+                    {survey.question || 'How likely are you to recommend our institution to others?'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Scale: 0 (Not at all likely) to 10 (Extremely likely)
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -265,32 +262,34 @@ export default function SurveyDetailPage({ params }: SurveyDetailPageProps) {
             <CardHeader>
               <CardTitle>Response Summary</CardTitle>
               <CardDescription>
-                {summary.total} total responses
+                {totalResponses} total responses
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {summaryLoading ? (
+              {analyticsLoading ? (
                 <div className="flex justify-center py-8">
                   <BeatLoader color="#00e902" size={8} />
                 </div>
-              ) : summary.total > 0 ? (
+              ) : analytics && totalResponses > 0 ? (
                 <>
                   <div className="text-center">
                     <p className="text-sm text-muted-foreground mb-2">NPS Score</p>
-                    <NPSScoreDisplay score={summary.nps_score} size="lg" />
+                    <NPSScoreDisplay score={analytics.nps_score || 0} size="lg" />
                   </div>
 
                   <div>
                     <p className="text-sm text-muted-foreground mb-2">Average Score</p>
-                    <p className="text-2xl font-bold">{summary.average_score}/10</p>
+                    <p className="text-2xl font-bold">
+                      {(analytics.avg_score || 0).toFixed(1)}/10
+                    </p>
                   </div>
 
                   <div>
                     <p className="text-sm text-muted-foreground mb-2">Distribution</p>
                     <NPSDistributionBar
-                      promoters={summary.promoters}
-                      passives={summary.passives}
-                      detractors={summary.detractors}
+                      promoters={analytics.promoter_count || 0}
+                      passives={analytics.passive_count || 0}
+                      detractors={analytics.detractor_count || 0}
                     />
                   </div>
                 </>

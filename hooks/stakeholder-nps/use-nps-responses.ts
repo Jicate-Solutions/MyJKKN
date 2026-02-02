@@ -1,183 +1,98 @@
-'use client';
+/**
+ * React Query hooks for NPS Responses
+ */
 
-import { useState, useCallback } from 'react';
-import { toast } from 'react-hot-toast';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { NPSService } from '@/lib/services/stakeholder-nps/nps-service';
 import type {
-  NPSResponse,
-  ResponseFilters,
-  SubmitResponseDto
+  SubmitNPSResponseDto,
+  NPSResponseFilters
 } from '@/types/stakeholder-nps';
-import { npsSurveyKeys } from './use-nps-surveys';
 
-// Query keys for cache management
-export const npsResponseKeys = {
-  all: ['nps-responses'] as const,
-  lists: () => [...npsResponseKeys.all, 'list'] as const,
-  list: (filters: ResponseFilters) => [...npsResponseKeys.lists(), filters] as const,
-  details: () => [...npsResponseKeys.all, 'detail'] as const,
-  detail: (id: string) => [...npsResponseKeys.details(), id] as const,
-  summary: (surveyId: string) => [...npsResponseKeys.all, 'summary', surveyId] as const
-};
-
-/**
- * Hook for managing responses list with filters and pagination
- * FIXED: Added placeholderData for better UX during filter changes
- */
-export function useNPSResponses(initialFilters: ResponseFilters) {
-  const [filters, setFilters] = useState<ResponseFilters>(initialFilters);
-
-  const query = useQuery({
-    queryKey: npsResponseKeys.list(filters),
+export function useNPSResponses(filters: NPSResponseFilters) {
+  return useQuery({
+    queryKey: ['nps-responses', filters],
     queryFn: () => NPSService.getResponses(filters),
-    enabled: !!filters.survey_id || !!initialFilters?.survey_id,
-    staleTime: 2 * 60 * 1000, // 2 minutes
-    placeholderData: (previousData) => previousData
+    staleTime: 1000 * 60 * 5
   });
-
-  const updateFilters = useCallback((newFilters: Partial<ResponseFilters>) => {
-    setFilters((prev) => ({ ...prev, ...newFilters, page: 1 }));
-  }, []);
-
-  const changePage = useCallback((page: number) => {
-    setFilters((prev) => ({ ...prev, page }));
-  }, []);
-
-  const resetFilters = useCallback(() => {
-    setFilters(initialFilters);
-  }, [initialFilters]);
-
-  return {
-    responses: query.data?.data || [],
-    metadata: query.data?.metadata || { total: 0, page: 1, limit: 10, totalPages: 0 },
-    loading: query.isLoading,
-    error: query.error?.message || null,
-    filters,
-    updateFilters,
-    changePage,
-    resetFilters,
-    refetch: query.refetch
-  };
 }
 
-/**
- * Hook for fetching a single response
- */
-export function useNPSResponse(id: string) {
-  const query = useQuery({
-    queryKey: npsResponseKeys.detail(id),
-    queryFn: () => NPSService.getResponse(id),
-    enabled: !!id,
-    staleTime: 5 * 60 * 1000
-  });
-
-  return {
-    response: query.data,
-    loading: query.isLoading,
-    error: query.error?.message || null,
-    refetch: query.refetch
-  };
-}
-
-/**
- * Hook for getting survey response summary
- */
-export function useSurveyResponseSummary(surveyId: string) {
-  const query = useQuery({
-    queryKey: npsResponseKeys.summary(surveyId),
-    queryFn: () => NPSService.getSurveyResponseSummary(surveyId),
-    enabled: !!surveyId,
-    staleTime: 1 * 60 * 1000 // 1 minute for summaries
-  });
-
-  return {
-    summary: query.data || {
-      total: 0,
-      promoters: 0,
-      passives: 0,
-      detractors: 0,
-      nps_score: 0,
-      average_score: 0
-    },
-    loading: query.isLoading,
-    error: query.error?.message || null,
-    refetch: query.refetch
-  };
-}
-
-/**
- * Hook for submitting a survey response
- */
 export function useSubmitNPSResponse() {
   const queryClient = useQueryClient();
 
-  const mutation = useMutation({
-    mutationFn: (data: SubmitResponseDto) => NPSService.submitResponse(data),
-    onSuccess: (_, variables) => {
-      // Invalidate related queries
-      queryClient.invalidateQueries({ queryKey: npsResponseKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: npsResponseKeys.summary(variables.survey_id) });
-      queryClient.invalidateQueries({ queryKey: npsSurveyKeys.detail(variables.survey_id) });
-      toast.success('Thank you for your feedback!');
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to submit response');
+  return useMutation({
+    mutationFn: (dto: SubmitNPSResponseDto) => NPSService.submitResponse(dto),
+    onSuccess: (_, dto) => {
+      queryClient.invalidateQueries({ queryKey: ['nps-responses'] });
+      queryClient.invalidateQueries({ queryKey: ['nps-survey', dto.survey_id] });
+      queryClient.invalidateQueries({ queryKey: ['nps-analytics', dto.survey_id] });
     }
+  });
+}
+
+export function useSurveyResponseSummary(surveyId: string) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['nps-response-summary', surveyId],
+    queryFn: () => NPSService.getSurveyAnalytics(surveyId),
+    enabled: !!surveyId,
+    staleTime: 1000 * 60 * 2
   });
 
   return {
-    submitResponse: mutation.mutateAsync,
-    submit: mutation.mutate, // For use with onSuccess callbacks
-    loading: mutation.isPending,
-    error: mutation.error?.message || null,
-    isSuccess: mutation.isSuccess
+    summary: data,
+    loading: isLoading,
+    error
   };
 }
 
-/**
- * Hook for exporting survey responses
- * FIXED: Better error handling and cleanup
- */
 export function useExportResponses() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const exportResponses = async (surveyId: string, surveyTitle?: string) => {
+    // Export functionality - generates CSV file of responses
+    console.log('[useExportResponses] Export requested for survey:', surveyId, surveyTitle);
 
-  const exportResponses = useCallback(async (surveyId: string, surveyTitle?: string) => {
-    let url: string | null = null;
     try {
-      setLoading(true);
-      setError(null);
-      const csv = await NPSService.exportResponses(surveyId);
+      const responses = await NPSService.getResponses({
+        survey_id: surveyId,
+        limit: 1000 // Get all responses
+      });
 
-      // Create blob and download
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      url = URL.createObjectURL(blob);
+      if (!responses.data || responses.data.length === 0) {
+        console.warn('[useExportResponses] No responses to export');
+        return null;
+      }
+
+      // Convert to CSV format
+      const headers = ['Date', 'Stakeholder Type', 'Score', 'Sentiment', 'Feedback'];
+      const rows = responses.data.map(r => [
+        new Date(r.created_at).toLocaleDateString(),
+        r.stakeholder_type,
+        r.score.toString(),
+        r.sentiment,
+        r.feedback ? `"${r.feedback.replace(/"/g, '""')}"` : ''
+      ]);
+
+      const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = url;
-      link.download = `nps-responses-${surveyTitle || surveyId}-${new Date().toISOString().split('T')[0]}.csv`;
+      link.setAttribute('href', url);
+      link.setAttribute('download', `nps-responses-${surveyTitle || surveyId}.csv`);
+      link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
 
-      toast.success('Responses exported successfully');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to export responses';
-      setError(message);
-      toast.error(message);
-      throw err; // Re-throw for caller to handle if needed
-    } finally {
-      // Cleanup blob URL to prevent memory leak
-      if (url) {
-        URL.revokeObjectURL(url);
-      }
-      setLoading(false);
+      return responses.data;
+    } catch (error) {
+      console.error('[useExportResponses] Export failed:', error);
+      throw error;
     }
-  }, []);
+  };
 
   return {
     exportResponses,
-    loading,
-    error
+    loading: false
   };
 }

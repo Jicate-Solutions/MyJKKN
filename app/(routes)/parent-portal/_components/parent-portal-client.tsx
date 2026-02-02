@@ -54,7 +54,7 @@ export function ParentPortalClient() {
   });
 
   const { mutate: markRead } = useMarkCommunicationRead();
-  const { submit: submitNPS } = useSubmitNPSResponse();
+  const { mutate: submitNPS } = useSubmitNPSResponse();
 
   // Show survey prompt if there are pending surveys
   useEffect(() => {
@@ -101,10 +101,10 @@ export function ParentPortalClient() {
       submitNPS(
         {
           survey_id: surveyId,
-          respondent_id: dashboardData.parent.id,
-          respondent_type: 'parent',
-          nps_score: score,
-          additional_feedback: feedback,
+          stakeholder_id: dashboardData.parent.id,
+          stakeholder_type: 'parent',
+          score: score as 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10,
+          feedback: feedback,
         },
         {
           onSuccess: () => {

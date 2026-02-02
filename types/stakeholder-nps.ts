@@ -1,232 +1,166 @@
-// Stakeholder NPS Types
-// This file contains all TypeScript interfaces for the Stakeholder NPS module
+/**
+ * Stakeholder NPS (Net Promoter Score) Types
+ * F001 - TQM Module
+ *
+ * NPS Calculation:
+ * NPS Score = % Promoters (9-10) - % Detractors (0-6)
+ * Range: -100 to +100
+ *
+ * Segments:
+ * - Promoters: Score 9-10 (Enthusiastic, will recommend)
+ * - Passives: Score 7-8 (Satisfied but unenthusiastic)
+ * - Detractors: Score 0-6 (Unhappy, may spread negative word-of-mouth)
+ */
 
-// Enums and Union Types
-export type StakeholderType = 'parent' | 'learner' | 'alumni' | 'industry' | 'staff';
-export type NPSCategory = 'promoter' | 'passive' | 'detractor';
+// ============================================
+// Core Types
+// ============================================
+
+export type StakeholderType = 'student' | 'parent' | 'staff' | 'alumni' | 'learner' | 'industry' | 'employer' | 'community';
+export type NPSScore = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+export type NPSSegment = 'promoter' | 'passive' | 'detractor';
 export type SurveyStatus = 'draft' | 'active' | 'closed' | 'archived';
-export type QuestionType = 'nps' | 'text' | 'rating' | 'multiple_choice' | 'yes_no';
+export type QuestionType = 'nps' | 'rating' | 'text' | 'multiple_choice' | 'yes_no';
 
-// Survey Question Interface
+// Survey question interface
 export interface NPSQuestion {
   id: string;
   type: QuestionType;
   question: string;
   required: boolean;
   options?: string[];
-  min_value?: number;
-  max_value?: number;
 }
 
-// NPS Survey Interface
+// Helper to determine segment from score
+export function getNPSSegment(score: NPSScore): NPSSegment {
+  if (score >= 9) return 'promoter';
+  if (score >= 7) return 'passive';
+  return 'detractor';
+}
+
+// Helper to get segment color for UI
+export function getNPSSegmentColor(segment: NPSSegment): string {
+  switch (segment) {
+    case 'promoter':
+      return 'text-green-600';
+    case 'passive':
+      return 'text-yellow-600';
+    case 'detractor':
+      return 'text-red-600';
+  }
+}
+
+// Helper to get NPS score color for UI
+export function getNPSScoreColor(score: number): string {
+  if (score >= 50) return 'text-green-600';
+  if (score >= 0) return 'text-yellow-600';
+  return 'text-red-600';
+}
+
+// ============================================
+// Database Entities
+// ============================================
+
 export interface NPSSurvey {
   id: string;
   institution_id: string;
   title: string;
   description: string | null;
-  stakeholder_type: StakeholderType;
-  department_id: string | null;
-  program_id: string | null;
+  stakeholder_types: StakeholderType[];
+  question: string;
   start_date: string;
   end_date: string;
   status: SurveyStatus;
-  questions: NPSQuestion[];
-  created_by: string | null;
+  response_count: number;
   created_at: string;
   updated_at: string;
-  // Related data (populated from joins)
-  department?: {
-    id: string;
-    department_name: string;
-  };
-  program?: {
-    id: string;
-    program_name: string;
-  };
-  creator?: {
-    id: string;
-    full_name: string;
-    email: string;
-  };
-  response_count?: number;
+  created_by: string | null;
 }
 
-// NPS Response Interface
 export interface NPSResponse {
   id: string;
   survey_id: string;
-  respondent_id: string | null;
-  respondent_type: StakeholderType;
-  respondent_email: string | null;
-  respondent_name: string | null;
-  nps_score: number;
-  nps_category: NPSCategory;
-  additional_feedback: string | null;
-  question_responses: Record<string, unknown>;
-  department_id: string | null;
-  submitted_at: string;
-  ip_address: string | null;
-  user_agent: string | null;
-  // Related data (populated from joins)
-  survey?: NPSSurvey;
-  department?: {
-    id: string;
-    department_name: string;
-  };
+  stakeholder_type: StakeholderType;
+  stakeholder_id: string;
+  stakeholder_email: string | null;
+  stakeholder_name: string | null;
+  score: NPSScore;
+  feedback: string | null;
+  sentiment: NPSSegment;
+  created_at: string;
 }
 
-// NPS Analytics Interface
-export interface NPSAnalytics {
-  id: string;
+export interface NPSSurveyAnalytics {
+  survey_id: string;
   institution_id: string;
-  survey_id: string | null;
-  stakeholder_type: StakeholderType;
-  department_id: string | null;
-  period_start: string;
-  period_end: string;
+  title: string;
+  stakeholder_types: StakeholderType[];
+  start_date: string;
+  end_date: string;
+  status: SurveyStatus;
   total_responses: number;
+  promoter_count: number;
+  passive_count: number;
+  detractor_count: number;
+  promoter_percentage: number;
+  passive_percentage: number;
+  detractor_percentage: number;
+  nps_score: number;
+  avg_score: number;
+  responses_by_type: Record<StakeholderType, number>;
+}
+
+export interface NPSTrendData {
+  institution_id: string;
+  stakeholder_type: StakeholderType;
+  month: string;
+  response_count: number;
   promoters: number;
   passives: number;
   detractors: number;
   nps_score: number;
-  calculated_at: string;
-  // Related data
-  department?: {
-    id: string;
-    department_name: string;
-  };
+  avg_score: number;
 }
 
-// Dashboard Data Interface
-export interface NPSDashboardData {
-  overall_nps: number;
-  total_responses: number;
-  response_rate: number;
-  by_stakeholder: Record<StakeholderType, {
-    score: number;
-    responses: number;
-    promoters: number;
-    passives: number;
-    detractors: number;
-  }>;
-  by_department: Record<string, {
-    name: string;
-    score: number;
-    responses: number;
-  }>;
-  trend: {
-    period: string;
-    score: number;
-    responses: number;
-  }[];
-  recent_feedback: {
-    id: string;
-    score: number;
-    category: NPSCategory;
-    feedback: string;
-    stakeholder_type: StakeholderType;
-    submitted_at: string;
-  }[];
-}
-
-// Stakeholder Info for Display
-export const STAKEHOLDER_INFO: Record<StakeholderType, {
-  label: string;
-  description: string;
-  frequency: string;
-  trigger: string;
-}> = {
-  parent: {
-    label: 'Parents',
-    description: 'Parents and guardians of current students',
-    frequency: 'Semester-end',
-    trigger: 'After each semester'
-  },
-  learner: {
-    label: 'Learners',
-    description: 'Current students enrolled in programs',
-    frequency: 'Semester-end',
-    trigger: 'After each semester'
-  },
-  alumni: {
-    label: 'Alumni',
-    description: 'Graduated students',
-    frequency: 'Annual',
-    trigger: 'Annual campaign'
-  },
-  industry: {
-    label: 'Industry Partners',
-    description: 'Placement partners and recruiters',
-    frequency: 'Post-placement',
-    trigger: 'After placement cycle'
-  },
-  staff: {
-    label: 'Staff',
-    description: 'Faculty and administrative staff',
-    frequency: 'Annual',
-    trigger: 'Annual review'
-  }
-};
-
-// DTOs for Create/Update Operations
-export interface CreateSurveyDto {
+export interface CreateNPSSurveyDto {
   institution_id: string;
   title: string;
   description?: string;
-  stakeholder_type: StakeholderType;
-  department_id?: string;
-  program_id?: string;
+  stakeholder_types: StakeholderType[];
+  question?: string;
   start_date: string;
   end_date: string;
-  questions: NPSQuestion[];
+  status?: SurveyStatus;
 }
 
-export interface UpdateSurveyDto {
+export interface UpdateNPSSurveyDto {
   title?: string;
   description?: string;
-  department_id?: string;
-  program_id?: string;
+  stakeholder_types?: StakeholderType[];
+  question?: string;
   start_date?: string;
   end_date?: string;
   status?: SurveyStatus;
-  questions?: NPSQuestion[];
 }
 
-export interface SubmitResponseDto {
+export interface SubmitNPSResponseDto {
   survey_id: string;
-  respondent_id?: string;
-  respondent_type: StakeholderType;
-  respondent_email?: string;
-  respondent_name?: string;
-  nps_score: number;
-  additional_feedback?: string;
-  question_responses?: Record<string, unknown>;
-  department_id?: string;
+  stakeholder_type: StakeholderType;
+  stakeholder_id: string;
+  stakeholder_email?: string;
+  stakeholder_name?: string;
+  score: NPSScore;
+  feedback?: string;
 }
 
-// Filter Interfaces
-export interface SurveyFilters {
-  institution_id: string; // REQUIRED for security - prevents cross-institution access
+export interface NPSSurveyFilters {
+  institution_id: string;
+  status?: SurveyStatus | SurveyStatus[];
   stakeholder_type?: StakeholderType;
-  status?: SurveyStatus;
   department_id?: string;
   program_id?: string;
-  search?: string;
   start_date_from?: string;
   start_date_to?: string;
-  page?: number;
-  limit?: number;
-  sortBy?: string;
-  sortDirection?: 'asc' | 'desc';
-}
-
-export interface ResponseFilters {
-  survey_id?: string;
-  nps_category?: NPSCategory;
-  department_id?: string;
-  respondent_type?: StakeholderType;
-  submitted_from?: string;
-  submitted_to?: string;
   search?: string;
   page?: number;
   limit?: number;
@@ -234,16 +168,29 @@ export interface ResponseFilters {
   sortDirection?: 'asc' | 'desc';
 }
 
-export interface AnalyticsFilters {
-  institution_id: string; // REQUIRED for security - prevents cross-institution access
+export interface NPSResponseFilters {
+  survey_id?: string;
+  institution_id?: string;
   stakeholder_type?: StakeholderType;
-  department_id?: string;
-  period_start?: string;
-  period_end?: string;
+  sentiment?: NPSSegment;
+  score_min?: NPSScore;
+  score_max?: NPSScore;
+  has_feedback?: boolean;
+  date_from?: string;
+  date_to?: string;
+  page?: number;
+  limit?: number;
 }
 
-// Response Types for List Operations
-export interface SurveyListResponse {
+export interface NPSAnalyticsFilters {
+  institution_id: string;
+  stakeholder_type?: StakeholderType;
+  date_from?: string;
+  date_to?: string;
+  survey_id?: string;
+}
+
+export interface NPSSurveyListResponse {
   data: NPSSurvey[];
   metadata: {
     total: number;
@@ -253,7 +200,7 @@ export interface SurveyListResponse {
   };
 }
 
-export interface ResponseListResponse {
+export interface NPSResponseListResponse {
   data: NPSResponse[];
   metadata: {
     total: number;
@@ -263,71 +210,68 @@ export interface ResponseListResponse {
   };
 }
 
-// Export Report Interface
-export interface NPSExportData {
-  surveys: NPSSurvey[];
-  responses: NPSResponse[];
-  analytics: NPSAnalytics[];
-  generated_at: string;
-  filters_applied: AnalyticsFilters;
+export interface StakeholderNPSData {
+  score: number;
+  responses: number;
+  promoters: number;
+  passives: number;
+  detractors: number;
 }
 
-// Category Color Mapping
-export const NPS_CATEGORY_COLORS: Record<NPSCategory, {
-  bg: string;
-  text: string;
-  border: string;
-}> = {
-  promoter: {
-    bg: 'bg-green-100',
-    text: 'text-green-800',
-    border: 'border-green-500'
-  },
-  passive: {
-    bg: 'bg-yellow-100',
-    text: 'text-yellow-800',
-    border: 'border-yellow-500'
-  },
-  detractor: {
-    bg: 'bg-red-100',
-    text: 'text-red-800',
-    border: 'border-red-500'
-  }
+export interface RecentFeedback {
+  id: string;
+  score: number;
+  feedback: string;
+  stakeholder_type: StakeholderType;
+  submitted_at: string;
+}
+
+export interface NPSDashboardData {
+  overall_nps: number;
+  total_responses: number;
+  by_stakeholder: Record<string, StakeholderNPSData>;
+  recent_feedback?: RecentFeedback[];
+}
+
+export const STAKEHOLDER_TYPE_LABELS: Record<StakeholderType, string> = {
+  student: 'Students',
+  parent: 'Parents',
+  staff: 'Staff',
+  alumni: 'Alumni',
+  learner: 'Learners',
+  industry: 'Industry Partners',
+  employer: 'Employers',
+  community: 'Community'
 };
 
-// Status Color Mapping
-export const SURVEY_STATUS_COLORS: Record<SurveyStatus, {
-  bg: string;
-  text: string;
-}> = {
-  draft: {
-    bg: 'bg-gray-100',
-    text: 'text-gray-800'
-  },
-  active: {
-    bg: 'bg-green-100',
-    text: 'text-green-800'
-  },
-  closed: {
-    bg: 'bg-blue-100',
-    text: 'text-blue-800'
-  },
-  archived: {
-    bg: 'bg-orange-100',
-    text: 'text-orange-800'
-  }
+export const NPS_SEGMENT_LABELS: Record<NPSSegment, string> = {
+  promoter: 'Promoters',
+  passive: 'Passives',
+  detractor: 'Detractors'
 };
 
-// Helper function to calculate NPS category from score
-export function getNPSCategory(score: number): NPSCategory {
-  if (score >= 9) return 'promoter';
-  if (score >= 7) return 'passive';
-  return 'detractor';
+export const SURVEY_STATUS_LABELS: Record<SurveyStatus, string> = {
+  draft: 'Draft',
+  active: 'Active',
+  closed: 'Closed',
+  archived: 'Archived'
+};
+
+export const NPS_INTERPRETATION = [
+  { min: 70, max: 100, label: 'World Class', description: 'Exceptional performance', color: 'text-green-700' },
+  { min: 50, max: 69, label: 'Excellent', description: 'Strong performance', color: 'text-green-600' },
+  { min: 30, max: 49, label: 'Great', description: 'Good performance', color: 'text-green-500' },
+  { min: 0, max: 29, label: 'Good', description: 'Acceptable performance', color: 'text-yellow-600' },
+  { min: -20, max: -1, label: 'Needs Improvement', description: 'Below expectations', color: 'text-orange-600' },
+  { min: -100, max: -21, label: 'Critical', description: 'Urgent attention required', color: 'text-red-600' }
+];
+
+export function getNPSInterpretation(score: number): typeof NPS_INTERPRETATION[0] {
+  return NPS_INTERPRETATION.find(
+    (range) => score >= range.min && score <= range.max
+  ) || NPS_INTERPRETATION[NPS_INTERPRETATION.length - 1];
 }
 
-// Helper function to calculate NPS score from counts
-export function calculateNPSScore(promoters: number, passives: number, detractors: number): number {
-  const total = promoters + passives + detractors;
-  if (total === 0) return 0;
-  return Math.round(((promoters - detractors) / total) * 100);
-}
+// Aliases for backward compatibility
+export type SurveyFilters = NPSSurveyFilters;
+export type SurveyListResponse = NPSSurveyListResponse;

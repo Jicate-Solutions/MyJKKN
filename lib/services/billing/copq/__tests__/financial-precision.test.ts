@@ -1,7 +1,7 @@
 // lib/services/billing/copq/__tests__/financial-precision.test.ts
 // Unit tests for COPQ financial precision
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect } from 'vitest';
 
 /**
  * Financial Precision Tests

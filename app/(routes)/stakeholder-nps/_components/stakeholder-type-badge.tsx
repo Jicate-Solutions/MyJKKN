@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import type { StakeholderType } from '@/types/stakeholder-nps';
-import { Users, GraduationCap, Award, Building2, Briefcase } from 'lucide-react';
+import { Users, GraduationCap, Award, Briefcase, Building2, UserCheck, Globe } from 'lucide-react';
 
 interface StakeholderTypeBadgeProps {
   type: StakeholderType;
@@ -16,11 +16,11 @@ const typeConfig: Record<StakeholderType, {
   text: string;
   icon: React.ComponentType<{ className?: string }>;
 }> = {
-  parent: {
-    label: 'Parents',
-    bg: 'bg-purple-100',
-    text: 'text-purple-800',
-    icon: Users
+  student: {
+    label: 'Students',
+    bg: 'bg-blue-100',
+    text: 'text-blue-800',
+    icon: GraduationCap
   },
   learner: {
     label: 'Learners',
@@ -28,23 +28,41 @@ const typeConfig: Record<StakeholderType, {
     text: 'text-blue-800',
     icon: GraduationCap
   },
+  parent: {
+    label: 'Parents',
+    bg: 'bg-purple-100',
+    text: 'text-purple-800',
+    icon: Users
+  },
   alumni: {
     label: 'Alumni',
     bg: 'bg-amber-100',
     text: 'text-amber-800',
     icon: Award
   },
-  industry: {
-    label: 'Industry',
-    bg: 'bg-teal-100',
-    text: 'text-teal-800',
-    icon: Building2
-  },
   staff: {
     label: 'Staff',
     bg: 'bg-rose-100',
     text: 'text-rose-800',
     icon: Briefcase
+  },
+  industry: {
+    label: 'Industry Partners',
+    bg: 'bg-teal-100',
+    text: 'text-teal-800',
+    icon: Building2
+  },
+  employer: {
+    label: 'Employers',
+    bg: 'bg-cyan-100',
+    text: 'text-cyan-800',
+    icon: UserCheck
+  },
+  community: {
+    label: 'Community',
+    bg: 'bg-green-100',
+    text: 'text-green-800',
+    icon: Globe
   }
 };
 

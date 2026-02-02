@@ -11,7 +11,8 @@ import { useNPSSurvey, useSubmitNPSResponse } from '@/hooks/stakeholder-nps';
 import { BeatLoader } from 'react-spinners';
 import { CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { StakeholderType } from '@/types/stakeholder-nps';
+import type { StakeholderType, NPSScore } from '@/types/stakeholder-nps';
+import { v4 as uuidv4 } from 'uuid';
 
 function RespondPageContent() {
   const searchParams = useSearchParams();
@@ -23,14 +24,15 @@ function RespondPageContent() {
   const [name, setName] = useState('');
   const [submitted, setSubmitted] = useState(false);
 
-  const { survey, loading: surveyLoading, error: surveyError } = useNPSSurvey(surveyId || '');
-  const { submitResponse, loading: submitting, isSuccess } = useSubmitNPSResponse();
+  // Use the React Query hooks with correct property names
+  const { data: survey, isLoading: surveyLoading, error: surveyError } = useNPSSurvey(surveyId);
+  const submitMutation = useSubmitNPSResponse();
 
   useEffect(() => {
-    if (isSuccess) {
+    if (submitMutation.isSuccess) {
       setSubmitted(true);
     }
-  }, [isSuccess]);
+  }, [submitMutation.isSuccess]);
 
   if (!surveyId) {
     return (
@@ -129,18 +131,23 @@ function RespondPageContent() {
 
     if (score === null) return;
 
+    // Get the first stakeholder type from the survey
+    const stakeholderType: StakeholderType =
+      (survey.stakeholder_types?.[0] as StakeholderType) || 'student';
+
     try {
-      await submitResponse({
+      await submitMutation.mutateAsync({
         survey_id: survey.id,
-        respondent_type: survey.stakeholder_type as StakeholderType,
-        respondent_email: email || undefined,
-        respondent_name: name || undefined,
-        nps_score: score,
-        additional_feedback: feedback || undefined,
-        question_responses: {}
+        stakeholder_type: stakeholderType,
+        stakeholder_id: uuidv4(), // Generate a unique ID for anonymous responses
+        stakeholder_email: email || undefined,
+        stakeholder_name: name || undefined,
+        score: score as NPSScore,
+        feedback: feedback || undefined
       });
     } catch (error) {
       // Error handled by hook
+      console.error('[Respond] Failed to submit:', error);
     }
   };
 
@@ -172,7 +179,7 @@ function RespondPageContent() {
               {/* NPS Question */}
               <div>
                 <Label className="text-base font-medium">
-                  How likely are you to recommend JKKN to others? *
+                  {survey.question || 'How likely are you to recommend JKKN to others?'} *
                 </Label>
                 <div className="mt-4">
                   <div className="flex gap-1 flex-wrap justify-center">
@@ -242,14 +249,23 @@ function RespondPageContent() {
                 </div>
               </div>
 
+              {/* Error message */}
+              {submitMutation.isError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-600">
+                    {submitMutation.error?.message || 'Failed to submit response. Please try again.'}
+                  </p>
+                </div>
+              )}
+
               {/* Submit */}
               <Button
                 type="submit"
                 className="w-full"
                 size="lg"
-                disabled={score === null || submitting}
+                disabled={score === null || submitMutation.isPending}
               >
-                {submitting ? (
+                {submitMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Submitting...

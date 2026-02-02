@@ -1,70 +1,33 @@
-'use client';
+/**
+ * Stakeholder NPS - Main Dashboard Page
+ * F001 - TQM Module
+ */
 
-import { useState } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
+import { BarChart3, Plus, TrendingUp, Users } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
-import { usePermissions } from '@/hooks/use-permissions';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
-import { useNPSDashboard } from '@/hooks/stakeholder-nps';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { BeatLoader } from 'react-spinners';
-import {
-  Plus,
-  BarChart3,
-  FileText,
-  MessageSquare,
-  RefreshCw
-} from 'lucide-react';
-import { DashboardMetrics } from './_components/dashboard-metrics';
-import { SurveyFilters } from './_components/survey-filters';
-import { SurveyList } from './_components/survey-list';
-import { useNPSSurveys } from '@/hooks/stakeholder-nps';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { getEnhancedUserProfile } from '@/lib/supabase/server';
 
-export default function StakeholderNPSPage() {
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
-  const { selectedInstitutionId: institutionId, loading: institutionLoading } = useUserInstitutionAccess();
+export default async function StakeholderNPSPage() {
+  const { profile } = await getEnhancedUserProfile();
+  const institutionId = profile?.institution_id;
 
-  const canViewNPS = isSuperAdmin || canAccess('stakeholder-nps', 'view');
-  const canCreateSurvey = isSuperAdmin || canAccess('stakeholder-nps', 'create');
-
-  const {
-    dashboard,
-    loading: dashboardLoading,
-    refreshDashboard
-  } = useNPSDashboard(institutionId || '');
-
-  const {
-    surveys,
-    metadata,
-    loading: surveysLoading,
-    refetch: refetchSurveys
-  } = useNPSSurveys({
-    institution_id: institutionId || undefined
-  });
-
-  // Loading state
-  if (permissionsLoading || institutionLoading) {
+  if (!institutionId) {
     return (
       <ContentLayout title="Stakeholder NPS">
         <div className="flex items-center justify-center min-h-[400px]">
-          <BeatLoader color="#00e902" />
-        </div>
-      </ContentLayout>
-    );
-  }
-
-  // Access denied
-  if (!canViewNPS) {
-    return (
-      <ContentLayout title="Stakeholder NPS">
-        <div className="text-center py-8">
-          <p className="text-destructive">
-            You do not have permission to view NPS data.
-          </p>
+          <Card className="max-w-md">
+            <CardContent className="pt-6 text-center">
+              <p className="text-muted-foreground">
+                You need to be assigned to an institution to access NPS surveys.
+              </p>
+            </CardContent>
+          </Card>
         </div>
       </ContentLayout>
     );
@@ -85,87 +48,108 @@ export default function StakeholderNPSPage() {
           <div>
             <h1 className="text-2xl font-bold py-1">Stakeholder NPS</h1>
             <p className="text-sm sm:text-base text-muted-foreground">
-              Net Promoter Score tracking for all stakeholder types
+              Net Promoter Score tracking for students, parents, staff, and alumni
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => activeTab === 'dashboard' ? refreshDashboard() : refetchSurveys()}
-              disabled={dashboardLoading || surveysLoading}
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${dashboardLoading || surveysLoading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            {canCreateSurvey && (
-              <Button asChild>
-                <Link href="/stakeholder-nps/surveys/new">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create Survey
-                </Link>
-              </Button>
-            )}
-          </div>
+          <Button asChild>
+            <Link href="/stakeholder-nps/surveys/new">
+              <Plus className="mr-2 h-4 w-4" />
+              New Survey
+            </Link>
+          </Button>
         </div>
 
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="dashboard" className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              Dashboard
-            </TabsTrigger>
-            <TabsTrigger value="surveys" className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              Surveys
-            </TabsTrigger>
-            <TabsTrigger value="responses" className="flex items-center gap-2">
-              <MessageSquare className="h-4 w-4" />
-              Responses
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Dashboard Tab */}
-          <TabsContent value="dashboard">
-            <DashboardMetrics dashboard={dashboard} loading={dashboardLoading} />
-          </TabsContent>
-
-          {/* Surveys Tab */}
-          <TabsContent value="surveys" className="space-y-4">
-            <Card>
-              <CardContent className="p-6">
-                <SurveyFilters />
-              </CardContent>
-            </Card>
-
-            {surveysLoading ? (
-              <div className="flex items-center justify-center py-16">
-                <BeatLoader color="#00e902" />
-              </div>
-            ) : (
-              <SurveyList surveys={surveys} />
-            )}
-          </TabsContent>
-
-          {/* Responses Tab */}
-          <TabsContent value="responses">
-            <Card>
-              <CardHeader>
-                <CardTitle>All Responses</CardTitle>
+        {/* Quick Navigation Cards */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Link href="/stakeholder-nps/surveys">
+            <Card className="hover:bg-accent transition-colors cursor-pointer">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Surveys</CardTitle>
+                <BarChart3 className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground">
-                  Select a survey from the Surveys tab to view its responses.
+                <p className="text-xs text-muted-foreground">
+                  Manage NPS surveys and campaigns
                 </p>
-                <Button asChild variant="outline" className="mt-4">
-                  <Link href="/stakeholder-nps/responses">
-                    View All Responses
-                  </Link>
-                </Button>
               </CardContent>
             </Card>
-          </TabsContent>
-        </Tabs>
+          </Link>
+
+          <Link href="/stakeholder-nps/responses">
+            <Card className="hover:bg-accent transition-colors cursor-pointer">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Responses</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground">
+                  View individual stakeholder responses
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link href="/stakeholder-nps/analytics">
+            <Card className="hover:bg-accent transition-colors cursor-pointer">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Analytics</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground">
+                  Trends, insights, and comparisons
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link href="/stakeholder-nps/feedback">
+            <Card className="hover:bg-accent transition-colors cursor-pointer">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Feedback</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground">
+                  Top feedback from promoters and detractors
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+        </div>
+
+        {/* Dashboard Content */}
+        <Suspense
+          fallback={
+            <div className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {[...Array(4)].map((_, i) => (
+                  <Card key={i}>
+                    <CardHeader className="pb-2">
+                      <Skeleton className="h-4 w-24" />
+                    </CardHeader>
+                    <CardContent>
+                      <Skeleton className="h-8 w-16" />
+                      <Skeleton className="h-3 w-32 mt-2" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          }
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle>NPS Dashboard</CardTitle>
+              <CardDescription>Overview of stakeholder sentiment</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Dashboard analytics will be displayed here. Create your first survey to get started.
+              </p>
+            </CardContent>
+          </Card>
+        </Suspense>
       </div>
     </ContentLayout>
   );

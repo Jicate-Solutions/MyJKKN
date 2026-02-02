@@ -15,11 +15,14 @@ import { Search, X } from 'lucide-react';
 import type { StakeholderType, SurveyStatus } from '@/types/stakeholder-nps';
 
 const stakeholderOptions: { value: StakeholderType; label: string }[] = [
-  { value: 'parent', label: 'Parents' },
+  { value: 'student', label: 'Students' },
   { value: 'learner', label: 'Learners' },
+  { value: 'parent', label: 'Parents' },
   { value: 'alumni', label: 'Alumni' },
+  { value: 'staff', label: 'Staff' },
   { value: 'industry', label: 'Industry Partners' },
-  { value: 'staff', label: 'Staff' }
+  { value: 'employer', label: 'Employers' },
+  { value: 'community', label: 'Community' }
 ];
 
 const statusOptions: { value: SurveyStatus; label: string }[] = [
