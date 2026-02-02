@@ -46,7 +46,7 @@ export class LearnerAdvancedAnalyticsService {
   static async getIntakeCapacityMetrics(
     filters: LearnerDashboardFilters
   ): Promise<IntakeCapacityMetrics[]> {
-    const supabase = createClient();
+    const supabase = await createClient();
 
     // Get programs with sanctioned intake
     let programsQuery = supabase
@@ -146,7 +146,7 @@ export class LearnerAdvancedAnalyticsService {
    * Returns average seat utilization over last 3 years
    */
   private static async calculateStabilityIndex(programId: string): Promise<number> {
-    const supabase = createClient();
+    const supabase = await createClient();
 
     const { data: history } = await supabase
       .from('intake_history')
@@ -176,7 +176,7 @@ export class LearnerAdvancedAnalyticsService {
   static async getGeographyMetrics(
     filters: LearnerDashboardFilters
   ): Promise<GeographyMetrics> {
-    const supabase = createClient();
+    const supabase = await createClient();
 
     let query = supabase
       .from('learners_profiles')
@@ -273,7 +273,7 @@ export class LearnerAdvancedAnalyticsService {
   static async getTrendMetrics(
     filters: LearnerDashboardFilters
   ): Promise<TrendMetrics> {
-    const supabase = createClient();
+    const supabase = await createClient();
 
     let query = supabase
       .from('learners_profiles')
@@ -406,7 +406,7 @@ export class LearnerAdvancedAnalyticsService {
   static async getSchoolFeederMetrics(
     filters: LearnerDashboardFilters
   ): Promise<SchoolFeederMetrics> {
-    const supabase = createClient();
+    const supabase = await createClient();
 
     let query = supabase
       .from('learners_profiles')
