@@ -94,6 +94,14 @@ export function CompetencyTable() {
   const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
   const institutionId = institutions?.[0]?.institution_id || '';
 
+  // DEBUG: Log institution access info
+  console.log('[CompetencyTable] DEBUG:', {
+    institutionsLoading,
+    institutionsCount: institutions?.length || 0,
+    institutionId,
+    institutions: institutions?.map(i => ({ id: i.institution_id, name: i.institution_name }))
+  });
+
   // Filter state
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<CompetencyType | 'all'>('all');
