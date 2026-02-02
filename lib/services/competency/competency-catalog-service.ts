@@ -98,17 +98,6 @@ export class CompetencyCatalogService {
         }
       }
 
-      // DEPRECATED: bloom_taxonomy_level renamed to bloom_taxonomy_level_deprecated
-      // Use finks_dimensions filters instead - Fink's Taxonomy replaced Bloom's for AI era
-      if (filters.bloom_taxonomy_level) {
-        console.warn('[CompetencyCatalogService] bloom_taxonomy_level filter is DEPRECATED. Use finks_dimensions instead.');
-        if (Array.isArray(filters.bloom_taxonomy_level)) {
-          query = query.in('bloom_taxonomy_level_deprecated', filters.bloom_taxonomy_level);
-        } else {
-          query = query.eq('bloom_taxonomy_level_deprecated', filters.bloom_taxonomy_level);
-        }
-      }
-
       if (filters.industry_tags && filters.industry_tags.length > 0) {
         query = query.overlaps('industry_tags', filters.industry_tags);
       }
@@ -404,10 +393,9 @@ export class CompetencyCatalogService {
 
       // Get all competencies for the institution
       // CRITICAL: Include 'id' to enable .in() queries below
-      // Note: bloom_taxonomy_level_deprecated kept for backward compat stats
       const { data: competencies, error: compError } = await (this.getSupabase() as any)
         .from('competency_catalog')
-        .select('id, competency_type, bloom_taxonomy_level_deprecated, is_active, finks_dimensions')
+        .select('id, competency_type, is_active, finks_dimensions')
         .eq('institution_id', institutionId);
 
       if (compError) {
@@ -481,14 +469,6 @@ export class CompetencyCatalogService {
           domain: 0,
           soft_skill: 0
         },
-        by_taxonomy_level: {
-          remember: 0,
-          understand: 0,
-          apply: 0,
-          analyze: 0,
-          evaluate: 0,
-          create: 0
-        },
         mapped_to_programs: programMappedCount || 0,
         mapped_to_courses: courseMappedCount || 0,
         active_count: 0,
@@ -514,10 +494,6 @@ export class CompetencyCatalogService {
       (competencies || []).forEach((c: any) => {
         if (c.competency_type && stats.by_type[c.competency_type as keyof typeof stats.by_type] !== undefined) {
           stats.by_type[c.competency_type as keyof typeof stats.by_type]++;
-        }
-        // DEPRECATED: Using bloom_taxonomy_level_deprecated for legacy stats
-        if (c.bloom_taxonomy_level_deprecated && stats.by_taxonomy_level[c.bloom_taxonomy_level_deprecated as keyof typeof stats.by_taxonomy_level] !== undefined) {
-          stats.by_taxonomy_level[c.bloom_taxonomy_level_deprecated as keyof typeof stats.by_taxonomy_level]++;
         }
         if (c.is_active) {
           stats.active_count++;
@@ -650,8 +626,6 @@ export class CompetencyCatalogService {
         competency_type: row.competency_type,
         description: row.description,
         industry_tags: industryTags,
-        // DEPRECATED: bloom_taxonomy_level renamed in database
-        bloom_taxonomy_level_deprecated: row.bloom_taxonomy_level,
         proficiency_levels: [
           { level: 'novice', description: 'Basic awareness', criteria: [] },
           { level: 'beginner', description: 'Basic knowledge', criteria: [] },

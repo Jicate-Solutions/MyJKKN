@@ -45,7 +45,6 @@ export function useCompetencies(
     const stableFilters: CompetencyFilters = {
       institution_id: filters.institution_id,
       competency_type: filters.competency_type,
-      bloom_taxonomy_level: filters.bloom_taxonomy_level,
       is_active: filters.is_active,
       search: filters.search,
       page: filters.page || 1,
@@ -57,7 +56,6 @@ export function useCompetencies(
   }, [
     filters.institution_id,
     filters.competency_type,
-    filters.bloom_taxonomy_level,
     filters.is_active,
     filters.search,
     filters.page,

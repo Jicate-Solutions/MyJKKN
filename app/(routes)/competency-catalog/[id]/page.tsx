@@ -61,7 +61,7 @@ import { useCompetency, useArchiveCompetency, useRestoreCompetency } from '@/hoo
 import { toast } from 'sonner';
 
 // Types
-import type { CompetencyType, BloomTaxonomyLevel, ProficiencyLevel } from '@/types/competency';
+import type { CompetencyType, ProficiencyLevel } from '@/types/competency';
 
 // ============================================================================
 // CONSTANTS
@@ -72,15 +72,6 @@ const TYPE_BADGES: Record<CompetencyType, { label: string; color: string }> = {
   behavioral: { label: 'Behavioral', color: 'bg-purple-100 text-purple-800' },
   domain: { label: 'Domain', color: 'bg-amber-100 text-amber-800' },
   soft_skill: { label: 'Soft Skill', color: 'bg-emerald-100 text-emerald-800' }
-};
-
-const BLOOM_LABELS: Record<BloomTaxonomyLevel, string> = {
-  remember: 'Remember - Recall facts and basic concepts',
-  understand: 'Understand - Explain ideas or concepts',
-  apply: 'Apply - Use information in new situations',
-  analyze: 'Analyze - Draw connections among ideas',
-  evaluate: 'Evaluate - Justify a stand or decision',
-  create: 'Create - Produce new or original work'
 };
 
 const LEVEL_COLORS: Record<ProficiencyLevel, string> = {
@@ -433,17 +424,6 @@ export default function CompetencyDetailPage() {
                   <CardTitle className="text-base">Details</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {competency.bloom_taxonomy_level && (
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-1">Bloom's Taxonomy (Legacy)</p>
-                      <Badge variant="outline" className="text-xs">
-                        {BLOOM_LABELS[competency.bloom_taxonomy_level]}
-                      </Badge>
-                    </div>
-                  )}
-
-                  <Separator />
-
                   <div>
                     <p className="text-sm text-muted-foreground mb-2">Industry Tags</p>
                     <div className="flex flex-wrap gap-1">

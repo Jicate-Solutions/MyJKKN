@@ -42,7 +42,6 @@ import { FinksDimensionInput } from './finks-dimension-input';
 import type {
   Competency,
   CompetencyType,
-  BloomTaxonomyLevel,
   ProficiencyLevelDefinition,
   FinksDimensions,
   CreateCompetencyDTO,
@@ -59,15 +58,6 @@ const COMPETENCY_TYPES: { value: CompetencyType; label: string; description: str
   { value: 'behavioral', label: 'Behavioral', description: 'Soft skills, interpersonal abilities' },
   { value: 'domain', label: 'Domain', description: 'Industry/field-specific knowledge' },
   { value: 'soft_skill', label: 'Soft Skill', description: 'Communication, teamwork, etc.' }
-];
-
-const BLOOM_LEVELS: { value: BloomTaxonomyLevel; label: string; order: number }[] = [
-  { value: 'remember', label: 'Remember - Recall facts', order: 1 },
-  { value: 'understand', label: 'Understand - Explain ideas', order: 2 },
-  { value: 'apply', label: 'Apply - Use in new situations', order: 3 },
-  { value: 'analyze', label: 'Analyze - Draw connections', order: 4 },
-  { value: 'evaluate', label: 'Evaluate - Justify decisions', order: 5 },
-  { value: 'create', label: 'Create - Produce original work', order: 6 }
 ];
 
 // Common industry tags for suggestions
@@ -91,7 +81,6 @@ const competencyFormSchema = z.object({
     .max(255, 'Name cannot exceed 255 characters'),
   competency_type: z.enum(['technical', 'behavioral', 'domain', 'soft_skill']),
   description: z.string().max(2000, 'Description cannot exceed 2000 characters').optional(),
-  bloom_taxonomy_level: z.enum(['remember', 'understand', 'apply', 'analyze', 'evaluate', 'create']).optional().nullable(),
   industry_tags: z.array(z.string()).default([]),
   proficiency_levels: z.array(z.object({
     level: z.enum(['novice', 'beginner', 'intermediate', 'advanced', 'expert']),
@@ -146,7 +135,6 @@ export function CompetencyForm({
       competency_name: competency?.competency_name || '',
       competency_type: competency?.competency_type || 'technical',
       description: competency?.description || '',
-      bloom_taxonomy_level: competency?.bloom_taxonomy_level || null,
       industry_tags: competency?.industry_tags || [],
       proficiency_levels: competency?.proficiency_levels || [],
       finks_dimensions: competency?.finks_dimensions || {
@@ -186,7 +174,6 @@ export function CompetencyForm({
         competency_name: data.competency_name,
         competency_type: data.competency_type,
         description: data.description,
-        bloom_taxonomy_level: data.bloom_taxonomy_level || undefined,
         industry_tags: data.industry_tags,
         proficiency_levels: mappedProficiencyLevels,
         finks_dimensions: finksDimensions,
@@ -200,7 +187,6 @@ export function CompetencyForm({
         competency_name: data.competency_name,
         competency_type: data.competency_type,
         description: data.description,
-        bloom_taxonomy_level: data.bloom_taxonomy_level || undefined,
         industry_tags: data.industry_tags,
         proficiency_levels: mappedProficiencyLevels,
         finks_dimensions: finksDimensions,
@@ -323,36 +309,6 @@ export function CompetencyForm({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="bloom_taxonomy_level"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Bloom's Taxonomy Level</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value || ''}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select cognitive level" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {BLOOM_LEVELS.map(level => (
-                        <SelectItem key={level.value} value={level.value}>
-                          {level.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    The cognitive level required for this competency
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
           </CardContent>
         </Card>
 

@@ -63,7 +63,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type {
   Competency,
   CompetencyType,
-  BloomTaxonomyLevel,
   CompetencyFilters
 } from '@/types/competency';
 
@@ -87,15 +86,6 @@ const TYPE_BADGES: Record<CompetencyType, { label: string; color: string }> = {
   soft_skill: { label: 'Soft Skill', color: 'bg-emerald-100 text-emerald-800' }
 };
 
-const BLOOM_BADGES: Record<BloomTaxonomyLevel, { label: string; order: number }> = {
-  remember: { label: 'Remember', order: 1 },
-  understand: { label: 'Understand', order: 2 },
-  apply: { label: 'Apply', order: 3 },
-  analyze: { label: 'Analyze', order: 4 },
-  evaluate: { label: 'Evaluate', order: 5 },
-  create: { label: 'Create', order: 6 }
-};
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -107,7 +97,6 @@ export function CompetencyTable() {
   // Filter state
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<CompetencyType | 'all'>('all');
-  const [bloomFilter, setBloomFilter] = useState<BloomTaxonomyLevel | 'all'>('all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<'competency_code' | 'competency_name' | 'created_at'>('competency_name');
@@ -122,7 +111,6 @@ export function CompetencyTable() {
     institution_id: institutionId,
     search: search || undefined,
     competency_type: typeFilter !== 'all' ? typeFilter : undefined,
-    bloom_taxonomy_level: bloomFilter !== 'all' ? bloomFilter : undefined,
     is_active: activeFilter === 'all' ? undefined : activeFilter === 'active',
     page,
     limit: 10,
@@ -258,25 +246,6 @@ export function CompetencyTable() {
               </SelectContent>
             </Select>
 
-            {/* Bloom Level Filter */}
-            <Select
-              value={bloomFilter}
-              onValueChange={(v) => {
-                setBloomFilter(v as BloomTaxonomyLevel | 'all');
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Bloom Level" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Levels</SelectItem>
-                {Object.entries(BLOOM_BADGES).map(([value, { label }]) => (
-                  <SelectItem key={value} value={value}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
             {/* Active Filter */}
             <Select
               value={activeFilter}
@@ -348,7 +317,6 @@ export function CompetencyTable() {
                     </div>
                   </TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Bloom Level</TableHead>
                   <TableHead>Levels</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -386,15 +354,6 @@ export function CompetencyTable() {
                       <Badge className={TYPE_BADGES[competency.competency_type].color}>
                         {TYPE_BADGES[competency.competency_type].label}
                       </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {competency.bloom_taxonomy_level ? (
-                        <Badge variant="outline">
-                          {BLOOM_BADGES[competency.bloom_taxonomy_level].label}
-                        </Badge>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">

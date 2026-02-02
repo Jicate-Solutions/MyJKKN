@@ -77,20 +77,6 @@ export interface FinksDimensions {
 }
 
 /**
- * @deprecated Use FinksDimensions instead. Bloom's Taxonomy describes AI capabilities.
- * Fink's Taxonomy describes human differentiation in the AI era.
- *
- * Kept for backward compatibility during migration.
- */
-export type BloomTaxonomyLevel =
-  | 'remember'    // Recall facts and basic concepts
-  | 'understand'  // Explain ideas or concepts
-  | 'apply'       // Use information in new situations
-  | 'analyze'     // Draw connections among ideas
-  | 'evaluate'    // Justify a stand or decision
-  | 'create';     // Produce new or original work
-
-/**
  * Proficiency levels for competency mastery
  */
 export type ProficiencyLevel =
@@ -176,11 +162,6 @@ export interface Competency {
    * Defines the transformational learning profile of this competency
    */
   finks_dimensions: FinksDimensions;
-
-  /**
-   * @deprecated Use finks_dimensions instead. Kept for backward compatibility.
-   */
-  bloom_taxonomy_level?: BloomTaxonomyLevel | null;
 
   is_active: boolean;
   created_at: string;
@@ -334,11 +315,6 @@ export interface CreateCompetencyDTO {
    */
   finks_dimensions: FinksDimensions;
 
-  /**
-   * @deprecated Use finks_dimensions instead
-   */
-  bloom_taxonomy_level?: BloomTaxonomyLevel;
-
   is_active?: boolean;
 }
 
@@ -358,11 +334,6 @@ export interface UpdateCompetencyDTO {
    * Fink's Taxonomy dimensions (0-100 scale)
    */
   finks_dimensions?: FinksDimensions;
-
-  /**
-   * @deprecated Use finks_dimensions instead
-   */
-  bloom_taxonomy_level?: BloomTaxonomyLevel;
 
   is_active?: boolean;
 }
@@ -467,11 +438,6 @@ export interface CompetencyFilters {
     max_score?: number;
   };
 
-  /**
-   * @deprecated Use finks_dimension_filter instead
-   */
-  bloom_taxonomy_level?: BloomTaxonomyLevel | BloomTaxonomyLevel[];
-
   industry_tags?: string[];
   is_active?: boolean;
   search?: string;
@@ -553,11 +519,6 @@ export interface CompetencyStats {
    * Shows which dimension has the highest score for each competency
    */
   by_dominant_finks_dimension: Record<keyof FinksDimensions, number>;
-
-  /**
-   * @deprecated Use avg_finks_dimensions instead
-   */
-  by_taxonomy_level?: Record<BloomTaxonomyLevel, number>;
 
   mapped_to_programs: number;
   mapped_to_courses: number;
@@ -705,7 +666,6 @@ export interface BulkImportCompetencyRow {
   competency_type: CompetencyType;
   description?: string;
   industry_tags?: string;
-  bloom_taxonomy_level?: BloomTaxonomyLevel;
 }
 
 /**
