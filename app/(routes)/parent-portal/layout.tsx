@@ -1,5 +1,4 @@
 import { Metadata } from 'next';
-import { ParentPortalLayout } from './_components/parent-portal-layout';
 
 export const metadata: Metadata = {
   title: 'Parent Portal | MyJKKN',
@@ -11,5 +10,7 @@ export default function Layout({
 }: {
   children: React.ReactNode;
 }) {
-  return <ParentPortalLayout>{children}</ParentPortalLayout>;
+  // Keep layout simple - don't use client components with hooks here
+  // The ParentPortalClient component handles all the layout including navigation
+  return <>{children}</>;
 }
