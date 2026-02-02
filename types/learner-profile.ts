@@ -89,6 +89,13 @@ export interface LearnerProfile {
   neet_roll_number?: string;
   neet_score?: string;
 
+  // Advanced Analytics Fields (Added: 2025-01-31)
+  school_type?: 'government' | 'aided' | 'private' | 'cbse' | 'icse' | 'state_board';
+  school_district?: string;
+  school_taluk?: string;
+  medium_of_instruction?: 'english' | 'tamil' | 'both';
+  location_type?: 'urban' | 'semi_urban' | 'rural';
+
   // Admission/Counseling Information
   counseling_applied?: boolean;
   counseling_number?: string;
