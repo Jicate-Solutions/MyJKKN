@@ -2639,6 +2639,136 @@ export type Database = {
           },
         ]
       }
+      competency_catalog: {
+        Row: {
+          ai_resistance_score: number | null
+          competency_code: string
+          competency_name: string
+          competency_type: Database["public"]["Enums"]["competency_type"]
+          created_at: string
+          created_by: string | null
+          description: string | null
+          evidence_requirements: Json | null
+          finks_dimensions: Json | null
+          id: string
+          industry_tags: string[] | null
+          institution_id: string
+          is_active: boolean
+          proficiency_levels: Json
+          updated_at: string
+        }
+        Insert: {
+          ai_resistance_score?: number | null
+          competency_code: string
+          competency_name: string
+          competency_type?: Database["public"]["Enums"]["competency_type"]
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          evidence_requirements?: Json | null
+          finks_dimensions?: Json | null
+          id?: string
+          industry_tags?: string[] | null
+          institution_id: string
+          is_active?: boolean
+          proficiency_levels?: Json
+          updated_at?: string
+        }
+        Update: {
+          ai_resistance_score?: number | null
+          competency_code?: string
+          competency_name?: string
+          competency_type?: Database["public"]["Enums"]["competency_type"]
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          evidence_requirements?: Json | null
+          finks_dimensions?: Json | null
+          id?: string
+          industry_tags?: string[] | null
+          institution_id?: string
+          is_active?: boolean
+          proficiency_levels?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "competency_catalog_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "competency_catalog_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      competency_program_mapping: {
+        Row: {
+          competency_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_mandatory: boolean
+          program_id: string
+          required_level: Database["public"]["Enums"]["proficiency_level"]
+          semester_expected: string | null
+          updated_at: string
+          weight_percentage: number | null
+        }
+        Insert: {
+          competency_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_mandatory?: boolean
+          program_id: string
+          required_level?: Database["public"]["Enums"]["proficiency_level"]
+          semester_expected?: string | null
+          updated_at?: string
+          weight_percentage?: number | null
+        }
+        Update: {
+          competency_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_mandatory?: boolean
+          program_id?: string
+          required_level?: Database["public"]["Enums"]["proficiency_level"]
+          semester_expected?: string | null
+          updated_at?: string
+          weight_percentage?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "competency_program_mapping_competency_id_fkey"
+            columns: ["competency_id"]
+            isOneToOne: false
+            referencedRelation: "competency_catalog"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "competency_program_mapping_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "competency_program_mapping_semester_expected_fkey"
+            columns: ["semester_expected"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       consultant_commission_structures: {
         Row: {
           applies_to_all_programs: boolean | null
@@ -3772,6 +3902,66 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      course_competency_mapping: {
+        Row: {
+          assessment_method: string | null
+          competency_id: string
+          contribution_level:
+            | Database["public"]["Enums"]["proficiency_level"]
+            | null
+          course_id: string
+          created_at: string
+          created_by: string | null
+          finks_assessment_methods: Json | null
+          id: string
+          learning_hours: number | null
+          updated_at: string
+        }
+        Insert: {
+          assessment_method?: string | null
+          competency_id: string
+          contribution_level?:
+            | Database["public"]["Enums"]["proficiency_level"]
+            | null
+          course_id: string
+          created_at?: string
+          created_by?: string | null
+          finks_assessment_methods?: Json | null
+          id?: string
+          learning_hours?: number | null
+          updated_at?: string
+        }
+        Update: {
+          assessment_method?: string | null
+          competency_id?: string
+          contribution_level?:
+            | Database["public"]["Enums"]["proficiency_level"]
+            | null
+          course_id?: string
+          created_at?: string
+          created_by?: string | null
+          finks_assessment_methods?: Json | null
+          id?: string
+          learning_hours?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "course_competency_mapping_competency_id_fkey"
+            columns: ["competency_id"]
+            isOneToOne: false
+            referencedRelation: "competency_catalog"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "course_competency_mapping_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -7439,6 +7629,87 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      learner_competencies: {
+        Row: {
+          assessments: Json | null
+          competency_id: string
+          created_at: string
+          current_level: Database["public"]["Enums"]["proficiency_level"]
+          evidence: Json | null
+          id: string
+          last_activity_at: string | null
+          learner_id: string
+          progress_percentage: number | null
+          updated_at: string
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          assessments?: Json | null
+          competency_id: string
+          created_at?: string
+          current_level?: Database["public"]["Enums"]["proficiency_level"]
+          evidence?: Json | null
+          id?: string
+          last_activity_at?: string | null
+          learner_id: string
+          progress_percentage?: number | null
+          updated_at?: string
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          assessments?: Json | null
+          competency_id?: string
+          created_at?: string
+          current_level?: Database["public"]["Enums"]["proficiency_level"]
+          evidence?: Json | null
+          id?: string
+          last_activity_at?: string | null
+          learner_id?: string
+          progress_percentage?: number | null
+          updated_at?: string
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learner_competencies_competency_id_fkey"
+            columns: ["competency_id"]
+            isOneToOne: false
+            referencedRelation: "competency_catalog"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_competencies_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_competencies_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "learner_competencies_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "learner_competencies_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       learner_core_okrs: {
         Row: {
@@ -19501,6 +19772,7 @@ export type Database = {
         | "push"
       communication_priority: "low" | "normal" | "high" | "urgent"
       communication_type: "announcement" | "message" | "alert"
+      competency_type: "technical" | "behavioral" | "domain" | "soft_skill"
       consultant_status: "draft" | "active" | "inactive" | "blacklisted"
       consultant_tier: "bronze" | "silver" | "gold" | "platinum" | "diamond"
       consultant_type: "external" | "student" | "alumni"
@@ -19529,6 +19801,13 @@ export type Database = {
         | "no_show"
         | "cancelled"
       exam_type: "online" | "offline" | "third_party"
+      finks_dimension:
+        | "foundational_knowledge"
+        | "application"
+        | "integration"
+        | "human_dimension"
+        | "caring"
+        | "learning_how_to_learn"
       integration_type: "direct_link" | "embedded" | "api"
       interview_outcome: "selected" | "waitlisted" | "rejected" | "pending"
       interview_status:
@@ -19605,6 +19884,12 @@ export type Database = {
         | "completed"
         | "cancelled"
       platform_type: "web" | "mobile" | "both"
+      proficiency_level:
+        | "novice"
+        | "beginner"
+        | "intermediate"
+        | "advanced"
+        | "expert"
       referral_reward_type: "discount" | "cashback" | "credits"
       reservation_status:
         | "pending"
@@ -19883,6 +20168,7 @@ export const Constants = {
       communication_channel_type: ["whatsapp", "sms", "email", "voice", "push"],
       communication_priority: ["low", "normal", "high", "urgent"],
       communication_type: ["announcement", "message", "alert"],
+      competency_type: ["technical", "behavioral", "domain", "soft_skill"],
       consultant_status: ["draft", "active", "inactive", "blacklisted"],
       consultant_tier: ["bronze", "silver", "gold", "platinum", "diamond"],
       consultant_type: ["external", "student", "alumni"],
@@ -19914,6 +20200,14 @@ export const Constants = {
         "cancelled",
       ],
       exam_type: ["online", "offline", "third_party"],
+      finks_dimension: [
+        "foundational_knowledge",
+        "application",
+        "integration",
+        "human_dimension",
+        "caring",
+        "learning_how_to_learn",
+      ],
       integration_type: ["direct_link", "embedded", "api"],
       interview_outcome: ["selected", "waitlisted", "rejected", "pending"],
       interview_status: [
@@ -19998,6 +20292,13 @@ export const Constants = {
         "cancelled",
       ],
       platform_type: ["web", "mobile", "both"],
+      proficiency_level: [
+        "novice",
+        "beginner",
+        "intermediate",
+        "advanced",
+        "expert",
+      ],
       referral_reward_type: ["discount", "cashback", "credits"],
       reservation_status: [
         "pending",
