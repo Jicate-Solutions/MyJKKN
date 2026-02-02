@@ -1,90 +1,44 @@
-import { z } from 'zod';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { NPSService } from '@/lib/services/stakeholder-nps/nps-service';
-import { getAuthSession } from '@/lib/supabase/server';
-import type { SurveyFilters } from '@/types/stakeholder-nps';
-import { createSurveySchema, surveyFiltersSchema } from '@/lib/validations/stakeholder-nps';
+import { createNPSSurveySchema, npsSurveyFiltersSchema } from '@/lib/validations/stakeholder-nps';
+import type { NPSSurveyFilters, CreateNPSSurveyDto } from '@/types/stakeholder-nps';
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const { session, error: sessionError } = await getAuthSession();
-    if (sessionError || !session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const { searchParams } = new URL(request.url);
-
-    const institutionId = searchParams.get('institution_id');
-    if (!institutionId) {
-      return NextResponse.json({ error: 'institution_id is required' }, { status: 400 });
-    }
-
-    // Parse query parameters
-    const queryParams = {
-      institution_id: institutionId,
-      stakeholder_type: searchParams.get('stakeholder_type') || undefined,
-      status: searchParams.get('status') || undefined,
-      department_id: searchParams.get('department_id') || undefined,
-      program_id: searchParams.get('program_id') || undefined,
+    const filters = {
+      institution_id: searchParams.get('institution_id') || '',
+      status: searchParams.get('status') as any,
+      stakeholder_type: searchParams.get('stakeholder_type') as any,
       search: searchParams.get('search') || undefined,
-      start_date_from: searchParams.get('start_date_from') || undefined,
-      start_date_to: searchParams.get('start_date_to') || undefined,
       page: searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1,
-      limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 10,
-      sortBy: searchParams.get('sortBy') || 'created_at',
-      sortDirection: (searchParams.get('sortDirection') as 'asc' | 'desc') || 'desc'
+      limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 10
     };
 
-    const validatedFilters = surveyFiltersSchema.parse(queryParams) as SurveyFilters;
-    const result = await NPSService.getSurveys(validatedFilters);
-
+    const validated = npsSurveyFiltersSchema.parse(filters) as NPSSurveyFilters;
+    const result = await NPSService.getSurveys(validated);
+    
     return NextResponse.json(result);
-  } catch (error) {
-    console.error('[stakeholder-nps] Error in GET /api/stakeholder-nps/surveys:', error);
-
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Invalid query parameters', details: error.errors },
-        { status: 400 }
-      );
-    }
-
+  } catch (error: any) {
+    console.error('[API] GET /api/stakeholder-nps/surveys error:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error' },
+      { error: error.message || 'Failed to fetch surveys' },
       { status: 500 }
     );
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const { session, error: sessionError } = await getAuthSession();
-    if (sessionError || !session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const json = await request.json();
-    const validatedData = createSurveySchema.parse(json);
-
-    const survey = await NPSService.createSurvey(validatedData as any);
-
+    const body = await request.json();
+    const validated = createNPSSurveySchema.parse(body) as CreateNPSSurveyDto;
+    const survey = await NPSService.createSurvey(validated);
+    
     return NextResponse.json(survey, { status: 201 });
-  } catch (error) {
-    console.error('[stakeholder-nps] Error in POST /api/stakeholder-nps/surveys:', error);
-
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Validation failed', details: error.errors },
-        { status: 400 }
-      );
-    }
-
-    if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
+  } catch (error: any) {
+    console.error('[API] POST /api/stakeholder-nps/surveys error:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error' },
+      { error: error.message || 'Failed to create survey' },
       { status: 500 }
     );
   }
