@@ -252,7 +252,7 @@ Every competency in the catalog is scored on all six Fink's dimensions. This gui
     "integration": 8,              // Connecting stakeholders, resources, timelines
     "human_dimension": 9,          // Team leadership, self-awareness as leader
     "caring": 7,                   // Caring about outcomes, team well-being
-    "learning_to_learn": 8         // Adapting PM approach to context, learning from failures
+    "learning_how_to_learn": 8    // Adapting PM approach to context, learning from failures
   },
   "ai_resistance_score": 75  // High—AI can't lead teams, build relationships, care about outcomes
 }
@@ -269,7 +269,7 @@ Every competency in the catalog is scored on all six Fink's dimensions. This gui
     "integration": 4,              // Some connection to problem-solving
     "human_dimension": 2,          // Minimal—mostly technical
     "caring": 3,                   // Some care about code quality
-    "learning_to_learn": 5         // Moderate—learning new syntax patterns
+    "learning_how_to_learn": 5    // Moderate—learning new syntax patterns
   },
   "ai_resistance_score": 15  // LOW—AI excels at syntax, code generation
 }
@@ -343,7 +343,7 @@ Every competency in the catalog is scored on all six Fink's dimensions. This gui
 
 **Formula:**
 ```
-AI_Resistance = (Integration × 15) + (Human_Dimension × 25) + (Caring × 30) + (Learning_to_Learn × 20) + (Application × 10)
+AI_Resistance = (Integration × 15) + (Human_Dimension × 25) + (Caring × 30) + (Learning_How_to_Learn × 20) + (Application × 10)
 ```
 
 | Score Range | Meaning | Examples |
@@ -530,7 +530,7 @@ finks_dimensions JSONB NOT NULL
   "integration": 8,
   "human_dimension": 9,
   "caring": 7,
-  "learning_to_learn": 8
+  "learning_how_to_learn": 8
 }
 
 ai_resistance_score INTEGER DEFAULT 0  -- Computed from formula above
@@ -549,7 +549,7 @@ finks_assessment_methods JSONB
   "integration": "case_study_with_reflection",
   "human_dimension": "peer_feedback_360",
   "caring": "ethical_dilemma_discussion",
-  "learning_to_learn": "learning_journal"
+  "learning_how_to_learn": "learning_journal"
 }
 ```
 

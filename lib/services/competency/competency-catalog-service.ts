@@ -17,7 +17,7 @@ import type {
   BulkImportCompetencyRow,
   BulkImportResult
 } from '@/types/competency';
-import type { FinksDimensions } from '@/lib/services/learners/learner-profile-service';
+import type { FinksDimensions } from '@/types/competency';
 import {
   calculateFinkAggregate,
   getFinksDimensionGaps,
@@ -98,11 +98,14 @@ export class CompetencyCatalogService {
         }
       }
 
+      // DEPRECATED: bloom_taxonomy_level renamed to bloom_taxonomy_level_deprecated
+      // Use finks_dimensions filters instead - Fink's Taxonomy replaced Bloom's for AI era
       if (filters.bloom_taxonomy_level) {
+        console.warn('[CompetencyCatalogService] bloom_taxonomy_level filter is DEPRECATED. Use finks_dimensions instead.');
         if (Array.isArray(filters.bloom_taxonomy_level)) {
-          query = query.in('bloom_taxonomy_level', filters.bloom_taxonomy_level);
+          query = query.in('bloom_taxonomy_level_deprecated', filters.bloom_taxonomy_level);
         } else {
-          query = query.eq('bloom_taxonomy_level', filters.bloom_taxonomy_level);
+          query = query.eq('bloom_taxonomy_level_deprecated', filters.bloom_taxonomy_level);
         }
       }
 
@@ -209,7 +212,7 @@ export class CompetencyCatalogService {
       'integration',
       'human_dimension',
       'caring',
-      'learning_to_learn'
+      'learning_how_to_learn'
     ];
 
     for (const [key, value] of Object.entries(dimensions)) {
@@ -401,9 +404,10 @@ export class CompetencyCatalogService {
 
       // Get all competencies for the institution
       // CRITICAL: Include 'id' to enable .in() queries below
+      // Note: bloom_taxonomy_level_deprecated kept for backward compat stats
       const { data: competencies, error: compError } = await (this.getSupabase() as any)
         .from('competency_catalog')
-        .select('id, competency_type, bloom_taxonomy_level, is_active')
+        .select('id, competency_type, bloom_taxonomy_level_deprecated, is_active, finks_dimensions')
         .eq('institution_id', institutionId);
 
       if (compError) {
@@ -511,8 +515,9 @@ export class CompetencyCatalogService {
         if (c.competency_type && stats.by_type[c.competency_type as keyof typeof stats.by_type] !== undefined) {
           stats.by_type[c.competency_type as keyof typeof stats.by_type]++;
         }
-        if (c.bloom_taxonomy_level && stats.by_taxonomy_level[c.bloom_taxonomy_level as keyof typeof stats.by_taxonomy_level] !== undefined) {
-          stats.by_taxonomy_level[c.bloom_taxonomy_level as keyof typeof stats.by_taxonomy_level]++;
+        // DEPRECATED: Using bloom_taxonomy_level_deprecated for legacy stats
+        if (c.bloom_taxonomy_level_deprecated && stats.by_taxonomy_level[c.bloom_taxonomy_level_deprecated as keyof typeof stats.by_taxonomy_level] !== undefined) {
+          stats.by_taxonomy_level[c.bloom_taxonomy_level_deprecated as keyof typeof stats.by_taxonomy_level]++;
         }
         if (c.is_active) {
           stats.active_count++;
@@ -645,14 +650,23 @@ export class CompetencyCatalogService {
         competency_type: row.competency_type,
         description: row.description,
         industry_tags: industryTags,
-        bloom_taxonomy_level: row.bloom_taxonomy_level,
+        // DEPRECATED: bloom_taxonomy_level renamed in database
+        bloom_taxonomy_level_deprecated: row.bloom_taxonomy_level,
         proficiency_levels: [
           { level: 'novice', description: 'Basic awareness', criteria: [] },
           { level: 'beginner', description: 'Basic knowledge', criteria: [] },
           { level: 'intermediate', description: 'Working knowledge', criteria: [] },
           { level: 'advanced', description: 'Deep knowledge', criteria: [] },
           { level: 'expert', description: 'Mastery', criteria: [] }
-        ]
+        ],
+        finks_dimensions: {
+          foundational_knowledge: 20,
+          application: 30,
+          integration: 25,
+          human_dimension: 10,
+          caring: 8,
+          learning_how_to_learn: 7
+        }
       });
     });
 

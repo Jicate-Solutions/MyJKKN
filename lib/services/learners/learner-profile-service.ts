@@ -5,41 +5,24 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
-
-// ============================================================================
-// FINK'S TAXONOMY DIMENSIONS
-// Measuring what AI cannot do: caring, human relationships, transformation
-// ============================================================================
-
-/**
- * Fink's Taxonomy of Significant Learning Dimensions
- * Range: 0-100 for each dimension
- * All fields are optional to support partial updates
- */
-export interface FinksDimensions {
-  foundational_knowledge?: number;  // Facts, theories, concepts
-  application?: number;              // Skills, thinking, managing projects
-  integration?: number;              // Connecting ideas, people, realms of life
-  human_dimension?: number;          // Learning about oneself and others
-  caring?: number;                   // Developing new feelings, interests, values
-  learning_how_to_learn?: number;    // Metacognition, becoming a self-directed learner (CRITICAL in AI era)
-}
+import type { FinksDimensions } from '@/types/competency';
 
 /**
  * Validate Fink's dimension scores (0-100 range)
+ * Accepts partial dimensions for flexible updates
  */
 function validateFinksDimensions(dimensions: Partial<FinksDimensions>): void {
-  const validDimensions = [
+  const validDimensions = new Set<keyof FinksDimensions>([
     'foundational_knowledge',
     'application',
     'integration',
     'human_dimension',
     'caring',
     'learning_how_to_learn'
-  ];
+  ]);
 
   for (const [key, value] of Object.entries(dimensions)) {
-    if (!validDimensions.includes(key)) {
+    if (!validDimensions.has(key as keyof FinksDimensions)) {
       throw new Error(`Invalid Fink's dimension: ${key}`);
     }
     if (typeof value !== 'number' || value < 0 || value > 100) {

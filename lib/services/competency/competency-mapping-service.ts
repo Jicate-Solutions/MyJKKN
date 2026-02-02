@@ -19,7 +19,7 @@ import type {
   ProgramCompetencyCoverage,
   CourseCompetencyContribution
 } from '@/types/competency';
-import type { FinksDimensions } from '@/lib/services/learners/learner-profile-service';
+import type { FinksDimensions } from '@/types/competency';
 import { calculateFinkAggregate } from '@/lib/services/learners/learner-profile-service';
 
 export class CompetencyMappingService {

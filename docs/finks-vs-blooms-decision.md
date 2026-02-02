@@ -183,11 +183,11 @@ CREATE TABLE competency_catalog (
     --   "integration": 8,
     --   "human_dimension": 9,
     --   "caring": 7,
-    --   "learning_to_learn": 8
+    --   "learning_how_to_learn": 8
     -- }
     ai_resistance_score INTEGER DEFAULT 0,
     -- Computed: (Integration × 15) + (Human_Dimension × 25) + (Caring × 30) +
-    --           (Learning_to_Learn × 20) + (Application × 10)
+    --           (Learning_How_to_Learn × 20) + (Application × 10)
     ...
 );
 ```
@@ -203,7 +203,7 @@ CREATE TABLE course_competency_mapping (
     --   "integration": "case_study_with_reflection",
     --   "human_dimension": "peer_feedback_360",
     --   "caring": "ethical_dilemma_discussion",
-    --   "learning_to_learn": "learning_journal"
+    --   "learning_how_to_learn": "learning_journal"
     -- }
     ...
 );
@@ -450,7 +450,7 @@ We've been optimizing for knowledge recall, problem-solving, and content creatio
     "integration": 8,              // Connecting frontend, backend, database, APIs
     "human_dimension": 7,          // Teamwork, user empathy, communication
     "caring": 6,                   // Code quality, accessibility, user experience
-    "learning_to_learn": 9         // Frameworks change constantly; adaptation critical
+    "learning_how_to_learn": 9    // Frameworks change constantly; adaptation critical
   },
   "ai_resistance_score": 72,  // HIGH—AI codes, but humans choose WHAT to build and WHY
   "evidence_requirements": {
@@ -459,7 +459,7 @@ We've been optimizing for knowledge recall, problem-solving, and content creatio
     "integration": "Connects 3+ technologies (e.g., React + Node + PostgreSQL + Auth)",
     "human_dimension": "Peer code review feedback, user testing insights",
     "caring": "Accessibility audit passed, performance optimized",
-    "learning_to_learn": "Learning journal documenting 3+ new tools/techniques adopted"
+    "learning_how_to_learn": "Learning journal documenting 3+ new tools/techniques adopted"
   }
 }
 ```
