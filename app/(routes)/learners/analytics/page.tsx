@@ -2,7 +2,7 @@
 // LEARNERS ANALYTICS DASHBOARD - COMPREHENSIVE
 // ============================================
 // Created: 2025-01-20
-// Updated: 2025-01-23 - Complete dashboard with 6 tabs
+// Updated: 2025-02-02 - Complete dashboard with 10 tabs (added advanced analytics)
 // Purpose: Unified analytics for entire learner lifecycle
 // ============================================
 
@@ -21,7 +21,11 @@ import {
   Filter,
   AlertCircle,
   Download,
-  Sparkles
+  Sparkles,
+  PieChart,
+  School,
+  Globe,
+  Target,
 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -38,7 +42,7 @@ import { useAuth } from '@/hooks/use-auth';
 import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
 import toast from 'react-hot-toast';
 
-// Tab components (will be created in subsequent phases)
+// Tab components
 import { OverviewTab } from './_components/overview-tab';
 import { OrganizationalTab } from './_components/organizational-tab';
 import { DemographicsTab } from './_components/demographics-tab';
@@ -47,6 +51,15 @@ import { TrendsTab } from './_components/trends-tab';
 import { ProfileCompletionTab } from './_components/profile-completion-tab';
 import { DashboardFilters } from './_components/dashboard-filters';
 import { ExportDashboardDialog } from './_components/export-dashboard-dialog';
+
+// Advanced Analytics Tab Components
+import { IntakeCapacityTab } from './_components/intake-capacity-tab';
+import { AdvancedGeographyTab } from './_components/advanced-geography-tab';
+import { AdvancedTrendsTab } from './_components/advanced-trends-tab';
+import { SchoolFeedersTab } from './_components/school-feeders-tab';
+
+// Advanced Analytics Hook
+import { useLearnerAdvancedAnalytics } from '@/hooks/use-learner-advanced-analytics';
 
 /**
  * Learners Analytics Dashboard - Main Page
@@ -165,6 +178,30 @@ export default function LearnersAnalyticsDashboard() {
     refetchOnMount: true,           // Revalidate in background on mount
     refetchOnWindowFocus: false     // Don't refetch when window regains focus
   });
+
+  // Fetch advanced analytics data
+  const {
+    data: advancedAnalytics,
+    isLoading: isLoadingAdvanced,
+    error: errorAdvanced,
+  } = useLearnerAdvancedAnalytics(
+    {
+      institutionId: filters.institutionIds?.[0],
+      degreeId: filters.degreeId,
+      departmentId: filters.departmentId,
+      programId: filters.programId,
+      semesterId: filters.semesterId,
+      sectionId: filters.sectionId,
+      academicYearId: filters.academicYearId,
+      lifecycleStatus: filters.lifecycleStatuses,
+      gender: filters.gender,
+      dateFrom: filters.dateRange?.from?.toISOString(),
+      dateTo: filters.dateRange?.to?.toISOString(),
+    },
+    {
+      enabled: hasAccess && !authLoading && !permissionsLoading,
+    }
+  );
 
   // Handle manual refresh
   const handleRefresh = async () => {
@@ -366,7 +403,7 @@ export default function LearnersAnalyticsDashboard() {
 
         {/* Tabbed Analytics */}
         <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6 gap-2">
+          <TabsList className="grid w-full grid-cols-3 lg:grid-cols-5 gap-2">
             <TabsTrigger value="overview" className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4" />
               <span className="hidden sm:inline">Overview</span>
@@ -389,7 +426,23 @@ export default function LearnersAnalyticsDashboard() {
             </TabsTrigger>
             <TabsTrigger value="profile-completion" className="flex items-center gap-2">
               <UserCheck className="h-4 w-4" />
-              <span className="hidden sm:inline">Profile Completion</span>
+              <span className="hidden sm:inline">Profile</span>
+            </TabsTrigger>
+            <TabsTrigger value="intake-capacity" className="flex items-center gap-2">
+              <Target className="h-4 w-4" />
+              <span className="hidden sm:inline">Intake</span>
+            </TabsTrigger>
+            <TabsTrigger value="advanced-geography" className="flex items-center gap-2">
+              <Globe className="h-4 w-4" />
+              <span className="hidden sm:inline">Geo+</span>
+            </TabsTrigger>
+            <TabsTrigger value="advanced-trends" className="flex items-center gap-2">
+              <PieChart className="h-4 w-4" />
+              <span className="hidden sm:inline">Trends+</span>
+            </TabsTrigger>
+            <TabsTrigger value="school-feeders" className="flex items-center gap-2">
+              <School className="h-4 w-4" />
+              <span className="hidden sm:inline">Schools</span>
             </TabsTrigger>
           </TabsList>
 
@@ -439,6 +492,127 @@ export default function LearnersAnalyticsDashboard() {
               data={stats}
               filters={filters}
             />
+          </TabsContent>
+
+          {/* Advanced Analytics Tabs */}
+          {/* Intake & Capacity Tab */}
+          <TabsContent value="intake-capacity">
+            {isLoadingAdvanced ? (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    <Skeleton className="h-32 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ) : errorAdvanced ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to load intake capacity data. Please try again.
+                </AlertDescription>
+              </Alert>
+            ) : advancedAnalytics?.intakeCapacity ? (
+              <IntakeCapacityTab data={advancedAnalytics.intakeCapacity} />
+            ) : (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  No intake capacity data available.
+                </AlertDescription>
+              </Alert>
+            )}
+          </TabsContent>
+
+          {/* Advanced Geography Tab */}
+          <TabsContent value="advanced-geography">
+            {isLoadingAdvanced ? (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    <Skeleton className="h-32 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ) : errorAdvanced ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to load geography data. Please try again.
+                </AlertDescription>
+              </Alert>
+            ) : advancedAnalytics?.geography ? (
+              <AdvancedGeographyTab data={advancedAnalytics.geography} />
+            ) : (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  No geography data available.
+                </AlertDescription>
+              </Alert>
+            )}
+          </TabsContent>
+
+          {/* Advanced Trends Tab */}
+          <TabsContent value="advanced-trends">
+            {isLoadingAdvanced ? (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    <Skeleton className="h-32 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ) : errorAdvanced ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to load trends data. Please try again.
+                </AlertDescription>
+              </Alert>
+            ) : advancedAnalytics?.trends ? (
+              <AdvancedTrendsTab data={advancedAnalytics.trends} />
+            ) : (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  No trends data available.
+                </AlertDescription>
+              </Alert>
+            )}
+          </TabsContent>
+
+          {/* School Feeders Tab */}
+          <TabsContent value="school-feeders">
+            {isLoadingAdvanced ? (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    <Skeleton className="h-32 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ) : errorAdvanced ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to load school feeders data. Please try again.
+                </AlertDescription>
+              </Alert>
+            ) : advancedAnalytics?.schoolFeeders ? (
+              <SchoolFeedersTab data={advancedAnalytics.schoolFeeders} />
+            ) : (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  No school feeders data available.
+                </AlertDescription>
+              </Alert>
+            )}
           </TabsContent>
         </Tabs>
 
