@@ -57,7 +57,7 @@ When updating any SQL file:
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | --------------------------- |
 | Academic        | academic_years, degrees, departments, programs, semesters, sections, courses, course_mappings, regulations, batches                                                                                                     | 10    | ✅                          |
 | Billing         | billing_student_bills, billing_receipts, billing_invoices, billing_invoice_items, billing_receipt_items, billing_discounts, billing_refunds, billing_parent_categories, billing_sub_categories, billing_item_categories | 10    | ✅                          |
-| Learners (Unified) | learners_profiles | 1 | ✅ Complete - Single source of truth for enquiry→alumni lifecycle |
+| Learners (Unified) | learners_profiles, intake_history | 2 | ✅ Complete - Single source of truth for enquiry→alumni lifecycle + capacity analytics |
 | Students (Active Tables) | students | 1 | ✅ Live table with sync triggers → learners_profiles |
 | Staff           | staff, staff_plans, staff_plan_courses                                                                                                                                                                                  | 3     | ✅                          |
 | Admissions (Active Tables) | admissions | 1 | ✅ Live table with sync triggers → learners_profiles |
@@ -594,6 +594,62 @@ When updating any SQL file:
 
 ## 📝 Recent Migrations
 
+### 2026-02-02: Apply Advanced Analytics Columns to Database ✅ APPLIED
+
+- **File**: `migrations/20260202_add_advanced_analytics_columns.sql` ✅ **APPLIED**
+
+  **Purpose**: Apply the advanced analytics schema changes that were added to `01_tables.sql` but never executed on the actual database
+
+  **Problem Solved**:
+  - Runtime errors: "column learners_profiles.first_graduate does not exist"
+  - Runtime errors: "column learners_profiles.school_type does not exist"
+  - Runtime errors: "column programs.sanctioned_intake does not exist"
+  - Schema file and actual database were out of sync
+
+  **Changes Applied**:
+  1. **programs table** (3 new columns):
+     - `sanctioned_intake INTEGER DEFAULT 0` - Government approved intake capacity
+     - `actual_intake INTEGER DEFAULT 0` - Actual students admitted
+     - `academic_year_id UUID` - Reference to academic year
+
+  2. **learners_profiles table** (6 new columns):
+     - `school_type TEXT` - Type of previous school (government/aided/private/cbse/icse/state_board)
+     - `school_district TEXT` - District of previous school
+     - `school_taluk TEXT` - Taluk of previous school
+     - `medium_of_instruction TEXT` - Medium in previous school (english/tamil/both)
+     - `location_type TEXT` - Student residence classification (urban/semi_urban/rural)
+     - `first_graduate BOOLEAN DEFAULT false` - First generation graduate in family
+
+  3. **intake_history table** (NEW):
+     - Tracks historical intake data for 3-year stability index
+     - Foreign keys to institutions, programs, academic_years
+     - Unique constraint on (program_id, academic_year_id)
+
+  4. **Indexes Created** (8 new):
+     - 3 for intake_history (program, year, institution)
+     - 4 for learners_profiles analytics fields
+     - 1 for programs academic_year_id
+
+  **Verification**:
+  ```sql
+  -- Verified all columns created successfully:
+  - programs: sanctioned_intake, actual_intake, academic_year_id ✅
+  - learners_profiles: school_type, school_district, school_taluk,
+                       medium_of_instruction, location_type, first_graduate ✅
+  - intake_history: table created with 10 columns ✅
+  ```
+
+  **Impact**:
+  - ✅ All advanced analytics features will work correctly
+  - ✅ No more runtime column errors
+  - ✅ Intake & Capacity analytics functional
+  - ✅ Geography analytics functional
+  - ✅ Trends analytics functional
+  - ✅ School Feeders analytics functional
+  - ✅ Fully backward compatible (all columns nullable/have defaults)
+
+  **Status**: ✅ **COMPLETE - MIGRATION APPLIED SUCCESSFULLY** (2026-02-02 via Supabase MCP)
+
 ### 2025-12-29: Enhanced Program and Semester Fields
 
 - **File**: `migrations/add_program_semester_enhanced_fields.sql` ✅ **APPLIED**
@@ -950,6 +1006,66 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - `scripts/repair-learner-profile-sync.ts` (NEW - Repair tool)
 - `scripts/LEARNER_PROFILE_SYNC_GUIDE.md` (NEW - Complete guide)
 - `docs/fixes/2026-01/2026-01-28-FIX-learner-profile-sync-issues.md` (NEW - Root cause analysis)
+
+---
+
+### **2025-01-31: Advanced Learner Analytics Schema Update**
+
+**Purpose**: Add database support for 4 new analytics categories: Intake & Capacity, Geography, Trends, and School Feeders
+
+**Database Changes**:
+
+1. **learners_profiles table** (5 new columns):
+   - `school_type TEXT` - Classification: government, aided, private, cbse, icse, state_board
+   - `school_district TEXT` - School's district location
+   - `school_taluk TEXT` - School's taluk location
+   - `medium_of_instruction TEXT` - english, tamil, both
+   - `location_type TEXT` - urban, semi_urban, rural (auto-classified)
+
+2. **programs table** (3 new columns):
+   - `sanctioned_intake INTEGER` - Approved intake capacity (default: 0)
+   - `actual_intake INTEGER` - Current admitted students (default: 0)
+   - `academic_year_id UUID` - Link to academic year
+
+3. **intake_history table** (NEW):
+   - Tracks historical intake data for 3-year stability index calculations
+   - Columns: institution_id, program_id, academic_year_id, sanctioned_intake, actual_intake, waitlist_count, dropout_count
+   - Unique constraint on (program_id, academic_year_id)
+   - 3 indexes for analytics queries (program, year, institution)
+
+4. **Indexes Created** (4 new):
+   - `idx_learners_profiles_school_type` - Filter by school type
+   - `idx_learners_profiles_location_type` - Filter by location classification
+   - `idx_learners_profiles_medium_instruction` - Filter by medium
+   - `idx_programs_academic_year` - Program capacity by year
+
+5. **RLS Policies** (4 new for intake_history):
+   - SELECT, INSERT, UPDATE policies based on user_institution_access
+   - DELETE policy restricted to admin access_type
+
+**Analytics Enabled**:
+- ✅ Intake & Capacity Analytics (seat utilization, over-intake alerts, waitlist conversion, 3-year stability)
+- ✅ Geography Analytics (district/taluk contribution, hostel ratios - data already 100% available)
+- ✅ Trend Analytics (gender ratio, category mix, first-generation, income distribution)
+- ✅ School Feeder Analytics (feeder institution tracking, school type classification)
+
+**Impact**:
+- All new fields are optional (backward compatible)
+- Existing 3,506 learner profiles need data migration for analytics fields
+- Data migration scripts to populate school_type, location_type automatically
+- Intake history seeding script to backfill last 3 years
+
+**Next Steps**:
+- Create TypeScript types for analytics interfaces
+- Implement advanced analytics service layer
+- Build API routes and React Query hooks
+- Create UI components for 4 new analytics tabs
+- Run data migration scripts
+
+**Files Updated**:
+- `supabase/setup/01_tables.sql` - Added columns, table, indexes
+- `supabase/setup/03_policies.sql` - Added RLS policies for intake_history
+- `supabase/SQL_FILE_INDEX.md` - Updated table count, added changelog
 
 ---
 

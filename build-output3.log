@@ -1,0 +1,1158 @@
+
+> my-jkkn@0.1.0 build
+> next build
+
+▲ Next.js 16.1.1 (Turbopack, Cache Components)
+- Environments: .env
+- Experiments (use with caution):
+  · cpus: 1
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 113s
+  Running TypeScript ...
+  Collecting page data using 1 worker ...
+  Generating static pages using 1 worker (0/342) ...
+  Generating static pages using 1 worker (85/342) 
+[Dashboard Page] 🏠 Dashboard page loaded
+[Dashboard Page] 🏠 Dashboard page loaded
+  Generating static pages using 1 worker (170/342) 
+Error fetching activity metrics: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/activity/metrics".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at S (app\api\activity\metrics\route.ts:8:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/activity/metrics',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[users/page] Failed to fetch stats, using defaults
+[users/page] Failed to fetch stats, using defaults
+Error fetching notification stats: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/admin/notifications/stats".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at w (app\api\admin\notifications\stats\route.ts:7:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/admin/notifications/stats',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Error fetching notifications: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/admin/notifications".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at E (app\api\admin\notifications\route.ts:7:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/admin/notifications',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[Analytics API] Error in at-risk endpoint: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/analytics/engagement/at-risk".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at x (app\api\analytics\engagement\at-risk\route.ts:17:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/analytics/engagement/at-risk',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[Analytics API] Error in hierarchy endpoint: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/analytics/engagement/hierarchy".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at R (app\api\analytics\engagement\hierarchy\route.ts:16:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/analytics/engagement/hierarchy',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[Analytics API] Error in engagement endpoint: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/analytics/engagement".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at x (app\api\analytics\engagement\route.ts:19:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/analytics/engagement',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[Analytics API] Error in section comparison endpoint: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/analytics/engagement/sections/compare".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at x (app\api\analytics\engagement\sections\compare\route.ts:16:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/analytics/engagement/sections/compare',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Error fetching institution names: Error: Route /api/api-management/organizations/institutions/names needs to bail out of prerendering at this point because it used request.headers.
+    at w (app\api\api-management\organizations\institutions\names\route.ts:31:32)
+  29 |
+  30 |     // Get API key from Authorization header
+> 31 |     const authHeader = request.headers.get('authorization');
+     |                                ^
+  32 |     console.log('1. Auth header:', authHeader);
+  33 |
+  34 |     if (!authHeader || !authHeader.startsWith('Bearer ')) { {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Error fetching institution names: Error: Route /api/api-management/organizations/institutions/names needs to bail out of prerendering at this point because it used request.headers.
+    at w (app\api\api-management\organizations\institutions\names\route.ts:31:32)
+  29 |
+  30 |     // Get API key from Authorization header
+> 31 |     const authHeader = request.headers.get('authorization');
+     |                                ^
+  32 |     console.log('1. Auth header:', authHeader);
+  33 |
+  34 |     if (!authHeader || !authHeader.startsWith('Bearer ')) { {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+[bug-reports/api] Failed to fetch user bug reports Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/bug-reports/me".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at E (app\api\bug-reports\me\route.ts:8:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/bug-reports/me',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[bug-reports/api] Unexpected error fetching stats Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/bug-reports/stats".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at E (app\api\bug-reports\stats\route.ts:8:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/bug-reports/stats',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[bug-reports/api] System test failed with unexpected error Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/bug-reports/test".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at w (app\api\bug-reports\test\route.ts:8:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/bug-reports/test',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[DEPARTMENTS_GET] Error fetching departments: Error: Route /api/departments needs to bail out of prerendering at this point because it used request.url.
+    at E (app\api\departments\route.ts:8:46)
+   6 |   try {
+   7 |     const supabase = createAdminClient();
+>  8 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+   9 |     const institution_id = searchParams.get('institution_id');
+  10 |
+  11 |     let query = supabase {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Error checking database tables: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/check-database-tables".
+    at new Promise (<anonymous>)
+    at w (app\api\check-database-tables\route.ts:11:31)
+   9 | export async function GET() {
+  10 |   try {
+> 11 |     const cookieStore = await cookies();
+     |                               ^
+  12 |     const supabase = createServerClient(
+  13 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  14 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/check-database-tables',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[DEPARTMENTS_GET] Error fetching departments: Error: Route /api/departments needs to bail out of prerendering at this point because it used request.url.
+    at E (app\api\departments\route.ts:8:46)
+   6 |   try {
+   7 |     const supabase = createAdminClient();
+>  8 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+   9 |     const institution_id = searchParams.get('institution_id');
+  10 |
+  11 |     let query = supabase {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Debug API error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/debug/applications".
+    at new Promise (<anonymous>)
+    at E (app\api\debug\applications\route.ts:9:31)
+   7 | export async function GET(request: NextRequest) {
+   8 |   try {
+>  9 |     const cookieStore = await cookies();
+     |                               ^
+  10 |     const supabase = createServerClient(
+  11 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  12 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/debug/applications',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[INSTITUTIONS_GET] Error fetching institutions: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/institutions".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at E (app\api\institutions\route.ts:7:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/institutions',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+  Generating static pages using 1 worker (256/342) 
+[learners/analytics/advanced] Failed to fetch advanced analytics Error: Route /api/learners/analytics/advanced needs to bail out of prerendering at this point because it used nextUrl.searchParams.
+    at I (app\api\learners\analytics\advanced\route.ts:25:42)
+  23 | export async function GET(request: NextRequest) {
+  24 |   try {
+> 25 |     const searchParams = request.nextUrl.searchParams;
+     |                                          ^
+  26 |
+  27 |     // Parse filters from URL params
+  28 |     const filters: LearnerDashboardFilters = { {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+[learners/analytics/advanced] Failed to fetch advanced analytics Error: Route /api/learners/analytics/advanced needs to bail out of prerendering at this point because it used nextUrl.searchParams.
+    at I (app\api\learners\analytics\advanced\route.ts:25:42)
+  23 | export async function GET(request: NextRequest) {
+  24 |   try {
+> 25 |     const searchParams = request.nextUrl.searchParams;
+     |                                          ^
+  26 |
+  27 |     // Parse filters from URL params
+  28 |     const filters: LearnerDashboardFilters = { {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+[api/learners/analytics/stats] Error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/learners/analytics/stats".
+    at new Promise (<anonymous>)
+    at a (lib\supabase\server.ts:11:29)
+    at D (app\api\learners\analytics\stats\route.ts:47:28)
+   9 | // Note: Database type removed to avoid type errors with incomplete type definitions
+  10 | export async function createClient() {
+> 11 |   const cookieStore = await cookies();
+     |                             ^
+  12 |
+  13 |   return createServerClient(
+  14 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/learners/analytics/stats',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[api/learners/check-missing-profiles] Error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/learners/check-missing-profiles".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at C (app\api\learners\check-missing-profiles\route.ts:21:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/learners/check-missing-profiles',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[learners/enquiries/template] Error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/learners/enquiries/template".
+    at new Promise (<anonymous>)
+    at C (app\api\learners\enquiries\template\route.ts:48:31)
+  46 |     // 1. AUTHENTICATION
+  47 |     // ============================================================
+> 48 |     const cookieStore = await cookies();
+     |                               ^
+  49 |     const supabase = createServerClient(
+  50 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  51 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/learners/enquiries/template',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[api/learners/export-exited-for-edit] Error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/learners/export-exited-for-edit".
+    at new Promise (<anonymous>)
+    at s (lib\supabase\server.ts:37:29)
+    at v (app\api\learners\export-exited-for-edit\route.ts:25:28)
+  35 | // Alias for backward compatibility
+  36 | export async function createServerSupabaseClient() {
+> 37 |   const cookieStore = await cookies();
+     |                             ^
+  38 |
+  39 |   return createServerClient(
+  40 |     process.env.NEXT_PUBLIC_SUPABASE_URL!, {
+  route: '/api/learners/export-exited-for-edit',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Export error: Error: Route /api/organizations/courses/export needs to bail out of prerendering at this point because it used request.url.
+    at C (app\api\organizations\courses\export\route.ts:13:46)
+  11 |   try {
+  12 |     // Get query parameters
+> 13 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  14 |     const exportFormat = searchParams.get('format') || 'csv';
+  15 |     const includeAll = searchParams.get('includeAll') === 'true';
+  16 |     const includeInactive = searchParams.get('includeInactive') === 'true'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Export error: Error: Route /api/organizations/courses/export needs to bail out of prerendering at this point because it used request.url.
+    at C (app\api\organizations\courses\export\route.ts:13:46)
+  11 |   try {
+  12 |     // Get query parameters
+> 13 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  14 |     const exportFormat = searchParams.get('format') || 'csv';
+  15 |     const includeAll = searchParams.get('includeAll') === 'true';
+  16 |     const includeInactive = searchParams.get('includeInactive') === 'true'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+[organizations/course-mappings/template] Error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/organizations/course-mappings/template".
+    at new Promise (<anonymous>)
+    at R (app\api\organizations\course-mappings\template\route.ts:30:31)
+  28 |   try {
+  29 |     // Initialize Supabase client
+> 30 |     const cookieStore = await cookies();
+     |                               ^
+  31 |     const supabase = createServerClient(
+  32 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  33 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/organizations/course-mappings/template',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+--- Inside /api/organizations/dashboard GET (Server) ---
+Export error: Error: Route /api/organizations/departments/export needs to bail out of prerendering at this point because it used request.url.
+    at C (app\api\organizations\departments\export\route.ts:13:46)
+  11 |   try {
+  12 |     // Get query parameters
+> 13 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  14 |     const exportFormat = searchParams.get('format') || 'csv';
+  15 |     const includeAll = searchParams.get('includeAll') === 'true';
+  16 |     const includeInactive = searchParams.get('includeInactive') === 'true'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Error exporting degrees: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/organizations/degrees/export".
+    at new Promise (<anonymous>)
+    at _ (app\api\organizations\degrees\export\route.ts:10:31)
+   8 | export async function GET(request: NextRequest) {
+   9 |   try {
+> 10 |     const cookieStore = await cookies();
+     |                               ^
+  11 |     const supabase = createServerClient(
+  12 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  13 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/organizations/degrees/export',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+--- Inside /api/organizations/dashboard GET (Server) ---
+[organizations/courses/template] Error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/organizations/courses/template".
+    at new Promise (<anonymous>)
+    at b (app\api\organizations\courses\template\route.ts:24:31)
+  22 |   try {
+  23 |     // Initialize Supabase client
+> 24 |     const cookieStore = await cookies();
+     |                               ^
+  25 |     const supabase = createServerClient(
+  26 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  27 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/organizations/courses/template',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Export error: Error: Route /api/organizations/departments/export needs to bail out of prerendering at this point because it used request.url.
+    at C (app\api\organizations\departments\export\route.ts:13:46)
+  11 |   try {
+  12 |     // Get query parameters
+> 13 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  14 |     const exportFormat = searchParams.get('format') || 'csv';
+  15 |     const includeAll = searchParams.get('includeAll') === 'true';
+  16 |     const includeInactive = searchParams.get('includeInactive') === 'true'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+[organizations/degrees/template] Error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/organizations/degrees/template".
+    at new Promise (<anonymous>)
+    at I (app\api\organizations\degrees\template\route.ts:29:31)
+  27 |   try {
+  28 |     // Initialize Supabase client
+> 29 |     const cookieStore = await cookies();
+     |                               ^
+  30 |     const supabase = createServerClient(
+  31 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  32 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/organizations/degrees/template',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[organizations/departments/template] Error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/organizations/departments/template".
+    at new Promise (<anonymous>)
+    at v (app\api\organizations\departments\template\route.ts:25:31)
+  23 |   try {
+  24 |     // Initialize Supabase client
+> 25 |     const cookieStore = await cookies();
+     |                               ^
+  26 |     const supabase = createServerClient(
+  27 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  28 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/organizations/departments/template',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Export error: Error: Route /api/organizations/programs/export needs to bail out of prerendering at this point because it used request.url.
+    at E (app\api\organizations\programs\export\route.ts:13:46)
+  11 |   try {
+  12 |     // Get query parameters
+> 13 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  14 |     const exportFormat = searchParams.get('format') || 'csv';
+  15 |     const includeAll = searchParams.get('includeAll') === 'true';
+  16 |     const includeInactive = searchParams.get('includeInactive') === 'true'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Export error: Error: Route /api/organizations/sections/export needs to bail out of prerendering at this point because it used request.url.
+    at C (app\api\organizations\sections\export\route.ts:13:46)
+  11 |   try {
+  12 |     // Get query parameters
+> 13 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  14 |     const exportFormat = searchParams.get('format') || 'csv';
+  15 |     const includeAll = searchParams.get('includeAll') === 'true';
+  16 |     const includeInactive = searchParams.get('includeInactive') === 'true'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Error exporting institutions: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/organizations/institutions/export".
+    at new Promise (<anonymous>)
+    at v (app\api\organizations\institutions\export\route.ts:17:31)
+  15 | export async function GET(request: NextRequest) {
+  16 |   try {
+> 17 |     const cookieStore = await cookies();
+     |                               ^
+  18 |     const supabase = createServerClient(
+  19 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  20 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/organizations/institutions/export',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Export error: Error: Route /api/organizations/programs/export needs to bail out of prerendering at this point because it used request.url.
+    at E (app\api\organizations\programs\export\route.ts:13:46)
+  11 |   try {
+  12 |     // Get query parameters
+> 13 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  14 |     const exportFormat = searchParams.get('format') || 'csv';
+  15 |     const includeAll = searchParams.get('includeAll') === 'true';
+  16 |     const includeInactive = searchParams.get('includeInactive') === 'true'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Export error: Error: Route /api/organizations/sections/export needs to bail out of prerendering at this point because it used request.url.
+    at C (app\api\organizations\sections\export\route.ts:13:46)
+  11 |   try {
+  12 |     // Get query parameters
+> 13 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  14 |     const exportFormat = searchParams.get('format') || 'csv';
+  15 |     const includeAll = searchParams.get('includeAll') === 'true';
+  16 |     const includeInactive = searchParams.get('includeInactive') === 'true'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+[organizations/programs/template] Error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/organizations/programs/template".
+    at new Promise (<anonymous>)
+    at C (app\api\organizations\programs\template\route.ts:33:31)
+  31 |   try {
+  32 |     // Initialize Supabase client
+> 33 |     const cookieStore = await cookies();
+     |                               ^
+  34 |     const supabase = createServerClient(
+  35 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  36 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/organizations/programs/template',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Export error: Error: Route /api/organizations/semesters/export needs to bail out of prerendering at this point because it used request.url.
+    at C (app\api\organizations\semesters\export\route.ts:13:46)
+  11 |   try {
+  12 |     // Get query parameters
+> 13 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  14 |     const exportFormat = searchParams.get('format') || 'csv';
+  15 |     const includeAll = searchParams.get('includeAll') === 'true';
+  16 |     const includeInactive = searchParams.get('includeInactive') === 'true'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Error proxying to external API: Error: Route /api/proxy/crm needs to bail out of prerendering at this point because it used nextUrl.searchParams.
+    at m (app\api\proxy\crm\route.ts:16:42)
+  14 |
+  15 |     // Get query parameters
+> 16 |     const searchParams = request.nextUrl.searchParams;
+     |                                          ^
+  17 |     const entity = searchParams.get('entity');
+  18 |     const page = searchParams.get('page') || '1';
+  19 |     const perPage = searchParams.get('perPage') || '10'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+[organizations/sections/template] Error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/organizations/sections/template".
+    at new Promise (<anonymous>)
+    at R (app\api\organizations\sections\template\route.ts:29:31)
+  27 |   try {
+  28 |     // Initialize Supabase client
+> 29 |     const cookieStore = await cookies();
+     |                               ^
+  30 |     const supabase = createServerClient(
+  31 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  32 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/organizations/sections/template',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Export error: Error: Route /api/organizations/semesters/export needs to bail out of prerendering at this point because it used request.url.
+    at C (app\api\organizations\semesters\export\route.ts:13:46)
+  11 |   try {
+  12 |     // Get query parameters
+> 13 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  14 |     const exportFormat = searchParams.get('format') || 'csv';
+  15 |     const includeAll = searchParams.get('includeAll') === 'true';
+  16 |     const includeInactive = searchParams.get('includeInactive') === 'true'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Error fetching profiles: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/profiles".
+    at new Promise (<anonymous>)
+    at E (app\api\profiles\route.ts:11:31)
+   9 | export async function GET(request: NextRequest) {
+  10 |   try {
+> 11 |     const cookieStore = await cookies();
+     |                               ^
+  12 |     const supabase = createServerClient(
+  13 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  14 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/profiles',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+[organizations/semesters/template] Error: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/organizations/semesters/template".
+    at new Promise (<anonymous>)
+    at R (app\api\organizations\semesters\template\route.ts:33:31)
+  31 |   try {
+  32 |     // Initialize Supabase client
+> 33 |     const cookieStore = await cookies();
+     |                               ^
+  34 |     const supabase = createServerClient(
+  35 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  36 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/organizations/semesters/template',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Error proxying to external API: Error: Route /api/proxy/crm needs to bail out of prerendering at this point because it used nextUrl.searchParams.
+    at m (app\api\proxy\crm\route.ts:16:42)
+  14 |
+  15 |     // Get query parameters
+> 16 |     const searchParams = request.nextUrl.searchParams;
+     |                                          ^
+  17 |     const entity = searchParams.get('entity');
+  18 |     const page = searchParams.get('page') || '1';
+  19 |     const perPage = searchParams.get('perPage') || '10'; {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Error in check-missing-profiles: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/staff/check-missing-profiles".
+    at new Promise (<anonymous>)
+    at E (app\api\staff\check-missing-profiles\route.ts:21:31)
+  19 | export async function GET() {
+  20 |   try {
+> 21 |     const cookieStore = await cookies();
+     |                               ^
+  22 |     const supabase = createServerClient(
+  23 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  24 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/staff/check-missing-profiles',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Error exporting staff: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/staff/export".
+    at new Promise (<anonymous>)
+    at R (app\api\staff\export\route.ts:10:31)
+   8 | export async function GET(request: NextRequest) {
+   9 |   try {
+> 10 |     const cookieStore = await cookies();
+     |                               ^
+  11 |     const supabase = createServerClient(
+  12 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  13 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/staff/export',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Email check error: Error: Route /api/users/check-email needs to bail out of prerendering at this point because it used request.url.
+    at E (app\api\users\check-email\route.ts:20:46)
+  18 | export async function GET(request: NextRequest) {
+  19 |   try {
+> 20 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  21 |     const email = searchParams.get('email');
+  22 |
+  23 |     console.log('=== EMAIL CHECK DEBUG ==='); {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Error in GET /api/users/dashboard-stats: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/users/dashboard-stats".
+    at new Promise (<anonymous>)
+    at y (app\api\users\dashboard-stats\route.ts:11:31)
+   9 | export async function GET(request: NextRequest) {
+  10 |   try {
+> 11 |     const cookieStore = await cookies();
+     |                               ^
+  12 |     const supabase = createServerClient(
+  13 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  14 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/users/dashboard-stats',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+Email check error: Error: Route /api/users/check-email needs to bail out of prerendering at this point because it used request.url.
+    at E (app\api\users\check-email\route.ts:20:46)
+  18 | export async function GET(request: NextRequest) {
+  19 |   try {
+> 20 |     const { searchParams } = new URL(request.url);
+     |                                              ^
+  21 |     const email = searchParams.get('email');
+  22 |
+  23 |     console.log('=== EMAIL CHECK DEBUG ==='); {
+  digest: 'NEXT_PRERENDER_INTERRUPTED'
+}
+Error in GET /api/users/stats: Error: During prerendering, `cookies()` rejects when the prerender is complete. Typically these errors are handled by React but if you move `cookies()` to a different context by using `setTimeout`, `after`, or similar functions you may observe this error and you should handle it in that context. This occurred at route "/api/users/stats".
+    at new Promise (<anonymous>)
+    at E (app\api\users\stats\route.ts:9:31)
+   7 | export async function GET(request: NextRequest) {
+   8 |   try {
+>  9 |     const cookieStore = await cookies();
+     |                               ^
+  10 |     const supabase = createServerClient(
+  11 |       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  12 |       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  route: '/api/users/stats',
+  expression: '`cookies()`',
+  digest: 'HANGING_PROMISE_REJECTION'
+}
+✓ Generating static pages using 1 worker (342/342) in 24.6s
+  Finalizing page optimization ...
+
+Route (app)                                                     Revalidate  Expire
+┌ ○ /
+├ ○ /_not-found
+├ ○ /academic/attendance
+├ ○ /academic/attendance/consolidation
+├ ◐ /academic/attendance/consolidation/[id]
+│ └ /academic/attendance/consolidation/[id]
+├ ○ /academic/attendance/dashboard
+├ ○ /academic/attendance/mark
+├ ○ /academic/attendance/reports
+├ ◐ /academic/attendance/reports/[id]
+│ └ /academic/attendance/reports/[id]
+├ ◐ /academic/batches
+├ ◐ /academic/batches/[id]/edit
+│ └ /academic/batches/[id]/edit
+├ ○ /academic/batches/new
+├ ◐ /academic/course-grades
+├ ○ /academic/leave-calendar
+├ ○ /academic/leave-onduty/approvals
+├ ○ /academic/leave-onduty/reports
+├ ○ /academic/leave-onduty/settings
+├ ◐ /academic/leaves
+├ ◐ /academic/leaves/[id]
+│ └ /academic/leaves/[id]
+├ ◐ /academic/leaves/[id]/edit
+│ └ /academic/leaves/[id]/edit
+├ ○ /academic/leaves/new
+├ ○ /academic/leaves/settings
+├ ○ /academic/leaves/settings/types
+├ ○ /academic/leaves/settings/workflows
+├ ◐ /academic/periods
+├ ◐ /academic/periods/[id]/edit
+│ └ /academic/periods/[id]/edit
+├ ○ /academic/periods/new
+├ ◐ /academic/regulations
+├ ◐ /academic/regulations/[id]/edit
+│ └ /academic/regulations/[id]/edit
+├ ○ /academic/regulations/new
+├ ◐ /academic/staff-planning
+├ ◐ /academic/staff-planning/[id]
+│ └ /academic/staff-planning/[id]
+├ ◐ /academic/staff-planning/[id]/edit
+│ └ /academic/staff-planning/[id]/edit
+├ ○ /academic/staff-planning/new
+├ ◐ /academic/timetables
+├ ◐ /academic/timetables/[id]
+│ └ /academic/timetables/[id]
+├ ◐ /academic/timetables/[id]/edit
+│ └ /academic/timetables/[id]/edit
+├ ○ /academic/timetables/conflicts
+├ ○ /academic/timetables/faculty-calendar
+├ ○ /academic/timetables/faculty-calendar/admin
+├ ○ /academic/timetables/new
+├ ○ /academic/timetables/templates
+├ ◐ /academic/timetables/templates/[id]
+│ └ /academic/timetables/templates/[id]
+├ ○ /academic/timetables/templates/analytics
+├ ◐ /academic/years
+├ ◐ /academic/years/[id]
+│ └ /academic/years/[id]
+├ ◐ /academic/years/[id]/edit
+│ └ /academic/years/[id]/edit
+├ ○ /academic/years/new
+├ ○ /admin/ai-query-tools
+├ ○ /admin/bug-reports
+├ ◐ /admin/bug-reports/[id]
+│ └ /admin/bug-reports/[id]
+├ ◐ /admin/lti/analytics
+├ ◐ /admin/lti/grade-sync
+├ ◐ /admin/lti/launches
+├ ○ /admin/notifications
+├ ◐ /admin/notifications/[id]
+│ └ /admin/notifications/[id]
+├ ○ /admin/notifications/new
+├ ○ /admin/reset-driver-passwords
+├ ○ /ai-query
+├ ƒ /api/activity
+├ ƒ /api/activity/export
+├ ƒ /api/activity/metrics
+├ ƒ /api/admin/fix-driver-auth
+├ ƒ /api/admin/notifications
+├ ƒ /api/admin/notifications/[id]
+├ ƒ /api/admin/notifications/stats
+├ ƒ /api/admin/reset-driver-passwords
+├ ƒ /api/ai-query
+├ ƒ /api/analytics/engagement
+├ ƒ /api/analytics/engagement/at-risk
+├ ƒ /api/analytics/engagement/hierarchy
+├ ƒ /api/analytics/engagement/sections/compare
+├ ƒ /api/analytics/engagement/student/[id]
+├ ƒ /api/api-management/academic/academic-years
+├ ƒ /api/api-management/academic/academic-years/[id]
+├ ƒ /api/api-management/academic/batches
+├ ƒ /api/api-management/academic/batches/[id]
+├ ƒ /api/api-management/academic/regulations
+├ ƒ /api/api-management/academic/regulations/[id]
+├ ƒ /api/api-management/applications
+├ ƒ /api/api-management/applications/[id]
+├ ƒ /api/api-management/learners/alumni
+├ ƒ /api/api-management/learners/enquiries
+├ ƒ /api/api-management/learners/enquiries/[id]
+├ ƒ /api/api-management/learners/profiles
+├ ƒ /api/api-management/learners/profiles/[id]
+├ ƒ /api/api-management/organizations/courses
+├ ƒ /api/api-management/organizations/courses/[id]
+├ ƒ /api/api-management/organizations/degrees
+├ ƒ /api/api-management/organizations/degrees/[id]
+├ ƒ /api/api-management/organizations/departments
+├ ƒ /api/api-management/organizations/departments/[id]
+├ ƒ /api/api-management/organizations/departments/institutions
+├ ƒ /api/api-management/organizations/institutions
+├ ƒ /api/api-management/organizations/institutions/[id]
+├ ƒ /api/api-management/organizations/institutions/names
+├ ƒ /api/api-management/organizations/programs
+├ ƒ /api/api-management/organizations/programs/[id]
+├ ƒ /api/api-management/organizations/sections
+├ ƒ /api/api-management/organizations/sections/[id]
+├ ƒ /api/api-management/organizations/semesters
+├ ƒ /api/api-management/organizations/semesters/[id]
+├ ƒ /api/api-management/staff
+├ ƒ /api/api-management/staff/[id]
+├ ƒ /api/applications
+├ ƒ /api/applications/[id]
+├ ƒ /api/applications/[id]/launch
+├ ƒ /api/audit-logs
+├ ƒ /api/audit-logs/[id]
+├ ƒ /api/auth/logout
+├ ƒ /api/billing/categories/parent-categories
+├ ƒ /api/billing/categories/parent-categories/[id]
+├ ƒ /api/billing/categories/sub-categories
+├ ƒ /api/billing/categories/sub-categories/[id]
+├ ƒ /api/billing/payment/callback
+├ ƒ /api/billing/payment/initiate
+├ ƒ /api/billing/payment/status/[transactionId]
+├ ƒ /api/billing/payment/webhook
+├ ƒ /api/bug-reports
+├ ƒ /api/bug-reports/[id]
+├ ƒ /api/bug-reports/[id]/messages
+├ ƒ /api/bug-reports/[id]/messages/notifications
+├ ƒ /api/bug-reports/[id]/messages/read
+├ ƒ /api/bug-reports/[id]/participants
+├ ƒ /api/bug-reports/[id]/reopen
+├ ƒ /api/bug-reports/bulk-delete
+├ ƒ /api/bug-reports/bulk-update-status
+├ ƒ /api/bug-reports/leaderboard
+├ ƒ /api/bug-reports/me
+├ ƒ /api/bug-reports/stats
+├ ƒ /api/bug-reports/test
+├ ƒ /api/check-database-tables
+├ ○ /api/crm/api-key
+├ ƒ /api/debug/applications
+├ ƒ /api/debug/auth-test
+├ ƒ /api/debug/check-ip
+├ ○ /api/debug/env-check
+├ ƒ /api/departments
+├ ƒ /api/institutions
+├ ƒ /api/learner-profile/change-requests
+├ ƒ /api/learner-profile/change-requests/[id]
+├ ƒ /api/learner-profile/change-requests/[id]/approve
+├ ƒ /api/learner-profile/change-requests/[id]/cancel
+├ ƒ /api/learner-profile/change-requests/[id]/reject
+├ ƒ /api/learner-profile/change-requests/pending/[learnerId]
+├ ƒ /api/learners/analytics/advanced
+├ ƒ /api/learners/analytics/stats
+├ ƒ /api/learners/attendance/export-excel
+├ ƒ /api/learners/attendance/export-pdf
+├ ƒ /api/learners/bulk-edit-exited
+├ ƒ /api/learners/bulk-edit-preview
+├ ƒ /api/learners/bulk-upload-profiles
+├ ƒ /api/learners/change-requests/[id]/approve
+├ ƒ /api/learners/change-requests/[id]/reject
+├ ƒ /api/learners/change-requests/history/[learnerId]
+├ ƒ /api/learners/check-existing-learners
+├ ƒ /api/learners/check-missing-profiles
+├ ƒ /api/learners/complete-onboarding
+├ ƒ /api/learners/create-missing-profiles
+├ ƒ /api/learners/enquiries/import
+├ ƒ /api/learners/enquiries/template
+├ ƒ /api/learners/export-exited-for-edit
+├ ƒ /api/learners/validate-bulk-upload-preview
+├ ƒ /api/lti/auth
+├ ƒ /api/lti/callback
+├ ƒ /api/lti/grades
+├ ƒ /api/lti/jwks
+├ ƒ /api/lti/launch
+├ ƒ /api/lti/names-roles
+├ ƒ /api/lti/token
+├ ƒ /api/lti/tools
+├ ƒ /api/lti/tools/[id]
+├ ƒ /api/notifications
+├ ƒ /api/notifications/[id]
+├ ƒ /api/notifications/read
+├ ƒ /api/notifications/send
+├ ƒ /api/notifications/subscribe
+├ ƒ /api/organizations/course-mappings/import
+├ ƒ /api/organizations/course-mappings/template
+├ ƒ /api/organizations/courses/export
+├ ƒ /api/organizations/courses/import
+├ ƒ /api/organizations/courses/template
+├ ƒ /api/organizations/dashboard
+├ ƒ /api/organizations/degrees/export
+├ ƒ /api/organizations/degrees/import
+├ ƒ /api/organizations/degrees/template
+├ ƒ /api/organizations/departments/export
+├ ƒ /api/organizations/departments/import
+├ ƒ /api/organizations/departments/template
+├ ƒ /api/organizations/institutions/export
+├ ƒ /api/organizations/institutions/import
+├ ƒ /api/organizations/institutions/template
+├ ƒ /api/organizations/programs/export
+├ ƒ /api/organizations/programs/import
+├ ƒ /api/organizations/programs/template
+├ ƒ /api/organizations/sections/export
+├ ƒ /api/organizations/sections/import
+├ ƒ /api/organizations/sections/template
+├ ƒ /api/organizations/semesters/export
+├ ƒ /api/organizations/semesters/import
+├ ƒ /api/organizations/semesters/template
+├ ƒ /api/profiles
+├ ƒ /api/proxy/crm
+├ ƒ /api/roles
+├ ƒ /api/roles/[key]
+├ ƒ /api/staff
+├ ƒ /api/staff/check-missing-profiles
+├ ƒ /api/staff/create-missing-profiles
+├ ƒ /api/staff/dashboard-stats
+├ ƒ /api/staff/export
+├ ƒ /api/staff/sync-institutions
+├ ƒ /api/system/api-keys
+├ ƒ /api/system/api-keys/[id]
+├ ƒ /api/system/api-keys/bulk-delete
+├ ƒ /api/system/api-keys/test
+├ ƒ /api/test-env
+├ ƒ /api/upload
+├ ƒ /api/upload/resource-management
+├ ƒ /api/users
+├ ƒ /api/users/[id]
+├ ƒ /api/users/[id]/deactivate
+├ ƒ /api/users/[id]/role
+├ ƒ /api/users/[id]/roles
+├ ƒ /api/users/[id]/toggle-status
+├ ƒ /api/users/bulk-role-update
+├ ƒ /api/users/check-consistency
+├ ƒ /api/users/check-email
+├ ƒ /api/users/dashboard-stats
+├ ƒ /api/users/manage-auth
+├ ƒ /api/users/stats
+├ ○ /application-hub
+├ ○ /application-hub/api-guidelines
+├ ○ /application-hub/api-guidelines/endpoints
+├ ○ /applications
+├ ◐ /applications/[id]
+│ └ /applications/[id]
+├ ◐ /applications/[id]/edit
+│ └ /applications/[id]/edit
+├ ○ /applications/categories
+├ ○ /applications/new
+├ ○ /audit-trail
+├ ƒ /auth/authorize
+├ ƒ /auth/callback
+├ ○ /auth/complete-profile
+├ ○ /auth/login
+├ ○ /billing/categories/item-categories
+├ ◐ /billing/categories/item-categories/[id]/edit
+│ └ /billing/categories/item-categories/[id]/edit
+├ ○ /billing/categories/item-categories/new
+├ ○ /billing/categories/parent-categories
+├ ◐ /billing/categories/parent-categories/[id]/edit
+│ └ /billing/categories/parent-categories/[id]/edit
+├ ○ /billing/categories/parent-categories/new
+├ ○ /billing/categories/sub-categories
+├ ◐ /billing/categories/sub-categories/[id]/edit
+│ └ /billing/categories/sub-categories/[id]/edit
+├ ○ /billing/categories/sub-categories/new
+├ ○ /billing/discounts
+├ ◐ /billing/discounts/[id]
+│ └ /billing/discounts/[id]
+├ ◐ /billing/discounts/[id]/edit
+│ └ /billing/discounts/[id]/edit
+├ ○ /billing/discounts/new
+├ ◐ /billing/invoices
+├ ◐ /billing/invoices/[id]
+│ └ /billing/invoices/[id]
+├ ◐ /billing/invoices/[id]/edit
+│ └ /billing/invoices/[id]/edit
+├ ○ /billing/payment/failed
+├ ○ /billing/payment/success
+├ ◐ /billing/receipts
+├ ◐ /billing/receipts/[id]
+│ └ /billing/receipts/[id]
+├ ◐ /billing/receipts/[id]/edit
+│ └ /billing/receipts/[id]/edit
+├ ○ /billing/receipts/new
+├ ○ /billing/receipts/templates
+├ ◐ /billing/refunds
+├ ◐ /billing/refunds/[id]
+│ └ /billing/refunds/[id]
+├ ◐ /billing/refunds/[id]/edit
+│ └ /billing/refunds/[id]/edit
+├ ○ /billing/refunds/new
+├ ○ /billing/reports
+├ ○ /billing/schedule
+├ ◐ /billing/schedule/[id]
+│ └ /billing/schedule/[id]
+├ ◐ /billing/schedule/[id]/edit
+│ └ /billing/schedule/[id]/edit
+├ ○ /billing/schedule/bulk-create
+├ ○ /billing/schedule/new
+├ ○ /billing/schedule/students
+├ ◐ /billing/schedule/students/[id]
+│ └ /billing/schedule/students/[id]
+├ ◐ /billing/student-bills/[billId]
+│ └ /billing/student-bills/[billId]
+├ ○ /bug-leaderboard
+├ ◐ /dashboard
+├ ○ /driver
+├ ○ /guest
+├ ◐ /learners/alumni
+├ ○ /learners/analytics
+├ ◐ /learners/change-requests
+├ ◐ /learners/change-requests/[id]
+│ └ /learners/change-requests/[id]
+├ ◐ /learners/enquiries
+├ ◐ /learners/enquiries/[id]
+│ └ /learners/enquiries/[id]
+├ ◐ /learners/enquiries/[id]/edit
+│ └ /learners/enquiries/[id]/edit
+├ ○ /learners/enquiries/new
+├ ○ /learners/leave-onduty/apply
+├ ○ /learners/leave-onduty/my-applications
+├ ◐ /learners/my-attendance
+├ ◐ /learners/my-profile
+├ ◐ /learners/my-profile/status
+├ ◐ /learners/my-profile/status/[id]
+│ └ /learners/my-profile/status/[id]
+├ ◐ /learners/my-timetable
+├ ◐ /learners/profiles
+├ ◐ /learners/profiles/[id]
+│ └ /learners/profiles/[id]
+├ ◐ /learners/profiles/[id]/edit
+│ └ /learners/profiles/[id]/edit
+├ ○ /learners/profiles/promotion
+├ ○ /logout
+├ ○ /my-bug-reports
+├ ◐ /my-bug-reports/[id]
+│ └ /my-bug-reports/[id]
+├ ○ /notifications
+├ ○ /notifications/settings
+├ ○ /offline
+├ ◐ /organizations/courses
+├ ◐ /organizations/courses/[id]
+│ └ /organizations/courses/[id]
+├ ◐ /organizations/courses/[id]/edit
+│ └ /organizations/courses/[id]/edit
+├ ◐ /organizations/courses/mappings
+├ ◐ /organizations/courses/mappings/[id]
+│ └ /organizations/courses/mappings/[id]
+├ ◐ /organizations/courses/mappings/[id]/edit
+│ └ /organizations/courses/mappings/[id]/edit
+├ ○ /organizations/courses/mappings/new
+├ ○ /organizations/courses/new
+├ ○ /organizations/dashboard
+├ ◐ /organizations/degrees
+├ ◐ /organizations/degrees/[id]
+│ └ /organizations/degrees/[id]
+├ ◐ /organizations/degrees/[id]/edit
+│ └ /organizations/degrees/[id]/edit
+├ ○ /organizations/degrees/new
+├ ◐ /organizations/departments
+├ ◐ /organizations/departments/[id]
+│ └ /organizations/departments/[id]
+├ ◐ /organizations/departments/[id]/edit
+│ └ /organizations/departments/[id]/edit
+├ ○ /organizations/departments/new
+├ ◐ /organizations/institutions
+├ ◐ /organizations/institutions/[id]
+│ └ /organizations/institutions/[id]
+├ ◐ /organizations/institutions/[id]/edit
+│ └ /organizations/institutions/[id]/edit
+├ ○ /organizations/institutions/new
+├ ◐ /organizations/programs
+├ ◐ /organizations/programs/[id]
+│ └ /organizations/programs/[id]
+├ ◐ /organizations/programs/[id]/edit
+│ └ /organizations/programs/[id]/edit
+├ ○ /organizations/programs/new
+├ ◐ /organizations/sections
+├ ◐ /organizations/sections/[id]
+│ └ /organizations/sections/[id]
+├ ◐ /organizations/sections/[id]/edit
+│ └ /organizations/sections/[id]/edit
+├ ○ /organizations/sections/new
+├ ◐ /organizations/semesters
+├ ◐ /organizations/semesters/[id]
+│ └ /organizations/semesters/[id]
+├ ◐ /organizations/semesters/[id]/edit
+│ └ /organizations/semesters/[id]/edit
+├ ○ /organizations/semesters/new
+├ ○ /profile
+├ ○ /pwa-status
+├ ○ /resource-management
+├ ○ /resource-management/analytics-dashboard
+├ ○ /resource-management/categories
+├ ◐ /resource-management/categories/[id]
+│ └ /resource-management/categories/[id]
+├ ◐ /resource-management/categories/[id]/edit
+│ └ /resource-management/categories/[id]/edit
+├ ○ /resource-management/categories/new
+├ ○ /resource-management/categories/sub-categories
+├ ◐ /resource-management/categories/sub-categories/[id]
+│ └ /resource-management/categories/sub-categories/[id]
+├ ◐ /resource-management/categories/sub-categories/[id]/edit
+│ └ /resource-management/categories/sub-categories/[id]/edit
+├ ○ /resource-management/categories/sub-categories/new
+├ ○ /resource-management/maintenance
+├ ◐ /resource-management/maintenance/[id]
+│ └ /resource-management/maintenance/[id]
+├ ◐ /resource-management/maintenance/[id]/edit
+│ └ /resource-management/maintenance/[id]/edit
+├ ○ /resource-management/maintenance/new
+├ ○ /resource-management/reservations
+├ ◐ /resource-management/reservations/[id]
+│ └ /resource-management/reservations/[id]
+├ ○ /resource-management/reservations/approvals
+├ ○ /resource-management/reservations/my-reservations
+├ ○ /resource-management/reservations/new
+├ ○ /resource-management/resources
+├ ◐ /resource-management/resources/[id]
+│ └ /resource-management/resources/[id]
+├ ◐ /resource-management/resources/[id]/edit
+│ └ /resource-management/resources/[id]/edit
+├ ○ /resource-management/resources/new
+├ ◐ /staff/category
+├ ◐ /staff/category/[id]/edit
+│ └ /staff/category/[id]/edit
+├ ○ /staff/category/new
+├ ○ /staff/dashboard
+├ ○ /staff/list
+├ ◐ /staff/list/[id]
+│ └ /staff/list/[id]
+├ ◐ /staff/list/[id]/edit
+│ └ /staff/list/[id]/edit
+├ ○ /staff/list/new
+├ ○ /system/api-management
+├ ○ /system/lti-tools
+├ ○ /unauthorized
+├ ◐ /users                                                             15m      1y
+├ ◐ /users/[id]
+│ └ /users/[id]
+├ ◐ /users/[id]/edit
+│ └ /users/[id]/edit
+├ ○ /users/activity
+├ ○ /users/dashboard
+├ ○ /users/new
+├ ○ /users/role-management
+└ ○ /users/roles
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)             prerendered as static content
+◐  (Partial Prerender)  prerendered as static HTML with dynamic server-streamed content
+ƒ  (Dynamic)            server-rendered on demand
+
