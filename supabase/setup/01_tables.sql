@@ -187,6 +187,10 @@ CREATE TABLE IF NOT EXISTS public.programs (
     program_duration_yrs NUMERIC(3,1) CHECK (program_duration_yrs IS NULL OR program_duration_yrs > 0),
     pattern_type VARCHAR(10) CHECK (pattern_type IN ('Year', 'Semester')),
     is_part_time BOOLEAN DEFAULT false,
+    -- Intake Capacity Fields (Added: 2025-01-31)
+    sanctioned_intake INTEGER DEFAULT 0,
+    actual_intake INTEGER DEFAULT 0,
+    academic_year_id UUID,
     -- Standard fields
     is_active BOOLEAN DEFAULT true,
     created_by UUID,
@@ -357,6 +361,13 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     neet_roll_number TEXT,
     neet_score TEXT,
 
+    -- Advanced Analytics Fields (Added: 2025-01-31)
+    school_type TEXT CHECK (school_type IN ('government', 'aided', 'private', 'cbse', 'icse', 'state_board')),
+    school_district TEXT,
+    school_taluk TEXT,
+    medium_of_instruction TEXT CHECK (medium_of_instruction IN ('english', 'tamil', 'both')),
+    location_type TEXT CHECK (location_type IN ('urban', 'semi_urban', 'rural')),
+
     -- Admission/Counseling Information
     counseling_applied BOOLEAN DEFAULT false,
     counseling_number TEXT,
@@ -413,6 +424,35 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     created_by UUID,
     updated_by UUID
 );
+
+-- Intake History Table (Added: 2025-01-31)
+-- Purpose: Track historical intake data for 3-year stability index and capacity analytics
+CREATE TABLE IF NOT EXISTS public.intake_history (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL,
+    program_id UUID NOT NULL,
+    academic_year_id UUID NOT NULL,
+    sanctioned_intake INTEGER DEFAULT 0,
+    actual_intake INTEGER DEFAULT 0,
+    waitlist_count INTEGER DEFAULT 0,
+    dropout_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(program_id, academic_year_id)
+);
+
+-- Indexes for intake_history analytics queries
+CREATE INDEX IF NOT EXISTS idx_intake_history_program ON intake_history(program_id);
+CREATE INDEX IF NOT EXISTS idx_intake_history_year ON intake_history(academic_year_id);
+CREATE INDEX IF NOT EXISTS idx_intake_history_institution ON intake_history(institution_id);
+
+-- Indexes for learners_profiles analytics fields
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_school_type ON learners_profiles(school_type);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_location_type ON learners_profiles(location_type);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_medium_instruction ON learners_profiles(medium_of_instruction);
+
+-- Index for programs academic year
+CREATE INDEX IF NOT EXISTS idx_programs_academic_year ON programs(academic_year_id);
 
 -- =====================================================
 -- LEGACY TABLES (To be converted to VIEWs in Phase 2)

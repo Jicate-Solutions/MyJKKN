@@ -671,6 +671,48 @@ CREATE POLICY "students_all_admin" ON students
         )
     );
 
+-- INTAKE_HISTORY TABLE (Added: 2025-01-31)
+-- Purpose: Capacity analytics and 3-year stability index tracking
+ALTER TABLE intake_history ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "intake_history_select_policy" ON intake_history
+    FOR SELECT USING (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid() AND is_active = true
+        )
+    );
+
+CREATE POLICY "intake_history_insert_policy" ON intake_history
+    FOR INSERT WITH CHECK (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type IN ('admin', 'write')
+            AND is_active = true
+        )
+    );
+
+CREATE POLICY "intake_history_update_policy" ON intake_history
+    FOR UPDATE USING (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type IN ('admin', 'write')
+            AND is_active = true
+        )
+    );
+
+CREATE POLICY "intake_history_delete_policy" ON intake_history
+    FOR DELETE USING (
+        institution_id IN (
+            SELECT institution_id FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type = 'admin'
+            AND is_active = true
+        )
+    );
+
 -- ================================================================================
 -- SECTION 5: STAFF MODULE TABLES
 -- ================================================================================

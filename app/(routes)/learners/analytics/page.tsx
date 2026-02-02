@@ -2,13 +2,14 @@
 // LEARNERS ANALYTICS DASHBOARD - COMPREHENSIVE
 // ============================================
 // Created: 2025-01-20
-// Updated: 2025-02-02 - Complete dashboard with 10 tabs (added advanced analytics)
+// Updated: 2025-02-02 - Complete dashboard with 8 tabs (combined geography and trends tabs)
 // Purpose: Unified analytics for entire learner lifecycle
 // ============================================
 
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { subDays, formatDistanceToNow } from 'date-fns';
 import {
   BarChart3,
@@ -46,16 +47,14 @@ import toast from 'react-hot-toast';
 import { OverviewTab } from './_components/overview-tab';
 import { OrganizationalTab } from './_components/organizational-tab';
 import { DemographicsTab } from './_components/demographics-tab';
-import { GeographicTab } from './_components/geographic-tab';
-import { TrendsTab } from './_components/trends-tab';
+import { GeographicTabCombined } from './_components/geographic-tab-combined';
+import { TrendsTabCombined } from './_components/trends-tab-combined';
 import { ProfileCompletionTab } from './_components/profile-completion-tab';
 import { DashboardFilters } from './_components/dashboard-filters';
 import { ExportDashboardDialog } from './_components/export-dashboard-dialog';
 
 // Advanced Analytics Tab Components
 import { IntakeCapacityTab } from './_components/intake-capacity-tab';
-import { AdvancedGeographyTab } from './_components/advanced-geography-tab';
-import { AdvancedTrendsTab } from './_components/advanced-trends-tab';
 import { SchoolFeedersTab } from './_components/school-feeders-tab';
 
 // Advanced Analytics Hook
@@ -69,7 +68,7 @@ import { useLearnerAdvancedAnalytics } from '@/hooks/use-learner-advanced-analyt
  * - Old admission dashboard (conversion funnel, status breakdown)
  *
  * Features:
- * - 6 tabbed sections for organized data presentation
+ * - 8 tabbed sections for organized data presentation (combined geography and trends tabs)
  * - Advanced filtering with cascading dropdowns
  * - Export functionality (PDF, Excel, CSV)
  * - Interactive charts with drill-down capability
@@ -86,6 +85,20 @@ export default function LearnersAnalyticsDashboard() {
   const queryClient = useQueryClient();
   const { can, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const { profile, isLoading: authLoading } = useAuth();
+  
+  // URL State Management for Tabs
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'overview';
+
+  const handleTabChange = (value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', value);
+    // Use replace to prevent polluting browser history with every tab switch
+    // scroll: false maintains scroll position
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
 
   // Institution access based on user's profile
   // Super admins can access all institutions
@@ -402,47 +415,43 @@ export default function LearnersAnalyticsDashboard() {
         )}
 
         {/* Tabbed Analytics */}
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3 lg:grid-cols-5 gap-2">
-            <TabsTrigger value="overview" className="flex items-center gap-2">
+        <Tabs 
+          value={activeTab} 
+          onValueChange={handleTabChange}
+          className="space-y-4"
+        >
+          <TabsList className="flex h-auto w-full items-center justify-start gap-2 overflow-x-auto bg-muted p-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <TabsTrigger value="overview" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <BarChart3 className="h-4 w-4" />
-              <span className="hidden sm:inline">Overview</span>
+              <span>Overview</span>
             </TabsTrigger>
-            <TabsTrigger value="organizational" className="flex items-center gap-2">
+            <TabsTrigger value="organizational" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <Building2 className="h-4 w-4" />
-              <span className="hidden sm:inline">Organizational</span>
+              <span>Org</span>
             </TabsTrigger>
-            <TabsTrigger value="demographics" className="flex items-center gap-2">
+            <TabsTrigger value="demographics" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <Users className="h-4 w-4" />
-              <span className="hidden sm:inline">Demographics</span>
+              <span>Demographics</span>
             </TabsTrigger>
-            <TabsTrigger value="geographic" className="flex items-center gap-2">
+            <TabsTrigger value="geographic" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <MapPin className="h-4 w-4" />
-              <span className="hidden sm:inline">Geographic</span>
+              <span>Geographic</span>
             </TabsTrigger>
-            <TabsTrigger value="trends" className="flex items-center gap-2">
+            <TabsTrigger value="trends" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <TrendingUp className="h-4 w-4" />
-              <span className="hidden sm:inline">Trends</span>
+              <span>Trends</span>
             </TabsTrigger>
-            <TabsTrigger value="profile-completion" className="flex items-center gap-2">
+            <TabsTrigger value="profile-completion" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <UserCheck className="h-4 w-4" />
-              <span className="hidden sm:inline">Profile</span>
+              <span>Profile</span>
             </TabsTrigger>
-            <TabsTrigger value="intake-capacity" className="flex items-center gap-2">
+            <TabsTrigger value="intake-capacity" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <Target className="h-4 w-4" />
-              <span className="hidden sm:inline">Intake</span>
+              <span>Intake</span>
             </TabsTrigger>
-            <TabsTrigger value="advanced-geography" className="flex items-center gap-2">
-              <Globe className="h-4 w-4" />
-              <span className="hidden sm:inline">Geo+</span>
-            </TabsTrigger>
-            <TabsTrigger value="advanced-trends" className="flex items-center gap-2">
-              <PieChart className="h-4 w-4" />
-              <span className="hidden sm:inline">Trends+</span>
-            </TabsTrigger>
-            <TabsTrigger value="school-feeders" className="flex items-center gap-2">
+            <TabsTrigger value="school-feeders" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <School className="h-4 w-4" />
-              <span className="hidden sm:inline">Schools</span>
+              <span>Schools</span>
             </TabsTrigger>
           </TabsList>
 
@@ -470,18 +479,20 @@ export default function LearnersAnalyticsDashboard() {
             />
           </TabsContent>
 
-          {/* Geographic Tab */}
+          {/* Geographic Tab - Combined */}
           <TabsContent value="geographic">
-            <GeographicTab
-              data={stats}
+            <GeographicTabCombined
+              basicData={stats}
+              advancedData={advancedAnalytics?.geography}
               filters={filters}
             />
           </TabsContent>
 
-          {/* Trends Tab */}
+          {/* Trends Tab - Combined */}
           <TabsContent value="trends">
-            <TrendsTab
-              data={stats}
+            <TrendsTabCombined
+              basicData={stats}
+              advancedData={advancedAnalytics?.trends}
               filters={filters}
             />
           </TabsContent>
@@ -520,66 +531,6 @@ export default function LearnersAnalyticsDashboard() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   No intake capacity data available.
-                </AlertDescription>
-              </Alert>
-            )}
-          </TabsContent>
-
-          {/* Advanced Geography Tab */}
-          <TabsContent value="advanced-geography">
-            {isLoadingAdvanced ? (
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="space-y-4">
-                    <Skeleton className="h-32 w-full" />
-                    <Skeleton className="h-64 w-full" />
-                  </div>
-                </CardContent>
-              </Card>
-            ) : errorAdvanced ? (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Failed to load geography data. Please try again.
-                </AlertDescription>
-              </Alert>
-            ) : advancedAnalytics?.geography ? (
-              <AdvancedGeographyTab data={advancedAnalytics.geography} />
-            ) : (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  No geography data available.
-                </AlertDescription>
-              </Alert>
-            )}
-          </TabsContent>
-
-          {/* Advanced Trends Tab */}
-          <TabsContent value="advanced-trends">
-            {isLoadingAdvanced ? (
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="space-y-4">
-                    <Skeleton className="h-32 w-full" />
-                    <Skeleton className="h-64 w-full" />
-                  </div>
-                </CardContent>
-              </Card>
-            ) : errorAdvanced ? (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Failed to load trends data. Please try again.
-                </AlertDescription>
-              </Alert>
-            ) : advancedAnalytics?.trends ? (
-              <AdvancedTrendsTab data={advancedAnalytics.trends} />
-            ) : (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  No trends data available.
                 </AlertDescription>
               </Alert>
             )}

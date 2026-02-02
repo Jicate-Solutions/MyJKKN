@@ -136,8 +136,19 @@ export function IntakeCapacityTab({ data }: IntakeCapacityTabProps) {
         </Card>
       </div>
 
+      {/* Missing Sanctioned Intake Warning */}
+      {totalSanctioned === 0 && (
+        <Alert variant="warning" className="border-amber-200 bg-amber-50 text-amber-800">
+          <AlertTriangle className="h-4 w-4 text-amber-600" />
+          <AlertDescription>
+            <strong>Configuration Needed:</strong> Sanctioned intake is set to 0 for all programs. 
+            Please update the <code>sanctioned_intake</code> column in the <code>programs</code> table to see accurate utilization metrics.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Over-Intake Alert */}
-      {overIntakeData.length > 0 && (
+      {totalSanctioned > 0 && overIntakeData.length > 0 && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
