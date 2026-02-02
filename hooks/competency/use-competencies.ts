@@ -118,13 +118,21 @@ export function useCompetencyStats(
           domain: 0,
           soft_skill: 0
         },
-        by_taxonomy_level: {
-          remember: 0,
-          understand: 0,
-          apply: 0,
-          analyze: 0,
-          evaluate: 0,
-          create: 0
+        avg_finks_dimensions: {
+          foundational_knowledge: 0,
+          application: 0,
+          integration: 0,
+          human_dimension: 0,
+          caring: 0,
+          learning_how_to_learn: 0
+        },
+        by_dominant_finks_dimension: {
+          foundational_knowledge: 0,
+          application: 0,
+          integration: 0,
+          human_dimension: 0,
+          caring: 0,
+          learning_how_to_learn: 0
         },
         mapped_to_programs: 0,
         mapped_to_courses: 0,
