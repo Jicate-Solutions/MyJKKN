@@ -14,7 +14,7 @@
 | **Status**       | Implementation Ready                          |
 | **Author**       | System Architect                              |
 | **Stakeholders** | Engineering Team, Product Team, Security Team |
-| **Parent App**   | MyJKKN (kvizhngldtiuufknvehv)                 |
+| **Parent App**   | MyJKKN (hhprjbgknupaplivtoib)                 |
 
 ---
 
@@ -85,7 +85,7 @@ MyJKKN Application          Auth Server (New)        Child Apps
 **Parent Application (MyJKKN)**:
 
 - **Framework**: Next.js 15 with App Router
-- **Database**: Supabase PostgreSQL (Project ID: kvizhngldtiuufknvehv)
+- **Database**: Supabase PostgreSQL (Project ID: hhprjbgknupaplivtoib)
 - **Region**: ap-south-1 (Mumbai)
 - **Authentication**: Supabase Auth with Google OAuth
 - **Package**: `@supabase/ssr` for Next.js integration
@@ -399,7 +399,7 @@ After Separation:
 
 ### 5.2.1 MyJKKN (Parent Application)
 
-**Supabase Project**: `kvizhngldtiuufknvehv`  
+**Supabase Project**: `hhprjbgknupaplivtoib`  
 **Region**: `ap-south-1`  
 **Role**: User management and primary application
 

@@ -11,7 +11,7 @@ Users could not create resources, receiving a 409 Conflict error:
 
 ### Error Message
 ```
-POST https://kvizhngldtiuufknvehv.supabase.co/rest/v1/resources?select=*
+POST https://hhprjbgknupaplivtoib.supabase.co/rest/v1/resources?select=*
 409 (Conflict)
 
 {

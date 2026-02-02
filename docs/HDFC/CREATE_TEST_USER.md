@@ -7,7 +7,7 @@ Since Google OAuth redirects to jkkn.ai, you can create a test user with email/p
 ### Method 1: Using Supabase Dashboard (Easiest)
 
 1. Go to: [Supabase Dashboard](https://supabase.com/dashboard)
-2. Select project: **kvizhngldtiuufknvehv**
+2. Select project: **hhprjbgknupaplivtoib**
 3. Go to: **Authentication** → **Users**
 4. Click: **Add User** → **Create new user**
 5. Fill in:

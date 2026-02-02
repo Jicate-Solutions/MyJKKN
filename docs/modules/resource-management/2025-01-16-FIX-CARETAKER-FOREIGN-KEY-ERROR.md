@@ -12,7 +12,7 @@ Users encountered a 409 Conflict error when trying to create resources:
 
 ### Error Message
 ```
-POST https://kvizhngldtiuufknvehv.supabase.co/rest/v1/resources?select=*
+POST https://hhprjbgknupaplivtoib.supabase.co/rest/v1/resources?select=*
 409 (Conflict)
 
 {

@@ -62,7 +62,7 @@ SQL STYLE:
 
 PROJECT CONTEXT:
 - Project: MyJKKN (Education Management System)
-- Database: Supabase (project: kvizhngldtiuufknvehv)
+- Database: Supabase (project: hhprjbgknupaplivtoib)
 - Stack: Next.js 14, TypeScript, React Query
 - Multi-tenant with institution_id
 - RLS enabled on all tables

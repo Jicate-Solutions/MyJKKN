@@ -49,3 +49,8 @@ tmpclaude-*
 
 # Claude Code instructions (contains local paths and credentials references)
 CLAUDE.md
+
+.mcp.json
+
+.claude/settings.local.json
+.claude/claude_settings.json

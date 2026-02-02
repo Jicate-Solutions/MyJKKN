@@ -35,7 +35,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Project references
-PRODUCTION_REF="kvizhngldtiuufknvehv"
+PRODUCTION_REF="hhprjbgknupaplivtoib"
 STAGING_REF="hhprjbgknupaplivtoib"
 
 # Temp file for diff

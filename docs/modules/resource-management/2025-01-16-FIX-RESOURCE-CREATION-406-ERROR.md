@@ -11,13 +11,13 @@ Users were unable to create new resources, encountering the following errors:
 
 ### Error 1: 406 Not Acceptable
 ```
-GET https://kvizhngldtiuufknvehv.supabase.co/rest/v1/resources?select=id&name=eq.Printer&institution_id=eq...
+GET https://hhprjbgknupaplivtoib.supabase.co/rest/v1/resources?select=id&name=eq.Printer&institution_id=eq...
 406 (Not Acceptable)
 ```
 
 ### Error 2: 409 Conflict (Secondary)
 ```
-POST https://kvizhngldtiuufknvehv.supabase.co/rest/v1/resources?select=*
+POST https://hhprjbgknupaplivtoib.supabase.co/rest/v1/resources?select=*
 409 (Conflict)
 ```
 

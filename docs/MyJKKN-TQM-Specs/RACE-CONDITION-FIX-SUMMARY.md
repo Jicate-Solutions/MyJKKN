@@ -179,7 +179,7 @@ try {
 supabase db push --project-ref hhprjbgknupaplivtoib
 
 # Production (after testing)
-supabase db push --project-ref kvizhngldtiuufknvehv
+supabase db push --project-ref hhprjbgknupaplivtoib
 ```
 
 ### 2. Update Code

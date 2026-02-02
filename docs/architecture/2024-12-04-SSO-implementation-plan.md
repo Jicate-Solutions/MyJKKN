@@ -15,7 +15,7 @@ Implement automatic silent SSO across MyJKKN (parent app) and all internal appli
 | **Production Domain** | `jkkn.ai` |
 | **Cookie Domain** | `.jkkn.ai` (subdomains only) |
 | **Internal Apps** | 10+ applications |
-| **Database Location** | Same Supabase project (`kvizhngldtiuufknvehv`) |
+| **Database Location** | Same Supabase project (`hhprjbgknupaplivtoib`) |
 | **Auth Method** | Hybrid OAuth 2.0 (see below) |
 
 ### Two-Tier Domain Support
@@ -35,8 +35,8 @@ Implement automatic silent SSO across MyJKKN (parent app) and all internal appli
 ## Current State Analysis
 
 ### Architecture
-- **Parent App (MyJKKN)**: `jkkn.ai` - Supabase project `kvizhngldtiuufknvehv`
-- **SSO Tables**: Same Supabase project (kvizhngldtiuufknvehv)
+- **Parent App (MyJKKN)**: `jkkn.ai` - Supabase project `hhprjbgknupaplivtoib`
+- **SSO Tables**: Same Supabase project (hhprjbgknupaplivtoib)
 - **Internal Apps**: 10+ apps on subdomains (`app1.jkkn.ai`, `app2.jkkn.ai`, etc.) + external domains
 - **Tech Stack**: All Next.js applications
 

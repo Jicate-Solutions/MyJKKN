@@ -127,7 +127,7 @@ After deployment, go to:
 
 Add these variables:
 ```
-NEXT_PUBLIC_SUPABASE_URL=https://kvizhngldtiuufknvehv.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://hhprjbgknupaplivtoib.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 HDFC_MERCHANT_ID=SG3726
