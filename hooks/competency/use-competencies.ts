@@ -66,10 +66,15 @@ export function useCompetencies(
 
   const queryFn = useCallback(async () => {
     try {
-      return await CompetencyCatalogService.getCompetencies(filters);
+      console.log('[useCompetencies] Fetching with filters:', filters);
+      const result = await CompetencyCatalogService.getCompetencies(filters);
+      console.log('[useCompetencies] Fetch success:', result?.data?.length || 0, 'items');
+      return result;
     } catch (error) {
       console.error('[useCompetencies] Fetch error:', error);
-      throw new Error('Failed to fetch competencies');
+      // Preserve original error message for debugging
+      const message = error instanceof Error ? error.message : 'Failed to fetch competencies';
+      throw new Error(message);
     }
   }, [filters]);
 
