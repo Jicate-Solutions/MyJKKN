@@ -1549,6 +1549,27 @@ export type Database = {
             referencedRelation: "v_pending_escalations"
             referencedColumns: ["learner_profile_id"]
           },
+          {
+            foreignKeyName: "fk_invoices_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_invoices_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "fk_invoices_student"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
         ]
       }
       billing_item_categories: {
@@ -1824,6 +1845,27 @@ export type Database = {
             referencedRelation: "v_pending_escalations"
             referencedColumns: ["learner_profile_id"]
           },
+          {
+            foreignKeyName: "fk_receipts_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_receipts_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "fk_receipts_student"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
         ]
       }
       billing_refunds: {
@@ -2034,6 +2076,27 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_pending_escalations"
             referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "fk_bills_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_bills_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "fk_bills_student"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2441,6 +2504,250 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: []
+      }
+      child_app_access_logs: {
+        Row: {
+          action: string
+          child_app_id: string
+          created_at: string | null
+          error_message: string | null
+          id: string
+          ip_address: unknown
+          metadata: Json | null
+          session_id: string | null
+          status: string
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          child_app_id: string
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          ip_address?: unknown
+          metadata?: Json | null
+          session_id?: string | null
+          status: string
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          child_app_id?: string
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          ip_address?: unknown
+          metadata?: Json | null
+          session_id?: string | null
+          status?: string
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "child_app_access_logs_child_app_id_fkey"
+            columns: ["child_app_id"]
+            isOneToOne: false
+            referencedRelation: "registered_child_apps"
+            referencedColumns: ["app_id"]
+          },
+          {
+            foreignKeyName: "child_app_access_logs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "child_app_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "child_app_access_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "child_app_access_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      child_app_auth_codes: {
+        Row: {
+          app_id: string
+          code: string
+          created_at: string | null
+          expires_at: string
+          id: string
+          redirect_uri: string
+          scope: string | null
+          used_at: string | null
+          user_id: string
+        }
+        Insert: {
+          app_id: string
+          code: string
+          created_at?: string | null
+          expires_at: string
+          id?: string
+          redirect_uri: string
+          scope?: string | null
+          used_at?: string | null
+          user_id: string
+        }
+        Update: {
+          app_id?: string
+          code?: string
+          created_at?: string | null
+          expires_at?: string
+          id?: string
+          redirect_uri?: string
+          scope?: string | null
+          used_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      child_app_permissions: {
+        Row: {
+          child_app_id: string
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          permission_description: string | null
+          permission_name: string
+          resource_type: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          child_app_id: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          permission_description?: string | null
+          permission_name: string
+          resource_type?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          child_app_id?: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          permission_description?: string | null
+          permission_name?: string
+          resource_type?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "child_app_permissions_child_app_id_fkey"
+            columns: ["child_app_id"]
+            isOneToOne: false
+            referencedRelation: "registered_child_apps"
+            referencedColumns: ["app_id"]
+          },
+        ]
+      }
+      child_app_sessions: {
+        Row: {
+          access_token_hash: string
+          child_app_id: string
+          created_at: string | null
+          expires_at: string
+          id: string
+          ip_address: unknown
+          is_active: boolean | null
+          last_used_at: string | null
+          refresh_expires_at: string
+          refresh_token_hash: string
+          revoke_reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          token_version: number | null
+          updated_at: string | null
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          access_token_hash: string
+          child_app_id: string
+          created_at?: string | null
+          expires_at: string
+          id?: string
+          ip_address?: unknown
+          is_active?: boolean | null
+          last_used_at?: string | null
+          refresh_expires_at: string
+          refresh_token_hash: string
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          token_version?: number | null
+          updated_at?: string | null
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          access_token_hash?: string
+          child_app_id?: string
+          created_at?: string | null
+          expires_at?: string
+          id?: string
+          ip_address?: unknown
+          is_active?: boolean | null
+          last_used_at?: string | null
+          refresh_expires_at?: string
+          refresh_token_hash?: string
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          token_version?: number | null
+          updated_at?: string | null
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "child_app_sessions_child_app_id_fkey"
+            columns: ["child_app_id"]
+            isOneToOne: false
+            referencedRelation: "registered_child_apps"
+            referencedColumns: ["app_id"]
+          },
+          {
+            foreignKeyName: "child_app_sessions_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "child_app_sessions_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "child_app_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "child_app_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       communication_channels: {
         Row: {
@@ -4388,6 +4695,27 @@ export type Database = {
           },
           {
             foreignKeyName: "departments_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "fk_departments_degree"
+            columns: ["degree_id"]
+            isOneToOne: false
+            referencedRelation: "degrees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_departments_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_departments_institution"
             columns: ["institution_id"]
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
@@ -11859,6 +12187,20 @@ export type Database = {
             referencedColumns: ["department_id"]
           },
           {
+            foreignKeyName: "fk_profiles_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_profiles_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
             foreignKeyName: "profiles_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -12023,6 +12365,41 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_programs_degree"
+            columns: ["degree_id"]
+            isOneToOne: false
+            referencedRelation: "degrees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_programs_department"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_programs_department"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "fk_programs_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_programs_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
           {
             foreignKeyName: "programs_degree_id_fkey"
             columns: ["degree_id"]
@@ -12396,6 +12773,75 @@ export type Database = {
             columns: ["reward_config_id"]
             isOneToOne: false
             referencedRelation: "referral_reward_configs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      registered_child_apps: {
+        Row: {
+          allowed_redirect_uris: string[]
+          allowed_roles: string[] | null
+          allowed_scopes: string[] | null
+          api_key_hash: string
+          app_description: string | null
+          app_id: string
+          app_logo_url: string | null
+          app_name: string
+          app_url: string
+          created_at: string | null
+          created_by: string | null
+          id: string
+          is_active: boolean | null
+          is_public: boolean | null
+          updated_at: string | null
+        }
+        Insert: {
+          allowed_redirect_uris: string[]
+          allowed_roles?: string[] | null
+          allowed_scopes?: string[] | null
+          api_key_hash: string
+          app_description?: string | null
+          app_id: string
+          app_logo_url?: string | null
+          app_name: string
+          app_url: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_public?: boolean | null
+          updated_at?: string | null
+        }
+        Update: {
+          allowed_redirect_uris?: string[]
+          allowed_roles?: string[] | null
+          allowed_scopes?: string[] | null
+          api_key_hash?: string
+          app_description?: string | null
+          app_id?: string
+          app_logo_url?: string | null
+          app_name?: string
+          app_url?: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_public?: boolean | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "registered_child_apps_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "registered_child_apps_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -13431,6 +13877,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "resources_caretaker_user_id_fkey"
+            columns: ["caretaker_user_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "resources_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
@@ -13907,6 +14360,27 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "fk_sections_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_sections_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "fk_sections_semester"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "sections_degree_id_fkey"
             columns: ["degree_id"]
             isOneToOne: false
@@ -14010,6 +14484,27 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_semesters_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_semesters_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "fk_semesters_program"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "semesters_degree_id_fkey"
             columns: ["degree_id"]
@@ -14234,6 +14729,34 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_staff_department"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_staff_department"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "fk_staff_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_staff_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
           {
             foreignKeyName: "staff_category_id_fkey"
             columns: ["category_id"]
@@ -14524,6 +15047,20 @@ export type Database = {
             referencedColumns: ["department_id"]
           },
           {
+            foreignKeyName: "fk_student_attendance_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_student_attendance_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
             foreignKeyName: "fk_student_attendance_program"
             columns: ["program_id"]
             isOneToOne: false
@@ -14531,10 +15068,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "fk_student_attendance_section"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "fk_student_attendance_semester"
             columns: ["semester_id"]
             isOneToOne: false
             referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_student_attendance_timetable"
+            columns: ["timetable_id"]
+            isOneToOne: false
+            referencedRelation: "timetables"
             referencedColumns: ["id"]
           },
           {
@@ -14670,6 +15221,34 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_students_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_students_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "fk_students_institution_test"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_students_institution_test"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
           {
             foreignKeyName: "students_institution_id_fkey"
             columns: ["institution_id"]
@@ -14961,6 +15540,45 @@ export type Database = {
           },
         ]
       }
+      timetable_slot_continuity: {
+        Row: {
+          continuity_group_id: string
+          created_at: string | null
+          id: string
+          is_current: boolean | null
+          slot_data: Json | null
+          timetable_slot_id: string
+          updated_at: string | null
+          valid_from: string
+          valid_until: string | null
+          version_number: number
+        }
+        Insert: {
+          continuity_group_id: string
+          created_at?: string | null
+          id?: string
+          is_current?: boolean | null
+          slot_data?: Json | null
+          timetable_slot_id: string
+          updated_at?: string | null
+          valid_from: string
+          valid_until?: string | null
+          version_number: number
+        }
+        Update: {
+          continuity_group_id?: string
+          created_at?: string | null
+          id?: string
+          is_current?: boolean | null
+          slot_data?: Json | null
+          timetable_slot_id?: string
+          updated_at?: string | null
+          valid_from?: string
+          valid_until?: string | null
+          version_number?: number
+        }
+        Relationships: []
+      }
       timetables: {
         Row: {
           academic_year_id: string | null
@@ -15062,6 +15680,41 @@ export type Database = {
           version?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_timetables_academic_year"
+            columns: ["academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "academic_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_timetables_department"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_timetables_department"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "fk_timetables_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_timetables_institution"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
           {
             foreignKeyName: "timetables_academic_year_id_fkey"
             columns: ["academic_year_id"]
@@ -15248,6 +15901,81 @@ export type Database = {
             columns: ["application_id"]
             isOneToOne: false
             referencedRelation: "applications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_child_app_permissions: {
+        Row: {
+          child_app_id: string
+          created_at: string | null
+          expires_at: string | null
+          granted_at: string | null
+          granted_by: string | null
+          id: string
+          is_active: boolean | null
+          permissions: Json
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          child_app_id: string
+          created_at?: string | null
+          expires_at?: string | null
+          granted_at?: string | null
+          granted_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          permissions?: Json
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          child_app_id?: string
+          created_at?: string | null
+          expires_at?: string | null
+          granted_at?: string | null
+          granted_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          permissions?: Json
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_child_app_permissions_child_app_id_fkey"
+            columns: ["child_app_id"]
+            isOneToOne: false
+            referencedRelation: "registered_child_apps"
+            referencedColumns: ["app_id"]
+          },
+          {
+            foreignKeyName: "user_child_app_permissions_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "user_child_app_permissions_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_child_app_permissions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "user_child_app_permissions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -16325,6 +17053,13 @@ export type Database = {
             referencedRelation: "v_pending_escalations"
             referencedColumns: ["learner_profile_id"]
           },
+          {
+            foreignKeyName: "fk_bills_student"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
         ]
       }
       bug_reporters_leaderboard: {
@@ -16798,6 +17533,13 @@ export type Database = {
           semester_program_id: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_semesters_program"
+            columns: ["semester_program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "sections_program_id_fkey"
             columns: ["section_program_id"]
@@ -18417,6 +19159,8 @@ export type Database = {
         }[]
       }
       cleanup_expired_auth_buckets: { Args: never; Returns: number }
+      cleanup_expired_auth_codes: { Args: never; Returns: undefined }
+      cleanup_expired_child_app_sessions: { Args: never; Returns: undefined }
       cleanup_migrated_staff_profiles: {
         Args: never
         Returns: {
@@ -19420,6 +20164,20 @@ export type Database = {
           p_response_time_ms?: number
           p_success?: boolean
           p_tools_called?: string[]
+          p_user_agent?: string
+          p_user_id: string
+        }
+        Returns: string
+      }
+      log_child_app_access: {
+        Args: {
+          p_action: string
+          p_child_app_id: string
+          p_error_message?: string
+          p_ip_address?: unknown
+          p_metadata?: Json
+          p_session_id: string
+          p_status: string
           p_user_agent?: string
           p_user_id: string
         }
