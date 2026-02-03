@@ -92,7 +92,7 @@ export function AttendanceWidget({
             >
               {percentage}%
             </div>
-            <p className="text-xs text-muted-foreground mt-2">Overall</p>
+            <p className="text-xs text-muted-foreground mt-2">Current Semester</p>
           </div>
         </div>
 

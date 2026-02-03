@@ -288,7 +288,12 @@ export const PERMISSION_CATEGORIES = [
 
       // Learner Enquiries Bulk Operations
       { key: 'learners.enquiries.bulk_upload', label: 'Bulk Upload Enquiries' },
-      { key: 'learners.enquiries.bulk_status_update', label: 'Bulk Status Update for Enquiries' }
+      { key: 'learners.enquiries.bulk_status_update', label: 'Bulk Status Update for Enquiries' },
+
+      // Learner Profile Change Requests
+      { key: 'learners.change-requests.view', label: 'View Profile Change Requests' },
+      { key: 'learners.change-requests.approve', label: 'Approve Profile Change Requests' },
+      { key: 'learners.change-requests.reject', label: 'Reject Profile Change Requests' }
     ]
   },
   {

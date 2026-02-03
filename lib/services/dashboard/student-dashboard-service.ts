@@ -30,7 +30,8 @@ export interface StudentBillingSummary {
 
 export class StudentDashboardService {
   /**
-   * Get student attendance summary
+   * Get student attendance summary for current semester
+   * FIX: 2026-02-03 - Changed to show current semester attendance only instead of last 90 days
    */
   static async getAttendanceSummary(studentId: string): Promise<StudentAttendanceSummary> {
     const supabase = createClientSupabaseClient();
@@ -47,16 +48,45 @@ export class StudentDashboardService {
       return { percentage: 0, present: 0, absent: 0, late: 0, total: 0 };
     }
 
-    // Get attendance records from last 90 days for performance
-    const ninetyDaysAgo = new Date();
-    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-    const dateFilter = ninetyDaysAgo.toISOString().split('T')[0];
+    // Get section details with semester information
+    const { data: section, error: sectionError } = await supabase
+      .from('sections')
+      .select('semester_id')
+      .eq('id', student.section_id)
+      .single();
 
+    if (sectionError || !section?.semester_id) {
+      logger.error('dashboard/student', 'Failed to fetch section details', sectionError);
+      return { percentage: 0, present: 0, absent: 0, late: 0, total: 0 };
+    }
+
+    // FIX: 2026-02-03 - Get attendance for current semester only
+    // Query active timetables for student's section and current semester
+    // The timetables table already links section_id to semester_id and academic_year_id
+    const { data: timetables } = await supabase
+      .from('timetables')
+      .select('id')
+      .eq('section_id', student.section_id)
+      .eq('semester_id', section.semester_id)
+      .eq('is_active', true);
+
+    if (!timetables || timetables.length === 0) {
+      logger.warn('dashboard/student', 'No active timetable found for current semester', {
+        studentId,
+        sectionId: student.section_id,
+        semesterId: section.semester_id
+      });
+      return { percentage: 0, present: 0, absent: 0, late: 0, total: 0 };
+    }
+
+    const timetableIds = timetables.map(t => t.id);
+
+    // Get attendance records for current semester's timetables only
     const { data: attendanceRecords, error } = await supabase
       .from('student_attendance')
-      .select('attendance_data, attendance_date')
+      .select('attendance_data, attendance_date, timetable_id')
       .eq('section_id', student.section_id)
-      .gte('attendance_date', dateFilter);
+      .in('timetable_id', timetableIds);
 
     if (error) {
       logger.error('dashboard/student', 'Failed to fetch attendance summary', error);
@@ -64,7 +94,11 @@ export class StudentDashboardService {
     }
 
     if (!attendanceRecords || attendanceRecords.length === 0) {
-      logger.warn('dashboard/student', 'No attendance data found', { studentId });
+      logger.warn('dashboard/student', 'No attendance data found for current semester', {
+        studentId,
+        sectionId: student.section_id,
+        semesterId: section.semester_id
+      });
       return { percentage: 0, present: 0, absent: 0, late: 0, total: 0 };
     }
 
