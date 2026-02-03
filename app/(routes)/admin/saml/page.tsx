@@ -4,9 +4,6 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 
-// Force dynamic rendering
-export const dynamic = 'force-dynamic';
-
 export default async function SAMLAdminDashboard() {
   const supabase = await createClient();
 

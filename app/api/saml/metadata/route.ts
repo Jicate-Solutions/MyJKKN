@@ -10,8 +10,6 @@ import { NextResponse } from 'next/server';
 import { SamlIdpService } from '@/lib/services/saml/saml-idp-service';
 import { SamlError } from '@/types/saml';
 
-export const dynamic = 'force-dynamic';
-
 export async function GET() {
   try {
     const metadataXml = SamlIdpService.generateMetadata();
