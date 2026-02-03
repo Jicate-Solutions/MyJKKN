@@ -528,6 +528,154 @@ export class SamlConfigurationError extends SamlError {
 }
 
 // ============================================================================
+// Additional Types for SAML IdP Implementation
+// ============================================================================
+
+/**
+ * SAML IdP Configuration (Extended)
+ */
+export interface SamlIdpConfig {
+  entityId: string;
+  singleSignOnServiceUrl: string;
+  singleLogoutServiceUrl?: string;
+  x509Certificate: string;
+  privateKey: string;
+  responseExpiryMinutes?: number;
+  assertionExpiryMinutes?: number;
+  nameIdFormat?: SamlNameIdFormat;
+  signatureAlgorithm?: 'sha256' | 'sha512';
+}
+
+/**
+ * SAML Service Provider Configuration (for samlify)
+ */
+export interface SamlSpConfig {
+  entityId: string;
+  assertionConsumerServiceUrl: string;
+  singleLogoutServiceUrl?: string;
+  x509Certificate?: string;
+  wantAssertionsSigned?: boolean;
+  wantAuthnRequestsSigned?: boolean;
+}
+
+/**
+ * SAML NameID Format Types
+ */
+export type SamlNameIdFormat =
+  | 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress'
+  | 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent'
+  | 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient'
+  | 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified';
+
+/**
+ * Parsed SAML Request (from samlify)
+ */
+export interface ParsedSamlRequest {
+  id: string;
+  issuer: string;
+  assertionConsumerServiceUrl: string;
+  destination?: string;
+  issueInstant: Date;
+  forceAuthn?: boolean;
+  isPassive?: boolean;
+}
+
+/**
+ * SAML Error Codes
+ */
+export const SAML_ERROR_CODES = {
+  INVALID_REQUEST: 'invalid_request',
+  INVALID_SIGNATURE: 'invalid_signature',
+  EXPIRED_REQUEST: 'expired_request',
+  UNKNOWN_SERVICE_PROVIDER: 'unknown_service_provider',
+  SERVICE_PROVIDER_INACTIVE: 'service_provider_inactive',
+  USER_NOT_AUTHENTICATED: 'user_not_authenticated',
+  USER_NOT_FOUND: 'user_not_found',
+  ATTRIBUTE_MAPPING_FAILED: 'attribute_mapping_failed',
+  RESPONSE_GENERATION_FAILED: 'response_generation_failed',
+  SESSION_CREATION_FAILED: 'session_creation_failed',
+  INVALID_METADATA: 'invalid_metadata',
+  CERTIFICATE_ERROR: 'certificate_error',
+  UNAUTHORIZED: 'unauthorized',
+  DATABASE_ERROR: 'database_error',
+} as const;
+
+/**
+ * SAML Session Types
+ */
+export interface SamlSession {
+  id: string;
+  session_index: string;
+  user_id: string;
+  service_provider_entity_id: string;
+  name_id: string;
+  name_id_format: SamlNameIdFormat;
+  created_at: string;
+  expires_at: string;
+  ip_address?: string;
+  user_agent?: string;
+}
+
+export interface SamlSessionInsert {
+  session_index: string;
+  user_id: string;
+  service_provider_entity_id: string;
+  name_id: string;
+  name_id_format: SamlNameIdFormat;
+  expires_at: string;
+  ip_address?: string;
+  user_agent?: string;
+}
+
+/**
+ * SAML Service Provider Registry Types
+ */
+export interface SamlServiceProvider {
+  id: string;
+  entity_id: string;
+  name: string;
+  description?: string;
+  metadata_url?: string;
+  assertion_consumer_service_url: string;
+  single_logout_service_url?: string;
+  x509_certificate?: string;
+  want_assertions_signed: boolean;
+  want_authn_requests_signed: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface SamlServiceProviderInsert {
+  entity_id: string;
+  name: string;
+  description?: string;
+  metadata_url?: string;
+  assertion_consumer_service_url: string;
+  single_logout_service_url?: string;
+  x509_certificate?: string;
+  want_assertions_signed?: boolean;
+  want_authn_requests_signed?: boolean;
+  is_active?: boolean;
+}
+
+export interface SamlServiceProviderUpdate {
+  entity_id?: string;
+  name?: string;
+  description?: string;
+  metadata_url?: string;
+  assertion_consumer_service_url?: string;
+  single_logout_service_url?: string;
+  x509_certificate?: string;
+  want_assertions_signed?: boolean;
+  want_authn_requests_signed?: boolean;
+  is_active?: boolean;
+  updated_by?: string;
+}
+
+// ============================================================================
 // Utility Types
 // ============================================================================
 
