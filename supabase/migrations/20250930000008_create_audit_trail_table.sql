@@ -7,7 +7,7 @@
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS audit_logs (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   action TEXT NOT NULL CHECK (action IN ('create', 'update', 'delete', 'view', 'approve', 'reject', 'cancel', 'check_in', 'check_out', 'complete', 'archive', 'restore', 'export', 'import', 'login', 'logout')),
   module TEXT NOT NULL CHECK (module IN ('resource', 'category', 'reservation', 'approval', 'maintenance', 'notification', 'user', 'system')),

@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     updated_by UUID
 );
 
-RAISE NOTICE 'Created learners_profiles table';
+-- RAISE NOTICE 'Created learners_profiles table';
 
 -- ================================================================================
 -- STEP 3: Migrate Data - Scenario A: Merged Records (admission + student)
@@ -687,7 +687,7 @@ CREATE INDEX IF NOT EXISTS idx_learners_profiles_original_admission ON public.le
 CREATE INDEX IF NOT EXISTS idx_learners_profiles_original_student ON public.learners_profiles(original_student_id) WHERE original_student_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_learners_profiles_migration_source ON public.learners_profiles(migration_source);
 
-RAISE NOTICE 'Created 21 indexes for learners_profiles table';
+-- RAISE NOTICE 'Created 21 indexes for learners_profiles table';
 
 -- ================================================================================
 -- STEP 7: Verification and Summary

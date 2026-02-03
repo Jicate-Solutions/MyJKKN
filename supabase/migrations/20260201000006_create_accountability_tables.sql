@@ -1072,7 +1072,7 @@ CREATE TRIGGER update_facilitator_stats_trigger
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'migration_log') THEN
-        INSERT INTO migration_log (migration_name, description, applied_at)
+        -- INSERT INTO migration_log (migration_name, description, applied_at)
         VALUES (
             '20260201_create_accountability_tables',
             'Created Accountability module tables: alumni_outcomes, outcome_program_correlation, facilitator_development, facilitator_industry_immersion. Part of Workshop Transformation Phase 4.',

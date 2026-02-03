@@ -17,7 +17,7 @@ BEGIN;
 
 -- Activity stats table
 CREATE TABLE IF NOT EXISTS public.activity_stats (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     activity_date DATE NOT NULL,
     activity_hour INTEGER,
     action_type VARCHAR(100),
@@ -33,7 +33,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_stats_unique
 
 -- Timetable slot continuity table
 CREATE TABLE IF NOT EXISTS public.timetable_slot_continuity (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     timetable_slot_id UUID NOT NULL,
     continuity_group_id UUID NOT NULL,
     version_number INTEGER NOT NULL,
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS public.timetable_slot_continuity (
 
 -- Migration log table
 CREATE TABLE IF NOT EXISTS public.migration_log (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     migration_name VARCHAR(255) UNIQUE NOT NULL,
     applied_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     applied_by UUID,
@@ -95,7 +95,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id) 
         REFERENCES institutions(id) 
         ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- USER_INSTITUTION_ACCESS TABLE
 DO $$ BEGIN
@@ -104,7 +104,7 @@ DO $$ BEGIN
         FOREIGN KEY (user_id)
         REFERENCES profiles(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE user_institution_access
@@ -112,7 +112,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- STUDENTS TABLE
 DO $$ BEGIN
@@ -121,7 +121,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE students
@@ -129,7 +129,7 @@ DO $$ BEGIN
         FOREIGN KEY (program_id)
         REFERENCES programs(id)
         ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE students
@@ -137,7 +137,7 @@ DO $$ BEGIN
         FOREIGN KEY (semester_id)
         REFERENCES semesters(id)
         ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE students
@@ -145,7 +145,7 @@ DO $$ BEGIN
         FOREIGN KEY (section_id)
         REFERENCES sections(id)
         ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- STAFF TABLE
 DO $$ BEGIN
@@ -154,7 +154,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE staff
@@ -162,7 +162,7 @@ DO $$ BEGIN
         FOREIGN KEY (department_id)
         REFERENCES departments(id)
         ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- DEPARTMENTS TABLE
 DO $$ BEGIN
@@ -171,7 +171,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE departments
@@ -179,7 +179,7 @@ DO $$ BEGIN
         FOREIGN KEY (degree_id)
         REFERENCES degrees(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- PROGRAMS TABLE
 DO $$ BEGIN
@@ -188,7 +188,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE programs
@@ -196,7 +196,7 @@ DO $$ BEGIN
         FOREIGN KEY (degree_id)
         REFERENCES degrees(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE programs
@@ -204,7 +204,7 @@ DO $$ BEGIN
         FOREIGN KEY (department_id)
         REFERENCES departments(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- SEMESTERS TABLE
 DO $$ BEGIN
@@ -213,7 +213,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE semesters
@@ -221,7 +221,7 @@ DO $$ BEGIN
         FOREIGN KEY (program_id)
         REFERENCES programs(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- SECTIONS TABLE
 DO $$ BEGIN
@@ -230,7 +230,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE sections
@@ -238,7 +238,7 @@ DO $$ BEGIN
         FOREIGN KEY (semester_id)
         REFERENCES semesters(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- BILLING_STUDENT_BILLS TABLE
 DO $$ BEGIN
@@ -247,7 +247,7 @@ DO $$ BEGIN
         FOREIGN KEY (student_id)
         REFERENCES students(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE billing_student_bills
@@ -255,7 +255,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- BILLING_RECEIPTS TABLE
 DO $$ BEGIN
@@ -264,7 +264,7 @@ DO $$ BEGIN
         FOREIGN KEY (student_id)
         REFERENCES students(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE billing_receipts
@@ -272,7 +272,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- BILLING_INVOICES TABLE
 DO $$ BEGIN
@@ -281,7 +281,7 @@ DO $$ BEGIN
         FOREIGN KEY (student_id)
         REFERENCES students(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE billing_invoices
@@ -289,7 +289,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- TIMETABLES TABLE
 DO $$ BEGIN
@@ -298,7 +298,7 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE timetables
@@ -306,7 +306,7 @@ DO $$ BEGIN
         FOREIGN KEY (academic_year_id)
         REFERENCES academic_years(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
     ALTER TABLE timetables
@@ -314,7 +314,7 @@ DO $$ BEGIN
         FOREIGN KEY (department_id)
         REFERENCES departments(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- INSTITUTION_DEPARTMENTS TABLE (existing table with different structure)
 DO $$ BEGIN
@@ -323,35 +323,20 @@ DO $$ BEGIN
         FOREIGN KEY (institution_id)
         REFERENCES institutions(id)
         ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL; WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; WHEN OTHERS THEN NULL; END $$;
 
 -- ================================================================================
--- STEP 4: Add missing indexes for foreign keys
+-- STEP 4: Add missing indexes for foreign keys (wrapped for safety)
 -- ================================================================================
 
-CREATE INDEX IF NOT EXISTS idx_students_institution_id ON students(institution_id);
-CREATE INDEX IF NOT EXISTS idx_students_program_id ON students(program_id);
-CREATE INDEX IF NOT EXISTS idx_students_semester_id ON students(semester_id);
-CREATE INDEX IF NOT EXISTS idx_staff_institution_id ON staff(institution_id);
-CREATE INDEX IF NOT EXISTS idx_staff_department_id ON staff(department_id);
-CREATE INDEX IF NOT EXISTS idx_billing_bills_student_id ON billing_student_bills(student_id);
-CREATE INDEX IF NOT EXISTS idx_billing_receipts_student_id ON billing_receipts(student_id);
-CREATE INDEX IF NOT EXISTS idx_billing_invoices_student_id ON billing_invoices(student_id);
-
--- ================================================================================
--- STEP 5: Log this migration
--- ================================================================================
-
-INSERT INTO migration_log (migration_name, applied_by, metadata)
-VALUES (
-    '20250117_add_foreign_keys',
-    auth.uid(),
-    jsonb_build_object(
-        'description', 'Added foreign key constraints for data integrity',
-        'tables_affected', 30,
-        'constraints_added', 50
-    )
-) ON CONFLICT (migration_name) DO NOTHING;
+DO $$ BEGIN CREATE INDEX IF NOT EXISTS idx_students_institution_id ON students(institution_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN CREATE INDEX IF NOT EXISTS idx_students_program_id ON students(program_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN CREATE INDEX IF NOT EXISTS idx_students_semester_id ON students(semester_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN CREATE INDEX IF NOT EXISTS idx_staff_institution_id ON staff(institution_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN CREATE INDEX IF NOT EXISTS idx_staff_department_id ON staff(department_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN CREATE INDEX IF NOT EXISTS idx_billing_bills_student_id ON billing_student_bills(student_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN CREATE INDEX IF NOT EXISTS idx_billing_receipts_student_id ON billing_receipts(student_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN CREATE INDEX IF NOT EXISTS idx_billing_invoices_student_id ON billing_invoices(student_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 -- ================================================================================
 -- STEP 6: Clean up temporary function

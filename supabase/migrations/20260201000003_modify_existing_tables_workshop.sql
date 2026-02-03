@@ -262,7 +262,7 @@ COMMENT ON COLUMN public.billing_discounts.outcome_verification IS 'JSON trackin
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'migration_log') THEN
-        INSERT INTO migration_log (migration_name, description, applied_at)
+        -- INSERT INTO migration_log (migration_name, description, applied_at)
         VALUES (
             '20260201_modify_existing_tables_workshop',
             'Modified courses (learning hours, competency coverage), learners_profiles (capabilities, career, readiness), staff (facilitator role, metrics), billing_discounts (outcome-based). Part of Workshop Transformation Phase 1.5.',

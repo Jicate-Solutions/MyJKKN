@@ -809,7 +809,7 @@ CREATE TRIGGER update_learning_path_progress_trigger
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'migration_log') THEN
-        INSERT INTO migration_log (migration_name, description, applied_at)
+        -- INSERT INTO migration_log (migration_name, description, applied_at)
         VALUES (
             '20260201_create_personalization_tables',
             'Created Personalization module tables: learning_paths, learning_path_steps, parent_portal_access, parent_communications. Part of Workshop Transformation Phase 3.',

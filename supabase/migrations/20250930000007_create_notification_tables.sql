@@ -7,7 +7,7 @@
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS notifications (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL,
   type TEXT NOT NULL CHECK (type IN ('info', 'success', 'warning', 'error', 'reminder')),
   category TEXT NOT NULL CHECK (category IN ('reservation', 'approval', 'maintenance', 'resource', 'system')),
@@ -43,7 +43,7 @@ CREATE INDEX idx_notifications_unread ON notifications(user_id, is_read) WHERE i
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS notification_preferences (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   category TEXT NOT NULL CHECK (category IN ('reservation', 'approval', 'maintenance', 'resource', 'system')),
   channels TEXT[] NOT NULL DEFAULT ARRAY['in_app']::TEXT[],
@@ -65,7 +65,7 @@ CREATE INDEX idx_notification_preferences_enabled ON notification_preferences(en
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS notification_templates (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL UNIQUE,
   category TEXT NOT NULL CHECK (category IN ('reservation', 'approval', 'maintenance', 'resource', 'system')),
   type TEXT NOT NULL CHECK (type IN ('info', 'success', 'warning', 'error', 'reminder')),

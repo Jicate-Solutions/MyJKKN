@@ -90,7 +90,7 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Main leave/onduty applications table
 CREATE TABLE IF NOT EXISTS leave_onduty_applications (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     learner_id UUID NOT NULL REFERENCES learners_profiles(id) ON DELETE CASCADE,
     institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
     department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS leave_onduty_applications (
 
 -- Approval flow configurations
 CREATE TABLE IF NOT EXISTS leave_onduty_approval_flows (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
     department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
     semester_id UUID REFERENCES semesters(id) ON DELETE SET NULL,
@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS leave_onduty_approval_flows (
 
 -- Individual approval tracking
 CREATE TABLE IF NOT EXISTS leave_onduty_approvals (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     application_id UUID NOT NULL REFERENCES leave_onduty_applications(id) ON DELETE CASCADE,
     step_order INTEGER NOT NULL,
     approver_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS leave_onduty_approvals (
 
 -- Attendance update audit trail
 CREATE TABLE IF NOT EXISTS leave_onduty_attendance_updates (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     application_id UUID NOT NULL REFERENCES leave_onduty_applications(id) ON DELETE CASCADE,
     attendance_record_id UUID NOT NULL REFERENCES student_attendance(id) ON DELETE CASCADE,
     period_slot_id TEXT NOT NULL,

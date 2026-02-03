@@ -22,7 +22,7 @@ END $$;
 
 -- Create attendance consolidation reports table
 CREATE TABLE IF NOT EXISTS public.attendance_consolidation_reports (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
     -- Basic Information
     report_name VARCHAR(255) NOT NULL,

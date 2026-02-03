@@ -562,7 +562,7 @@ CREATE POLICY "learner_competencies_delete" ON public.learner_competencies
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'migration_log') THEN
-        INSERT INTO migration_log (migration_name, description, applied_at)
+        -- INSERT INTO migration_log (migration_name, description, applied_at)
         VALUES (
             '20260201_create_competency_tables',
             'Created Competency Catalog module tables: competency_catalog, competency_program_mapping, course_competency_mapping, learner_competencies. Part of Workshop Transformation Phase 1.2.',

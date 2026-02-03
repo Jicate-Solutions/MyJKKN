@@ -6,7 +6,7 @@
 
 -- Table for registered child applications
 CREATE TABLE IF NOT EXISTS public.registered_child_apps (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     app_id VARCHAR(50) UNIQUE NOT NULL,
     app_name VARCHAR(255) NOT NULL,
     app_description TEXT,
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS public.registered_child_apps (
 
 -- Table for child app sessions
 CREATE TABLE IF NOT EXISTS public.child_app_sessions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     child_app_id VARCHAR(50) NOT NULL REFERENCES registered_child_apps(app_id),
     access_token_hash VARCHAR(255) NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS public.child_app_sessions (
 
 -- Table for child app access logs
 CREATE TABLE IF NOT EXISTS public.child_app_access_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     child_app_id VARCHAR(50) NOT NULL REFERENCES registered_child_apps(app_id),
     user_id UUID REFERENCES profiles(id),
     session_id UUID REFERENCES child_app_sessions(id),
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS public.child_app_access_logs (
 
 -- Table for child app permissions
 CREATE TABLE IF NOT EXISTS public.child_app_permissions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     child_app_id VARCHAR(50) NOT NULL REFERENCES registered_child_apps(app_id),
     permission_name VARCHAR(100) NOT NULL,
     permission_description TEXT,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS public.child_app_permissions (
 
 -- Table for user-specific child app permissions
 CREATE TABLE IF NOT EXISTS public.user_child_app_permissions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     child_app_id VARCHAR(50) NOT NULL REFERENCES registered_child_apps(app_id),
     permissions JSONB NOT NULL DEFAULT '{}',

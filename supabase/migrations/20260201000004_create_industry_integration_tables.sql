@@ -689,7 +689,7 @@ CREATE POLICY "learner_engagements_delete" ON public.learner_industry_engagement
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'migration_log') THEN
-        INSERT INTO migration_log (migration_name, description, applied_at)
+        -- INSERT INTO migration_log (migration_name, description, applied_at)
         VALUES (
             '20260201_create_industry_integration_tables',
             'Created Industry Integration module tables: industry_partners, industry_mentors, industry_projects, learner_industry_engagements. Part of Workshop Transformation Phase 2.',

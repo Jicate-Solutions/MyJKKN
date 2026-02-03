@@ -90,7 +90,7 @@ Only assigned staff members or super admins can mark attendance for specific per
 Created: 2025-09-05 to fix attendance staff assignment conflicts.';
 
 -- Step 4: Log the migration
-INSERT INTO migration_log (migration_name, description, executed_at) 
+-- INSERT INTO migration_log (migration_name, description, executed_at) 
 VALUES (
     '20250905_add_attendance_staff_validation',
     'Added database validation for attendance staff assignments to prevent conflicts',

@@ -11,7 +11,7 @@ DROP TRIGGER IF EXISTS validate_attendance_staff_assignment_trigger ON student_a
 DROP FUNCTION IF EXISTS public.validate_attendance_staff_assignment();
 
 -- Step 3: Log the rollback
-INSERT INTO migration_log (migration_name, description, executed_at) 
+-- INSERT INTO migration_log (migration_name, description, executed_at) 
 VALUES (
     '20250905_rollback_attendance_staff_validation',
     'Rolled back database validation for attendance staff assignments',

@@ -111,7 +111,7 @@ DO $$
 BEGIN
     -- Create migration_log entry if table exists
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'migration_log') THEN
-        INSERT INTO migration_log (migration_name, description, applied_at)
+        -- INSERT INTO migration_log (migration_name, description, applied_at)
         VALUES (
             '20260201_deprecate_learner_okr_tables',
             'Soft-deprecated learner OKR tables (learner_core_okrs, learner_okr_assignments, learner_elective_okrs) as part of Workshop Transformation. Data preserved, new inserts blocked.',

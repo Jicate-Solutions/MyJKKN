@@ -300,7 +300,7 @@ COMMENT ON FUNCTION validate_attendance_record(UUID) IS
 'Validates a specific attendance record for staff assignment conflicts and provides suggestions.';
 
 -- Log the migration
-INSERT INTO migration_log (migration_name, description, executed_at) 
+-- INSERT INTO migration_log (migration_name, description, executed_at) 
 VALUES (
     '20250905_add_attendance_monitoring_functions',
     'Added database functions for attendance conflict monitoring and reporting',

@@ -11,7 +11,8 @@ BEGIN;
 -- No foreign keys reference this table
 DROP TABLE IF EXISTS public.users CASCADE;
 
--- Log this migration
+-- Log this migration (commented out - Supabase tracks migrations automatically)
+/*
 INSERT INTO migration_log (migration_name, applied_by, metadata)
 VALUES (
     '20250117_remove_users_table',
@@ -22,6 +23,7 @@ VALUES (
         'reason', 'All user management is handled through profiles table which integrates with auth.users'
     )
 ) ON CONFLICT (migration_name) DO NOTHING;
+*/
 
 COMMIT;
 
@@ -33,7 +35,7 @@ BEGIN;
 
 -- Recreate the users table
 CREATE TABLE IF NOT EXISTS public.users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT UNIQUE NOT NULL,  
     full_name TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

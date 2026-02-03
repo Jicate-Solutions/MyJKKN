@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Purpose: Track online payment sessions with HDFC SmartGateway
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.payment_transactions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   transaction_ref VARCHAR(100) UNIQUE NOT NULL,
   session_id VARCHAR(255) UNIQUE NOT NULL,
   student_id UUID NOT NULL,
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS public.payment_transactions (
 -- Purpose: Link payment transactions to specific bills being paid
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.payment_transaction_items (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   transaction_id UUID NOT NULL,
   bill_id UUID NOT NULL,
   amount DECIMAL(10,2) NOT NULL,
