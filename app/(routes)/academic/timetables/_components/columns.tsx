@@ -37,6 +37,19 @@ export const columns: ColumnDef<Timetable>[] = [
     ),
     cell: ({ row }) => {
       const timetable = row.original;
+      // FIX: 2026-02-03 - Validate timetable ID before creating link
+      // TanStack Table can create temporary IDs with pattern %%drp:id:xxxxx%%
+      const isValidId = timetable.id && !timetable.id.includes('%%drp:id:');
+
+      if (!isValidId) {
+        // If invalid ID, show name without link
+        return (
+          <div className='font-medium text-muted-foreground' title='Loading... Please refresh the page'>
+            {timetable.timetable_name}
+          </div>
+        );
+      }
+
       return (
         <Link href={`/academic/timetables/${timetable.id}`}>
           <div className='font-medium hover:text-primary hover:underline'>

@@ -740,11 +740,21 @@ export class StorageServiceDebug {
     // Remove file extension and extract roll number
     const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
 
-    // Look for patterns like DB22092, CS21001, etc.
-    const rollNumberMatch = nameWithoutExt.match(/^([A-Z]{2,4}\d{2,6})$/i);
+    // Try patterns in order of specificity (most specific first)
+    const patterns = [
+      // Pattern 1: Letters + digits + letters + digits (e.g., "APG24MA01", "ABC12XY34")
+      /([A-Z]{2,4}\d{2,4}[A-Z]{1,4}\d{1,4})/i,
+      // Pattern 2: Pure numeric: 6-10 digits (e.g., "123654789")
+      /(\d{6,10})/,
+      // Pattern 3: Optional leading digits + 2-4 letters + 2-6 digits (e.g., "24MBA60", "DB22092", "CS21001")
+      /(\d*[A-Z]{2,4}\d{2,6})/i,
+    ];
 
-    if (rollNumberMatch) {
-      return rollNumberMatch[1].toUpperCase();
+    for (const pattern of patterns) {
+      const match = nameWithoutExt.match(pattern);
+      if (match) {
+        return match[1].toUpperCase();
+      }
     }
 
     return null;
