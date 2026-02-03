@@ -35,8 +35,8 @@ CREATE TABLE IF NOT EXISTS saml_service_providers (
   -- Audit
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  created_by UUID REFERENCES user_profiles(id) ON DELETE SET NULL,
-  updated_by UUID REFERENCES user_profiles(id) ON DELETE SET NULL
+  created_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  updated_by UUID REFERENCES profiles(id) ON DELETE SET NULL
 );
 
 -- Indexes
@@ -56,9 +56,9 @@ CREATE POLICY "Admin users can view service providers"
   ON saml_service_providers FOR SELECT
   USING (
     EXISTS (
-      SELECT 1 FROM user_profiles
-      WHERE user_profiles.id = auth.uid()
-      AND user_profiles.role IN ('super_admin', 'administrator')
+      SELECT 1 FROM profiles
+      WHERE profiles.id = auth.uid()
+      AND profiles.role IN ('super_admin', 'administrator')
     )
   );
 
@@ -66,9 +66,9 @@ CREATE POLICY "Admin users can insert service providers"
   ON saml_service_providers FOR INSERT
   WITH CHECK (
     EXISTS (
-      SELECT 1 FROM user_profiles
-      WHERE user_profiles.id = auth.uid()
-      AND user_profiles.role IN ('super_admin', 'administrator')
+      SELECT 1 FROM profiles
+      WHERE profiles.id = auth.uid()
+      AND profiles.role IN ('super_admin', 'administrator')
     )
   );
 
@@ -76,9 +76,9 @@ CREATE POLICY "Admin users can update service providers"
   ON saml_service_providers FOR UPDATE
   USING (
     EXISTS (
-      SELECT 1 FROM user_profiles
-      WHERE user_profiles.id = auth.uid()
-      AND user_profiles.role IN ('super_admin', 'administrator')
+      SELECT 1 FROM profiles
+      WHERE profiles.id = auth.uid()
+      AND profiles.role IN ('super_admin', 'administrator')
     )
   );
 
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS saml_sessions (
   session_index TEXT NOT NULL UNIQUE,
 
   -- User
-  user_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
 
   -- Service Provider
   service_provider_entity_id TEXT NOT NULL,
