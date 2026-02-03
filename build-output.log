@@ -2,24 +2,5 @@
 > my-jkkn@0.1.0 build
 > next build
 
-▲ Next.js 16.1.1 (Turbopack, Cache Components)
-- Environments: .env
-- Experiments (use with caution):
-  · cpus: 1
-
-  Creating an optimized production build ...
-✓ Compiled successfully in 68s
-  Running TypeScript ...
-Failed to compile.
-
-./lib/services/learner-advanced-analytics-service.ts:53:8
-Type error: Property 'from' does not exist on type 'Promise<SupabaseClient<any, "public", any, any, any>>'.
-
-[0m [90m 51 |[39m     [90m// Get programs with sanctioned intake[39m
- [90m 52 |[39m     [36mlet[39m programsQuery [33m=[39m supabase
-[31m[1m>[22m[39m[90m 53 |[39m       [33m.[39m[36mfrom[39m([32m'programs'[39m)
- [90m    |[39m        [31m[1m^[22m[39m
- [90m 54 |[39m       [33m.[39mselect([32m'id, program_name, sanctioned_intake, academic_year_id'[39m)
- [90m 55 |[39m       [33m.[39meq([32m'is_active'[39m[33m,[39m [36mtrue[39m)[33m;[39m
- [90m 56 |[39m[0m
-Next.js build worker exited with code: 1 and signal: null
+⨯ Unable to acquire lock at D:\Projects\MyJKKN\.next\lock, is another instance of next build running?
+  Suggestion: If you intended to restart next build, terminate the other process, and then try again.
