@@ -47,8 +47,10 @@ async function fetchMetadata(): Promise<string> {
 
     const metadata = await response.text();
 
-    if (!metadata.includes('<?xml') || !metadata.includes('EntityDescriptor')) {
-      throw new Error('Invalid SAML metadata format');
+    // Validate that the response contains SAML EntityDescriptor
+    // Note: XML declaration (<?xml) is optional in XML documents
+    if (!metadata.includes('EntityDescriptor')) {
+      throw new Error('Invalid SAML metadata format - missing EntityDescriptor');
     }
 
     console.log('✅ Metadata fetched successfully');
