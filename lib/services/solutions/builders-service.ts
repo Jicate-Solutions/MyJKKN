@@ -1,0 +1,653 @@
+// lib/services/solutions/builders-service.ts
+// CRUD operations for sh_builders, sh_builder_skills, sh_builder_assignments
+
+import { BaseService, type BaseListResponse } from '../base-service';
+import type {
+  Builder,
+  BuilderSkill,
+  BuilderAssignment,
+  AssignmentStatus,
+  BuilderRole,
+  CreateBuilderInput,
+  PaginationParams,
+} from './types';
+
+// ============================================
+// TYPES
+// ============================================
+
+export interface BuilderWithDetails extends Builder {
+  skills?: BuilderSkill[];
+  assignments?: BuilderAssignmentWithPhase[];
+  department?: {
+    id: string;
+    name: string;
+    code: string;
+  };
+}
+
+export interface BuilderAssignmentWithPhase extends BuilderAssignment {
+  phase?: {
+    id: string;
+    title: string;
+    phase_number: number;
+    status: string;
+    estimated_value?: number;
+    solution?: {
+      id: string;
+      title: string;
+      solution_code: string;
+      client?: {
+        id: string;
+        name: string;
+      };
+    };
+  };
+  builder?: {
+    id: string;
+    name: string;
+    email: string | null;
+  };
+}
+
+export interface BuilderFilters extends PaginationParams {
+  department_id?: string;
+  is_active?: boolean;
+  has_skill?: string;
+}
+
+export interface UpdateBuilderInput {
+  name?: string;
+  email?: string;
+  department_id?: string;
+  is_active?: boolean;
+}
+
+export interface AddSkillInput {
+  builder_id: string;
+  skill_name: string;
+  proficiency_level?: number;
+  acquired_date?: string;
+}
+
+export interface CreateAssignmentInput {
+  phase_id: string;
+  builder_id: string;
+  role?: BuilderRole;
+}
+
+export interface ApprovalResult {
+  approved: boolean;
+  approver_type: 'self' | 'hod' | 'md';
+  message: string;
+}
+
+// ============================================
+// CONSTANTS
+// ============================================
+
+// Approval thresholds from spec
+export const APPROVAL_THRESHOLDS = {
+  SELF_CLAIM_MAX: 300000, // <= 3 Lakh - self-claim or HOD
+  MD_REQUIRED_MIN: 300001, // > 3 Lakh - MD required
+};
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+function escapeSearchString(str: string): string {
+  return str.replace(/[%_\\]/g, '\\$&');
+}
+
+// ============================================
+// SERVICE CLASS
+// ============================================
+
+export class BuildersService extends BaseService {
+  /**
+   * Get all builders with optional filters and pagination
+   */
+  static async getBuilders(
+    filters?: BuilderFilters
+  ): Promise<BaseListResponse<BuilderWithDetails>> {
+    const { page, limit } = this.validate(filters?.page, filters?.limit);
+
+    let query = this.supabase
+      .from('sh_builders')
+      .select(
+        `
+        *,
+        department:departments(id, name, code),
+        skills:sh_builder_skills(*)
+      `,
+        { count: 'exact' }
+      )
+      .order('name', { ascending: true });
+
+    // Apply filters
+    if (filters?.department_id) {
+      query = query.eq('department_id', filters.department_id);
+    }
+
+    if (filters?.is_active !== undefined) {
+      query = query.eq('is_active', filters.is_active);
+    }
+
+    if (filters?.search) {
+      const escaped = escapeSearchString(filters.search);
+      query = query.or(`name.ilike.%${escaped}%,email.ilike.%${escaped}%`);
+    }
+
+    // Apply pagination
+    const start = (page - 1) * limit;
+    const end = start + limit - 1;
+    query = query.range(start, end);
+
+    const { data, count, error } = await query;
+
+    if (error) throw new Error(`Failed to fetch builders: ${error.message}`);
+
+    // Filter by skill if needed (post-query filter)
+    let result = data || [];
+    if (filters?.has_skill) {
+      result = result.filter((builder) =>
+        builder.skills?.some((skill: BuilderSkill) =>
+          skill.skill_name.toLowerCase().includes(filters.has_skill!.toLowerCase())
+        )
+      );
+    }
+
+    const total = count || 0;
+    return {
+      data: result as BuilderWithDetails[],
+      metadata: {
+        total,
+        page,
+        limit,
+        totalPages: total > 0 ? Math.ceil(total / limit) : 0,
+      },
+    };
+  }
+
+  /**
+   * Get a single builder by ID with all related data
+   */
+  static async getBuilderById(id: string): Promise<BuilderWithDetails | null> {
+    const { data, error } = await this.supabase
+      .from('sh_builders')
+      .select(
+        `
+        *,
+        department:departments(id, name, code),
+        skills:sh_builder_skills(*)
+      `
+      )
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      throw new Error(`Failed to fetch builder: ${error.message}`);
+    }
+
+    // Get assignments with phase info
+    const { data: assignments } = await this.supabase
+      .from('sh_builder_assignments')
+      .select(
+        `
+        *,
+        phase:sh_solution_phases(
+          id,
+          title,
+          phase_number,
+          status,
+          estimated_value,
+          solution:sh_solutions(
+            id,
+            title,
+            solution_code,
+            client:sh_clients(id, name)
+          )
+        )
+      `
+      )
+      .eq('builder_id', id)
+      .order('created_at', { ascending: false });
+
+    return {
+      ...data,
+      assignments: assignments || [],
+    } as BuilderWithDetails;
+  }
+
+  /**
+   * Get builder by user ID
+   */
+  static async getBuilderByUserId(userId: string): Promise<BuilderWithDetails | null> {
+    const { data, error } = await this.supabase
+      .from('sh_builders')
+      .select(
+        `
+        *,
+        department:departments(id, name, code),
+        skills:sh_builder_skills(*)
+      `
+      )
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      throw new Error(`Failed to fetch builder: ${error.message}`);
+    }
+
+    return data as BuilderWithDetails;
+  }
+
+  /**
+   * Create a new builder
+   */
+  static async createBuilder(input: CreateBuilderInput): Promise<Builder> {
+    const { data, error } = await this.supabase
+      .from('sh_builders')
+      .insert({
+        name: input.name,
+        email: input.email,
+        user_id: input.user_id,
+        department_id: input.department_id,
+        trained_date: input.trained_date || new Date().toISOString().split('T')[0],
+        is_active: true,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to create builder: ${error.message}`);
+    return data as Builder;
+  }
+
+  /**
+   * Update an existing builder
+   */
+  static async updateBuilder(id: string, input: UpdateBuilderInput): Promise<Builder> {
+    const { data, error } = await this.supabase
+      .from('sh_builders')
+      .update({
+        ...input,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to update builder: ${error.message}`);
+    return data as Builder;
+  }
+
+  /**
+   * Delete a builder
+   */
+  static async deleteBuilder(id: string): Promise<void> {
+    const { error } = await this.supabase.from('sh_builders').delete().eq('id', id);
+
+    if (error) throw new Error(`Failed to delete builder: ${error.message}`);
+  }
+
+  // ============================================
+  // SKILL MANAGEMENT
+  // ============================================
+
+  /**
+   * Add a skill to a builder
+   */
+  static async addBuilderSkill(input: AddSkillInput): Promise<BuilderSkill> {
+    // Check for existing skill and get latest version
+    const { data: existing } = await this.supabase
+      .from('sh_builder_skills')
+      .select('version')
+      .eq('builder_id', input.builder_id)
+      .eq('skill_name', input.skill_name)
+      .order('version', { ascending: false })
+      .limit(1);
+
+    const nextVersion = existing && existing.length > 0 ? existing[0].version + 1 : 1;
+
+    const { data, error } = await this.supabase
+      .from('sh_builder_skills')
+      .insert({
+        builder_id: input.builder_id,
+        skill_name: input.skill_name,
+        proficiency_level: input.proficiency_level || 1,
+        acquired_date: input.acquired_date || new Date().toISOString().split('T')[0],
+        version: nextVersion,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to add skill: ${error.message}`);
+    return data as BuilderSkill;
+  }
+
+  /**
+   * Update a builder skill proficiency
+   */
+  static async updateBuilderSkill(
+    id: string,
+    proficiencyLevel: number
+  ): Promise<BuilderSkill> {
+    const { data, error } = await this.supabase
+      .from('sh_builder_skills')
+      .update({ proficiency_level: proficiencyLevel })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to update skill: ${error.message}`);
+    return data as BuilderSkill;
+  }
+
+  /**
+   * Remove a builder skill
+   */
+  static async removeBuilderSkill(id: string): Promise<void> {
+    const { error } = await this.supabase.from('sh_builder_skills').delete().eq('id', id);
+
+    if (error) throw new Error(`Failed to remove skill: ${error.message}`);
+  }
+
+  /**
+   * Get skills for a builder
+   */
+  static async getBuilderSkills(builderId: string): Promise<BuilderSkill[]> {
+    const { data, error } = await this.supabase
+      .from('sh_builder_skills')
+      .select('*')
+      .eq('builder_id', builderId)
+      .order('skill_name', { ascending: true });
+
+    if (error) throw new Error(`Failed to fetch skills: ${error.message}`);
+    return data as BuilderSkill[];
+  }
+
+  // ============================================
+  // ASSIGNMENT MANAGEMENT
+  // ============================================
+
+  /**
+   * Check if assignment needs approval and from whom
+   */
+  static async checkAssignmentApproval(phaseId: string): Promise<ApprovalResult> {
+    const { data: phase, error } = await this.supabase
+      .from('sh_solution_phases')
+      .select('estimated_value')
+      .eq('id', phaseId)
+      .single();
+
+    if (error) throw new Error(`Failed to check phase value: ${error.message}`);
+
+    const value = phase?.estimated_value || 0;
+
+    if (value <= APPROVAL_THRESHOLDS.SELF_CLAIM_MAX) {
+      return {
+        approved: true,
+        approver_type: 'self',
+        message: 'Assignment can be self-claimed or approved by HOD',
+      };
+    }
+
+    return {
+      approved: false,
+      approver_type: 'md',
+      message: `Assignment requires MD approval (value > 3L)`,
+    };
+  }
+
+  /**
+   * Request assignment to a phase
+   */
+  static async requestAssignment(input: CreateAssignmentInput): Promise<BuilderAssignment> {
+    // Check approval requirements
+    const approval = await this.checkAssignmentApproval(input.phase_id);
+
+    const { data, error } = await this.supabase
+      .from('sh_builder_assignments')
+      .insert({
+        phase_id: input.phase_id,
+        builder_id: input.builder_id,
+        role: input.role || 'contributor',
+        status: approval.approved ? 'approved' : 'requested',
+        requested_at: new Date().toISOString(),
+        approved_at: approval.approved ? new Date().toISOString() : null,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to create assignment: ${error.message}`);
+    return data as BuilderAssignment;
+  }
+
+  /**
+   * Approve a pending assignment
+   */
+  static async approveAssignment(id: string, approverId: string): Promise<BuilderAssignment> {
+    const { data, error } = await this.supabase
+      .from('sh_builder_assignments')
+      .update({
+        status: 'approved',
+        approved_at: new Date().toISOString(),
+        approved_by: approverId,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to approve assignment: ${error.message}`);
+    return data as BuilderAssignment;
+  }
+
+  /**
+   * Start working on an assignment
+   */
+  static async startAssignment(id: string): Promise<BuilderAssignment> {
+    const { data, error } = await this.supabase
+      .from('sh_builder_assignments')
+      .update({
+        status: 'active',
+        started_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to start assignment: ${error.message}`);
+    return data as BuilderAssignment;
+  }
+
+  /**
+   * Complete an assignment
+   */
+  static async completeAssignment(id: string): Promise<BuilderAssignment> {
+    const { data, error } = await this.supabase
+      .from('sh_builder_assignments')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to complete assignment: ${error.message}`);
+    return data as BuilderAssignment;
+  }
+
+  /**
+   * Withdraw from an assignment
+   */
+  static async withdrawAssignment(id: string): Promise<BuilderAssignment> {
+    const { data, error } = await this.supabase
+      .from('sh_builder_assignments')
+      .update({
+        status: 'withdrawn',
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to withdraw assignment: ${error.message}`);
+    return data as BuilderAssignment;
+  }
+
+  /**
+   * Get assignments by status
+   */
+  static async getAssignmentsByStatus(
+    status: AssignmentStatus
+  ): Promise<BuilderAssignmentWithPhase[]> {
+    const { data, error } = await this.supabase
+      .from('sh_builder_assignments')
+      .select(
+        `
+        *,
+        builder:sh_builders(id, name, email),
+        phase:sh_solution_phases(
+          id,
+          title,
+          phase_number,
+          estimated_value,
+          solution:sh_solutions(
+            id,
+            title,
+            solution_code,
+            client:sh_clients(id, name)
+          )
+        )
+      `
+      )
+      .eq('status', status)
+      .order('requested_at', { ascending: false });
+
+    if (error) throw new Error(`Failed to fetch assignments: ${error.message}`);
+    return data as BuilderAssignmentWithPhase[];
+  }
+
+  /**
+   * Get pending assignment requests
+   */
+  static async getPendingAssignmentRequests(): Promise<BuilderAssignmentWithPhase[]> {
+    return this.getAssignmentsByStatus('requested');
+  }
+
+  /**
+   * Get available builders for a phase (not already assigned)
+   */
+  static async getAvailableBuildersForPhase(phaseId: string): Promise<BuilderWithDetails[]> {
+    // Get builders already assigned to this phase
+    const { data: existingAssignments } = await this.supabase
+      .from('sh_builder_assignments')
+      .select('builder_id')
+      .eq('phase_id', phaseId)
+      .in('status', ['requested', 'approved', 'active']);
+
+    const assignedBuilderIds = existingAssignments?.map((a) => a.builder_id) || [];
+
+    // Get all active builders not assigned
+    let query = this.supabase
+      .from('sh_builders')
+      .select(
+        `
+        *,
+        department:departments(id, name, code),
+        skills:sh_builder_skills(*)
+      `
+      )
+      .eq('is_active', true)
+      .order('name', { ascending: true });
+
+    // Filter out assigned builders
+    if (assignedBuilderIds.length > 0) {
+      for (const id of assignedBuilderIds) {
+        query = query.neq('id', id);
+      }
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw new Error(`Failed to fetch available builders: ${error.message}`);
+    return data as BuilderWithDetails[];
+  }
+
+  /**
+   * Get builder statistics
+   */
+  static async getBuilderStats(): Promise<{
+    total: number;
+    active: number;
+    byDepartment: Record<string, number>;
+    totalSkills: number;
+    activeAssignments: number;
+  }> {
+    const { data: builders, error: buildersError } = await this.supabase
+      .from('sh_builders')
+      .select('id, is_active, department_id');
+
+    if (buildersError) throw new Error(`Failed to fetch builder stats: ${buildersError.message}`);
+
+    const { data: skills, error: skillsError } = await this.supabase
+      .from('sh_builder_skills')
+      .select('id');
+
+    if (skillsError) throw new Error(`Failed to fetch skills count: ${skillsError.message}`);
+
+    const { data: assignments, error: assignmentsError } = await this.supabase
+      .from('sh_builder_assignments')
+      .select('id')
+      .eq('status', 'active');
+
+    if (assignmentsError)
+      throw new Error(`Failed to fetch assignments count: ${assignmentsError.message}`);
+
+    const byDepartment: Record<string, number> = {};
+    let active = 0;
+
+    builders?.forEach((builder) => {
+      if (builder.is_active) active++;
+      if (builder.department_id) {
+        byDepartment[builder.department_id] = (byDepartment[builder.department_id] || 0) + 1;
+      }
+    });
+
+    return {
+      total: builders?.length || 0,
+      active,
+      byDepartment,
+      totalSkills: skills?.length || 0,
+      activeAssignments: assignments?.length || 0,
+    };
+  }
+}
+
+// Export singleton instance methods
+export const buildersService = {
+  getBuilders: BuildersService.getBuilders.bind(BuildersService),
+  getBuilderById: BuildersService.getBuilderById.bind(BuildersService),
+  getBuilderByUserId: BuildersService.getBuilderByUserId.bind(BuildersService),
+  createBuilder: BuildersService.createBuilder.bind(BuildersService),
+  updateBuilder: BuildersService.updateBuilder.bind(BuildersService),
+  deleteBuilder: BuildersService.deleteBuilder.bind(BuildersService),
+  addBuilderSkill: BuildersService.addBuilderSkill.bind(BuildersService),
+  updateBuilderSkill: BuildersService.updateBuilderSkill.bind(BuildersService),
+  removeBuilderSkill: BuildersService.removeBuilderSkill.bind(BuildersService),
+  getBuilderSkills: BuildersService.getBuilderSkills.bind(BuildersService),
+  checkAssignmentApproval: BuildersService.checkAssignmentApproval.bind(BuildersService),
+  requestAssignment: BuildersService.requestAssignment.bind(BuildersService),
+  approveAssignment: BuildersService.approveAssignment.bind(BuildersService),
+  startAssignment: BuildersService.startAssignment.bind(BuildersService),
+  completeAssignment: BuildersService.completeAssignment.bind(BuildersService),
+  withdrawAssignment: BuildersService.withdrawAssignment.bind(BuildersService),
+  getAssignmentsByStatus: BuildersService.getAssignmentsByStatus.bind(BuildersService),
+  getPendingAssignmentRequests: BuildersService.getPendingAssignmentRequests.bind(BuildersService),
+  getAvailableBuildersForPhase: BuildersService.getAvailableBuildersForPhase.bind(BuildersService),
+  getBuilderStats: BuildersService.getBuilderStats.bind(BuildersService),
+  APPROVAL_THRESHOLDS,
+};

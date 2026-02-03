@@ -2663,3 +2663,1542 @@ CREATE POLICY "facilitator_immersion_update" ON public.facilitator_industry_imme
 CREATE POLICY "facilitator_immersion_delete" ON public.facilitator_industry_immersion
     FOR DELETE TO authenticated
     USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin')));
+
+-- ================================================================================
+-- SECTION 16: SOLUTIONS HUB MODULE (sh_ tables)
+-- Added: 2026-02-03 - Complete RLS for Solutions Hub integration
+-- Tables: 30+ tables with sh_ prefix
+-- Roles: super_admin, admin, jicate_staff, hod, staff, builder, cohort_member, production_learner, client
+-- ================================================================================
+
+-- ================================================================================
+-- SOLUTIONS HUB HELPER FUNCTIONS
+-- Purpose: Role detection and access control for Solutions Hub
+-- ================================================================================
+
+-- sh_is_admin: Check if user is super_admin, admin, or jicate_staff
+-- Used by: All admin-level policies
+CREATE OR REPLACE FUNCTION public.sh_is_admin()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid()
+        AND role IN ('super_admin', 'admin', 'jicate_staff')
+    );
+END;
+$$;
+
+-- sh_is_jicate_staff: Check if user is JICATE staff specifically
+CREATE OR REPLACE FUNCTION public.sh_is_jicate_staff()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid()
+        AND role = 'jicate_staff'
+    );
+END;
+$$;
+
+-- sh_is_hod: Check if user is HOD
+CREATE OR REPLACE FUNCTION public.sh_is_hod()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid()
+        AND role = 'hod'
+    );
+END;
+$$;
+
+-- sh_is_staff: Check if user is department staff (includes HOD)
+CREATE OR REPLACE FUNCTION public.sh_is_staff()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid()
+        AND role IN ('hod', 'staff', 'institution_admin')
+    );
+END;
+$$;
+
+-- sh_user_department_id: Get the user's department ID from profiles
+CREATE OR REPLACE FUNCTION public.sh_user_department_id()
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN (
+        SELECT department_id
+        FROM public.profiles
+        WHERE id = auth.uid()
+    );
+END;
+$$;
+
+-- sh_user_institution_id: Get the user's institution ID from profiles
+CREATE OR REPLACE FUNCTION public.sh_user_institution_id()
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN (
+        SELECT institution_id
+        FROM public.profiles
+        WHERE id = auth.uid()
+    );
+END;
+$$;
+
+-- sh_is_builder: Check if user is an active builder
+CREATE OR REPLACE FUNCTION public.sh_is_builder()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.sh_builders
+        WHERE user_id = auth.uid()
+        AND is_active = true
+    );
+END;
+$$;
+
+-- sh_get_builder_id: Get the builder ID for current user
+CREATE OR REPLACE FUNCTION public.sh_get_builder_id()
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN (
+        SELECT id
+        FROM public.sh_builders
+        WHERE user_id = auth.uid()
+        AND is_active = true
+        LIMIT 1
+    );
+END;
+$$;
+
+-- sh_is_cohort_member: Check if user is an active cohort member
+CREATE OR REPLACE FUNCTION public.sh_is_cohort_member()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.sh_cohort_members
+        WHERE user_id = auth.uid()
+        AND is_active = true
+    );
+END;
+$$;
+
+-- sh_get_cohort_member_id: Get the cohort member ID for current user
+CREATE OR REPLACE FUNCTION public.sh_get_cohort_member_id()
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN (
+        SELECT id
+        FROM public.sh_cohort_members
+        WHERE user_id = auth.uid()
+        AND is_active = true
+        LIMIT 1
+    );
+END;
+$$;
+
+-- sh_is_production_learner: Check if user is an active production learner
+CREATE OR REPLACE FUNCTION public.sh_is_production_learner()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.sh_production_learners
+        WHERE user_id = auth.uid()
+        AND is_active = true
+    );
+END;
+$$;
+
+-- sh_get_production_learner_id: Get the production learner ID for current user
+CREATE OR REPLACE FUNCTION public.sh_get_production_learner_id()
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN (
+        SELECT id
+        FROM public.sh_production_learners
+        WHERE user_id = auth.uid()
+        AND is_active = true
+        LIMIT 1
+    );
+END;
+$$;
+
+-- sh_is_client: Check if user is a client
+CREATE OR REPLACE FUNCTION public.sh_is_client()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid()
+        AND role = 'client'
+    );
+END;
+$$;
+
+-- sh_get_client_id: Get the client ID for current user (by matching email)
+CREATE OR REPLACE FUNCTION public.sh_get_client_id()
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+BEGIN
+    RETURN (
+        SELECT c.id
+        FROM public.sh_clients c
+        JOIN public.profiles p ON LOWER(p.email) = LOWER(c.contact_email)
+        WHERE p.id = auth.uid()
+        AND c.is_active = true
+        LIMIT 1
+    );
+END;
+$$;
+
+-- sh_can_access_solution: Check if user can access a specific solution
+-- Used for fine-grained access control
+CREATE OR REPLACE FUNCTION public.sh_can_access_solution(solution_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+DECLARE
+    v_client_id UUID;
+    v_lead_dept_id UUID;
+BEGIN
+    -- Admins can access all
+    IF sh_is_admin() THEN
+        RETURN true;
+    END IF;
+
+    -- Get solution details
+    SELECT client_id, lead_department_id INTO v_client_id, v_lead_dept_id
+    FROM public.sh_solutions
+    WHERE id = solution_id;
+
+    -- HOD/Staff can access if it's their department
+    IF (sh_is_hod() OR sh_is_staff()) AND v_lead_dept_id = sh_user_department_id() THEN
+        RETURN true;
+    END IF;
+
+    -- Clients can access their own solutions
+    IF sh_is_client() AND v_client_id = sh_get_client_id() THEN
+        RETURN true;
+    END IF;
+
+    -- Builders can access if assigned to any phase
+    IF sh_is_builder() THEN
+        RETURN EXISTS (
+            SELECT 1 FROM public.sh_builder_assignments ba
+            JOIN public.sh_solution_phases sp ON ba.phase_id = sp.id
+            WHERE sp.solution_id = solution_id
+            AND ba.builder_id = sh_get_builder_id()
+        );
+    END IF;
+
+    RETURN false;
+END;
+$$;
+
+-- ================================================================================
+-- SH_CLIENTS TABLE POLICIES
+-- External companies/organizations that receive solutions
+-- Access: Admin full, HOD/Staff department scope, Clients own data only
+-- ================================================================================
+
+ALTER TABLE public.sh_clients ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin sees all, HOD/Staff sees their sourced clients, Clients see own profile
+CREATE POLICY "sh_clients_select" ON public.sh_clients
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod() AND source_department_id = sh_user_department_id())
+        OR (sh_is_staff() AND source_department_id = sh_user_department_id())
+        OR (sh_is_client() AND id = sh_get_client_id())
+        -- Builders/Cohort/Production can see clients of solutions they're assigned to
+        OR (sh_is_builder() AND id IN (
+            SELECT DISTINCT s.client_id FROM public.sh_solutions s
+            JOIN public.sh_solution_phases sp ON sp.solution_id = s.id
+            JOIN public.sh_builder_assignments ba ON ba.phase_id = sp.id
+            WHERE ba.builder_id = sh_get_builder_id()
+        ))
+    );
+
+-- INSERT: Admin and HOD/Staff can create clients
+CREATE POLICY "sh_clients_insert" ON public.sh_clients
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+    );
+
+-- UPDATE: Admin can update all, HOD/Staff can update their sourced clients
+CREATE POLICY "sh_clients_update" ON public.sh_clients
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod() AND source_department_id = sh_user_department_id())
+        OR created_by = auth.uid()
+    );
+
+-- DELETE: Admin only (soft delete preferred)
+CREATE POLICY "sh_clients_delete" ON public.sh_clients
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_SOLUTIONS TABLE POLICIES
+-- Main solutions tracking (software, training, content)
+-- Access: Admin full, HOD/Staff department scope, Clients own solutions, Talent assigned
+-- ================================================================================
+
+ALTER TABLE public.sh_solutions ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Multiple access patterns
+CREATE POLICY "sh_solutions_select" ON public.sh_solutions
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod() AND lead_department_id = sh_user_department_id())
+        OR (sh_is_staff() AND lead_department_id = sh_user_department_id())
+        OR (sh_is_client() AND client_id = sh_get_client_id())
+        -- Builders see solutions they're assigned to
+        OR (sh_is_builder() AND id IN (
+            SELECT sp.solution_id FROM public.sh_solution_phases sp
+            JOIN public.sh_builder_assignments ba ON ba.phase_id = sp.id
+            WHERE ba.builder_id = sh_get_builder_id()
+        ))
+        -- Cohort members see solutions with their training programs
+        OR (sh_is_cohort_member() AND id IN (
+            SELECT tp.solution_id FROM public.sh_training_programs tp
+            JOIN public.sh_training_sessions ts ON ts.program_id = tp.id
+            JOIN public.sh_cohort_assignments ca ON ca.session_id = ts.id
+            WHERE ca.cohort_member_id = sh_get_cohort_member_id()
+        ))
+        -- Production learners see solutions with their content orders
+        OR (sh_is_production_learner() AND id IN (
+            SELECT co.solution_id FROM public.sh_content_orders co
+            JOIN public.sh_content_deliverables cd ON cd.order_id = co.id
+            JOIN public.sh_production_assignments pa ON pa.deliverable_id = cd.id
+            WHERE pa.learner_id = sh_get_production_learner_id()
+        ))
+    );
+
+-- INSERT: Admin and HOD/Staff can create solutions
+CREATE POLICY "sh_solutions_insert" ON public.sh_solutions
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+    );
+
+-- UPDATE: Admin can update all, HOD/Staff can update their department's solutions
+CREATE POLICY "sh_solutions_update" ON public.sh_solutions
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod() AND lead_department_id = sh_user_department_id())
+        OR created_by = auth.uid()
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_solutions_delete" ON public.sh_solutions
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_SOLUTION_PHASES TABLE POLICIES
+-- Phases within solutions (for software projects)
+-- Access: Follows solution access + phase owner
+-- ================================================================================
+
+ALTER TABLE public.sh_solution_phases ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, department scope, builders assigned to phase
+CREATE POLICY "sh_solution_phases_select" ON public.sh_solution_phases
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR owner_department_id = sh_user_department_id()
+        -- Builders assigned to this phase
+        OR (sh_is_builder() AND id IN (
+            SELECT phase_id FROM public.sh_builder_assignments
+            WHERE builder_id = sh_get_builder_id()
+        ))
+        -- Clients see phases of their solutions
+        OR (sh_is_client() AND solution_id IN (
+            SELECT id FROM public.sh_solutions WHERE client_id = sh_get_client_id()
+        ))
+        -- Staff can see phases of solutions in their department
+        OR ((sh_is_hod() OR sh_is_staff()) AND solution_id IN (
+            SELECT id FROM public.sh_solutions WHERE lead_department_id = sh_user_department_id()
+        ))
+    );
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_solution_phases_insert" ON public.sh_solution_phases
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+    );
+
+-- UPDATE: Admin, owner department
+CREATE POLICY "sh_solution_phases_update" ON public.sh_solution_phases
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR owner_department_id = sh_user_department_id()
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_solution_phases_delete" ON public.sh_solution_phases
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_SOLUTION_MOUS TABLE POLICIES
+-- MOU documents for solutions
+-- Access: Admin, HOD only (sensitive financial data)
+-- ================================================================================
+
+ALTER TABLE public.sh_solution_mous ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin and HOD only
+CREATE POLICY "sh_solution_mous_select" ON public.sh_solution_mous
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod() AND solution_id IN (
+            SELECT id FROM public.sh_solutions WHERE lead_department_id = sh_user_department_id()
+        ))
+    );
+
+-- INSERT: Admin and HOD
+CREATE POLICY "sh_solution_mous_insert" ON public.sh_solution_mous
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod());
+
+-- UPDATE: Admin and creator
+CREATE POLICY "sh_solution_mous_update" ON public.sh_solution_mous
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_solution_mous_delete" ON public.sh_solution_mous
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_BUILDERS TABLE POLICIES
+-- Software builder talent pool
+-- Access: Admin full, HOD department scope, Builders own profile
+-- ================================================================================
+
+ALTER TABLE public.sh_builders ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin sees all, HOD sees department builders, Builders see own
+CREATE POLICY "sh_builders_select" ON public.sh_builders
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod() AND department_id = sh_user_department_id())
+        OR (sh_is_staff() AND department_id = sh_user_department_id())
+        OR user_id = auth.uid()
+        -- Other builders on same assignment can see each other
+        OR (sh_is_builder() AND id IN (
+            SELECT DISTINCT ba2.builder_id
+            FROM public.sh_builder_assignments ba1
+            JOIN public.sh_builder_assignments ba2 ON ba1.phase_id = ba2.phase_id
+            WHERE ba1.builder_id = sh_get_builder_id()
+        ))
+    );
+
+-- INSERT: Admin and HOD
+CREATE POLICY "sh_builders_insert" ON public.sh_builders
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod());
+
+-- UPDATE: Admin, HOD, or builder updating own profile
+CREATE POLICY "sh_builders_update" ON public.sh_builders
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod() AND department_id = sh_user_department_id())
+        OR user_id = auth.uid()
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_builders_delete" ON public.sh_builders
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_BUILDER_SKILLS TABLE POLICIES
+-- Builder technical skills
+-- Access: Follows builder access
+-- ================================================================================
+
+ALTER TABLE public.sh_builder_skills ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, department scope, or own skills
+CREATE POLICY "sh_builder_skills_select" ON public.sh_builder_skills
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR builder_id IN (
+            SELECT id FROM public.sh_builders
+            WHERE department_id = sh_user_department_id()
+        )
+        OR builder_id = sh_get_builder_id()
+    );
+
+-- INSERT: Admin, HOD, or builder adding own skills
+CREATE POLICY "sh_builder_skills_insert" ON public.sh_builder_skills
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR builder_id = sh_get_builder_id()
+    );
+
+-- UPDATE: Admin, HOD, or builder updating own skills
+CREATE POLICY "sh_builder_skills_update" ON public.sh_builder_skills
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR builder_id = sh_get_builder_id()
+    );
+
+-- DELETE: Admin, HOD, or builder deleting own skills
+CREATE POLICY "sh_builder_skills_delete" ON public.sh_builder_skills
+    FOR DELETE TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR builder_id = sh_get_builder_id()
+    );
+
+-- ================================================================================
+-- SH_BUILDER_ASSIGNMENTS TABLE POLICIES
+-- Builder assignments to solution phases
+-- Access: Admin full, HOD approve, Builders see own assignments
+-- ================================================================================
+
+ALTER TABLE public.sh_builder_assignments ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, HOD, builder sees own, staff sees department
+CREATE POLICY "sh_builder_assignments_select" ON public.sh_builder_assignments
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR builder_id = sh_get_builder_id()
+        OR (sh_is_hod() AND phase_id IN (
+            SELECT id FROM public.sh_solution_phases WHERE owner_department_id = sh_user_department_id()
+        ))
+        OR (sh_is_staff() AND phase_id IN (
+            SELECT id FROM public.sh_solution_phases WHERE owner_department_id = sh_user_department_id()
+        ))
+    );
+
+-- INSERT: Admin, HOD, or builder requesting assignment
+CREATE POLICY "sh_builder_assignments_insert" ON public.sh_builder_assignments
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR (sh_is_builder() AND builder_id = sh_get_builder_id())
+    );
+
+-- UPDATE: Admin, HOD (for approval), or builder (for status updates)
+CREATE POLICY "sh_builder_assignments_update" ON public.sh_builder_assignments
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod() AND phase_id IN (
+            SELECT id FROM public.sh_solution_phases WHERE owner_department_id = sh_user_department_id()
+        ))
+        OR (sh_is_builder() AND builder_id = sh_get_builder_id())
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_builder_assignments_delete" ON public.sh_builder_assignments
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_PROTOTYPE_ITERATIONS TABLE POLICIES
+-- Prototype versions for software phases
+-- Access: Follows phase access
+-- ================================================================================
+
+ALTER TABLE public.sh_prototype_iterations ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, department, builders, clients
+CREATE POLICY "sh_prototype_iterations_select" ON public.sh_prototype_iterations
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR phase_id IN (
+            SELECT id FROM public.sh_solution_phases WHERE owner_department_id = sh_user_department_id()
+        )
+        OR phase_id IN (
+            SELECT phase_id FROM public.sh_builder_assignments WHERE builder_id = sh_get_builder_id()
+        )
+        -- Clients can see iterations of their solutions
+        OR (sh_is_client() AND phase_id IN (
+            SELECT sp.id FROM public.sh_solution_phases sp
+            JOIN public.sh_solutions s ON sp.solution_id = s.id
+            WHERE s.client_id = sh_get_client_id()
+        ))
+    );
+
+-- INSERT: Admin, HOD, Staff, Builders
+CREATE POLICY "sh_prototype_iterations_insert" ON public.sh_prototype_iterations
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        OR (sh_is_builder() AND phase_id IN (
+            SELECT phase_id FROM public.sh_builder_assignments WHERE builder_id = sh_get_builder_id()
+        ))
+    );
+
+-- UPDATE: Admin, department, or assigned builders
+CREATE POLICY "sh_prototype_iterations_update" ON public.sh_prototype_iterations
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR phase_id IN (
+            SELECT id FROM public.sh_solution_phases WHERE owner_department_id = sh_user_department_id()
+        )
+        OR phase_id IN (
+            SELECT phase_id FROM public.sh_builder_assignments WHERE builder_id = sh_get_builder_id()
+        )
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_prototype_iterations_delete" ON public.sh_prototype_iterations
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_BUG_REPORTS TABLE POLICIES
+-- Bug reports on prototype iterations
+-- Access: Wide read (for transparency), restricted write
+-- ================================================================================
+
+ALTER TABLE public.sh_bug_reports ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Anyone with access to the iteration
+CREATE POLICY "sh_bug_reports_select" ON public.sh_bug_reports
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR iteration_id IN (
+            SELECT id FROM public.sh_prototype_iterations pi
+            JOIN public.sh_solution_phases sp ON pi.phase_id = sp.id
+            WHERE sp.owner_department_id = sh_user_department_id()
+        )
+        OR iteration_id IN (
+            SELECT pi.id FROM public.sh_prototype_iterations pi
+            JOIN public.sh_builder_assignments ba ON ba.phase_id = pi.phase_id
+            WHERE ba.builder_id = sh_get_builder_id()
+        )
+        -- Clients can see bugs on their iterations
+        OR (sh_is_client() AND iteration_id IN (
+            SELECT pi.id FROM public.sh_prototype_iterations pi
+            JOIN public.sh_solution_phases sp ON pi.phase_id = sp.id
+            JOIN public.sh_solutions s ON sp.solution_id = s.id
+            WHERE s.client_id = sh_get_client_id()
+        ))
+        OR reported_by = auth.uid()
+    );
+
+-- INSERT: Anyone with access to the iteration can report bugs
+CREATE POLICY "sh_bug_reports_insert" ON public.sh_bug_reports
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        OR sh_is_builder()
+        OR sh_is_client()
+    );
+
+-- UPDATE: Admin, department staff, or reporter
+CREATE POLICY "sh_bug_reports_update" ON public.sh_bug_reports
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR reported_by = auth.uid()
+        OR iteration_id IN (
+            SELECT id FROM public.sh_prototype_iterations pi
+            JOIN public.sh_solution_phases sp ON pi.phase_id = sp.id
+            WHERE sp.owner_department_id = sh_user_department_id()
+        )
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_bug_reports_delete" ON public.sh_bug_reports
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_PHASE_DEPLOYMENTS TABLE POLICIES
+-- Deployment records for phases
+-- Access: Admin, HOD, Staff only (sensitive infrastructure data)
+-- ================================================================================
+
+ALTER TABLE public.sh_phase_deployments ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, HOD, Staff
+CREATE POLICY "sh_phase_deployments_select" ON public.sh_phase_deployments
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod() AND phase_id IN (
+            SELECT id FROM public.sh_solution_phases WHERE owner_department_id = sh_user_department_id()
+        ))
+        OR (sh_is_staff() AND phase_id IN (
+            SELECT id FROM public.sh_solution_phases WHERE owner_department_id = sh_user_department_id()
+        ))
+    );
+
+-- INSERT: Admin and HOD only
+CREATE POLICY "sh_phase_deployments_insert" ON public.sh_phase_deployments
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod());
+
+-- UPDATE: Admin only
+CREATE POLICY "sh_phase_deployments_update" ON public.sh_phase_deployments
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_phase_deployments_delete" ON public.sh_phase_deployments
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_IMPLEMENTATION_USERS TABLE POLICIES
+-- End-users trained on implemented solutions
+-- Access: Follows phase access
+-- ================================================================================
+
+ALTER TABLE public.sh_implementation_users ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, department, clients
+CREATE POLICY "sh_implementation_users_select" ON public.sh_implementation_users
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR phase_id IN (
+            SELECT id FROM public.sh_solution_phases WHERE owner_department_id = sh_user_department_id()
+        )
+        OR (sh_is_client() AND phase_id IN (
+            SELECT sp.id FROM public.sh_solution_phases sp
+            JOIN public.sh_solutions s ON sp.solution_id = s.id
+            WHERE s.client_id = sh_get_client_id()
+        ))
+    );
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_implementation_users_insert" ON public.sh_implementation_users
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- UPDATE: Admin, department
+CREATE POLICY "sh_implementation_users_update" ON public.sh_implementation_users
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR phase_id IN (
+            SELECT id FROM public.sh_solution_phases WHERE owner_department_id = sh_user_department_id()
+        )
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_implementation_users_delete" ON public.sh_implementation_users
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_TRAINING_PROGRAMS TABLE POLICIES
+-- Training programs for solutions
+-- Access: Admin full, HOD/Staff scope, Cohort members see assigned
+-- ================================================================================
+
+ALTER TABLE public.sh_training_programs ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, staff, cohort members (if assigned)
+CREATE POLICY "sh_training_programs_select" ON public.sh_training_programs
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        -- Cohort members see programs they're involved in
+        OR (sh_is_cohort_member() AND id IN (
+            SELECT tp.id FROM public.sh_training_programs tp
+            JOIN public.sh_training_sessions ts ON ts.program_id = tp.id
+            JOIN public.sh_cohort_assignments ca ON ca.session_id = ts.id
+            WHERE ca.cohort_member_id = sh_get_cohort_member_id()
+        ))
+        -- Clients see programs for their solutions
+        OR (sh_is_client() AND solution_id IN (
+            SELECT id FROM public.sh_solutions WHERE client_id = sh_get_client_id()
+        ))
+    );
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_training_programs_insert" ON public.sh_training_programs
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- UPDATE: Admin, HOD, Staff
+CREATE POLICY "sh_training_programs_update" ON public.sh_training_programs
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_training_programs_delete" ON public.sh_training_programs
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_TRAINING_SESSIONS TABLE POLICIES
+-- Individual training sessions
+-- Access: Admin full, Staff scope, Cohort members see assigned
+-- ================================================================================
+
+ALTER TABLE public.sh_training_sessions ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, staff, cohort members
+CREATE POLICY "sh_training_sessions_select" ON public.sh_training_sessions
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        -- Cohort members see their sessions
+        OR (sh_is_cohort_member() AND id IN (
+            SELECT session_id FROM public.sh_cohort_assignments
+            WHERE cohort_member_id = sh_get_cohort_member_id()
+        ))
+    );
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_training_sessions_insert" ON public.sh_training_sessions
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- UPDATE: Admin, HOD, Staff
+CREATE POLICY "sh_training_sessions_update" ON public.sh_training_sessions
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_training_sessions_delete" ON public.sh_training_sessions
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_COHORT_MEMBERS TABLE POLICIES
+-- Training cohort member profiles
+-- Access: Admin full, HOD department scope, Members own profile
+-- ================================================================================
+
+ALTER TABLE public.sh_cohort_members ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, HOD, staff, or own profile
+CREATE POLICY "sh_cohort_members_select" ON public.sh_cohort_members
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod() AND department_id = sh_user_department_id())
+        OR (sh_is_staff() AND department_id = sh_user_department_id())
+        OR user_id = auth.uid()
+        -- Other cohort members in same session
+        OR (sh_is_cohort_member() AND id IN (
+            SELECT DISTINCT ca2.cohort_member_id
+            FROM public.sh_cohort_assignments ca1
+            JOIN public.sh_cohort_assignments ca2 ON ca1.session_id = ca2.session_id
+            WHERE ca1.cohort_member_id = sh_get_cohort_member_id()
+        ))
+    );
+
+-- INSERT: Admin, HOD
+CREATE POLICY "sh_cohort_members_insert" ON public.sh_cohort_members
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod());
+
+-- UPDATE: Admin, HOD, or member updating own profile
+CREATE POLICY "sh_cohort_members_update" ON public.sh_cohort_members
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod() AND department_id = sh_user_department_id())
+        OR user_id = auth.uid()
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_cohort_members_delete" ON public.sh_cohort_members
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_COHORT_ASSIGNMENTS TABLE POLICIES
+-- Cohort member assignments to training sessions
+-- Access: Admin full, HOD approve, Members see own
+-- ================================================================================
+
+ALTER TABLE public.sh_cohort_assignments ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, HOD, Staff, own assignments
+CREATE POLICY "sh_cohort_assignments_select" ON public.sh_cohort_assignments
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        OR cohort_member_id = sh_get_cohort_member_id()
+    );
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_cohort_assignments_insert" ON public.sh_cohort_assignments
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- UPDATE: Admin, HOD, Staff
+CREATE POLICY "sh_cohort_assignments_update" ON public.sh_cohort_assignments
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_cohort_assignments_delete" ON public.sh_cohort_assignments
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_CONTENT_ORDERS TABLE POLICIES
+-- Content production orders
+-- Access: Admin full, Staff scope, Production learners see assigned
+-- ================================================================================
+
+ALTER TABLE public.sh_content_orders ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, staff, production learners (assigned), clients
+CREATE POLICY "sh_content_orders_select" ON public.sh_content_orders
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        -- Production learners see orders they're assigned to
+        OR (sh_is_production_learner() AND id IN (
+            SELECT co.id FROM public.sh_content_orders co
+            JOIN public.sh_content_deliverables cd ON cd.order_id = co.id
+            JOIN public.sh_production_assignments pa ON pa.deliverable_id = cd.id
+            WHERE pa.learner_id = sh_get_production_learner_id()
+        ))
+        -- Clients see orders for their solutions
+        OR (sh_is_client() AND solution_id IN (
+            SELECT id FROM public.sh_solutions WHERE client_id = sh_get_client_id()
+        ))
+    );
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_content_orders_insert" ON public.sh_content_orders
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- UPDATE: Admin, HOD, Staff
+CREATE POLICY "sh_content_orders_update" ON public.sh_content_orders
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_content_orders_delete" ON public.sh_content_orders
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_CONTENT_DELIVERABLES TABLE POLICIES
+-- Individual content deliverables
+-- Access: Follows order access, production learners see assigned
+-- ================================================================================
+
+ALTER TABLE public.sh_content_deliverables ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, staff, production learners, clients
+CREATE POLICY "sh_content_deliverables_select" ON public.sh_content_deliverables
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        -- Production learners see their deliverables
+        OR (sh_is_production_learner() AND id IN (
+            SELECT deliverable_id FROM public.sh_production_assignments
+            WHERE learner_id = sh_get_production_learner_id()
+        ))
+        -- Clients see deliverables for their orders
+        OR (sh_is_client() AND order_id IN (
+            SELECT co.id FROM public.sh_content_orders co
+            JOIN public.sh_solutions s ON co.solution_id = s.id
+            WHERE s.client_id = sh_get_client_id()
+        ))
+    );
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_content_deliverables_insert" ON public.sh_content_deliverables
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- UPDATE: Admin, HOD, Staff, assigned production learners
+CREATE POLICY "sh_content_deliverables_update" ON public.sh_content_deliverables
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        OR (sh_is_production_learner() AND id IN (
+            SELECT deliverable_id FROM public.sh_production_assignments
+            WHERE learner_id = sh_get_production_learner_id()
+        ))
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_content_deliverables_delete" ON public.sh_content_deliverables
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_PRODUCTION_LEARNERS TABLE POLICIES
+-- Content production learner profiles
+-- Access: Admin full, HOD scope, Learners own profile
+-- ================================================================================
+
+ALTER TABLE public.sh_production_learners ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, HOD, staff, own profile
+CREATE POLICY "sh_production_learners_select" ON public.sh_production_learners
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR (sh_is_hod())
+        OR (sh_is_staff())
+        OR user_id = auth.uid()
+    );
+
+-- INSERT: Admin, HOD
+CREATE POLICY "sh_production_learners_insert" ON public.sh_production_learners
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod());
+
+-- UPDATE: Admin, HOD, or learner updating own profile
+CREATE POLICY "sh_production_learners_update" ON public.sh_production_learners
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR user_id = auth.uid()
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_production_learners_delete" ON public.sh_production_learners
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_PRODUCTION_ASSIGNMENTS TABLE POLICIES
+-- Production learner assignments to deliverables
+-- Access: Admin full, HOD/Staff approve, Learners see own
+-- ================================================================================
+
+ALTER TABLE public.sh_production_assignments ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, HOD, Staff, own assignments
+CREATE POLICY "sh_production_assignments_select" ON public.sh_production_assignments
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        OR learner_id = sh_get_production_learner_id()
+    );
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_production_assignments_insert" ON public.sh_production_assignments
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- UPDATE: Admin, HOD, Staff
+CREATE POLICY "sh_production_assignments_update" ON public.sh_production_assignments
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_production_assignments_delete" ON public.sh_production_assignments
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_DISCOVERY_VISITS TABLE POLICIES
+-- Client site discovery visits
+-- Access: Admin, HOD, Staff
+-- ================================================================================
+
+ALTER TABLE public.sh_discovery_visits ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, HOD, Staff, clients (own visits)
+CREATE POLICY "sh_discovery_visits_select" ON public.sh_discovery_visits
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        OR (department_id = sh_user_department_id())
+        OR (sh_is_client() AND client_id = sh_get_client_id())
+        OR created_by = auth.uid()
+    );
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_discovery_visits_insert" ON public.sh_discovery_visits
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- UPDATE: Admin, creator, or department
+CREATE POLICY "sh_discovery_visits_update" ON public.sh_discovery_visits
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR created_by = auth.uid()
+        OR department_id = sh_user_department_id()
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_discovery_visits_delete" ON public.sh_discovery_visits
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_CLIENT_COMMUNICATIONS TABLE POLICIES
+-- Client communication history
+-- Access: Admin, HOD, Staff (department scope)
+-- ================================================================================
+
+ALTER TABLE public.sh_client_communications ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, HOD, Staff, clients (own communications)
+CREATE POLICY "sh_client_communications_select" ON public.sh_client_communications
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        OR (sh_is_client() AND client_id = sh_get_client_id())
+        OR created_by = auth.uid()
+    );
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_client_communications_insert" ON public.sh_client_communications
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- UPDATE: Admin, creator
+CREATE POLICY "sh_client_communications_update" ON public.sh_client_communications
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin() OR created_by = auth.uid());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_client_communications_delete" ON public.sh_client_communications
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_REVENUE_SPLIT_MODELS TABLE POLICIES
+-- Revenue split configurations
+-- Access: Admin only for write, HOD can read
+-- ================================================================================
+
+ALTER TABLE public.sh_revenue_split_models ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin and HOD
+CREATE POLICY "sh_revenue_split_models_select" ON public.sh_revenue_split_models
+    FOR SELECT TO authenticated
+    USING (sh_is_admin() OR sh_is_hod());
+
+-- INSERT: Admin only
+CREATE POLICY "sh_revenue_split_models_insert" ON public.sh_revenue_split_models
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin());
+
+-- UPDATE: Admin only
+CREATE POLICY "sh_revenue_split_models_update" ON public.sh_revenue_split_models
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_revenue_split_models_delete" ON public.sh_revenue_split_models
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_PAYMENTS TABLE POLICIES
+-- Payment records for solutions
+-- Access: Admin full, HOD restricted, Clients own payments
+-- ================================================================================
+
+ALTER TABLE public.sh_payments ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, HOD, clients (own payments)
+CREATE POLICY "sh_payments_select" ON public.sh_payments
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        -- Clients see payments for their solutions
+        OR (sh_is_client() AND solution_id IN (
+            SELECT id FROM public.sh_solutions WHERE client_id = sh_get_client_id()
+        ))
+    );
+
+-- INSERT: Admin, HOD
+CREATE POLICY "sh_payments_insert" ON public.sh_payments
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod());
+
+-- UPDATE: Admin only
+CREATE POLICY "sh_payments_update" ON public.sh_payments
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_payments_delete" ON public.sh_payments
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_EARNINGS_LEDGER TABLE POLICIES
+-- Earnings distribution records
+-- Access: Admin full, Recipients see own earnings
+-- ================================================================================
+
+ALTER TABLE public.sh_earnings_ledger ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, HOD, own earnings
+CREATE POLICY "sh_earnings_ledger_select" ON public.sh_earnings_ledger
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        -- Department sees their earnings
+        OR department_id = sh_user_department_id()
+        -- Builders see their earnings
+        OR (recipient_type = 'builder' AND recipient_id = sh_get_builder_id())
+        -- Cohort members see their earnings
+        OR (recipient_type = 'cohort_member' AND recipient_id = sh_get_cohort_member_id())
+        -- Production learners see their earnings
+        OR (recipient_type = 'production_learner' AND recipient_id = sh_get_production_learner_id())
+    );
+
+-- INSERT: Admin only
+CREATE POLICY "sh_earnings_ledger_insert" ON public.sh_earnings_ledger
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin());
+
+-- UPDATE: Admin only
+CREATE POLICY "sh_earnings_ledger_update" ON public.sh_earnings_ledger
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_earnings_ledger_delete" ON public.sh_earnings_ledger
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_CLIENT_REFERRALS TABLE POLICIES
+-- Client referral tracking for bonuses
+-- Access: Admin full, involved departments
+-- ================================================================================
+
+ALTER TABLE public.sh_client_referrals ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, involved departments
+CREATE POLICY "sh_client_referrals_select" ON public.sh_client_referrals
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR referring_dept_id = sh_user_department_id()
+        OR executing_dept_id = sh_user_department_id()
+    );
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_client_referrals_insert" ON public.sh_client_referrals
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- UPDATE: Admin only
+CREATE POLICY "sh_client_referrals_update" ON public.sh_client_referrals
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_client_referrals_delete" ON public.sh_client_referrals
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_PUBLICATIONS TABLE POLICIES
+-- Academic publications from solutions
+-- Access: Wide read, restricted write
+-- ================================================================================
+
+ALTER TABLE public.sh_publications ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: All authenticated (publications are public knowledge)
+CREATE POLICY "sh_publications_select" ON public.sh_publications
+    FOR SELECT TO authenticated
+    USING (auth.uid() IS NOT NULL);
+
+-- INSERT: Admin, HOD, Staff, Builders (own publications)
+CREATE POLICY "sh_publications_insert" ON public.sh_publications
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        sh_is_admin()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        OR sh_is_builder()
+    );
+
+-- UPDATE: Admin, creator
+CREATE POLICY "sh_publications_update" ON public.sh_publications
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin() OR sh_is_hod());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_publications_delete" ON public.sh_publications
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_PUBLICATION_CONTRIBUTORS TABLE POLICIES
+-- Contributors to publications
+-- Access: Follows publication access
+-- ================================================================================
+
+ALTER TABLE public.sh_publication_contributors ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: All authenticated
+CREATE POLICY "sh_publication_contributors_select" ON public.sh_publication_contributors
+    FOR SELECT TO authenticated
+    USING (auth.uid() IS NOT NULL);
+
+-- INSERT: Admin, HOD, Staff
+CREATE POLICY "sh_publication_contributors_insert" ON public.sh_publication_contributors
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin() OR sh_is_hod() OR sh_is_staff());
+
+-- UPDATE: Admin, HOD
+CREATE POLICY "sh_publication_contributors_update" ON public.sh_publication_contributors
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin() OR sh_is_hod());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_publication_contributors_delete" ON public.sh_publication_contributors
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_ACCREDITATION_METRICS TABLE POLICIES
+-- NIRF/NAAC metric definitions
+-- Access: Admin write, all authenticated read
+-- ================================================================================
+
+ALTER TABLE public.sh_accreditation_metrics ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: All authenticated
+CREATE POLICY "sh_accreditation_metrics_select" ON public.sh_accreditation_metrics
+    FOR SELECT TO authenticated
+    USING (auth.uid() IS NOT NULL);
+
+-- INSERT: Admin only
+CREATE POLICY "sh_accreditation_metrics_insert" ON public.sh_accreditation_metrics
+    FOR INSERT TO authenticated
+    WITH CHECK (sh_is_admin());
+
+-- UPDATE: Admin only
+CREATE POLICY "sh_accreditation_metrics_update" ON public.sh_accreditation_metrics
+    FOR UPDATE TO authenticated
+    USING (sh_is_admin());
+
+-- DELETE: Admin only
+CREATE POLICY "sh_accreditation_metrics_delete" ON public.sh_accreditation_metrics
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_JICATE_SESSIONS TABLE POLICIES
+-- JICATE facilitation sessions
+-- Access: Admin full, HOD/Staff book and view
+-- ================================================================================
+
+ALTER TABLE public.sh_jicate_sessions ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin, JICATE staff, HOD, Staff
+CREATE POLICY "sh_jicate_sessions_select" ON public.sh_jicate_sessions
+    FOR SELECT TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_jicate_staff()
+        OR sh_is_hod()
+        OR sh_is_staff()
+        OR booked_by_dept_id = sh_user_department_id()
+    );
+
+-- INSERT: Admin, JICATE, HOD, Staff
+CREATE POLICY "sh_jicate_sessions_insert" ON public.sh_jicate_sessions
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        sh_is_admin()
+        OR sh_is_jicate_staff()
+        OR sh_is_hod()
+        OR sh_is_staff()
+    );
+
+-- UPDATE: Admin, JICATE, booking department
+CREATE POLICY "sh_jicate_sessions_update" ON public.sh_jicate_sessions
+    FOR UPDATE TO authenticated
+    USING (
+        sh_is_admin()
+        OR sh_is_jicate_staff()
+        OR booked_by_dept_id = sh_user_department_id()
+    );
+
+-- DELETE: Admin only
+CREATE POLICY "sh_jicate_sessions_delete" ON public.sh_jicate_sessions
+    FOR DELETE TO authenticated
+    USING (sh_is_admin());
+
+-- ================================================================================
+-- SH_NOTIFICATIONS TABLE POLICIES
+-- User notifications
+-- Access: Users see own notifications
+-- ================================================================================
+
+ALTER TABLE public.sh_notifications ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Own notifications
+CREATE POLICY "sh_notifications_select" ON public.sh_notifications
+    FOR SELECT TO authenticated
+    USING (user_id = auth.uid());
+
+-- INSERT: Admin, system (anyone can send to self)
+CREATE POLICY "sh_notifications_insert" ON public.sh_notifications
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        sh_is_admin()
+        OR user_id = auth.uid()
+    );
+
+-- UPDATE: Own notifications (for marking read)
+CREATE POLICY "sh_notifications_update" ON public.sh_notifications
+    FOR UPDATE TO authenticated
+    USING (user_id = auth.uid());
+
+-- DELETE: Own notifications or admin
+CREATE POLICY "sh_notifications_delete" ON public.sh_notifications
+    FOR DELETE TO authenticated
+    USING (user_id = auth.uid() OR sh_is_admin());
+
+-- ================================================================================
+-- SH_AUDIT_LOGS TABLE POLICIES
+-- System audit logs
+-- Access: Admin only
+-- ================================================================================
+
+ALTER TABLE public.sh_audit_logs ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Admin only
+CREATE POLICY "sh_audit_logs_select" ON public.sh_audit_logs
+    FOR SELECT TO authenticated
+    USING (sh_is_admin());
+
+-- INSERT: System/service role (all users generate logs, but via triggers)
+CREATE POLICY "sh_audit_logs_insert" ON public.sh_audit_logs
+    FOR INSERT TO authenticated
+    WITH CHECK (true);
+
+-- No UPDATE or DELETE allowed on audit logs (immutable)
+-- Handled by not creating UPDATE/DELETE policies
+
+-- ================================================================================
+-- END OF SOLUTIONS HUB RLS POLICIES
+-- Total: 30 tables, 120+ policies, 15 helper functions
+-- ================================================================================

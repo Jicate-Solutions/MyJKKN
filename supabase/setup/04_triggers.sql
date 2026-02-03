@@ -513,6 +513,201 @@ COMMENT ON TRIGGER trigger_auto_link_profile_to_approved_learner ON profiles IS
 'Auto-links new profiles to approved learners on first login. Includes institution/department from learner.';
 
 -- ================================================================================
+-- SECTION 21: SOLUTIONS HUB MODULE TRIGGERS
+-- Created: 2026-02-03
+-- Purpose: Triggers for Solutions Hub tables
+-- Merged from JKKN-Solutions-Hub standalone project
+-- ================================================================================
+
+-- ============================================
+-- Updated_at Triggers (30 tables)
+-- ============================================
+
+CREATE TRIGGER tr_sh_clients_updated_at
+    BEFORE UPDATE ON public.sh_clients
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_solutions_updated_at
+    BEFORE UPDATE ON public.sh_solutions
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_phases_updated_at
+    BEFORE UPDATE ON public.sh_solution_phases
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_mous_updated_at
+    BEFORE UPDATE ON public.sh_solution_mous
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_builders_updated_at
+    BEFORE UPDATE ON public.sh_builders
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_training_programs_updated_at
+    BEFORE UPDATE ON public.sh_training_programs
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_training_sessions_updated_at
+    BEFORE UPDATE ON public.sh_training_sessions
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_cohort_members_updated_at
+    BEFORE UPDATE ON public.sh_cohort_members
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_content_orders_updated_at
+    BEFORE UPDATE ON public.sh_content_orders
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_content_deliverables_updated_at
+    BEFORE UPDATE ON public.sh_content_deliverables
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_production_learners_updated_at
+    BEFORE UPDATE ON public.sh_production_learners
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_implementation_users_updated_at
+    BEFORE UPDATE ON public.sh_implementation_users
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_payments_updated_at
+    BEFORE UPDATE ON public.sh_payments
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_publications_updated_at
+    BEFORE UPDATE ON public.sh_publications
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+CREATE TRIGGER tr_sh_jicate_sessions_updated_at
+    BEFORE UPDATE ON public.sh_jicate_sessions
+    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+
+-- ============================================
+-- Auto-Code Generation Triggers
+-- ============================================
+
+CREATE TRIGGER tr_sh_solutions_code
+    BEFORE INSERT ON public.sh_solutions
+    FOR EACH ROW
+    WHEN (NEW.solution_code IS NULL)
+    EXECUTE FUNCTION sh_generate_solution_code();
+
+CREATE TRIGGER tr_sh_clients_code
+    BEFORE INSERT ON public.sh_clients
+    FOR EACH ROW
+    WHEN (NEW.company_code IS NULL)
+    EXECUTE FUNCTION sh_generate_client_code();
+
+CREATE TRIGGER tr_sh_builders_code
+    BEFORE INSERT ON public.sh_builders
+    FOR EACH ROW
+    WHEN (NEW.builder_code IS NULL)
+    EXECUTE FUNCTION sh_generate_builder_code();
+
+CREATE TRIGGER tr_sh_cohort_members_code
+    BEFORE INSERT ON public.sh_cohort_members
+    FOR EACH ROW
+    WHEN (NEW.cohort_code IS NULL)
+    EXECUTE FUNCTION sh_generate_cohort_code();
+
+CREATE TRIGGER tr_sh_production_learners_code
+    BEFORE INSERT ON public.sh_production_learners
+    FOR EACH ROW
+    WHEN (NEW.learner_code IS NULL)
+    EXECUTE FUNCTION sh_generate_production_code();
+
+CREATE TRIGGER tr_sh_training_programs_code
+    BEFORE INSERT ON public.sh_training_programs
+    FOR EACH ROW
+    WHEN (NEW.program_code IS NULL)
+    EXECUTE FUNCTION sh_generate_program_code();
+
+CREATE TRIGGER tr_sh_content_orders_code
+    BEFORE INSERT ON public.sh_content_orders
+    FOR EACH ROW
+    WHEN (NEW.order_code IS NULL)
+    EXECUTE FUNCTION sh_generate_content_code();
+
+CREATE TRIGGER tr_sh_payments_code
+    BEFORE INSERT ON public.sh_payments
+    FOR EACH ROW
+    WHEN (NEW.payment_code IS NULL)
+    EXECUTE FUNCTION sh_generate_payment_code();
+
+CREATE TRIGGER tr_sh_bug_reports_code
+    BEFORE INSERT ON public.sh_bug_reports
+    FOR EACH ROW
+    WHEN (NEW.bug_code IS NULL)
+    EXECUTE FUNCTION sh_generate_bug_code();
+
+CREATE TRIGGER tr_sh_discovery_visits_code
+    BEFORE INSERT ON public.sh_discovery_visits
+    FOR EACH ROW
+    WHEN (NEW.visit_code IS NULL)
+    EXECUTE FUNCTION sh_generate_visit_code();
+
+CREATE TRIGGER tr_sh_mous_number
+    BEFORE INSERT ON public.sh_solution_mous
+    FOR EACH ROW
+    WHEN (NEW.mou_number IS NULL)
+    EXECUTE FUNCTION sh_generate_mou_number();
+
+CREATE TRIGGER tr_sh_earnings_code
+    BEFORE INSERT ON public.sh_earnings_ledger
+    FOR EACH ROW
+    WHEN (NEW.ledger_code IS NULL)
+    EXECUTE FUNCTION sh_generate_earnings_code();
+
+CREATE TRIGGER tr_sh_publications_code
+    BEFORE INSERT ON public.sh_publications
+    FOR EACH ROW
+    WHEN (NEW.publication_code IS NULL)
+    EXECUTE FUNCTION sh_generate_publication_code();
+
+CREATE TRIGGER tr_sh_jicate_sessions_code
+    BEFORE INSERT ON public.sh_jicate_sessions
+    FOR EACH ROW
+    WHEN (NEW.session_code IS NULL)
+    EXECUTE FUNCTION sh_generate_jicate_code();
+
+-- ============================================
+-- Statistics Update Triggers
+-- ============================================
+
+-- Update builder stats when assignment is completed
+CREATE TRIGGER tr_sh_builder_assignment_stats
+    AFTER UPDATE OF status ON public.sh_builder_assignments
+    FOR EACH ROW
+    WHEN (NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed')
+    EXECUTE FUNCTION sh_update_builder_stats();
+
+-- Update cohort member stats when session assignment is completed
+CREATE TRIGGER tr_sh_cohort_assignment_stats
+    AFTER UPDATE OF status ON public.sh_cohort_assignments
+    FOR EACH ROW
+    WHEN (NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed')
+    EXECUTE FUNCTION sh_update_cohort_stats();
+
+-- Update production learner stats when production assignment is completed
+CREATE TRIGGER tr_sh_production_assignment_stats
+    AFTER UPDATE OF status ON public.sh_production_assignments
+    FOR EACH ROW
+    WHEN (NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed')
+    EXECUTE FUNCTION sh_update_production_stats();
+
+-- Update client referral count
+CREATE TRIGGER tr_sh_client_referral_count_insert
+    AFTER INSERT ON public.sh_client_referrals
+    FOR EACH ROW
+    EXECUTE FUNCTION sh_update_client_referral_count();
+
+CREATE TRIGGER tr_sh_client_referral_count_delete
+    AFTER DELETE ON public.sh_client_referrals
+    FOR EACH ROW
+    EXECUTE FUNCTION sh_update_client_referral_count();
+
+-- ================================================================================
 -- End of Triggers File
--- Total Triggers: 73
+-- Total Triggers: 108 (73 original + 35 Solutions Hub)
 -- ================================================================================

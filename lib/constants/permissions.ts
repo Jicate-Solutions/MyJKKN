@@ -85,7 +85,13 @@ export const ROLE_LABELS: Record<string, string> = {
   [SYSTEM_ROLES.GUEST]: 'Guest',
   [SYSTEM_ROLES.PARENT]: 'Parent',
   [SYSTEM_ROLES.HOD]: 'HOD',
-  [SYSTEM_ROLES.PRINCIPAL]: 'Principal'
+  [SYSTEM_ROLES.PRINCIPAL]: 'Principal',
+  // Solutions Hub roles (added 2026-02-03)
+  [SYSTEM_ROLES.BUILDER]: 'Builder',
+  [SYSTEM_ROLES.COHORT_MEMBER]: 'Cohort Member',
+  [SYSTEM_ROLES.PRODUCTION_LEARNER]: 'Production Learner',
+  [SYSTEM_ROLES.JICATE_STAFF]: 'JICATE Staff',
+  [SYSTEM_ROLES.CLIENT]: 'Client'
 } as const;
 
 // Default permissions for new roles
@@ -553,6 +559,199 @@ export const PERMISSION_CATEGORIES = [
       // LTI Launches
       { key: 'lti.launches.create', label: 'Launch LTI Tools' },
       { key: 'lti.launches.debug', label: 'Debug LTI Launches' }
+    ]
+  },
+  // ============================================
+  // SOLUTIONS HUB PERMISSIONS
+  // Added: 2026-02-03 for Solutions Hub integration
+  // ============================================
+  {
+    name: 'Solutions Hub - General',
+    key: 'solutions_hub',
+    permissions: [
+      { key: 'solutions_hub.view', label: 'View Solutions Hub' },
+      { key: 'solutions_hub.admin', label: 'Admin Access' },
+      { key: 'solutions_hub.full_access', label: 'Full Access (Super Admin)' },
+      { key: 'solutions_hub.department.dashboard', label: 'View Department Dashboard' },
+      { key: 'solutions_hub.department.view', label: 'View Department Data' },
+      { key: 'solutions_hub.reports.view', label: 'View Reports' },
+      { key: 'solutions_hub.reports.export', label: 'Export Reports' },
+      { key: 'solutions_hub.analytics.view', label: 'View Analytics' },
+      { key: 'solutions_hub.settings.view', label: 'View Settings' },
+      { key: 'solutions_hub.settings.edit', label: 'Edit Settings' }
+    ]
+  },
+  {
+    name: 'Solutions Hub - Clients',
+    key: 'solutions_hub_clients',
+    permissions: [
+      { key: 'solutions_hub.clients.view', label: 'View Clients' },
+      { key: 'solutions_hub.clients.create', label: 'Create Clients' },
+      { key: 'solutions_hub.clients.edit', label: 'Edit Clients' },
+      { key: 'solutions_hub.clients.delete', label: 'Delete Clients' }
+    ]
+  },
+  {
+    name: 'Solutions Hub - Solutions',
+    key: 'solutions_hub_solutions',
+    permissions: [
+      { key: 'solutions_hub.solutions.view', label: 'View Solutions' },
+      { key: 'solutions_hub.solutions.create', label: 'Create Solutions' },
+      { key: 'solutions_hub.solutions.edit', label: 'Edit Solutions' },
+      { key: 'solutions_hub.solutions.delete', label: 'Delete Solutions' },
+      { key: 'solutions_hub.solutions.approve', label: 'Approve Solutions' }
+    ]
+  },
+  {
+    name: 'Solutions Hub - Phases',
+    key: 'solutions_hub_phases',
+    permissions: [
+      { key: 'solutions_hub.phases.view', label: 'View Phases' },
+      { key: 'solutions_hub.phases.create', label: 'Create Phases' },
+      { key: 'solutions_hub.phases.edit', label: 'Edit Phases' },
+      { key: 'solutions_hub.phases.delete', label: 'Delete Phases' },
+      { key: 'solutions_hub.phases.assign', label: 'Assign Phases' },
+      { key: 'solutions_hub.phases.approve', label: 'Approve Phases' }
+    ]
+  },
+  {
+    name: 'Solutions Hub - Builders (Software Talent)',
+    key: 'solutions_hub_builders',
+    permissions: [
+      // Admin permissions
+      { key: 'solutions_hub.builders.view', label: 'View Builders' },
+      { key: 'solutions_hub.builders.create', label: 'Create Builders' },
+      { key: 'solutions_hub.builders.edit', label: 'Edit Builders' },
+      { key: 'solutions_hub.builders.delete', label: 'Delete Builders' },
+      { key: 'solutions_hub.builders.assign', label: 'Assign Builders to Phases' },
+      // Builder portal permissions
+      { key: 'solutions_hub.builder.dashboard', label: 'Builder Portal Dashboard' },
+      { key: 'solutions_hub.builder.assignments.view', label: 'View My Assignments' },
+      { key: 'solutions_hub.builder.assignments.claim', label: 'Claim Assignments' },
+      { key: 'solutions_hub.builder.phases.view', label: 'View Available Phases' },
+      { key: 'solutions_hub.builder.phases.claim', label: 'Claim Phases' },
+      { key: 'solutions_hub.builder.work.submit', label: 'Submit Work' },
+      { key: 'solutions_hub.builder.iterations.view', label: 'View Iterations' },
+      { key: 'solutions_hub.builder.iterations.create', label: 'Create Iterations' },
+      { key: 'solutions_hub.builder.bugs.view', label: 'View Bug Reports' },
+      { key: 'solutions_hub.builder.bugs.create', label: 'Create Bug Reports' },
+      { key: 'solutions_hub.builder.earnings.view', label: 'View My Earnings' },
+      { key: 'solutions_hub.builder.profile.view', label: 'View Builder Profile' },
+      { key: 'solutions_hub.builder.profile.edit', label: 'Edit Builder Profile' },
+      { key: 'solutions_hub.builder.skills.view', label: 'View Skills' },
+      { key: 'solutions_hub.builder.skills.edit', label: 'Edit Skills' }
+    ]
+  },
+  {
+    name: 'Solutions Hub - Training & Cohort',
+    key: 'solutions_hub_training',
+    permissions: [
+      // Admin permissions
+      { key: 'solutions_hub.training.view', label: 'View Training Programs' },
+      { key: 'solutions_hub.training.create', label: 'Create Training Programs' },
+      { key: 'solutions_hub.training.edit', label: 'Edit Training Programs' },
+      { key: 'solutions_hub.training.delete', label: 'Delete Training Programs' },
+      { key: 'solutions_hub.training.sessions.view', label: 'View Training Sessions' },
+      { key: 'solutions_hub.training.sessions.manage', label: 'Manage Training Sessions' },
+      { key: 'solutions_hub.cohort.view', label: 'View Cohort Members' },
+      { key: 'solutions_hub.cohort.manage', label: 'Manage Cohort Members' },
+      // Cohort member portal permissions
+      { key: 'solutions_hub.cohort.dashboard', label: 'Cohort Portal Dashboard' },
+      { key: 'solutions_hub.cohort.sessions.view', label: 'View Available Sessions' },
+      { key: 'solutions_hub.cohort.sessions.claim', label: 'Claim Sessions' },
+      { key: 'solutions_hub.cohort.assignments.view', label: 'View My Assignments' },
+      { key: 'solutions_hub.cohort.assignments.claim', label: 'Claim Assignments' },
+      { key: 'solutions_hub.cohort.programs.view', label: 'View My Programs' },
+      { key: 'solutions_hub.cohort.earnings.view', label: 'View My Earnings' },
+      { key: 'solutions_hub.cohort.profile.view', label: 'View Cohort Profile' },
+      { key: 'solutions_hub.cohort.profile.edit', label: 'Edit Cohort Profile' },
+      { key: 'solutions_hub.cohort.stats.view', label: 'View My Stats' }
+    ]
+  },
+  {
+    name: 'Solutions Hub - Content & Production',
+    key: 'solutions_hub_content',
+    permissions: [
+      // Admin permissions
+      { key: 'solutions_hub.content.view', label: 'View Content Orders' },
+      { key: 'solutions_hub.content.create', label: 'Create Content Orders' },
+      { key: 'solutions_hub.content.edit', label: 'Edit Content Orders' },
+      { key: 'solutions_hub.content.delete', label: 'Delete Content Orders' },
+      { key: 'solutions_hub.content.orders.view', label: 'View Order Details' },
+      { key: 'solutions_hub.content.orders.manage', label: 'Manage Orders' },
+      { key: 'solutions_hub.production.view', label: 'View Production Learners' },
+      { key: 'solutions_hub.production.manage', label: 'Manage Production Learners' },
+      // Production learner portal permissions
+      { key: 'solutions_hub.production.dashboard', label: 'Production Portal Dashboard' },
+      { key: 'solutions_hub.production.orders.view', label: 'View My Orders' },
+      { key: 'solutions_hub.production.deliverables.view', label: 'View Deliverables' },
+      { key: 'solutions_hub.production.deliverables.submit', label: 'Submit Deliverables' },
+      { key: 'solutions_hub.production.assignments.view', label: 'View My Assignments' },
+      { key: 'solutions_hub.production.assignments.claim', label: 'Claim Assignments' },
+      { key: 'solutions_hub.production.queue.view', label: 'View Work Queue' },
+      { key: 'solutions_hub.production.earnings.view', label: 'View My Earnings' },
+      { key: 'solutions_hub.production.profile.view', label: 'View Production Profile' },
+      { key: 'solutions_hub.production.profile.edit', label: 'Edit Production Profile' }
+    ]
+  },
+  {
+    name: 'Solutions Hub - Discovery',
+    key: 'solutions_hub_discovery',
+    permissions: [
+      { key: 'solutions_hub.discovery.view', label: 'View Discovery Visits' },
+      { key: 'solutions_hub.discovery.create', label: 'Create Discovery Visits' },
+      { key: 'solutions_hub.discovery.edit', label: 'Edit Discovery Visits' },
+      { key: 'solutions_hub.discovery.delete', label: 'Delete Discovery Visits' }
+    ]
+  },
+  {
+    name: 'Solutions Hub - Financials',
+    key: 'solutions_hub_financials',
+    permissions: [
+      { key: 'solutions_hub.payments.view', label: 'View Payments' },
+      { key: 'solutions_hub.payments.create', label: 'Create Payments' },
+      { key: 'solutions_hub.payments.edit', label: 'Edit Payments' },
+      { key: 'solutions_hub.payments.delete', label: 'Delete Payments' },
+      { key: 'solutions_hub.payments.approve', label: 'Approve Payments' },
+      { key: 'solutions_hub.earnings.view', label: 'View Earnings Ledger' },
+      { key: 'solutions_hub.earnings.process', label: 'Process Earnings' },
+      { key: 'solutions_hub.revenue.view', label: 'View Revenue Split' },
+      { key: 'solutions_hub.revenue.configure', label: 'Configure Revenue Split' }
+    ]
+  },
+  {
+    name: 'Solutions Hub - Publications',
+    key: 'solutions_hub_publications',
+    permissions: [
+      { key: 'solutions_hub.publications.view', label: 'View Publications' },
+      { key: 'solutions_hub.publications.create', label: 'Create Publications' },
+      { key: 'solutions_hub.publications.edit', label: 'Edit Publications' },
+      { key: 'solutions_hub.publications.delete', label: 'Delete Publications' }
+    ]
+  },
+  {
+    name: 'Solutions Hub - JICATE',
+    key: 'solutions_hub_jicate',
+    permissions: [
+      { key: 'solutions_hub.jicate.sessions.view', label: 'View JICATE Sessions' },
+      { key: 'solutions_hub.jicate.sessions.manage', label: 'Manage JICATE Sessions' }
+    ]
+  },
+  {
+    name: 'Solutions Hub - Client Portal',
+    key: 'solutions_hub_client_portal',
+    permissions: [
+      { key: 'solutions_hub.client.portal', label: 'Access Client Portal' },
+      { key: 'solutions_hub.client.dashboard', label: 'Client Dashboard' },
+      { key: 'solutions_hub.client.solutions.view_own', label: 'View Own Solutions' },
+      { key: 'solutions_hub.client.phases.view_own', label: 'View Own Phases' },
+      { key: 'solutions_hub.client.deliverables.view_own', label: 'View Own Deliverables' },
+      { key: 'solutions_hub.client.invoices.view_own', label: 'View Own Invoices' },
+      { key: 'solutions_hub.client.payments.view_own', label: 'View Own Payments' },
+      { key: 'solutions_hub.client.communications.view_own', label: 'View Communications' },
+      { key: 'solutions_hub.client.communications.create', label: 'Send Communications' },
+      { key: 'solutions_hub.client.profile.view', label: 'View Client Profile' },
+      { key: 'solutions_hub.client.profile.edit', label: 'Edit Client Profile' }
     ]
   }
 ];

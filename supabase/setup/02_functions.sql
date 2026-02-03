@@ -3635,3 +3635,1006 @@ $$;
 
 COMMENT ON FUNCTION link_existing_profiles_to_approved_learners IS
 'Manually links existing profiles to approved learners with matching emails. Includes institution_id and department_id from learner. Run after migration or periodically to sync existing data.';
+
+-- ================================================================================
+-- SECTION 21: SOLUTIONS HUB MODULE FUNCTIONS
+-- Created: 2026-02-03
+-- Purpose: Helper functions for Solutions Hub tables
+-- Merged from JKKN-Solutions-Hub standalone project
+-- ================================================================================
+
+-- ============================================
+-- Code Generation Functions
+-- ============================================
+
+-- Generate Solution Code: JKKN-SOL-YYYY-NNN
+CREATE OR REPLACE FUNCTION public.sh_generate_solution_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.solution_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(solution_code FROM 'JKKN-SOL-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_solutions
+    WHERE solution_code LIKE 'JKKN-SOL-' || year_part || '-%';
+
+    NEW.solution_code := 'JKKN-SOL-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_solution_code IS
+'Auto-generates solution code in format JKKN-SOL-YYYY-NNN. Called by trigger on sh_solutions.';
+
+-- Generate Client Code: JKKN-CLI-YYYY-NNN
+CREATE OR REPLACE FUNCTION public.sh_generate_client_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.company_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(company_code FROM 'JKKN-CLI-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_clients
+    WHERE company_code LIKE 'JKKN-CLI-' || year_part || '-%';
+
+    NEW.company_code := 'JKKN-CLI-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_client_code IS
+'Auto-generates client code in format JKKN-CLI-YYYY-NNN. Called by trigger on sh_clients.';
+
+-- Generate Builder Code: JKKN-BLD-YYYY-NNN
+CREATE OR REPLACE FUNCTION public.sh_generate_builder_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.builder_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(builder_code FROM 'JKKN-BLD-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_builders
+    WHERE builder_code LIKE 'JKKN-BLD-' || year_part || '-%';
+
+    NEW.builder_code := 'JKKN-BLD-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_builder_code IS
+'Auto-generates builder code in format JKKN-BLD-YYYY-NNN. Called by trigger on sh_builders.';
+
+-- Generate Cohort Code: JKKN-COH-YYYY-NNN
+CREATE OR REPLACE FUNCTION public.sh_generate_cohort_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.cohort_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(cohort_code FROM 'JKKN-COH-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_cohort_members
+    WHERE cohort_code LIKE 'JKKN-COH-' || year_part || '-%';
+
+    NEW.cohort_code := 'JKKN-COH-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_cohort_code IS
+'Auto-generates cohort member code in format JKKN-COH-YYYY-NNN. Called by trigger on sh_cohort_members.';
+
+-- Generate Production Learner Code: JKKN-PRD-YYYY-NNN
+CREATE OR REPLACE FUNCTION public.sh_generate_production_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.learner_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(learner_code FROM 'JKKN-PRD-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_production_learners
+    WHERE learner_code LIKE 'JKKN-PRD-' || year_part || '-%';
+
+    NEW.learner_code := 'JKKN-PRD-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_production_code IS
+'Auto-generates production learner code in format JKKN-PRD-YYYY-NNN. Called by trigger on sh_production_learners.';
+
+-- Generate Training Program Code: JKKN-TRN-YYYY-NNN
+CREATE OR REPLACE FUNCTION public.sh_generate_program_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.program_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(program_code FROM 'JKKN-TRN-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_training_programs
+    WHERE program_code LIKE 'JKKN-TRN-' || year_part || '-%';
+
+    NEW.program_code := 'JKKN-TRN-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_program_code IS
+'Auto-generates training program code in format JKKN-TRN-YYYY-NNN. Called by trigger on sh_training_programs.';
+
+-- Generate Content Order Code: JKKN-CNT-YYYY-NNN
+CREATE OR REPLACE FUNCTION public.sh_generate_content_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.order_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(order_code FROM 'JKKN-CNT-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_content_orders
+    WHERE order_code LIKE 'JKKN-CNT-' || year_part || '-%';
+
+    NEW.order_code := 'JKKN-CNT-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_content_code IS
+'Auto-generates content order code in format JKKN-CNT-YYYY-NNN. Called by trigger on sh_content_orders.';
+
+-- Generate Payment Code: JKKN-PAY-YYYY-NNNNN
+CREATE OR REPLACE FUNCTION public.sh_generate_payment_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.payment_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(payment_code FROM 'JKKN-PAY-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_payments
+    WHERE payment_code LIKE 'JKKN-PAY-' || year_part || '-%';
+
+    NEW.payment_code := 'JKKN-PAY-' || year_part || '-' || LPAD(seq_num::TEXT, 5, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_payment_code IS
+'Auto-generates payment code in format JKKN-PAY-YYYY-NNNNN. Called by trigger on sh_payments.';
+
+-- Generate Bug Code: JKKN-BUG-YYYY-NNNNN
+CREATE OR REPLACE FUNCTION public.sh_generate_bug_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.bug_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(bug_code FROM 'JKKN-BUG-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_bug_reports
+    WHERE bug_code LIKE 'JKKN-BUG-' || year_part || '-%';
+
+    NEW.bug_code := 'JKKN-BUG-' || year_part || '-' || LPAD(seq_num::TEXT, 5, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_bug_code IS
+'Auto-generates bug code in format JKKN-BUG-YYYY-NNNNN. Called by trigger on sh_bug_reports.';
+
+-- Generate Visit Code: JKKN-VIS-YYYY-NNN
+CREATE OR REPLACE FUNCTION public.sh_generate_visit_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.visit_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(visit_code FROM 'JKKN-VIS-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_discovery_visits
+    WHERE visit_code LIKE 'JKKN-VIS-' || year_part || '-%';
+
+    NEW.visit_code := 'JKKN-VIS-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_visit_code IS
+'Auto-generates discovery visit code in format JKKN-VIS-YYYY-NNN. Called by trigger on sh_discovery_visits.';
+
+-- Generate MOU Number: JKKN-MOU-YYYY-NNN
+CREATE OR REPLACE FUNCTION public.sh_generate_mou_number()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.mou_number IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(mou_number FROM 'JKKN-MOU-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_solution_mous
+    WHERE mou_number LIKE 'JKKN-MOU-' || year_part || '-%';
+
+    NEW.mou_number := 'JKKN-MOU-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_mou_number IS
+'Auto-generates MOU number in format JKKN-MOU-YYYY-NNN. Called by trigger on sh_solution_mous.';
+
+-- Generate Earnings Ledger Code: JKKN-ERN-YYYY-NNNNN
+CREATE OR REPLACE FUNCTION public.sh_generate_earnings_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.ledger_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(ledger_code FROM 'JKKN-ERN-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_earnings_ledger
+    WHERE ledger_code LIKE 'JKKN-ERN-' || year_part || '-%';
+
+    NEW.ledger_code := 'JKKN-ERN-' || year_part || '-' || LPAD(seq_num::TEXT, 5, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_earnings_code IS
+'Auto-generates earnings ledger code in format JKKN-ERN-YYYY-NNNNN. Called by trigger on sh_earnings_ledger.';
+
+-- Generate Publication Code: JKKN-PUB-YYYY-NNN
+CREATE OR REPLACE FUNCTION public.sh_generate_publication_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.publication_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(publication_code FROM 'JKKN-PUB-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_publications
+    WHERE publication_code LIKE 'JKKN-PUB-' || year_part || '-%';
+
+    NEW.publication_code := 'JKKN-PUB-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_publication_code IS
+'Auto-generates publication code in format JKKN-PUB-YYYY-NNN. Called by trigger on sh_publications.';
+
+-- Generate JICATE Session Code: JKKN-JIC-YYYY-NNN
+CREATE OR REPLACE FUNCTION public.sh_generate_jicate_code()
+RETURNS TRIGGER AS $$
+DECLARE
+    year_part TEXT;
+    seq_num INTEGER;
+BEGIN
+    IF NEW.session_code IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    year_part := TO_CHAR(NOW(), 'YYYY');
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(session_code FROM 'JKKN-JIC-\d{4}-(\d+)') AS INTEGER)
+    ), 0) + 1
+    INTO seq_num
+    FROM sh_jicate_sessions
+    WHERE session_code LIKE 'JKKN-JIC-' || year_part || '-%';
+
+    NEW.session_code := 'JKKN-JIC-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_generate_jicate_code IS
+'Auto-generates JICATE session code in format JKKN-JIC-YYYY-NNN. Called by trigger on sh_jicate_sessions.';
+
+-- ============================================
+-- Updated_at Trigger Function
+-- ============================================
+
+-- Generic updated_at function for Solutions Hub tables
+CREATE OR REPLACE FUNCTION public.sh_update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_update_updated_at IS
+'Updates the updated_at timestamp on row modification. Used by all sh_* tables.';
+
+-- ============================================
+-- Role Check Functions for RLS
+-- ============================================
+
+-- Check if user is Solutions Hub admin (super_admin, admin, jicate_staff)
+CREATE OR REPLACE FUNCTION public.sh_is_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM profiles
+        WHERE id = auth.uid()
+        AND (
+            is_super_admin = true
+            OR role IN ('super_admin', 'admin', 'jicate_staff')
+        )
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_is_admin IS
+'Checks if current user is a Solutions Hub admin (super_admin, admin, or jicate_staff).';
+
+-- Check if user is HOD
+CREATE OR REPLACE FUNCTION public.sh_is_hod()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM profiles
+        WHERE id = auth.uid()
+        AND role = 'hod'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_is_hod IS
+'Checks if current user is an HOD (Head of Department).';
+
+-- Get user's department ID
+CREATE OR REPLACE FUNCTION public.sh_user_department_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN (
+        SELECT department_id
+        FROM profiles
+        WHERE id = auth.uid()
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_user_department_id IS
+'Returns the department_id of the current authenticated user.';
+
+-- Get user's institution ID
+CREATE OR REPLACE FUNCTION public.sh_user_institution_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN (
+        SELECT institution_id
+        FROM profiles
+        WHERE id = auth.uid()
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_user_institution_id IS
+'Returns the institution_id of the current authenticated user.';
+
+-- Check if user is a builder
+CREATE OR REPLACE FUNCTION public.sh_is_builder()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM sh_builders
+        WHERE user_id = auth.uid()
+        AND is_active = true
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_is_builder IS
+'Checks if current user is an active builder.';
+
+-- Get builder ID for current user
+CREATE OR REPLACE FUNCTION public.sh_get_builder_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN (
+        SELECT id
+        FROM sh_builders
+        WHERE user_id = auth.uid()
+        AND is_active = true
+        LIMIT 1
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_get_builder_id IS
+'Returns the builder_id for the current authenticated user.';
+
+-- Check if user is a cohort member
+CREATE OR REPLACE FUNCTION public.sh_is_cohort_member()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM sh_cohort_members
+        WHERE user_id = auth.uid()
+        AND is_active = true
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_is_cohort_member IS
+'Checks if current user is an active cohort member.';
+
+-- Get cohort member ID for current user
+CREATE OR REPLACE FUNCTION public.sh_get_cohort_member_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN (
+        SELECT id
+        FROM sh_cohort_members
+        WHERE user_id = auth.uid()
+        AND is_active = true
+        LIMIT 1
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_get_cohort_member_id IS
+'Returns the cohort_member_id for the current authenticated user.';
+
+-- Check if user is a production learner
+CREATE OR REPLACE FUNCTION public.sh_is_production_learner()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM sh_production_learners
+        WHERE user_id = auth.uid()
+        AND is_active = true
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_is_production_learner IS
+'Checks if current user is an active production learner.';
+
+-- Get production learner ID for current user
+CREATE OR REPLACE FUNCTION public.sh_get_production_learner_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN (
+        SELECT id
+        FROM sh_production_learners
+        WHERE user_id = auth.uid()
+        AND is_active = true
+        LIMIT 1
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_get_production_learner_id IS
+'Returns the production_learner_id for the current authenticated user.';
+
+-- Check if user is a client
+CREATE OR REPLACE FUNCTION public.sh_is_client()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM profiles
+        WHERE id = auth.uid()
+        AND role = 'client'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_is_client IS
+'Checks if current user has client role.';
+
+-- Get client ID for current user (matches by email)
+CREATE OR REPLACE FUNCTION public.sh_get_client_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN (
+        SELECT c.id
+        FROM sh_clients c
+        INNER JOIN profiles p ON LOWER(p.email) = LOWER(c.contact_email)
+        WHERE p.id = auth.uid()
+        AND c.is_active = true
+        LIMIT 1
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_get_client_id IS
+'Returns the client_id for the current authenticated user (matched by email).';
+
+-- ============================================
+-- Statistics Update Functions
+-- ============================================
+
+-- Update builder statistics after assignment completion
+CREATE OR REPLACE FUNCTION public.sh_update_builder_stats()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'completed' AND (OLD.status IS NULL OR OLD.status != 'completed') THEN
+        UPDATE sh_builders
+        SET
+            projects_completed = projects_completed + 1,
+            total_earnings = total_earnings + COALESCE(NEW.total_earnings, 0),
+            updated_at = NOW()
+        WHERE id = NEW.builder_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_update_builder_stats IS
+'Updates builder statistics when an assignment is marked as completed.';
+
+-- Update cohort member statistics after session completion
+CREATE OR REPLACE FUNCTION public.sh_update_cohort_stats()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'completed' AND (OLD.status IS NULL OR OLD.status != 'completed') THEN
+        UPDATE sh_cohort_members
+        SET
+            sessions_observed = CASE WHEN NEW.role = 'observer' THEN sessions_observed + 1 ELSE sessions_observed END,
+            sessions_co_led = CASE WHEN NEW.role = 'co_lead' THEN sessions_co_led + 1 ELSE sessions_co_led END,
+            sessions_led = CASE WHEN NEW.role = 'lead' THEN sessions_led + 1 ELSE sessions_led END,
+            sessions_master = CASE WHEN NEW.role = 'master' THEN sessions_master + 1 ELSE sessions_master END,
+            total_earnings = total_earnings + COALESCE(NEW.earnings, 0),
+            updated_at = NOW()
+        WHERE id = NEW.cohort_member_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_update_cohort_stats IS
+'Updates cohort member statistics when a session assignment is marked as completed.';
+
+-- Update production learner statistics after deliverable completion
+CREATE OR REPLACE FUNCTION public.sh_update_production_stats()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'completed' AND (OLD.status IS NULL OR OLD.status != 'completed') THEN
+        UPDATE sh_production_learners
+        SET
+            total_deliverables = total_deliverables + 1,
+            total_earnings = total_earnings + COALESCE(NEW.earnings, 0),
+            updated_at = NOW()
+        WHERE id = NEW.learner_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_update_production_stats IS
+'Updates production learner statistics when a production assignment is marked as completed.';
+
+-- Update client referral count
+CREATE OR REPLACE FUNCTION public.sh_update_client_referral_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        UPDATE sh_clients
+        SET referral_count = referral_count + 1
+        WHERE id = NEW.client_id;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE sh_clients
+        SET referral_count = GREATEST(referral_count - 1, 0)
+        WHERE id = OLD.client_id;
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_update_client_referral_count IS
+'Updates client referral_count when referrals are added or removed.';
+
+-- ============================================
+-- Revenue Split Processing
+-- ============================================
+
+-- Process revenue split for a payment
+CREATE OR REPLACE FUNCTION public.sh_process_payment_split(
+    p_payment_id UUID
+)
+RETURNS INTEGER AS $$
+DECLARE
+    v_payment RECORD;
+    v_split_model RECORD;
+    v_split_config JSONB;
+    v_recipient_type TEXT;
+    v_percentage NUMERIC;
+    v_amount NUMERIC;
+    v_count INTEGER := 0;
+BEGIN
+    -- Get payment details
+    SELECT * INTO v_payment
+    FROM sh_payments
+    WHERE id = p_payment_id
+    AND status = 'completed'
+    AND split_processed = false;
+
+    IF v_payment IS NULL THEN
+        RETURN 0;
+    END IF;
+
+    -- Get split model
+    IF v_payment.split_model_id IS NOT NULL THEN
+        SELECT * INTO v_split_model
+        FROM sh_revenue_split_models
+        WHERE id = v_payment.split_model_id;
+    ELSE
+        -- Get default split model for solution type
+        SELECT * INTO v_split_model
+        FROM sh_revenue_split_models rsm
+        INNER JOIN sh_solutions s ON s.id = v_payment.solution_id
+        WHERE rsm.solution_type = s.solution_type
+        AND rsm.is_default = true
+        LIMIT 1;
+    END IF;
+
+    IF v_split_model IS NULL THEN
+        RETURN 0;
+    END IF;
+
+    v_split_config := v_split_model.split_config;
+
+    -- Process each split entry
+    FOR v_recipient_type, v_percentage IN
+        SELECT key, value::numeric
+        FROM jsonb_each_text(v_split_config)
+    LOOP
+        v_amount := v_payment.amount * (v_percentage / 100);
+
+        INSERT INTO sh_earnings_ledger (
+            payment_id,
+            recipient_type,
+            amount,
+            percentage,
+            status
+        ) VALUES (
+            p_payment_id,
+            v_recipient_type::sh_recipient_type,
+            v_amount,
+            v_percentage,
+            'pending'
+        );
+
+        v_count := v_count + 1;
+    END LOOP;
+
+    -- Mark payment as processed
+    UPDATE sh_payments
+    SET
+        split_processed = true,
+        split_processed_at = NOW()
+    WHERE id = p_payment_id;
+
+    RETURN v_count;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION sh_process_payment_split IS
+'Processes revenue split for a completed payment and creates earnings ledger entries.';
+
+-- ============================================
+-- Dashboard & Analytics Functions
+-- ============================================
+
+-- Get Solutions Hub dashboard summary
+CREATE OR REPLACE FUNCTION public.sh_get_dashboard_summary(
+    p_institution_id UUID DEFAULT NULL,
+    p_department_id UUID DEFAULT NULL
+)
+RETURNS JSONB AS $$
+DECLARE
+    v_result JSONB;
+BEGIN
+    SELECT jsonb_build_object(
+        'total_clients', (
+            SELECT COUNT(*) FROM sh_clients
+            WHERE is_active = true
+            AND (p_department_id IS NULL OR source_department_id = p_department_id)
+        ),
+        'active_solutions', (
+            SELECT COUNT(*) FROM sh_solutions
+            WHERE status = 'active'
+            AND (p_institution_id IS NULL OR institution_id = p_institution_id)
+            AND (p_department_id IS NULL OR lead_department_id = p_department_id)
+        ),
+        'solutions_by_type', (
+            SELECT jsonb_object_agg(solution_type, cnt)
+            FROM (
+                SELECT solution_type, COUNT(*) as cnt
+                FROM sh_solutions
+                WHERE status = 'active'
+                AND (p_institution_id IS NULL OR institution_id = p_institution_id)
+                AND (p_department_id IS NULL OR lead_department_id = p_department_id)
+                GROUP BY solution_type
+            ) t
+        ),
+        'total_revenue', (
+            SELECT COALESCE(SUM(amount), 0) FROM sh_payments
+            WHERE status = 'completed'
+            AND (p_institution_id IS NULL OR EXISTS (
+                SELECT 1 FROM sh_solutions s
+                WHERE s.id = sh_payments.solution_id
+                AND s.institution_id = p_institution_id
+            ))
+        ),
+        'pending_payments', (
+            SELECT COALESCE(SUM(amount), 0) FROM sh_payments
+            WHERE status = 'pending'
+        ),
+        'active_builders', (
+            SELECT COUNT(*) FROM sh_builders
+            WHERE is_active = true
+            AND (p_institution_id IS NULL OR institution_id = p_institution_id)
+            AND (p_department_id IS NULL OR department_id = p_department_id)
+        ),
+        'active_cohort_members', (
+            SELECT COUNT(*) FROM sh_cohort_members
+            WHERE is_active = true
+            AND (p_institution_id IS NULL OR institution_id = p_institution_id)
+            AND (p_department_id IS NULL OR department_id = p_department_id)
+        ),
+        'active_production_learners', (
+            SELECT COUNT(*) FROM sh_production_learners
+            WHERE is_active = true
+            AND (p_institution_id IS NULL OR institution_id = p_institution_id)
+            AND (p_department_id IS NULL OR department_id = p_department_id)
+        ),
+        'phases_by_status', (
+            SELECT jsonb_object_agg(status, cnt)
+            FROM (
+                SELECT status, COUNT(*) as cnt
+                FROM sh_solution_phases sp
+                INNER JOIN sh_solutions s ON s.id = sp.solution_id
+                WHERE s.status = 'active'
+                AND (p_institution_id IS NULL OR s.institution_id = p_institution_id)
+                AND (p_department_id IS NULL OR s.lead_department_id = p_department_id)
+                GROUP BY status
+            ) t
+        )
+    ) INTO v_result;
+
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER;
+
+COMMENT ON FUNCTION sh_get_dashboard_summary IS
+'Returns Solutions Hub dashboard summary statistics filtered by institution or department.';
+
+-- Get builder earnings summary
+CREATE OR REPLACE FUNCTION public.sh_get_builder_earnings_summary(
+    p_builder_id UUID,
+    p_start_date DATE DEFAULT NULL,
+    p_end_date DATE DEFAULT NULL
+)
+RETURNS JSONB AS $$
+DECLARE
+    v_result JSONB;
+BEGIN
+    SELECT jsonb_build_object(
+        'total_earnings', (
+            SELECT COALESCE(SUM(amount), 0)
+            FROM sh_earnings_ledger
+            WHERE builder_id = p_builder_id
+            AND status IN ('processed', 'paid')
+            AND (p_start_date IS NULL OR created_at >= p_start_date)
+            AND (p_end_date IS NULL OR created_at <= p_end_date)
+        ),
+        'pending_earnings', (
+            SELECT COALESCE(SUM(amount), 0)
+            FROM sh_earnings_ledger
+            WHERE builder_id = p_builder_id
+            AND status = 'pending'
+        ),
+        'projects_completed', (
+            SELECT COUNT(*)
+            FROM sh_builder_assignments
+            WHERE builder_id = p_builder_id
+            AND status = 'completed'
+            AND (p_start_date IS NULL OR completed_at >= p_start_date)
+            AND (p_end_date IS NULL OR completed_at <= p_end_date)
+        ),
+        'active_assignments', (
+            SELECT COUNT(*)
+            FROM sh_builder_assignments
+            WHERE builder_id = p_builder_id
+            AND status = 'active'
+        ),
+        'monthly_earnings', (
+            SELECT jsonb_agg(jsonb_build_object(
+                'month', month,
+                'amount', amount
+            ) ORDER BY month DESC)
+            FROM (
+                SELECT
+                    DATE_TRUNC('month', created_at)::date as month,
+                    SUM(amount) as amount
+                FROM sh_earnings_ledger
+                WHERE builder_id = p_builder_id
+                AND status IN ('processed', 'paid')
+                GROUP BY DATE_TRUNC('month', created_at)
+                LIMIT 12
+            ) t
+        )
+    ) INTO v_result;
+
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER;
+
+COMMENT ON FUNCTION sh_get_builder_earnings_summary IS
+'Returns earnings summary for a specific builder with optional date range filter.';
+
+-- ============================================
+-- Audit Logging Function
+-- ============================================
+
+-- Create audit log entry
+CREATE OR REPLACE FUNCTION public.sh_create_audit_log(
+    p_action TEXT,
+    p_entity_type TEXT,
+    p_entity_id UUID DEFAULT NULL,
+    p_entity_code TEXT DEFAULT NULL,
+    p_old_values JSONB DEFAULT NULL,
+    p_new_values JSONB DEFAULT NULL,
+    p_changed_fields TEXT[] DEFAULT NULL,
+    p_details JSONB DEFAULT NULL
+)
+RETURNS UUID AS $$
+DECLARE
+    v_user_id UUID;
+    v_user_email TEXT;
+    v_user_role TEXT;
+    v_log_id UUID;
+BEGIN
+    -- Get current user info
+    SELECT id, email, role INTO v_user_id, v_user_email, v_user_role
+    FROM profiles
+    WHERE id = auth.uid();
+
+    INSERT INTO sh_audit_logs (
+        user_id,
+        user_email,
+        user_role,
+        action,
+        entity_type,
+        entity_id,
+        entity_code,
+        old_values,
+        new_values,
+        changed_fields,
+        details
+    ) VALUES (
+        v_user_id,
+        v_user_email,
+        v_user_role,
+        p_action,
+        p_entity_type,
+        p_entity_id,
+        p_entity_code,
+        p_old_values,
+        p_new_values,
+        p_changed_fields,
+        p_details
+    ) RETURNING id INTO v_log_id;
+
+    RETURN v_log_id;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER;
+
+COMMENT ON FUNCTION sh_create_audit_log IS
+'Creates an audit log entry for Solutions Hub actions.';
+
+-- ================================================================================
+-- End of Solutions Hub Functions
+-- ================================================================================

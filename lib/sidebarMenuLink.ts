@@ -75,7 +75,15 @@ import {
   Settings2,
   MessageSquareWarning,
   CircleDot,
-  UsersRound
+  UsersRound,
+  // Solutions Hub Icons
+  FileStack,
+  Code,
+  Palette,
+  Search,
+  CreditCard,
+  Hammer,
+  Lightbulb
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
@@ -423,7 +431,58 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/maturity-assessment/assessments/new': 'tqm.maturity.assessments.create',
   '/maturity-assessment/roadmap': 'tqm.maturity.roadmap.view',
   '/maturity-assessment/benchmarks': 'tqm.maturity.benchmarks.view',
-  '/okr/abcd': 'okr.abcd.view'
+  '/okr/abcd': 'okr.abcd.view',
+
+  // Solutions Hub Module (Admin/Staff Views)
+  '/solutions': 'solutions.view',
+  '/solutions/clients': 'solutions.clients.view',
+  '/solutions/clients/new': 'solutions.clients.create',
+  '/solutions/clients/[id]': 'solutions.clients.view',
+  '/solutions/clients/[id]/edit': 'solutions.clients.edit',
+  '/solutions/list': 'solutions.view',
+  '/solutions/new': 'solutions.create',
+  '/solutions/[id]': 'solutions.view',
+  '/solutions/[id]/edit': 'solutions.edit',
+  '/solutions/[id]/mou': 'solutions.mou.view',
+  '/solutions/software': 'solutions.software.view',
+  '/solutions/software/builders': 'solutions.builders.view',
+  '/solutions/software/builders/new': 'solutions.builders.create',
+  '/solutions/software/phases': 'solutions.phases.view',
+  '/solutions/training': 'solutions.training.view',
+  '/solutions/training/programs': 'solutions.training.programs.view',
+  '/solutions/training/cohort': 'solutions.cohort.view',
+  '/solutions/training/cohort/new': 'solutions.cohort.create',
+  '/solutions/training/sessions': 'solutions.sessions.view',
+  '/solutions/content': 'solutions.content.view',
+  '/solutions/content/orders': 'solutions.content.orders.view',
+  '/solutions/content/production': 'solutions.production.view',
+  '/solutions/content/production/new': 'solutions.production.create',
+  '/solutions/content/queue': 'solutions.content.queue.view',
+  '/solutions/discovery': 'solutions.discovery.view',
+  '/solutions/discovery/new': 'solutions.discovery.create',
+  '/solutions/payments': 'solutions.payments.view',
+  '/solutions/payments/new': 'solutions.payments.create',
+  '/solutions/earnings': 'solutions.earnings.view',
+  '/solutions/publications': 'solutions.publications.view',
+  '/solutions/publications/new': 'solutions.publications.create',
+
+  // Talent Portals (Role-specific)
+  '/talent/builder': 'talent.builder.view',
+  '/talent/builder/assignments': 'talent.builder.assignments.view',
+  '/talent/builder/available': 'talent.builder.available.view',
+  '/talent/builder/earnings': 'talent.builder.earnings.view',
+  '/talent/cohort': 'talent.cohort.view',
+  '/talent/cohort/sessions': 'talent.cohort.sessions.view',
+  '/talent/cohort/earnings': 'talent.cohort.earnings.view',
+  '/talent/production': 'talent.production.view',
+  '/talent/production/queue': 'talent.production.queue.view',
+  '/talent/production/earnings': 'talent.production.earnings.view',
+
+  // Client Portal (External)
+  '/portal/client': 'portal.client.view',
+  '/portal/client/projects': 'portal.client.projects.view',
+  '/portal/client/deliverables': 'portal.client.deliverables.view',
+  '/portal/client/invoices': 'portal.client.invoices.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1121,6 +1180,306 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/industry/engagements/new'
             }
           ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Solutions Hub',
+      menus: [
+        {
+          href: '/solutions',
+          label: 'Dashboard',
+          active: pathname === '/solutions',
+          icon: LayoutGrid,
+          submenus: []
+        },
+        {
+          href: '/solutions/clients',
+          label: 'Clients',
+          active: pathname.startsWith('/solutions/clients'),
+          icon: Building,
+          submenus: [
+            {
+              href: '/solutions/clients',
+              label: 'All Clients',
+              active: pathname === '/solutions/clients'
+            },
+            {
+              href: '/solutions/clients/new',
+              label: 'Add Client',
+              active: pathname === '/solutions/clients/new'
+            }
+          ]
+        },
+        {
+          href: '/solutions/list',
+          label: 'All Solutions',
+          active: pathname === '/solutions/list' || (pathname.startsWith('/solutions/') && !pathname.startsWith('/solutions/clients') && !pathname.startsWith('/solutions/software') && !pathname.startsWith('/solutions/training') && !pathname.startsWith('/solutions/content') && !pathname.startsWith('/solutions/discovery') && !pathname.startsWith('/solutions/payments') && !pathname.startsWith('/solutions/earnings') && !pathname.startsWith('/solutions/publications')),
+          icon: FileStack,
+          submenus: [
+            {
+              href: '/solutions/list',
+              label: 'View All',
+              active: pathname === '/solutions/list'
+            },
+            {
+              href: '/solutions/new',
+              label: 'Create Solution',
+              active: pathname === '/solutions/new'
+            }
+          ]
+        },
+        {
+          href: '/solutions/software',
+          label: 'Software',
+          active: pathname.startsWith('/solutions/software'),
+          icon: Code,
+          submenus: [
+            {
+              href: '/solutions/software',
+              label: 'Overview',
+              active: pathname === '/solutions/software'
+            },
+            {
+              href: '/solutions/software/builders',
+              label: 'Builder Talent Pool',
+              active: pathname.startsWith('/solutions/software/builders')
+            },
+            {
+              href: '/solutions/software/phases',
+              label: 'Phase Management',
+              active: pathname === '/solutions/software/phases'
+            }
+          ]
+        },
+        {
+          href: '/solutions/training',
+          label: 'Training',
+          active: pathname.startsWith('/solutions/training'),
+          icon: GraduationCap,
+          submenus: [
+            {
+              href: '/solutions/training',
+              label: 'Overview',
+              active: pathname === '/solutions/training'
+            },
+            {
+              href: '/solutions/training/programs',
+              label: 'Programs',
+              active: pathname === '/solutions/training/programs'
+            },
+            {
+              href: '/solutions/training/cohort',
+              label: 'Cohort Management',
+              active: pathname.startsWith('/solutions/training/cohort')
+            },
+            {
+              href: '/solutions/training/sessions',
+              label: 'Sessions',
+              active: pathname === '/solutions/training/sessions'
+            }
+          ]
+        },
+        {
+          href: '/solutions/content',
+          label: 'Content',
+          active: pathname.startsWith('/solutions/content'),
+          icon: Palette,
+          submenus: [
+            {
+              href: '/solutions/content',
+              label: 'Overview',
+              active: pathname === '/solutions/content'
+            },
+            {
+              href: '/solutions/content/orders',
+              label: 'Orders',
+              active: pathname === '/solutions/content/orders'
+            },
+            {
+              href: '/solutions/content/production',
+              label: 'Production Learners',
+              active: pathname.startsWith('/solutions/content/production')
+            },
+            {
+              href: '/solutions/content/queue',
+              label: 'Deliverable Queue',
+              active: pathname === '/solutions/content/queue'
+            }
+          ]
+        },
+        {
+          href: '/solutions/discovery',
+          label: 'Discovery',
+          active: pathname.startsWith('/solutions/discovery'),
+          icon: Search,
+          submenus: [
+            {
+              href: '/solutions/discovery',
+              label: 'Site Visits',
+              active: pathname === '/solutions/discovery'
+            },
+            {
+              href: '/solutions/discovery/new',
+              label: 'Log Visit',
+              active: pathname === '/solutions/discovery/new'
+            }
+          ]
+        },
+        {
+          href: '/solutions/payments',
+          label: 'Payments',
+          active: pathname.startsWith('/solutions/payments'),
+          icon: CreditCard,
+          submenus: [
+            {
+              href: '/solutions/payments',
+              label: 'All Payments',
+              active: pathname === '/solutions/payments'
+            },
+            {
+              href: '/solutions/payments/new',
+              label: 'Record Payment',
+              active: pathname === '/solutions/payments/new'
+            }
+          ]
+        },
+        {
+          href: '/solutions/earnings',
+          label: 'Earnings',
+          active: pathname.startsWith('/solutions/earnings'),
+          icon: TrendingUp,
+          submenus: []
+        },
+        {
+          href: '/solutions/publications',
+          label: 'Publications',
+          active: pathname.startsWith('/solutions/publications'),
+          icon: BookOpen,
+          submenus: [
+            {
+              href: '/solutions/publications',
+              label: 'All Publications',
+              active: pathname === '/solutions/publications'
+            },
+            {
+              href: '/solutions/publications/new',
+              label: 'Add Publication',
+              active: pathname === '/solutions/publications/new'
+            }
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Talent Portals',
+      menus: [
+        {
+          href: '/talent/builder',
+          label: 'Builder Portal',
+          active: pathname.startsWith('/talent/builder'),
+          icon: Hammer,
+          submenus: [
+            {
+              href: '/talent/builder',
+              label: 'Dashboard',
+              active: pathname === '/talent/builder'
+            },
+            {
+              href: '/talent/builder/assignments',
+              label: 'My Assignments',
+              active: pathname === '/talent/builder/assignments'
+            },
+            {
+              href: '/talent/builder/available',
+              label: 'Available Phases',
+              active: pathname === '/talent/builder/available'
+            },
+            {
+              href: '/talent/builder/earnings',
+              label: 'My Earnings',
+              active: pathname === '/talent/builder/earnings'
+            }
+          ]
+        },
+        {
+          href: '/talent/cohort',
+          label: 'Cohort Portal',
+          active: pathname.startsWith('/talent/cohort'),
+          icon: Users,
+          submenus: [
+            {
+              href: '/talent/cohort',
+              label: 'Dashboard',
+              active: pathname === '/talent/cohort'
+            },
+            {
+              href: '/talent/cohort/sessions',
+              label: 'Available Sessions',
+              active: pathname === '/talent/cohort/sessions'
+            },
+            {
+              href: '/talent/cohort/earnings',
+              label: 'My Earnings',
+              active: pathname === '/talent/cohort/earnings'
+            }
+          ]
+        },
+        {
+          href: '/talent/production',
+          label: 'Production Portal',
+          active: pathname.startsWith('/talent/production'),
+          icon: Palette,
+          submenus: [
+            {
+              href: '/talent/production',
+              label: 'Dashboard',
+              active: pathname === '/talent/production'
+            },
+            {
+              href: '/talent/production/queue',
+              label: 'Work Queue',
+              active: pathname === '/talent/production/queue'
+            },
+            {
+              href: '/talent/production/earnings',
+              label: 'My Earnings',
+              active: pathname === '/talent/production/earnings'
+            }
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Client Portal',
+      menus: [
+        {
+          href: '/portal/client',
+          label: 'Client Dashboard',
+          active: pathname === '/portal/client',
+          icon: Building,
+          submenus: []
+        },
+        {
+          href: '/portal/client/projects',
+          label: 'My Projects',
+          active: pathname.startsWith('/portal/client/projects'),
+          icon: Lightbulb,
+          submenus: []
+        },
+        {
+          href: '/portal/client/deliverables',
+          label: 'My Deliverables',
+          active: pathname.startsWith('/portal/client/deliverables'),
+          icon: FileStack,
+          submenus: []
+        },
+        {
+          href: '/portal/client/invoices',
+          label: 'My Invoices',
+          active: pathname.startsWith('/portal/client/invoices'),
+          icon: FileText,
+          submenus: []
         }
       ]
     },

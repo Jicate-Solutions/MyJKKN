@@ -1,0 +1,603 @@
+// lib/services/solutions/types.ts
+// Type definitions for Solutions Hub services
+
+// ============================================
+// ENUMS (matching database types)
+// ============================================
+
+export type SolutionType = 'software' | 'training' | 'content';
+
+export type SolutionStatus = 'active' | 'on_hold' | 'completed' | 'cancelled' | 'in_amc';
+
+export type PhaseStatus =
+  | 'prospecting'
+  | 'discovery'
+  | 'prd_writing'
+  | 'prototype_building'
+  | 'client_demo'
+  | 'revisions'
+  | 'approved'
+  | 'deploying'
+  | 'training'
+  | 'live'
+  | 'in_amc'
+  | 'completed'
+  | 'on_hold'
+  | 'cancelled';
+
+export type SourceType = 'placement' | 'alumni' | 'clinical' | 'referral' | 'direct' | 'yi' | 'intent';
+
+export type PartnerStatus = 'standard' | 'yi' | 'alumni' | 'mou' | 'referral';
+
+export type PaymentType = 'advance' | 'milestone' | 'completion' | 'amc' | 'mou_signing' | 'deployment' | 'acceptance';
+
+export type PaymentStatus = 'pending' | 'invoiced' | 'received' | 'overdue' | 'failed';
+
+export type RecipientType =
+  | 'builder'
+  | 'cohort_member'
+  | 'production_learner'
+  | 'department'
+  | 'jicate'
+  | 'institution'
+  | 'council'
+  | 'infrastructure'
+  | 'referral_bonus';
+
+export type EarningsStatus = 'calculated' | 'approved' | 'paid';
+
+export type AssignmentStatus = 'requested' | 'approved' | 'active' | 'completed' | 'withdrawn';
+
+export type BuilderRole = 'lead' | 'contributor';
+
+export type CohortTrack = 'track_a' | 'track_b' | 'both';
+
+export type SessionStatus = 'scheduled' | 'completed' | 'cancelled' | 'rescheduled';
+
+export type ContentDivision = 'video' | 'graphics' | 'content' | 'education' | 'translation' | 'research';
+
+export type ContentOrderType = 'video' | 'social_media' | 'presentation' | 'writing' | 'branding' | 'podcast' | 'package';
+
+export type SkillLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert';
+
+export type DeliverableStatus = 'pending' | 'in_progress' | 'review' | 'revision' | 'approved' | 'rejected';
+
+export type ProgramType =
+  | 'assessment'
+  | 'phase1_champion'
+  | 'phase2_implementation'
+  | 'phase3_training'
+  | 'workshop'
+  | 'full_journey'
+  | 'custom';
+
+export type LocationPreference = 'on_site' | 'remote' | 'hybrid';
+
+export type CommunicationType = 'call' | 'email' | 'whatsapp' | 'meeting' | 'note';
+
+export type CommunicationDirection = 'inbound' | 'outbound';
+
+export type PaperType = 'problem' | 'design' | 'technical' | 'data' | 'impact';
+
+export type JournalType = 'scopus' | 'ugc_care' | 'other';
+
+export type PublicationStatus =
+  | 'identified'
+  | 'drafting'
+  | 'submitted'
+  | 'under_review'
+  | 'revision'
+  | 'accepted'
+  | 'published'
+  | 'rejected';
+
+export type NotificationType = 'payment' | 'approval' | 'assignment' | 'deadline' | 'system';
+
+// ============================================
+// BASE INTERFACES
+// ============================================
+
+export interface BaseEntity {
+  id: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+// ============================================
+// CLIENT INTERFACES
+// ============================================
+
+export interface Client extends BaseEntity {
+  name: string;
+  industry?: string;
+  contact_person?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  address?: string;
+  city?: string;
+  company_size?: string;
+  source_type: SourceType;
+  source_department_id?: string;
+  source_contact_name?: string;
+  partner_status: PartnerStatus;
+  partner_discount: number;
+  partner_since?: string;
+  referral_count: number;
+  intent_agency_id?: string;
+  notes?: string;
+  is_active: boolean;
+}
+
+export interface ClientReferral extends BaseEntity {
+  client_id: string;
+  referring_department_id?: string;
+  executing_department_id?: string;
+  first_phase_id?: string;
+  bonus_percentage: number;
+  bonus_amount?: number;
+  bonus_paid: boolean;
+  paid_at?: string;
+}
+
+// ============================================
+// SOLUTION INTERFACES
+// ============================================
+
+export interface Solution extends BaseEntity {
+  solution_code: string;
+  client_id: string;
+  solution_type: SolutionType;
+  title: string;
+  problem_statement?: string;
+  description?: string;
+  lead_department_id: string;
+  status: SolutionStatus;
+  base_price?: number;
+  partner_discount_applied?: number;
+  hod_discount?: number;
+  final_price?: number;
+  started_date?: string;
+  target_completion?: string;
+  completed_date?: string;
+  created_by?: string;
+}
+
+export interface SolutionPhase extends BaseEntity {
+  solution_id: string;
+  phase_number: number;
+  title: string;
+  description?: string;
+  status: PhaseStatus;
+  owner_department_id?: string;
+  prd_url?: string;
+  prototype_url?: string;
+  production_url?: string;
+  estimated_value?: number;
+  started_date?: string;
+  target_completion?: string;
+  completed_date?: string;
+  created_by?: string;
+}
+
+export interface SolutionMou extends BaseEntity {
+  solution_id: string;
+  mou_number?: string;
+  deal_value?: number;
+  amc_value?: number;
+  payment_terms?: Record<string, unknown>;
+  status: string;
+  mou_document_url?: string;
+  signed_date?: string;
+  expiry_date?: string;
+  created_by?: string;
+}
+
+// ============================================
+// BUILDER INTERFACES
+// ============================================
+
+export interface Builder extends BaseEntity {
+  user_id?: string;
+  name: string;
+  email?: string;
+  department_id?: string;
+  trained_date?: string;
+  is_active: boolean;
+}
+
+export interface BuilderSkill extends BaseEntity {
+  builder_id: string;
+  skill_name: string;
+  proficiency_level: number;
+  acquired_date?: string;
+  version: number;
+}
+
+export interface BuilderAssignment extends BaseEntity {
+  phase_id: string;
+  builder_id: string;
+  role: BuilderRole;
+  status: AssignmentStatus;
+  requested_at?: string;
+  approved_at?: string;
+  approved_by?: string;
+  started_at?: string;
+  completed_at?: string;
+  notes?: string;
+}
+
+export interface PrototypeIteration extends BaseEntity {
+  phase_id: string;
+  version: number;
+  prototype_url?: string;
+  changes_made?: string;
+  feedback?: string;
+  client_approved: boolean;
+  demo_date?: string;
+}
+
+export interface BugReport extends BaseEntity {
+  iteration_id: string;
+  reported_by?: string;
+  description: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  resolved_by?: string;
+  resolution_notes?: string;
+  resolved_at?: string;
+  screenshots_urls?: string[];
+}
+
+export interface PhaseDeployment extends BaseEntity {
+  phase_id: string;
+  environment: 'staging' | 'production';
+  version?: string;
+  vercel_url?: string;
+  supabase_project_id?: string;
+  custom_domain?: string;
+  deployed_date?: string;
+  deployed_by?: string;
+  status: string;
+}
+
+export interface ImplementationUser extends BaseEntity {
+  phase_id: string;
+  user_name: string;
+  user_email?: string;
+  trained_date?: string;
+  usage_status: 'pending' | 'active' | 'inactive';
+  notes?: string;
+}
+
+// ============================================
+// TRAINING INTERFACES
+// ============================================
+
+export interface TrainingProgram extends BaseEntity {
+  solution_id: string;
+  program_type?: ProgramType;
+  track?: CohortTrack;
+  participant_count?: number;
+  location?: string;
+  location_preference?: LocationPreference;
+  scheduled_start?: string;
+  scheduled_end?: string;
+  actual_start?: string;
+  actual_end?: string;
+}
+
+export interface TrainingSession extends BaseEntity {
+  program_id: string;
+  session_number: number;
+  title?: string;
+  scheduled_at?: string;
+  duration_minutes?: number;
+  location?: string;
+  google_calendar_event_id?: string;
+  status: SessionStatus;
+  attendance_count?: number;
+  notes?: string;
+}
+
+export interface CohortMember extends BaseEntity {
+  user_id?: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  department_id?: string;
+  level: number;
+  track?: CohortTrack;
+  sessions_observed: number;
+  sessions_co_led: number;
+  sessions_led: number;
+  total_earnings: number;
+  status: string;
+}
+
+export interface CohortAssignment extends BaseEntity {
+  session_id: string;
+  cohort_member_id: string;
+  role: 'observer' | 'co_lead' | 'lead' | 'support';
+  earnings?: number;
+  rating?: number;
+  feedback?: string;
+  assigned_by?: string;
+  completed_at?: string;
+}
+
+// ============================================
+// CONTENT INTERFACES
+// ============================================
+
+export interface ContentOrder extends BaseEntity {
+  solution_id: string;
+  order_type?: ContentOrderType;
+  quantity: number;
+  style_preference?: string;
+  brand_guidelines_url?: string;
+  division?: ContentDivision;
+  due_date?: string;
+  revision_rounds: number;
+}
+
+export interface ContentDeliverable extends BaseEntity {
+  order_id: string;
+  title: string;
+  file_url?: string;
+  file_type?: string;
+  status: DeliverableStatus;
+  revision_count: number;
+  approved_by?: string;
+  approved_at?: string;
+  notes?: string;
+}
+
+export interface ProductionLearner extends BaseEntity {
+  user_id?: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  division?: ContentDivision;
+  skill_level: SkillLevel;
+  orders_completed: number;
+  total_earnings: number;
+  status: string;
+}
+
+export interface ProductionAssignment extends BaseEntity {
+  deliverable_id: string;
+  learner_id: string;
+  role: 'lead' | 'contributor' | 'reviewer';
+  earnings?: number;
+  quality_rating?: number;
+  assigned_by?: string;
+  assigned_at?: string;
+  completed_at?: string;
+}
+
+// ============================================
+// DISCOVERY & COMMUNICATION INTERFACES
+// ============================================
+
+export interface DiscoveryVisit extends BaseEntity {
+  client_id: string;
+  solution_id?: string;
+  resulted_phase_id?: string;
+  department_id: string;
+  visit_date: string;
+  visitors?: Array<{ name: string; role?: string }>;
+  observations: string;
+  pain_points?: string[];
+  photos_urls?: string[];
+  next_steps?: string;
+  created_by?: string;
+}
+
+export interface ClientCommunication extends BaseEntity {
+  client_id: string;
+  solution_id?: string;
+  phase_id?: string;
+  communication_type: CommunicationType;
+  source: 'manual';
+  direction?: CommunicationDirection;
+  subject?: string;
+  summary: string;
+  participants?: Array<{ name: string; role?: string }>;
+  attachments_urls?: string[];
+  communication_date: string;
+  recorded_by?: string;
+}
+
+// ============================================
+// FINANCIAL INTERFACES
+// ============================================
+
+export interface RevenueSplitModel extends BaseEntity {
+  solution_type: string;
+  name: string;
+  description?: string;
+  split_config: Record<string, number>;
+  is_default: boolean;
+}
+
+export interface Payment extends BaseEntity {
+  phase_id?: string;
+  program_id?: string;
+  order_id?: string;
+  amount: number;
+  payment_type: PaymentType;
+  payment_method?: string;
+  reference_number?: string;
+  due_date?: string;
+  paid_at?: string;
+  status: PaymentStatus;
+  split_model_id?: string;
+  split_calculated: boolean;
+  recorded_by?: string;
+  notes?: string;
+}
+
+export interface EarningsLedger extends BaseEntity {
+  payment_id: string;
+  recipient_type: RecipientType;
+  recipient_name: string;
+  recipient_id?: string;
+  department_id?: string;
+  amount: number;
+  percentage: number;
+  status: EarningsStatus;
+  paid_at?: string;
+}
+
+// ============================================
+// PUBLICATION INTERFACES
+// ============================================
+
+export interface Publication extends BaseEntity {
+  solution_id: string;
+  phase_id?: string;
+  paper_type?: PaperType;
+  title: string;
+  authors?: Array<{ name: string; affiliation?: string }>;
+  abstract?: string;
+  journal_name?: string;
+  journal_type?: JournalType;
+  status: PublicationStatus;
+  submitted_date?: string;
+  published_date?: string;
+  doi?: string;
+  url?: string;
+  nirf_category?: string;
+  naac_criterion?: string;
+  created_by?: string;
+}
+
+export interface PublicationContributor extends BaseEntity {
+  publication_id: string;
+  builder_id?: string;
+  cohort_member_id?: string;
+  learner_id?: string;
+  contribution_type: string;
+  credit_type: 'coauthor' | 'acknowledgment';
+}
+
+export interface AccreditationMetric extends BaseEntity {
+  metric_type: 'nirf' | 'naac';
+  metric_code: string;
+  metric_name: string;
+  max_score?: number;
+  calculation_method?: string;
+  is_active: boolean;
+}
+
+// ============================================
+// JICATE & SYSTEM INTERFACES
+// ============================================
+
+export interface JicateSession extends BaseEntity {
+  solution_id?: string;
+  phase_id?: string;
+  session_date: string;
+  booked_by_dept_id?: string;
+  attendees?: string[];
+  jicate_facilitator?: string;
+  agenda?: string;
+  outcome?: 'successful' | 'needs_followup' | 'escalated' | 'cancelled';
+  notes?: string;
+}
+
+export interface Notification extends BaseEntity {
+  user_id: string;
+  type: NotificationType;
+  title: string;
+  message?: string;
+  link?: string;
+  read: boolean;
+}
+
+export interface AuditLog extends BaseEntity {
+  user_id?: string;
+  action: string;
+  entity_type: string;
+  entity_id?: string;
+  details?: Record<string, unknown>;
+  ip_address?: string;
+  user_agent?: string;
+}
+
+// ============================================
+// SERVICE INPUT TYPES
+// ============================================
+
+export interface PaginationParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+}
+
+export interface CreateClientInput {
+  name: string;
+  industry?: string;
+  contact_person?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  address?: string;
+  city?: string;
+  company_size?: string;
+  source_type?: SourceType;
+  source_department_id?: string;
+  source_contact_name?: string;
+  partner_status?: PartnerStatus;
+  partner_since?: string;
+}
+
+export interface CreateSolutionInput {
+  client_id: string;
+  solution_type: SolutionType;
+  title: string;
+  problem_statement?: string;
+  description?: string;
+  lead_department_id: string;
+  base_price?: number;
+  hod_discount?: number;
+  started_date?: string;
+  target_completion?: string;
+  created_by: string;
+}
+
+export interface CreatePhaseInput {
+  solution_id: string;
+  phase_number?: number;
+  title: string;
+  description?: string;
+  owner_department_id: string;
+  estimated_value?: number;
+  started_date?: string;
+  target_completion?: string;
+  created_by: string;
+}
+
+export interface CreateBuilderInput {
+  name: string;
+  email?: string;
+  user_id?: string;
+  department_id?: string;
+  trained_date?: string;
+}
+
+export interface CreatePaymentInput {
+  phase_id?: string;
+  program_id?: string;
+  order_id?: string;
+  amount: number;
+  payment_type: PaymentType;
+  payment_method?: string;
+  reference_number?: string;
+  due_date?: string;
+  paid_at?: string;
+  status?: PaymentStatus;
+  notes?: string;
+  recorded_by: string;
+}
