@@ -594,6 +594,15 @@ When updating any SQL file:
 
 ## 📝 Recent Migrations
 
+### 2026-02-03: SAML Identity Provider Tables
+
+- **File**: `migrations/20260203000001_create_saml_tables.sql`
+- **Tables Added**:
+  - `saml_service_providers`: Registry of trusted SAML SPs (e.g., MathWorks)
+  - `saml_sessions`: Track active SSO sessions for Single Logout
+- **Functions**: `cleanup_expired_saml_sessions()` - Remove expired sessions
+- **Purpose**: Enable SAML SSO with MathWorks and other external systems
+
 ### 2026-02-02: Apply Advanced Analytics Columns to Database ✅ APPLIED
 
 - **File**: `migrations/20260202_add_advanced_analytics_columns.sql` ✅ **APPLIED**
