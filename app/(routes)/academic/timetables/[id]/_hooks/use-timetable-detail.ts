@@ -6,6 +6,18 @@ import { Timetable, Period, DayOfWeek } from '@/types/academics';
 import toast from 'react-hot-toast';
 
 /**
+ * Validates if a string is a valid UUID format
+ * Also rejects TanStack Table's temporary drag IDs (%%drp:id:xxxxx%%)
+ */
+function isValidUUID(id: string): boolean {
+  if (!id) return false;
+  // Reject TanStack Table temporary drag IDs
+  if (id.includes('%%drp:id:')) return false;
+  // Check UUID format
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+/**
  * Recovers date ranges from timetable_data keys when selected_dates is empty
  * Groups consecutive dates into RANGE markers
  *
@@ -106,8 +118,17 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
    *
    * Fixed: 2025-10-27 - Removed selectedDates from dependency array to prevent stale closures
    * Now uses a ref pattern to access current selectedDates value
+   * Fixed: 2026-02-03 - Added UUID validation to prevent errors from TanStack Table drag IDs
    */
   const fetchTimetableData = useCallback(async (preserveUnsavedDates: boolean = false) => {
+    // Validate timetable ID before making API calls
+    // This prevents errors from TanStack Table's temporary drag IDs (%%drp:id:xxxxx%%)
+    if (!isValidUUID(timetableId)) {
+      logger.error('academic/timetables', 'Invalid timetable ID format', { timetableId });
+      setError('Invalid timetable ID. Please navigate from the timetables list.');
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);

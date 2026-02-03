@@ -121,6 +121,18 @@ const timetableFormSchema = z
 
 type TimetableFormValues = z.infer<typeof timetableFormSchema>;
 
+/**
+ * Validates if a string is a valid UUID format
+ * Also rejects TanStack Table's temporary drag IDs (%%drp:id:xxxxx%%)
+ */
+function isValidUUID(id: string): boolean {
+  if (!id) return false;
+  // Reject TanStack Table temporary drag IDs
+  if (id.includes('%%drp:id:')) return false;
+  // Check UUID format
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
 export default function EditTimetablePage({
   params
 }: {
@@ -138,6 +150,10 @@ export default function EditTimetablePage({
   const [error, setError] = useState<string | null>(null);
   const [timetable, setTimetable] = useState<Timetable | null>(null);
   const [hasAttendance, setHasAttendance] = useState(false);
+  
+  // Flag to track if initial data has been loaded
+  // This prevents cascading refetches when form is reset with timetable data
+  const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
 
   // State for hierarchical dropdowns
   const [selectedInstitutionId, setSelectedInstitutionId] =
@@ -278,8 +294,19 @@ export default function EditTimetablePage({
   );
 
   // Fetch timetable data
+  // Fixed: 2026-02-03 - Only depend on timetableId to prevent infinite re-render loops
+  // form.reset and fetchAcademicYears are called inside but shouldn't trigger re-runs
   useEffect(() => {
     const fetchTimetable = async () => {
+      // Validate timetable ID before making API calls
+      // This prevents errors from TanStack Table's temporary drag IDs (%%drp:id:xxxxx%%)
+      if (!isValidUUID(timetableId)) {
+        logger.error('academic/timetables', 'Invalid timetable ID format', { timetableId });
+        setError('Invalid timetable ID. Please navigate from the timetables list.');
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         setError(null);
@@ -315,7 +342,8 @@ export default function EditTimetablePage({
           template_name: timetableData.template_name || ''
         });
 
-        // Set state variables for hierarchical dropdowns
+        // Set state variables for hierarchical dropdowns BEFORE marking initial load complete
+        // This prevents the cascading useEffects from triggering unnecessary refetches
         setSelectedInstitutionId(timetableData.institution_id);
         setSelectedDegreeId(timetableData.degree_id);
         setSelectedDepartmentId(timetableData.department_id);
@@ -325,6 +353,12 @@ export default function EditTimetablePage({
         if (timetableData.institution_id) {
           fetchAcademicYears(timetableData.institution_id);
         }
+        
+        // Mark initial load as complete AFTER setting all state
+        // Use setTimeout to ensure React has batched all state updates
+        setTimeout(() => {
+          setIsInitialLoadComplete(true);
+        }, 0);
       } catch (err) {
         logger.error('academic/timetables', 'Error fetching timetable', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -334,7 +368,8 @@ export default function EditTimetablePage({
     };
 
     fetchTimetable();
-  }, [timetableId, form, fetchAcademicYears]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timetableId]); // Only re-run when timetableId changes
 
   // Initial data loading - fetch all required data
   useEffect(() => {
@@ -349,7 +384,11 @@ export default function EditTimetablePage({
   }, []);
 
   // Update state and fetch dependent data when institution changes
+  // Fixed: 2026-02-03 - Skip cascading updates during initial load to prevent double refresh
   useEffect(() => {
+    // Skip during initial load - the timetable fetch already set up the correct state
+    if (!isInitialLoadComplete) return;
+    
     if (watchInstitutionId !== selectedInstitutionId) {
       setSelectedInstitutionId(watchInstitutionId || '');
 
@@ -392,6 +431,7 @@ export default function EditTimetablePage({
       }
     }
   }, [
+    isInitialLoadComplete,
     watchInstitutionId,
     selectedInstitutionId,
     fetchAcademicYears,
@@ -408,7 +448,10 @@ export default function EditTimetablePage({
   const watchAcademicYearId = form.watch('academic_year_id');
 
   // Update state and fetch dependent data when degree changes
+  // Fixed: 2026-02-03 - Skip during initial load
   useEffect(() => {
+    if (!isInitialLoadComplete) return;
+    
     if (watchDegreeId !== selectedDegreeId) {
       setSelectedDegreeId(watchDegreeId || '');
 
@@ -432,10 +475,13 @@ export default function EditTimetablePage({
         });
       }
     }
-  }, [watchDegreeId, selectedDegreeId, form, toast]);
+  }, [isInitialLoadComplete, watchDegreeId, selectedDegreeId, form, toast]);
 
   // Update state and fetch dependent data when department changes
+  // Fixed: 2026-02-03 - Skip during initial load
   useEffect(() => {
+    if (!isInitialLoadComplete) return;
+    
     if (watchDepartmentId !== selectedDepartmentId) {
       setSelectedDepartmentId(watchDepartmentId || '');
 
@@ -457,10 +503,13 @@ export default function EditTimetablePage({
         });
       }
     }
-  }, [watchDepartmentId, selectedDepartmentId, form, toast]);
+  }, [isInitialLoadComplete, watchDepartmentId, selectedDepartmentId, form, toast]);
 
   // Update state when program changes
+  // Fixed: 2026-02-03 - Skip during initial load
   useEffect(() => {
+    if (!isInitialLoadComplete) return;
+    
     if (watchProgramId !== selectedProgramId) {
       setSelectedProgramId(watchProgramId || '');
 
@@ -478,7 +527,7 @@ export default function EditTimetablePage({
         });
       }
     }
-  }, [watchProgramId, selectedProgramId, form, toast]);
+  }, [isInitialLoadComplete, watchProgramId, selectedProgramId, form, toast]);
 
   // Update state when semester changes - reset section
   useEffect(() => {

@@ -19,6 +19,8 @@ interface UseStaffPlanningDataResult {
 /**
  * Custom hook for fetching staff planning data
  * Loads courses and staff based on timetable hierarchy
+ *
+ * Fixed: 2026-02-03 - Extracted timetable properties to prevent infinite re-render loops
  */
 export function useStaffPlanningData(
   timetable: Timetable | null
@@ -27,13 +29,21 @@ export function useStaffPlanningData(
   const [staffPlanningStaff, setStaffPlanningStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Extract stable primitive values from timetable to use in dependencies
+  // This prevents callback recreation when timetable reference changes but values are same
+  const timetableId = timetable?.id;
+  const institutionId = timetable?.institution_id;
+  const degreeId = timetable?.degree_id;
+  const programId = timetable?.program_id;
+  const departmentId = timetable?.department_id;
+  const semesterId = timetable?.semester_id;
+  const academicYearId = timetable?.academic_year_id;
+
   /**
    * Fetch staff planning data based on timetable hierarchy
    */
   const fetchStaffPlanningData = useCallback(async () => {
-    if (!timetable) return;
-
-    const currentTimetable = timetable;
+    if (!timetableId || !institutionId || !programId) return;
 
     try {
       setLoading(true);
@@ -43,30 +53,30 @@ export function useStaffPlanningData(
 
       // Check if semester_id is already a UUID
       if (
-        typeof currentTimetable.semester_id === 'string' &&
-        currentTimetable.semester_id.match(
+        typeof semesterId === 'string' &&
+        semesterId.match(
           /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
         )
       ) {
-        semesterIdForStaffPlan = currentTimetable.semester_id;
-      } else if (typeof currentTimetable.semester_id === 'string') {
+        semesterIdForStaffPlan = semesterId;
+      } else if (typeof semesterId === 'string') {
         // Fallback: Look up semester by name
         try {
           const semestersResponse = await SemesterService.getSemesters({
-            program_id: currentTimetable.program_id,
-            department_id: currentTimetable.department_id,
+            program_id: programId,
+            department_id: departmentId,
             isActive: true,
             limit: 100
           });
 
           const matchingSemester = semestersResponse.data.find(
-            (semester) => semester.semester_name === currentTimetable.semester_id
+            (semester) => semester.semester_name === semesterId
           );
 
           if (matchingSemester) {
             semesterIdForStaffPlan = matchingSemester.id;
           } else {
-            logger.warn('academic/timetables', 'No matching semester found', { semesterName: currentTimetable.semester_id });
+            logger.warn('academic/timetables', 'No matching semester found', { semesterName: semesterId });
             setStaffPlanningCourses([]);
             setStaffPlanningStaff([]);
             return;
@@ -90,10 +100,10 @@ export function useStaffPlanningData(
       try {
         const consolidatedPlan =
           await StaffPlanService.getConsolidatedStaffPlan(
-            currentTimetable.institution_id,
-            currentTimetable.program_id,
+            institutionId!,
+            programId!,
             semesterIdForStaffPlan,
-            currentTimetable.academic_year_id
+            academicYearId!
           );
 
         // Check if empty
@@ -135,11 +145,11 @@ export function useStaffPlanningData(
         logger.warn('academic/timetables', 'Consolidated fetch failed, using fallback', error);
 
         const staffPlanFilters = {
-          institution_id: currentTimetable.institution_id,
-          degree_id: currentTimetable.degree_id,
-          program_id: currentTimetable.program_id,
-          department_id: currentTimetable.department_id,
-          academic_year_id: currentTimetable.academic_year_id,
+          institution_id: institutionId,
+          degree_id: degreeId,
+          program_id: programId,
+          department_id: departmentId,
+          academic_year_id: academicYearId,
           semester_id: semesterIdForStaffPlan,
           isActive: true,
           limit: 10
@@ -164,14 +174,14 @@ export function useStaffPlanningData(
     } finally {
       setLoading(false);
     }
-  }, [timetable]);
+  }, [timetableId, institutionId, degreeId, programId, departmentId, semesterId, academicYearId]);
 
-  // Fetch on timetable change
+  // Fetch on timetable change - only when timetableId changes
   useEffect(() => {
-    if (timetable) {
+    if (timetableId) {
       fetchStaffPlanningData();
     }
-  }, [timetable?.id, fetchStaffPlanningData]);
+  }, [timetableId, fetchStaffPlanningData]);
 
   return {
     staffPlanningCourses,
