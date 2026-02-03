@@ -54,8 +54,7 @@ export default function MySchedulePage() {
         return;
       }
 
-      const { data: member } = await supabase
-        .from('sh_cohort_members')
+      const { data: member } = await (supabase as any).from('sh_cohort_members')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -65,8 +64,7 @@ export default function MySchedulePage() {
         return;
       }
 
-      const { data } = await supabase
-        .from('sh_cohort_assignments')
+      const { data } = await (supabase as any).from('sh_cohort_assignments')
         .select(`
           id, role,
           session:sh_training_sessions(

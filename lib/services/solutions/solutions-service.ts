@@ -69,7 +69,7 @@ export class SolutionsService extends BaseService {
    * Calculate partner discount based on partner status
    */
   private static async getPartnerDiscount(clientId: string): Promise<number> {
-    const { data: client, error } = await this.supabase
+    const { data: client, error } = await (this.supabase as any)
       .from('sh_clients')
       .select('partner_status, partner_discount')
       .eq('id', clientId)
@@ -116,7 +116,7 @@ export class SolutionsService extends BaseService {
     const year = new Date().getFullYear();
     const prefix = `JKKN-SOL-${year}-`;
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('sh_solutions')
       .select('solution_code')
       .like('solution_code', `${prefix}%`)
@@ -142,7 +142,7 @@ export class SolutionsService extends BaseService {
   ): Promise<BaseListResponse<SolutionWithClient>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('sh_solutions')
       .select(
         `
@@ -201,7 +201,7 @@ export class SolutionsService extends BaseService {
    * Get a single solution by ID with related data
    */
   static async getSolutionById(id: string): Promise<SolutionWithClient | null> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('sh_solutions')
       .select(
         `
@@ -261,7 +261,7 @@ export class SolutionsService extends BaseService {
       partnerDiscount = pricing.partnerDiscount;
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('sh_solutions')
       .insert({
         solution_code: solutionCode,
@@ -300,7 +300,7 @@ export class SolutionsService extends BaseService {
 
     // Recalculate final price if base_price or hod_discount is being updated
     if (input.base_price !== undefined || input.hod_discount !== undefined) {
-      const { data: solution } = await this.supabase
+      const { data: solution } = await (this.supabase as any)
         .from('sh_solutions')
         .select('client_id, base_price, hod_discount')
         .eq('id', id)
@@ -317,7 +317,7 @@ export class SolutionsService extends BaseService {
       }
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('sh_solutions')
       .update({
         ...updatedInput,
@@ -335,7 +335,7 @@ export class SolutionsService extends BaseService {
    * Delete a solution
    */
   static async deleteSolution(id: string): Promise<void> {
-    const { error } = await this.supabase.from('sh_solutions').delete().eq('id', id);
+    const { error } = await (this.supabase as any).from('sh_solutions').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete solution: ${error.message}`);
   }
@@ -344,7 +344,7 @@ export class SolutionsService extends BaseService {
    * Get solution statistics
    */
   static async getSolutionStats(): Promise<SolutionStats> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('sh_solutions')
       .select('solution_type, status, final_price');
 
@@ -396,7 +396,7 @@ export class SolutionsService extends BaseService {
       updateData.completed_date = new Date().toISOString().split('T')[0];
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('sh_solutions')
       .update(updateData)
       .eq('id', id)

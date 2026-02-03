@@ -1,0 +1,619 @@
+// lib/services/admission/lead-service.ts
+// Admission CRM Lead Service - Supabase interactions
+
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type {
+  AdmissionLead,
+  CreateLeadInput,
+  UpdateLeadInput,
+  LeadFilters,
+  LeadListResponse,
+  FunnelStage,
+  LeadPriority
+} from '@/types/admission';
+
+export class LeadService {
+  private static supabase = createClientSupabaseClient();
+
+  /**
+   * Sanitize search input to prevent SQL injection
+   */
+  private static sanitizeSearch(input: string): string {
+    if (!input) return '';
+    return input.replace(/[%_\\]/g, '\\$&');
+  }
+
+  /**
+   * Generate a unique lead number
+   */
+  private static generateLeadNumber(): string {
+    const year = new Date().getFullYear().toString().slice(-2);
+    const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return `LEAD-${year}-${random}`;
+  }
+
+  // ============================================================================
+  // LEAD CRUD METHODS
+  // ============================================================================
+
+  /**
+   * Get leads with filters and pagination
+   */
+  static async getLeads(filters: LeadFilters): Promise<LeadListResponse> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let query: any = (this.supabase as any)
+      .from('admission_leads')
+      .select(`
+        *,
+        counselor:admission_counselors(id, name, email)
+      `, { count: 'exact' });
+
+    // Apply filters
+    if (filters.institution_id) {
+      query = query.eq('institution_id', filters.institution_id);
+    }
+    if (filters.funnel_stage) {
+      if (Array.isArray(filters.funnel_stage)) {
+        query = query.in('funnel_stage', filters.funnel_stage);
+      } else {
+        query = query.eq('funnel_stage', filters.funnel_stage);
+      }
+    }
+    if (filters.priority) {
+      if (Array.isArray(filters.priority)) {
+        query = query.in('priority', filters.priority);
+      } else {
+        query = query.eq('priority', filters.priority);
+      }
+    }
+    if (filters.source) {
+      if (Array.isArray(filters.source)) {
+        query = query.in('source', filters.source);
+      } else {
+        query = query.eq('source', filters.source);
+      }
+    }
+    if (filters.counselor_id) {
+      query = query.eq('counselor_id', filters.counselor_id);
+    }
+    if (filters.program_interest) {
+      query = query.eq('program_interest', filters.program_interest);
+    }
+    if (filters.is_duplicate !== undefined) {
+      query = query.eq('is_duplicate', filters.is_duplicate);
+    }
+    if (filters.search) {
+      const sanitizedSearch = this.sanitizeSearch(filters.search);
+      query = query.or(`full_name.ilike.%${sanitizedSearch}%,phone.ilike.%${sanitizedSearch}%,email.ilike.%${sanitizedSearch}%`);
+    }
+    if (filters.date_from) {
+      query = query.gte('created_at', filters.date_from);
+    }
+    if (filters.date_to) {
+      query = query.lte('created_at', filters.date_to);
+    }
+
+    // Apply sorting
+    const sortBy = filters.sort_by || 'created_at';
+    const sortOrder = filters.sort_order || 'desc';
+    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+
+    // Apply pagination
+    const page = filters.page || 1;
+    const limit = filters.limit || 10;
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    query = query.range(from, to);
+
+    const { data, count, error } = await query;
+
+    if (error) {
+      console.error('[LeadService] Error fetching leads:', error);
+      throw new Error(`Failed to fetch leads: ${error.message}`);
+    }
+
+    return {
+      data: (data || []) as AdmissionLead[],
+      metadata: {
+        total: count || 0,
+        page,
+        limit,
+        totalPages: Math.ceil((count || 0) / limit)
+      }
+    };
+  }
+
+  /**
+   * Get a single lead by ID
+   */
+  static async getLead(id: string, institutionId?: string): Promise<AdmissionLead> {
+    let query = (this.supabase as any).from('admission_leads')
+      .select(`
+        *,
+        counselor:admission_counselors(id, name, email)
+      `)
+      .eq('id', id);
+
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { data, error } = await query.single();
+
+    if (error) {
+      console.error('[LeadService] Error fetching lead:', error);
+      if (error.code === 'PGRST116') {
+        throw new Error('Lead not found');
+      }
+      throw new Error(`Failed to fetch lead: ${error.message}`);
+    }
+
+    return data as AdmissionLead;
+  }
+
+  /**
+   * Create a new lead
+   */
+  static async createLead(leadData: CreateLeadInput): Promise<AdmissionLead> {
+    // SECURITY: Validate required fields
+    if (!leadData.institution_id) {
+      throw new Error('Institution ID is required');
+    }
+    if (!leadData.full_name?.trim()) {
+      throw new Error('Full name is required');
+    }
+    if (!leadData.phone?.trim()) {
+      throw new Error('Phone number is required');
+    }
+    if (!leadData.source) {
+      throw new Error('Lead source is required');
+    }
+
+    // Get current user for created_by
+    const { data: { user } } = await (this.supabase as any).auth.getUser();
+
+    const { data, error } = await (this.supabase as any).from('admission_leads')
+      .insert({
+        ...leadData,
+        funnel_stage: 'new' as FunnelStage,
+        priority: 'warm' as LeadPriority,
+        score: 0,
+        tags: leadData.tags || [],
+        is_duplicate: false,
+        created_by: user?.id || null
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[LeadService] Error creating lead:', error);
+      throw new Error(`Failed to create lead: ${error.message}`);
+    }
+
+    // Log stage history
+    await this.logStageHistory(data.id, null, 'new', user?.id);
+
+    return data as AdmissionLead;
+  }
+
+  /**
+   * Update a lead
+   */
+  static async updateLead(id: string, leadData: Partial<UpdateLeadInput>): Promise<AdmissionLead> {
+    // Get current lead for history logging
+    const { data: current } = await (this.supabase as any).from('admission_leads')
+      .select('funnel_stage, priority, counselor_id')
+      .eq('id', id)
+      .single();
+
+    const { data: { user } } = await (this.supabase as any).auth.getUser();
+
+    const { data, error } = await (this.supabase as any).from('admission_leads')
+      .update({
+        ...leadData,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select(`
+        *,
+        counselor:admission_counselors(id, name, email)
+      `)
+      .single();
+
+    if (error) {
+      console.error('[LeadService] Error updating lead:', error);
+      throw new Error(`Failed to update lead: ${error.message}`);
+    }
+
+    // Log stage change if applicable
+    if (leadData.funnel_stage && current?.funnel_stage !== leadData.funnel_stage) {
+      await this.logStageHistory(id, current?.funnel_stage, leadData.funnel_stage, user?.id);
+    }
+
+    return data as AdmissionLead;
+  }
+
+  /**
+   * Delete a lead (soft delete by marking as lost)
+   */
+  static async deleteLead(id: string): Promise<void> {
+    const { error } = await (this.supabase as any).from('admission_leads')
+      .update({ funnel_stage: 'lost' as FunnelStage })
+      .eq('id', id);
+
+    if (error) {
+      console.error('[LeadService] Error deleting lead:', error);
+      throw new Error(`Failed to delete lead: ${error.message}`);
+    }
+  }
+
+  // ============================================================================
+  // STAGE MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Update lead funnel stage
+   */
+  static async updateStage(leadId: string, newStage: FunnelStage, notes?: string): Promise<AdmissionLead> {
+    const { data: current } = await (this.supabase as any).from('admission_leads')
+      .select('funnel_stage')
+      .eq('id', leadId)
+      .single();
+
+    const { data: { user } } = await (this.supabase as any).auth.getUser();
+
+    const updateData: any = {
+      funnel_stage: newStage,
+      updated_at: new Date().toISOString()
+    };
+
+    // Set last_contacted_at if moving from new to contacted
+    if (newStage === 'contacted' && current?.funnel_stage === 'new') {
+      updateData.last_contacted_at = new Date().toISOString();
+    }
+
+    const { data, error } = await (this.supabase as any).from('admission_leads')
+      .update(updateData)
+      .eq('id', leadId)
+      .select(`
+        *,
+        counselor:admission_counselors(id, name, email)
+      `)
+      .single();
+
+    if (error) {
+      console.error('[LeadService] Error updating stage:', error);
+      throw new Error(`Failed to update stage: ${error.message}`);
+    }
+
+    // Log stage history
+    await this.logStageHistory(leadId, current?.funnel_stage, newStage, user?.id, notes);
+
+    return data as AdmissionLead;
+  }
+
+  /**
+   * Log stage change history
+   */
+  private static async logStageHistory(
+    leadId: string,
+    fromStage: FunnelStage | null,
+    toStage: FunnelStage,
+    changedBy?: string,
+    notes?: string
+  ): Promise<void> {
+    const { error } = await (this.supabase as any).from('admission_lead_stage_history')
+      .insert({
+        lead_id: leadId,
+        from_stage: fromStage,
+        to_stage: toStage,
+        changed_by: changedBy || null,
+        notes: notes || null,
+        created_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.error('[LeadService] Error logging stage history:', error);
+      // Don't throw - history logging shouldn't break main operation
+    }
+  }
+
+  // ============================================================================
+  // PRIORITY & FLAGS
+  // ============================================================================
+
+  /**
+   * Update lead priority (hot/warm/cold)
+   */
+  static async updatePriority(leadId: string, priority: LeadPriority): Promise<AdmissionLead> {
+    const { data, error } = await (this.supabase as any).from('admission_leads')
+      .update({ priority, updated_at: new Date().toISOString() })
+      .eq('id', leadId)
+      .select(`
+        *,
+        counselor:admission_counselors(id, name, email)
+      `)
+      .single();
+
+    if (error) {
+      console.error('[LeadService] Error updating priority:', error);
+      throw new Error(`Failed to update priority: ${error.message}`);
+    }
+
+    return data as AdmissionLead;
+  }
+
+  /**
+   * Toggle hot lead status
+   */
+  static async toggleHotLead(leadId: string, isHot: boolean): Promise<AdmissionLead> {
+    return this.updatePriority(leadId, isHot ? 'hot' : 'warm');
+  }
+
+  // ============================================================================
+  // TAGS
+  // ============================================================================
+
+  /**
+   * Add a tag to a lead
+   */
+  static async addTag(leadId: string, tag: string): Promise<AdmissionLead> {
+    const { data: current } = await (this.supabase as any).from('admission_leads')
+      .select('tags')
+      .eq('id', leadId)
+      .single();
+
+    const currentTags = current?.tags || [];
+    if (currentTags.includes(tag)) {
+      // Tag already exists, return current lead
+      return this.getLead(leadId);
+    }
+
+    const { data, error } = await (this.supabase as any).from('admission_leads')
+      .update({
+        tags: [...currentTags, tag],
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', leadId)
+      .select(`
+        *,
+        counselor:admission_counselors(id, name, email)
+      `)
+      .single();
+
+    if (error) {
+      console.error('[LeadService] Error adding tag:', error);
+      throw new Error(`Failed to add tag: ${error.message}`);
+    }
+
+    return data as AdmissionLead;
+  }
+
+  /**
+   * Remove a tag from a lead
+   */
+  static async removeTag(leadId: string, tag: string): Promise<AdmissionLead> {
+    const { data: current } = await (this.supabase as any).from('admission_leads')
+      .select('tags')
+      .eq('id', leadId)
+      .single();
+
+    const currentTags = current?.tags || [];
+    const newTags = currentTags.filter((t: string) => t !== tag);
+
+    const { data, error } = await (this.supabase as any).from('admission_leads')
+      .update({
+        tags: newTags,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', leadId)
+      .select(`
+        *,
+        counselor:admission_counselors(id, name, email)
+      `)
+      .single();
+
+    if (error) {
+      console.error('[LeadService] Error removing tag:', error);
+      throw new Error(`Failed to remove tag: ${error.message}`);
+    }
+
+    return data as AdmissionLead;
+  }
+
+  // ============================================================================
+  // COUNSELOR ASSIGNMENT
+  // ============================================================================
+
+  /**
+   * Assign counselor to lead
+   */
+  static async assignCounselor(leadId: string, counselorId: string): Promise<AdmissionLead> {
+    const { data, error } = await (this.supabase as any).from('admission_leads')
+      .update({
+        counselor_id: counselorId,
+        assigned_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', leadId)
+      .select(`
+        *,
+        counselor:admission_counselors(id, name, email)
+      `)
+      .single();
+
+    if (error) {
+      console.error('[LeadService] Error assigning counselor:', error);
+      throw new Error(`Failed to assign counselor: ${error.message}`);
+    }
+
+    return data as AdmissionLead;
+  }
+
+  // ============================================================================
+  // FOLLOWUP
+  // ============================================================================
+
+  /**
+   * Schedule next followup
+   */
+  static async scheduleFollowup(leadId: string, followupDate: string): Promise<AdmissionLead> {
+    const { data, error } = await (this.supabase as any).from('admission_leads')
+      .update({
+        next_followup_at: followupDate,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', leadId)
+      .select(`
+        *,
+        counselor:admission_counselors(id, name, email)
+      `)
+      .single();
+
+    if (error) {
+      console.error('[LeadService] Error scheduling followup:', error);
+      throw new Error(`Failed to schedule followup: ${error.message}`);
+    }
+
+    return data as AdmissionLead;
+  }
+
+  // ============================================================================
+  // TIMELINE & HISTORY
+  // ============================================================================
+
+  /**
+   * Get lead timeline (stage history + activities)
+   */
+  static async getTimeline(leadId: string): Promise<any[]> {
+    const { data, error } = await (this.supabase as any).from('admission_lead_stage_history')
+      .select('*')
+      .eq('lead_id', leadId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[LeadService] Error fetching timeline:', error);
+      throw new Error(`Failed to fetch timeline: ${error.message}`);
+    }
+
+    return data || [];
+  }
+
+  // ============================================================================
+  // DASHBOARD & ANALYTICS
+  // ============================================================================
+
+  /**
+   * Get funnel summary for dashboard
+   */
+  static async getFunnelSummary(institutionId: string): Promise<any> {
+    const { data, error } = await (this.supabase as any).from('admission_leads')
+      .select('funnel_stage, priority')
+      .eq('institution_id', institutionId);
+
+    if (error) {
+      console.error('[LeadService] Error fetching funnel summary:', error);
+      throw new Error(`Failed to fetch funnel summary: ${error.message}`);
+    }
+
+    const leads = data || [];
+
+    // Count by stage
+    const byStage: Record<FunnelStage, number> = {
+      new: 0,
+      contacted: 0,
+      qualified: 0,
+      application_started: 0,
+      application_submitted: 0,
+      documents_pending: 0,
+      documents_verified: 0,
+      interview_scheduled: 0,
+      interview_completed: 0,
+      offer_sent: 0,
+      offer_accepted: 0,
+      token_paid: 0,
+      enrolled: 0,
+      lost: 0
+    };
+
+    let hotLeads = 0;
+    let priorityLeads = 0;
+
+    leads.forEach((lead: any) => {
+      if (byStage[lead.funnel_stage as FunnelStage] !== undefined) {
+        byStage[lead.funnel_stage as FunnelStage]++;
+      }
+      if (lead.priority === 'hot') {
+        hotLeads++;
+        priorityLeads++;
+      } else if (lead.priority === 'warm') {
+        priorityLeads++;
+      }
+    });
+
+    // Build stages array for funnel visualization
+    const stages = Object.entries(byStage).map(([stage, count]) => ({
+      stage,
+      count,
+      percentage: leads.length > 0 ? (count / leads.length) * 100 : 0
+    }));
+
+    return {
+      total: leads.length,
+      byStage,
+      hotLeads,
+      priorityLeads,
+      stages
+    };
+  }
+
+  /**
+   * Get dashboard summary stats
+   */
+  static async getDashboardSummary(institutionId: string): Promise<any> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Get all leads
+    const { data: leads, error } = await (this.supabase as any).from('admission_leads')
+      .select('funnel_stage, created_at, next_followup_at')
+      .eq('institution_id', institutionId);
+
+    if (error) {
+      console.error('[LeadService] Error fetching dashboard summary:', error);
+      throw new Error(`Failed to fetch dashboard summary: ${error.message}`);
+    }
+
+    const allLeads = leads || [];
+
+    const totalLeads = allLeads.length;
+    const newLeads = allLeads.filter(l =>
+      new Date(l.created_at) >= today
+    ).length;
+    const convertedLeads = allLeads.filter(l =>
+      l.funnel_stage === 'enrolled'
+    ).length;
+    const pendingFollowups = allLeads.filter(l =>
+      l.next_followup_at && new Date(l.next_followup_at) < new Date()
+    ).length;
+    const todayFollowups = allLeads.filter(l => {
+      if (!l.next_followup_at) return false;
+      const followupDate = new Date(l.next_followup_at);
+      return followupDate >= today && followupDate < new Date(today.getTime() + 24 * 60 * 60 * 1000);
+    }).length;
+
+    const conversionRate = totalLeads > 0
+      ? (convertedLeads / totalLeads) * 100
+      : 0;
+
+    return {
+      totalLeads,
+      newLeads,
+      convertedLeads,
+      pendingFollowups,
+      todayFollowups,
+      conversionRate: Math.round(conversionRate * 10) / 10
+    };
+  }
+}

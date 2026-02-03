@@ -33,16 +33,18 @@ import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { AdmissionErrorBoundary } from '@/components/admission';
 
+// Must match LeadSource type from types/admission.ts
 const LEAD_SOURCES = [
   { value: 'website', label: 'Website' },
-  { value: 'social_media', label: 'Social Media' },
-  { value: 'referral', label: 'Referral' },
   { value: 'walk_in', label: 'Walk-in' },
-  { value: 'phone_inquiry', label: 'Phone Inquiry' },
+  { value: 'referral', label: 'Referral' },
+  { value: 'social_media', label: 'Social Media' },
+  { value: 'newspaper', label: 'Newspaper' },
   { value: 'education_fair', label: 'Education Fair' },
-  { value: 'advertisement', label: 'Advertisement' },
-  { value: 'email_campaign', label: 'Email Campaign' },
-  { value: 'partner', label: 'Partner/Agent' },
+  { value: 'agent', label: 'Agent/Partner' },
+  { value: 'publisher', label: 'Publisher' },
+  { value: 'google_ads', label: 'Google Ads' },
+  { value: 'facebook_ads', label: 'Facebook Ads' },
   { value: 'other', label: 'Other' }
 ];
 
@@ -151,30 +153,34 @@ function NewLeadPageContent() {
       return;
     }
 
+    const leadPayload = {
+      institution_id: institutionId,
+      full_name: formData.full_name.trim(),
+      email: formData.email?.trim() || null,
+      phone: formData.phone.trim(),
+      alternate_phone: formData.alternate_phone?.trim() || null,
+      date_of_birth: formData.date_of_birth || null,
+      gender: (formData.gender || null) as any,
+      address: formData.address_line1?.trim() || null,
+      city: formData.city?.trim() || null,
+      state: formData.state?.trim() || null,
+      pincode: formData.pincode?.trim() || null,
+      source: formData.first_touch_source as any,
+      notes: formData.notes?.trim() || null
+    };
+
+    console.log('[admission/leads] Submitting lead with payload:', leadPayload);
+
     createLeadWithProfile.mutate(
-      {
-        institution_id: institutionId,
-        full_name: formData.full_name,
-        email: formData.email || null,
-        phone: formData.phone,
-        alternate_phone: formData.alternate_phone || null,
-        date_of_birth: formData.date_of_birth || null,
-        gender: formData.gender || null,
-        address_line1: formData.address_line1 || null,
-        city: formData.city || null,
-        state: formData.state || null,
-        country: formData.country || null,
-        pincode: formData.pincode || null,
-        first_touch_source: formData.first_touch_source,
-        notes: formData.notes || null
-      },
+      leadPayload,
       {
         onSuccess: (lead) => {
           toast.success('Lead created successfully');
           router.push(`/admission/leads/${lead.id}`);
         },
-        onError: (error) => {
-          toast.error('Failed to create lead');
+        onError: (error: Error) => {
+          const errorMessage = error.message || 'Failed to create lead';
+          toast.error(errorMessage);
           console.error('[admission/leads] Failed to create lead:', error);
         }
       }

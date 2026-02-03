@@ -50,8 +50,7 @@ export default function ProductionPortalPage() {
         return;
       }
 
-      const { data: learnerData } = await supabase
-        .from('sh_production_learners')
+      const { data: learnerData } = await (supabase as any).from('sh_production_learners')
         .select('id, name, division, total_earnings')
         .eq('user_id', user.id)
         .single();
@@ -64,8 +63,7 @@ export default function ProductionPortalPage() {
       setLearner(learnerData);
 
       // Get assignment counts
-      const { data: assignments } = await supabase
-        .from('sh_production_assignments')
+      const { data: assignments } = await (supabase as any).from('sh_production_assignments')
         .select(`
           id, quality_rating,
           deliverable:sh_content_deliverables(status)

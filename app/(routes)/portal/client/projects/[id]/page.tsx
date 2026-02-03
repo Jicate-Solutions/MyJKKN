@@ -127,8 +127,7 @@ export default function ClientProjectDetailPage() {
         return;
       }
 
-      const { data: client } = await supabase
-        .from('sh_clients')
+      const { data: client } = await (supabase as any).from('sh_clients')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -139,8 +138,7 @@ export default function ClientProjectDetailPage() {
       }
 
       // Fetch solution
-      const { data: solutionData } = await supabase
-        .from('sh_solutions')
+      const { data: solutionData } = await (supabase as any).from('sh_solutions')
         .select('*')
         .eq('id', solutionId)
         .eq('client_id', client.id)
@@ -155,30 +153,26 @@ export default function ClientProjectDetailPage() {
 
       // Fetch type-specific data
       if (solutionData.solution_type === 'software') {
-        const { data: phasesData } = await supabase
-          .from('sh_software_phases')
+        const { data: phasesData } = await (supabase as any).from('sh_software_phases')
           .select('id, phase_number, title, description, status, production_url')
           .eq('solution_id', solutionId)
           .order('phase_number');
         setPhases((phasesData as Phase[]) || []);
       } else if (solutionData.solution_type === 'training') {
-        const { data: programData } = await supabase
-          .from('sh_training_programs')
+        const { data: programData } = await (supabase as any).from('sh_training_programs')
           .select('id')
           .eq('solution_id', solutionId)
           .single();
 
         if (programData) {
-          const { data: sessionsData } = await supabase
-            .from('sh_training_sessions')
+          const { data: sessionsData } = await (supabase as any).from('sh_training_sessions')
             .select('id, session_number, title, status, scheduled_at')
             .eq('program_id', programData.id)
             .order('session_number');
           setSessions((sessionsData as TrainingSession[]) || []);
         }
       } else if (solutionData.solution_type === 'content') {
-        const { data: ordersData } = await supabase
-          .from('sh_content_orders')
+        const { data: ordersData } = await (supabase as any).from('sh_content_orders')
           .select(`
             id, order_type, quantity, division, due_date,
             deliverables:sh_content_deliverables(id, title, status)

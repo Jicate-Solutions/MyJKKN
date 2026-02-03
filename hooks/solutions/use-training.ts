@@ -28,6 +28,8 @@ export type CohortRole = 'observer' | 'co_lead' | 'lead' | 'support';
 export type SessionStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
 
 export interface TrainingProgramFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   solution_id?: string;
   program_type?: ProgramType;
   status?: string;
@@ -59,6 +61,8 @@ export interface UpdateTrainingProgramInput {
 }
 
 export interface TrainingSessionFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   program_id?: string;
   status?: SessionStatus;
   session_date?: string;
@@ -89,6 +93,8 @@ export interface UpdateTrainingSessionInput {
 }
 
 export interface CohortMemberFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   department_id?: string;
   level?: CohortLevel;
   track?: string;
@@ -276,7 +282,7 @@ export function useUpdateTrainingProgram() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateTrainingProgramInput }) =>
       trainingService.updateTrainingProgram(id, input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingPrograms.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.trainingPrograms.detail(data.id), data);
@@ -363,7 +369,7 @@ export function useCreateTrainingSession() {
   return useMutation({
     mutationFn: (input: CreateTrainingSessionInput) =>
       trainingService.createTrainingSession(input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       if (data?.program_id) {
         queryClient.invalidateQueries({
@@ -383,7 +389,7 @@ export function useUpdateTrainingSession() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateTrainingSessionInput }) =>
       trainingService.updateTrainingSession(id, input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.trainingSessions.detail(data.id), data);
@@ -588,7 +594,7 @@ export function useUpdateCohortMember() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateCohortMemberInput }) =>
       trainingService.updateCohortMember(id, input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.cohortMembers.detail(data.id), data);
@@ -619,7 +625,7 @@ export function useLevelUpCohortMember() {
 
   return useMutation({
     mutationFn: (id: string) => trainingService.levelUpCohortMember(id),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.cohortMembers.detail(data.id), data);

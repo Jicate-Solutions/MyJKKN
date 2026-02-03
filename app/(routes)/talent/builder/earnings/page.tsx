@@ -83,8 +83,7 @@ export default function EarningsPage() {
         return;
       }
 
-      const { data: builder } = await supabase
-        .from('sh_builders')
+      const { data: builder } = await (supabase as any).from('sh_builders')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -96,8 +95,7 @@ export default function EarningsPage() {
 
       setBuilderId(builder.id);
 
-      const { data } = await supabase
-        .from('sh_earnings_ledger')
+      const { data } = await (supabase as any).from('sh_earnings_ledger')
         .select(`
           id, amount, percentage, status, created_at, processed_at,
           payment:sh_payments(

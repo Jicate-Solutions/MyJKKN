@@ -18,6 +18,7 @@ export type BuilderRole = 'lead' | 'contributor';
 export type AssignmentStatus = 'requested' | 'approved' | 'active' | 'completed' | 'withdrawn';
 
 export interface BuilderFilters {
+  [key: string]: string | number | boolean | undefined;
   department_id?: string;
   is_active?: boolean;
   specialization?: string;
@@ -235,7 +236,7 @@ export function useUpdateBuilder() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateBuilderInput }) =>
       buildersService.updateBuilder(id, input),
-    onSuccess: (data) => {
+    onSuccess: (data: { id?: string } | null) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builders.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.builders.detail(data.id), data);
@@ -270,7 +271,7 @@ export function useAddBuilderSkill() {
 
   return useMutation({
     mutationFn: (input: AddSkillInput) => buildersService.addBuilderSkill(input),
-    onSuccess: (data) => {
+    onSuccess: (data: { builder_id?: string } | null) => {
       if (data?.builder_id) {
         queryClient.invalidateQueries({
           queryKey: solutionsHubKeys.builders.detail(data.builder_id),
@@ -327,7 +328,7 @@ export function useRequestAssignment() {
 
   return useMutation({
     mutationFn: (input: CreateAssignmentInput) => buildersService.requestAssignment(input),
-    onSuccess: (data) => {
+    onSuccess: (data: { phase_id?: string; builder_id?: string } | null) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builderAssignments.all });
       if (data?.phase_id) {
         queryClient.invalidateQueries({

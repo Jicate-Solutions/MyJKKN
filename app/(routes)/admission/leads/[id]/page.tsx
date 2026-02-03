@@ -74,6 +74,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
+import type { FunnelStage } from '@/types/admission';
 
 const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
@@ -275,7 +276,7 @@ function LeadDetailPageContent() {
 
   const handleStageChange = (newStage: string) => {
     updateStage.mutate(
-      { leadId, stage: newStage },
+      { leadId, stage: newStage as FunnelStage },
       {
         onSuccess: () => toast.success('Lead stage updated successfully'),
         onError: () => toast.error('Failed to update lead stage')
@@ -336,13 +337,13 @@ function LeadDetailPageContent() {
                 <div className="flex items-center gap-3">
                   <h1 className="text-2xl font-bold">{(lead as any).full_name || 'Unknown'}</h1>
                   <div className="flex gap-1">
-                    {lead.is_hot_lead && (
+                    {lead.priority === 'hot' && (
                       <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
                         <Flame className="h-3 w-3 mr-1" />
                         Hot
                       </Badge>
                     )}
-                    {lead.is_priority && (
+                    {(lead.priority === 'hot' || lead.priority === 'warm') && (
                       <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
                         <Star className="h-3 w-3 mr-1 fill-current" />
                         Priority
@@ -369,32 +370,32 @@ function LeadDetailPageContent() {
 
             <div className="flex items-center gap-2">
               <Button
-                variant={lead.is_hot_lead ? 'default' : 'outline'}
+                variant={lead.priority === 'hot' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => toggleHotLead.mutate(
-                  { leadId, isHot: !lead.is_hot_lead },
+                  { leadId, isHot: lead.priority !== 'hot' },
                   {
-                    onSuccess: () => toast.success(lead.is_hot_lead ? 'Removed from hot leads' : 'Marked as hot lead'),
+                    onSuccess: () => toast.success(lead.priority === 'hot' ? 'Removed from hot leads' : 'Marked as hot lead'),
                     onError: () => toast.error('Failed to update hot lead status')
                   }
                 )}
               >
                 <Flame className="h-4 w-4 mr-1" />
-                {lead.is_hot_lead ? 'Hot' : 'Mark Hot'}
+                {lead.priority === 'hot' ? 'Hot' : 'Mark Hot'}
               </Button>
               <Button
-                variant={lead.is_priority ? 'default' : 'outline'}
+                variant={(lead.priority === 'hot' || lead.priority === 'warm') ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => togglePriority.mutate(
-                  { leadId, isPriority: !lead.is_priority },
+                  { leadId, isPriority: lead.priority === 'cold' },
                   {
-                    onSuccess: () => toast.success(lead.is_priority ? 'Removed from priority' : 'Marked as priority'),
+                    onSuccess: () => toast.success((lead.priority === 'hot' || lead.priority === 'warm') ? 'Removed from priority' : 'Marked as priority'),
                     onError: () => toast.error('Failed to update priority status')
                   }
                 )}
               >
                 <Star className="h-4 w-4 mr-1" />
-                {lead.is_priority ? 'Priority' : 'Mark Priority'}
+                {(lead.priority === 'hot' || lead.priority === 'warm') ? 'Priority' : 'Mark Priority'}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -423,14 +424,14 @@ function LeadDetailPageContent() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-medium">Current Stage:</span>
-                  <Badge className={`${getStageColor(lead.stage)} border`} variant="outline">
-                    {lead.stage?.replace(/_/g, ' ') || 'New'}
+                  <Badge className={`${getStageColor(lead.funnel_stage)} border`} variant="outline">
+                    {lead.funnel_stage?.replace(/_/g, ' ') || 'New'}
                   </Badge>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Move to:</span>
                   <Select
-                    value={lead.stage || 'new'}
+                    value={lead.funnel_stage || 'new'}
                     onValueChange={handleStageChange}
                   >
                     <SelectTrigger className="w-[200px]">
@@ -459,8 +460,8 @@ function LeadDetailPageContent() {
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-muted-foreground">Combined Score</p>
-                        <p className="text-2xl font-bold">{lead.combined_score || 0}</p>
+                        <p className="text-xs text-muted-foreground">Score</p>
+                        <p className="text-2xl font-bold">{lead.score || 0}</p>
                       </div>
                       <Target className="h-8 w-8 text-primary opacity-50" />
                     </div>
@@ -618,8 +619,8 @@ function LeadDetailPageContent() {
                         <div>
                           <dt className="text-sm text-muted-foreground">Last Activity</dt>
                           <dd className="font-medium">
-                            {lead.last_activity_at
-                              ? new Date(lead.last_activity_at).toLocaleString()
+                            {lead.last_contacted_at
+                              ? new Date(lead.last_contacted_at).toLocaleString()
                               : '-'}
                           </dd>
                         </div>
@@ -722,8 +723,8 @@ function LeadDetailPageContent() {
                     <div>
                       <p className="text-xs text-muted-foreground">Last Activity</p>
                       <p className="text-sm font-medium">
-                        {lead.last_activity_at
-                          ? new Date(lead.last_activity_at).toLocaleDateString()
+                        {lead.last_contacted_at
+                          ? new Date(lead.last_contacted_at).toLocaleDateString()
                           : 'No activity'}
                       </p>
                     </div>
@@ -732,16 +733,16 @@ function LeadDetailPageContent() {
                     <MessageSquare className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-xs text-muted-foreground">Messages Sent</p>
-                      <p className="text-sm font-medium">{lead.total_messages_sent || 0}</p>
+                      <p className="text-sm font-medium">{communicationHistory.length || 0}</p>
                     </div>
                   </div>
-                  {lead.assigned_counselor_id && (
+                  {lead.counselor_id && (
                     <div className="flex items-center gap-3">
                       <User className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-xs text-muted-foreground">Assigned To</p>
                         <p className="text-sm font-medium">
-                          {(lead as any).assigned_counselor?.full_name || 'Unknown'}
+                          {lead.counselor?.name || 'Unknown'}
                         </p>
                       </div>
                     </div>

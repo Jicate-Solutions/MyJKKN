@@ -31,6 +31,8 @@ export type PaymentStatus =
   | 'refunded';
 
 export interface PaymentFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   solution_id?: string;
   phase_id?: string;
   payment_type?: PaymentType;

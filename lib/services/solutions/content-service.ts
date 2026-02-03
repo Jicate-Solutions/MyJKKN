@@ -124,8 +124,7 @@ export class ContentService extends BaseService {
   ): Promise<BaseListResponse<ContentOrderWithSolution>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = this.supabase
-      .from('sh_content_orders')
+    let query = (this.supabase as any).from('sh_content_orders')
       .select(
         `
         *,
@@ -178,8 +177,7 @@ export class ContentService extends BaseService {
    * Get a single order by ID
    */
   static async getOrderById(id: string): Promise<ContentOrderWithSolution | null> {
-    const { data, error } = await this.supabase
-      .from('sh_content_orders')
+    const { data, error } = await (this.supabase as any).from('sh_content_orders')
       .select(
         `
         *,
@@ -206,8 +204,7 @@ export class ContentService extends BaseService {
    * Get order by solution ID
    */
   static async getOrderBySolutionId(solutionId: string): Promise<ContentOrderWithSolution | null> {
-    const { data, error } = await this.supabase
-      .from('sh_content_orders')
+    const { data, error } = await (this.supabase as any).from('sh_content_orders')
       .select(
         `
         *,
@@ -234,8 +231,7 @@ export class ContentService extends BaseService {
    * Create a new content order
    */
   static async createOrder(input: CreateContentOrderInput): Promise<ContentOrder> {
-    const { data, error } = await this.supabase
-      .from('sh_content_orders')
+    const { data, error } = await (this.supabase as any).from('sh_content_orders')
       .insert({
         solution_id: input.solution_id,
         order_type: input.order_type,
@@ -257,8 +253,7 @@ export class ContentService extends BaseService {
    * Update a content order
    */
   static async updateOrder(id: string, input: UpdateContentOrderInput): Promise<ContentOrder> {
-    const { data, error } = await this.supabase
-      .from('sh_content_orders')
+    const { data, error } = await (this.supabase as any).from('sh_content_orders')
       .update({
         ...input,
         updated_at: new Date().toISOString(),
@@ -275,7 +270,7 @@ export class ContentService extends BaseService {
    * Delete a content order
    */
   static async deleteOrder(id: string): Promise<void> {
-    const { error } = await this.supabase.from('sh_content_orders').delete().eq('id', id);
+    const { error } = await (this.supabase as any).from('sh_content_orders').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete content order: ${error.message}`);
   }
@@ -298,8 +293,7 @@ export class ContentService extends BaseService {
     byDivision: Record<ContentDivision, number>;
     byType: Record<ContentOrderType, number>;
   }> {
-    const { data, error } = await this.supabase
-      .from('sh_content_orders')
+    const { data, error } = await (this.supabase as any).from('sh_content_orders')
       .select('division, order_type');
 
     if (error) throw new Error(`Failed to fetch order stats: ${error.message}`);
@@ -349,8 +343,7 @@ export class ContentService extends BaseService {
   ): Promise<BaseListResponse<ContentDeliverableWithDetails>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = this.supabase
-      .from('sh_content_deliverables')
+    let query = (this.supabase as any).from('sh_content_deliverables')
       .select(
         `
         *,
@@ -408,8 +401,7 @@ export class ContentService extends BaseService {
    * Get a single deliverable by ID
    */
   static async getDeliverableById(id: string): Promise<ContentDeliverableWithDetails | null> {
-    const { data, error } = await this.supabase
-      .from('sh_content_deliverables')
+    const { data, error } = await (this.supabase as any).from('sh_content_deliverables')
       .select(
         `
         *,
@@ -445,8 +437,7 @@ export class ContentService extends BaseService {
    * Create a new deliverable
    */
   static async createDeliverable(input: CreateDeliverableInput): Promise<ContentDeliverable> {
-    const { data, error } = await this.supabase
-      .from('sh_content_deliverables')
+    const { data, error } = await (this.supabase as any).from('sh_content_deliverables')
       .insert({
         order_id: input.order_id,
         title: input.title,
@@ -470,8 +461,7 @@ export class ContentService extends BaseService {
     id: string,
     input: UpdateDeliverableInput
   ): Promise<ContentDeliverable> {
-    const { data, error } = await this.supabase
-      .from('sh_content_deliverables')
+    const { data, error } = await (this.supabase as any).from('sh_content_deliverables')
       .update(input)
       .eq('id', id)
       .select()
@@ -485,7 +475,7 @@ export class ContentService extends BaseService {
    * Delete a deliverable
    */
   static async deleteDeliverable(id: string): Promise<void> {
-    const { error } = await this.supabase.from('sh_content_deliverables').delete().eq('id', id);
+    const { error } = await (this.supabase as any).from('sh_content_deliverables').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete deliverable: ${error.message}`);
   }
@@ -495,8 +485,7 @@ export class ContentService extends BaseService {
    */
   static async requestRevision(id: string, notes?: string): Promise<ContentDeliverable> {
     // Get current deliverable
-    const { data: current, error: fetchError } = await this.supabase
-      .from('sh_content_deliverables')
+    const { data: current, error: fetchError } = await (this.supabase as any).from('sh_content_deliverables')
       .select('revision_count')
       .eq('id', id)
       .single();
@@ -505,8 +494,7 @@ export class ContentService extends BaseService {
 
     const newRevisionCount = (current?.revision_count || 0) + 1;
 
-    const { data, error } = await this.supabase
-      .from('sh_content_deliverables')
+    const { data, error } = await (this.supabase as any).from('sh_content_deliverables')
       .update({
         status: 'revision' as DeliverableStatus,
         revision_count: newRevisionCount,
@@ -530,8 +518,7 @@ export class ContentService extends BaseService {
    * Approve deliverable (client approval)
    */
   static async approveDeliverable(id: string, approvedBy: string): Promise<ContentDeliverable> {
-    const { data, error } = await this.supabase
-      .from('sh_content_deliverables')
+    const { data, error } = await (this.supabase as any).from('sh_content_deliverables')
       .update({
         status: 'approved' as DeliverableStatus,
         approved_by: approvedBy,
@@ -549,8 +536,7 @@ export class ContentService extends BaseService {
    * Reject deliverable
    */
   static async rejectDeliverable(id: string, notes?: string): Promise<ContentDeliverable> {
-    const { data, error } = await this.supabase
-      .from('sh_content_deliverables')
+    const { data, error } = await (this.supabase as any).from('sh_content_deliverables')
       .update({
         status: 'rejected' as DeliverableStatus,
         notes: notes,
@@ -571,8 +557,7 @@ export class ContentService extends BaseService {
     fileUrl: string,
     fileType?: string
   ): Promise<ContentDeliverable> {
-    const { data, error } = await this.supabase
-      .from('sh_content_deliverables')
+    const { data, error } = await (this.supabase as any).from('sh_content_deliverables')
       .update({
         status: 'review' as DeliverableStatus,
         file_url: fileUrl,
@@ -594,8 +579,7 @@ export class ContentService extends BaseService {
     byStatus: Record<DeliverableStatus, number>;
     flaggedForMD: number;
   }> {
-    let query = this.supabase
-      .from('sh_content_deliverables')
+    let query = (this.supabase as any).from('sh_content_deliverables')
       .select('status, revision_count');
 
     if (orderId) {

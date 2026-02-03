@@ -116,8 +116,7 @@ export default function AssignmentsPage() {
         return;
       }
 
-      const { data: builder } = await supabase
-        .from('sh_builders')
+      const { data: builder } = await (supabase as any).from('sh_builders')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -129,8 +128,7 @@ export default function AssignmentsPage() {
 
       setBuilderId(builder.id);
 
-      const { data } = await supabase
-        .from('sh_builder_assignments')
+      const { data } = await (supabase as any).from('sh_builder_assignments')
         .select(`
           id, status, role, requested_at,
           phase:sh_solution_phases(
@@ -171,8 +169,7 @@ export default function AssignmentsPage() {
         return;
     }
 
-    const { error } = await supabase
-      .from('sh_builder_assignments')
+    const { error } = await (supabase as any).from('sh_builder_assignments')
       .update({ status: newStatus })
       .eq('id', confirmAction.assignmentId);
 

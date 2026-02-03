@@ -90,8 +90,7 @@ export class ProductionService extends BaseService {
   ): Promise<BaseListResponse<ProductionLearnerWithAssignments>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = this.supabase
-      .from('sh_production_learners')
+    let query = (this.supabase as any).from('sh_production_learners')
       .select(
         `
         *,
@@ -147,8 +146,7 @@ export class ProductionService extends BaseService {
    * Get a single learner by ID
    */
   static async getLearnerById(id: string): Promise<ProductionLearnerWithAssignments | null> {
-    const { data, error } = await this.supabase
-      .from('sh_production_learners')
+    const { data, error } = await (this.supabase as any).from('sh_production_learners')
       .select(
         `
         *,
@@ -183,8 +181,7 @@ export class ProductionService extends BaseService {
    * Create a new production learner
    */
   static async createLearner(input: CreateProductionLearnerInput): Promise<ProductionLearner> {
-    const { data, error } = await this.supabase
-      .from('sh_production_learners')
+    const { data, error } = await (this.supabase as any).from('sh_production_learners')
       .insert({
         user_id: input.user_id,
         name: input.name,
@@ -210,8 +207,7 @@ export class ProductionService extends BaseService {
     id: string,
     input: UpdateProductionLearnerInput
   ): Promise<ProductionLearner> {
-    const { data, error } = await this.supabase
-      .from('sh_production_learners')
+    const { data, error } = await (this.supabase as any).from('sh_production_learners')
       .update(input)
       .eq('id', id)
       .select()
@@ -225,7 +221,7 @@ export class ProductionService extends BaseService {
    * Delete a production learner
    */
   static async deleteLearner(id: string): Promise<void> {
-    const { error } = await this.supabase.from('sh_production_learners').delete().eq('id', id);
+    const { error } = await (this.supabase as any).from('sh_production_learners').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete production learner: ${error.message}`);
   }
@@ -239,8 +235,7 @@ export class ProductionService extends BaseService {
     bySkillLevel: Record<SkillLevel, number>;
     active: number;
   }> {
-    const { data, error } = await this.supabase
-      .from('sh_production_learners')
+    const { data, error } = await (this.supabase as any).from('sh_production_learners')
       .select('division, skill_level, status');
 
     if (error) throw new Error(`Failed to fetch learner stats: ${error.message}`);
@@ -287,8 +282,7 @@ export class ProductionService extends BaseService {
    * Create a production assignment
    */
   static async createAssignment(input: CreateProductionAssignmentInput): Promise<ProductionAssignment> {
-    const { data, error } = await this.supabase
-      .from('sh_production_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_production_assignments')
       .insert({
         deliverable_id: input.deliverable_id,
         learner_id: input.learner_id,
@@ -302,8 +296,7 @@ export class ProductionService extends BaseService {
     if (error) throw new Error(`Failed to create assignment: ${error.message}`);
 
     // Update deliverable status to in_progress
-    await this.supabase
-      .from('sh_content_deliverables')
+    await (this.supabase as any).from('sh_content_deliverables')
       .update({ status: 'in_progress' })
       .eq('id', input.deliverable_id);
 
@@ -332,8 +325,7 @@ export class ProductionService extends BaseService {
     earnings?: number,
     qualityRating?: number
   ): Promise<ProductionAssignment> {
-    const { data, error } = await this.supabase
-      .from('sh_production_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_production_assignments')
       .update({
         completed_at: new Date().toISOString(),
         earnings,
@@ -347,15 +339,13 @@ export class ProductionService extends BaseService {
 
     // Update learner stats
     if (data.learner_id) {
-      const { data: learner } = await this.supabase
-        .from('sh_production_learners')
+      const { data: learner } = await (this.supabase as any).from('sh_production_learners')
         .select('orders_completed, total_earnings')
         .eq('id', data.learner_id)
         .single();
 
       if (learner) {
-        await this.supabase
-          .from('sh_production_learners')
+        await (this.supabase as any).from('sh_production_learners')
           .update({
             orders_completed: (learner.orders_completed || 0) + 1,
             total_earnings: (learner.total_earnings || 0) + (earnings || 0),
@@ -373,8 +363,7 @@ export class ProductionService extends BaseService {
   static async getAssignmentsByLearnerId(
     learnerId: string
   ): Promise<ProductionAssignmentWithDetails[]> {
-    const { data, error } = await this.supabase
-      .from('sh_production_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_production_assignments')
       .select(
         `
         *,
@@ -394,8 +383,7 @@ export class ProductionService extends BaseService {
   static async getAssignmentsByDeliverableId(
     deliverableId: string
   ): Promise<ProductionAssignmentWithDetails[]> {
-    const { data, error } = await this.supabase
-      .from('sh_production_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_production_assignments')
       .select(
         `
         *,
@@ -416,8 +404,7 @@ export class ProductionService extends BaseService {
     division: ContentDivision
   ): Promise<ContentDeliverable[]> {
     // Get orders in this division
-    const { data: orders, error: ordersError } = await this.supabase
-      .from('sh_content_orders')
+    const { data: orders, error: ordersError } = await (this.supabase as any).from('sh_content_orders')
       .select('id')
       .eq('division', division);
 
@@ -428,8 +415,7 @@ export class ProductionService extends BaseService {
     if (orderIds.length === 0) return [];
 
     // Get pending deliverables with no assignments
-    const { data, error } = await this.supabase
-      .from('sh_content_deliverables')
+    const { data, error } = await (this.supabase as any).from('sh_content_deliverables')
       .select(
         `
         *,
@@ -449,8 +435,7 @@ export class ProductionService extends BaseService {
    * Update learner earnings
    */
   static async addEarnings(learnerId: string, amount: number): Promise<ProductionLearner> {
-    const { data: learner, error: fetchError } = await this.supabase
-      .from('sh_production_learners')
+    const { data: learner, error: fetchError } = await (this.supabase as any).from('sh_production_learners')
       .select('total_earnings')
       .eq('id', learnerId)
       .single();
@@ -459,8 +444,7 @@ export class ProductionService extends BaseService {
 
     const currentEarnings = learner?.total_earnings || 0;
 
-    const { data, error } = await this.supabase
-      .from('sh_production_learners')
+    const { data, error } = await (this.supabase as any).from('sh_production_learners')
       .update({
         total_earnings: currentEarnings + amount,
       })
@@ -476,8 +460,7 @@ export class ProductionService extends BaseService {
    * Update learner skill level
    */
   static async updateSkillLevel(learnerId: string, skillLevel: SkillLevel): Promise<ProductionLearner> {
-    const { data, error } = await this.supabase
-      .from('sh_production_learners')
+    const { data, error } = await (this.supabase as any).from('sh_production_learners')
       .update({ skill_level: skillLevel })
       .eq('id', learnerId)
       .select()

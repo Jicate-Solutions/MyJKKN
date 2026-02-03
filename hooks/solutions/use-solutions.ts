@@ -15,6 +15,8 @@ import { QUERY_CONFIG } from '@/lib/config/query-config';
 // ============================================
 
 export interface SolutionFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   solution_type?: 'software' | 'training' | 'content';
   status?: string;
   client_id?: string;
@@ -145,7 +147,7 @@ export function useUpdateSolution() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateSolutionInput }) =>
       solutionsService.updateSolution(id, input),
-    onSuccess: (data) => {
+    onSuccess: (data: { id?: string } | null) => {
       // Invalidate solutions list and update cache for specific solution
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.solutions.all });
       if (data?.id) {

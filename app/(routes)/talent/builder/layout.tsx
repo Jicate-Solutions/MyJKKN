@@ -17,8 +17,7 @@ export default async function BuilderLayout({
   }
 
   // Check if user is a builder
-  const { data: builder } = await supabase
-    .from('sh_builders')
+  const { data: builder } = await (supabase as any).from('sh_builders')
     .select(`
       *,
       department:departments(id, name, code)

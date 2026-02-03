@@ -78,8 +78,7 @@ export default function ClientDashboardPage() {
       }
 
       // Get client info
-      const { data: client } = await supabase
-        .from('sh_clients')
+      const { data: client } = await (supabase as any).from('sh_clients')
         .select('id, name')
         .eq('user_id', user.id)
         .single();
@@ -92,8 +91,7 @@ export default function ClientDashboardPage() {
       setUserName(client.name.split(' ')[0]);
 
       // Get solutions for this client
-      const { data: solutions } = await supabase
-        .from('sh_solutions')
+      const { data: solutions } = await (supabase as any).from('sh_solutions')
         .select('id, title, solution_code, solution_type, status, created_at')
         .eq('client_id', client.id)
         .order('created_at', { ascending: false });
@@ -107,15 +105,13 @@ export default function ClientDashboardPage() {
       // Get deliverables pending review (via content orders)
       let pendingDeliverablesData: PendingDeliverable[] = [];
       if (solutionIds.length > 0) {
-        const { data: orders } = await supabase
-          .from('sh_content_orders')
+        const { data: orders } = await (supabase as any).from('sh_content_orders')
           .select('id, solution:sh_solutions(title)')
           .in('solution_id', solutionIds);
 
         if (orders && orders.length > 0) {
           const orderIds = orders.map(o => o.id);
-          const { data: deliverables } = await supabase
-            .from('sh_content_deliverables')
+          const { data: deliverables } = await (supabase as any).from('sh_content_deliverables')
             .select('id, title, status, order_id')
             .in('order_id', orderIds)
             .eq('status', 'review')
@@ -135,8 +131,7 @@ export default function ClientDashboardPage() {
       let pendingPaymentsCount = 0;
 
       if (solutionIds.length > 0) {
-        const { data: payments } = await supabase
-          .from('sh_payments')
+        const { data: payments } = await (supabase as any).from('sh_payments')
           .select('amount, status')
           .in('solution_id', solutionIds);
 

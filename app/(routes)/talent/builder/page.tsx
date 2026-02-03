@@ -85,8 +85,7 @@ export default function BuilderPortalPage() {
       }
 
       // Get builder profile
-      const { data: builder } = await supabase
-        .from('sh_builders')
+      const { data: builder } = await (supabase as any).from('sh_builders')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -107,11 +106,11 @@ export default function BuilderPortalPage() {
         { data: assignments },
         { count: availableCount },
       ] = await Promise.all([
-        supabase.from('sh_builder_assignments').select('*', { count: 'exact', head: true }).eq('builder_id', builder.id).eq('status', 'active'),
-        supabase.from('sh_builder_assignments').select('*', { count: 'exact', head: true }).eq('builder_id', builder.id).eq('status', 'completed'),
-        supabase.from('sh_earnings_ledger').select('amount').eq('recipient_id', builder.id).eq('recipient_type', 'builder'),
-        supabase.from('sh_builder_skills').select('*', { count: 'exact', head: true }).eq('builder_id', builder.id),
-        supabase.from('sh_builder_assignments')
+        (supabase as any).from('sh_builder_assignments').select('*', { count: 'exact', head: true }).eq('builder_id', builder.id).eq('status', 'active'),
+        (supabase as any).from('sh_builder_assignments').select('*', { count: 'exact', head: true }).eq('builder_id', builder.id).eq('status', 'completed'),
+        (supabase as any).from('sh_earnings_ledger').select('amount').eq('recipient_id', builder.id).eq('recipient_type', 'builder'),
+        (supabase as any).from('sh_builder_skills').select('*', { count: 'exact', head: true }).eq('builder_id', builder.id),
+        (supabase as any).from('sh_builder_assignments')
           .select(`
             id, status, role, requested_at,
             phase:sh_solution_phases(
@@ -126,7 +125,7 @@ export default function BuilderPortalPage() {
           .in('status', ['active', 'approved', 'requested'])
           .order('requested_at', { ascending: false })
           .limit(10),
-        supabase.from('sh_solution_phases').select('*', { count: 'exact', head: true }).in('status', ['prd_writing', 'prototype_building', 'revisions']),
+        (supabase as any).from('sh_solution_phases').select('*', { count: 'exact', head: true }).in('status', ['prd_writing', 'prototype_building', 'revisions']),
       ]);
 
       const totalEarnings = earningsData?.reduce((sum, e) => sum + (e.amount || 0), 0) || 0;

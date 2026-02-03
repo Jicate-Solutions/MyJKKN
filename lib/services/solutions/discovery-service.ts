@@ -117,8 +117,7 @@ export class DiscoveryService extends BaseService {
   ): Promise<BaseListResponse<DiscoveryVisit>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = this.supabase
-      .from('sh_discovery_visits')
+    let query = (this.supabase as any).from('sh_discovery_visits')
       .select('*', { count: 'exact' })
       .order('visit_date', { ascending: false });
 
@@ -168,8 +167,7 @@ export class DiscoveryService extends BaseService {
    * Get a single discovery visit by ID
    */
   static async getDiscoveryVisitById(id: string): Promise<DiscoveryVisit | null> {
-    const { data, error } = await this.supabase
-      .from('sh_discovery_visits')
+    const { data, error } = await (this.supabase as any).from('sh_discovery_visits')
       .select('*')
       .eq('id', id)
       .single();
@@ -194,8 +192,7 @@ export class DiscoveryService extends BaseService {
    * Create a new discovery visit
    */
   static async createDiscoveryVisit(input: CreateDiscoveryVisitInput): Promise<DiscoveryVisit> {
-    const { data, error } = await this.supabase
-      .from('sh_discovery_visits')
+    const { data, error } = await (this.supabase as any).from('sh_discovery_visits')
       .insert({
         client_id: input.client_id,
         solution_id: input.solution_id || null,
@@ -223,8 +220,7 @@ export class DiscoveryService extends BaseService {
     id: string,
     input: UpdateDiscoveryVisitInput
   ): Promise<DiscoveryVisit> {
-    const { data, error } = await this.supabase
-      .from('sh_discovery_visits')
+    const { data, error } = await (this.supabase as any).from('sh_discovery_visits')
       .update(input)
       .eq('id', id)
       .select()
@@ -238,7 +234,7 @@ export class DiscoveryService extends BaseService {
    * Delete a discovery visit
    */
   static async deleteDiscoveryVisit(id: string): Promise<void> {
-    const { error } = await this.supabase.from('sh_discovery_visits').delete().eq('id', id);
+    const { error } = await (this.supabase as any).from('sh_discovery_visits').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete discovery visit: ${error.message}`);
   }
@@ -269,8 +265,7 @@ export class DiscoveryService extends BaseService {
   ): Promise<BaseListResponse<ClientCommunication>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = this.supabase
-      .from('sh_client_communications')
+    let query = (this.supabase as any).from('sh_client_communications')
       .select('*', { count: 'exact' })
       .order('communication_date', { ascending: false });
 
@@ -328,8 +323,7 @@ export class DiscoveryService extends BaseService {
    * Get a single communication by ID
    */
   static async getCommunicationById(id: string): Promise<ClientCommunication | null> {
-    const { data, error } = await this.supabase
-      .from('sh_client_communications')
+    const { data, error } = await (this.supabase as any).from('sh_client_communications')
       .select('*')
       .eq('id', id)
       .single();
@@ -362,8 +356,7 @@ export class DiscoveryService extends BaseService {
    * Create a new communication record
    */
   static async createCommunication(input: CreateCommunicationInput): Promise<ClientCommunication> {
-    const { data, error } = await this.supabase
-      .from('sh_client_communications')
+    const { data, error } = await (this.supabase as any).from('sh_client_communications')
       .insert({
         client_id: input.client_id,
         solution_id: input.solution_id || null,
@@ -392,8 +385,7 @@ export class DiscoveryService extends BaseService {
     id: string,
     input: UpdateCommunicationInput
   ): Promise<ClientCommunication> {
-    const { data, error } = await this.supabase
-      .from('sh_client_communications')
+    const { data, error } = await (this.supabase as any).from('sh_client_communications')
       .update(input)
       .eq('id', id)
       .select()
@@ -407,7 +399,7 @@ export class DiscoveryService extends BaseService {
    * Delete a communication
    */
   static async deleteCommunication(id: string): Promise<void> {
-    const { error } = await this.supabase.from('sh_client_communications').delete().eq('id', id);
+    const { error } = await (this.supabase as any).from('sh_client_communications').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete communication: ${error.message}`);
   }

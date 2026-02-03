@@ -113,8 +113,7 @@ export default function SkillsPage() {
         return;
       }
 
-      const { data: builder } = await supabase
-        .from('sh_builders')
+      const { data: builder } = await (supabase as any).from('sh_builders')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -126,8 +125,7 @@ export default function SkillsPage() {
 
       setBuilderId(builder.id);
 
-      const { data } = await supabase
-        .from('sh_builder_skills')
+      const { data } = await (supabase as any).from('sh_builder_skills')
         .select('*')
         .eq('builder_id', builder.id)
         .order('skill_name');
@@ -145,8 +143,7 @@ export default function SkillsPage() {
     setIsSaving(true);
     const supabase = createClient();
 
-    const { data, error } = await supabase
-      .from('sh_builder_skills')
+    const { data, error } = await (supabase as any).from('sh_builder_skills')
       .insert({
         builder_id: builderId,
         skill_name: newSkillName.trim(),
@@ -174,8 +171,7 @@ export default function SkillsPage() {
     setIsSaving(true);
     const supabase = createClient();
 
-    const { error } = await supabase
-      .from('sh_builder_skills')
+    const { error } = await (supabase as any).from('sh_builder_skills')
       .update({ proficiency_level: editProficiency })
       .eq('id', editingSkill.id);
 
@@ -200,8 +196,7 @@ export default function SkillsPage() {
     setIsSaving(true);
     const supabase = createClient();
 
-    const { error } = await supabase
-      .from('sh_builder_skills')
+    const { error } = await (supabase as any).from('sh_builder_skills')
       .delete()
       .eq('id', deletingSkill.id);
 

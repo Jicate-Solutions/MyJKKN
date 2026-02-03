@@ -91,8 +91,7 @@ export default function ClientInvoicesPage() {
         return;
       }
 
-      const { data: client } = await supabase
-        .from('sh_clients')
+      const { data: client } = await (supabase as any).from('sh_clients')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -103,8 +102,7 @@ export default function ClientInvoicesPage() {
       }
 
       // Get solutions for this client
-      const { data: solutions } = await supabase
-        .from('sh_solutions')
+      const { data: solutions } = await (supabase as any).from('sh_solutions')
         .select('id, title, solution_code')
         .eq('client_id', client.id);
 
@@ -116,8 +114,7 @@ export default function ClientInvoicesPage() {
       const solutionIds = solutions.map(s => s.id);
 
       // Get payments
-      const { data: paymentsData } = await supabase
-        .from('sh_payments')
+      const { data: paymentsData } = await (supabase as any).from('sh_payments')
         .select('id, amount, payment_type, status, due_date, received_date, invoice_url, created_at, solution_id')
         .in('solution_id', solutionIds)
         .order('created_at', { ascending: false });

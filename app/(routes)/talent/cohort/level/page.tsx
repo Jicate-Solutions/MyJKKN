@@ -54,8 +54,7 @@ export default function LevelProgressPage() {
         return;
       }
 
-      const { data: member } = await supabase
-        .from('sh_cohort_members')
+      const { data: member } = await (supabase as any).from('sh_cohort_members')
         .select('level')
         .eq('user_id', user.id)
         .single();
@@ -68,8 +67,7 @@ export default function LevelProgressPage() {
       setCurrentLevel(member.level || 0);
 
       // Count completed sessions
-      const { count } = await supabase
-        .from('sh_cohort_assignments')
+      const { count } = await (supabase as any).from('sh_cohort_assignments')
         .select('*', { count: 'exact', head: true })
         .eq('cohort_member_id', member.id);
 

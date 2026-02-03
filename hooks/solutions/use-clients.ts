@@ -25,6 +25,8 @@ export interface ClientFilters {
   search?: string;
   page?: number;
   limit?: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
 }
 
 export interface CreateClientInput {
@@ -153,7 +155,7 @@ export function useUpdateClient() {
   return useMutation({
     mutationFn: ({ id, updates }: { id: string; updates: UpdateClientInput }) =>
       clientsService.updateClient(id, updates),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.clients.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.clients.detail(data.id), data);
@@ -198,7 +200,7 @@ export function useIncrementReferralCount() {
 
   return useMutation({
     mutationFn: (id: string) => clientsService.incrementReferralCount(id),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.clients.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.clients.detail(data.id), data);

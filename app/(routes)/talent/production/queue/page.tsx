@@ -65,8 +65,7 @@ export default function ProductionQueuePage() {
         return;
       }
 
-      const { data: learner } = await supabase
-        .from('sh_production_learners')
+      const { data: learner } = await (supabase as any).from('sh_production_learners')
         .select('id, division')
         .eq('user_id', user.id)
         .single();
@@ -80,8 +79,7 @@ export default function ProductionQueuePage() {
       setLearnerDivision(learner.division);
 
       // Fetch available deliverables (not yet claimed)
-      const { data: deliverables } = await supabase
-        .from('sh_content_deliverables')
+      const { data: deliverables } = await (supabase as any).from('sh_content_deliverables')
         .select(`
           id, title, notes,
           order:sh_content_orders(division, due_date)
@@ -117,7 +115,7 @@ export default function ProductionQueuePage() {
     const supabase = createClient();
 
     // Create assignment and update deliverable status
-    const { error: assignError } = await supabase.from('sh_production_assignments').insert({
+    const { error: assignError } = await (supabase as any).from('sh_production_assignments').insert({
       deliverable_id: deliverableId,
       learner_id: learnerId,
       role: 'creator',
@@ -129,8 +127,7 @@ export default function ProductionQueuePage() {
       return;
     }
 
-    const { error: updateError } = await supabase
-      .from('sh_content_deliverables')
+    const { error: updateError } = await (supabase as any).from('sh_content_deliverables')
       .update({ status: 'in_progress' })
       .eq('id', deliverableId);
 

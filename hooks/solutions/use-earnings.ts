@@ -28,6 +28,8 @@ export type RecipientType =
 export type EarningsStatus = 'pending' | 'processed' | 'paid';
 
 export interface EarningsFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   payment_id?: string;
   recipient_type?: RecipientType;
   recipient_id?: string;

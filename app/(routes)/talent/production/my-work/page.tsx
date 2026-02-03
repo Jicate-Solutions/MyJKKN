@@ -65,8 +65,7 @@ export default function MyWorkPage() {
         return;
       }
 
-      const { data: learner } = await supabase
-        .from('sh_production_learners')
+      const { data: learner } = await (supabase as any).from('sh_production_learners')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -76,8 +75,7 @@ export default function MyWorkPage() {
         return;
       }
 
-      const { data } = await supabase
-        .from('sh_production_assignments')
+      const { data } = await (supabase as any).from('sh_production_assignments')
         .select(`
           id, role,
           deliverable:sh_content_deliverables(

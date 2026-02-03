@@ -16,8 +16,7 @@ export default async function ProductionPortalLayout({
   }
 
   // Check if user is a production learner
-  const { data: learner } = await supabase
-    .from('sh_production_learners')
+  const { data: learner } = await (supabase as any).from('sh_production_learners')
     .select('id, name, division, skill_level, is_active')
     .eq('user_id', user.id)
     .single();

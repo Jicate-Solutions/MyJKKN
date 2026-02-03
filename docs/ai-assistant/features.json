@@ -1,0 +1,567 @@
+{
+  "project": "JKKN Assistant",
+  "version": "1.0.0",
+  "created": "2026-02-02",
+  "target_users": 40,
+  "status": "planning_complete",
+  "features": [
+    {
+      "id": "F001",
+      "name": "Agentic Planning Loop",
+      "description": "Upgrade AI Query API from single-turn to multi-step agentic analysis with planning, execution, and synthesis phases",
+      "priority": "P0",
+      "phase": 1,
+      "status": "pending",
+      "dependencies": ["existing_ai_query_api"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Send query: 'Why is Engineering attendance dropping?'",
+          "expected": "AI shows step-by-step progress (Checking data... Analyzing trends...)"
+        },
+        {
+          "step": 2,
+          "action": "Wait for completion (up to 5 minutes)",
+          "expected": "AI returns structured response with: summary, findings, evidence, recommendations"
+        },
+        {
+          "step": 3,
+          "action": "Verify multi-tool usage",
+          "expected": "Audit log shows multiple tools called in sequence"
+        },
+        {
+          "step": 4,
+          "action": "Test with incomplete data scenario",
+          "expected": "AI asks for clarification rather than guessing"
+        },
+        {
+          "step": 5,
+          "action": "Test with role-scoped user (Principal)",
+          "expected": "AI only accesses and returns data for that Principal's college"
+        }
+      ]
+    },
+    {
+      "id": "F002",
+      "name": "Conversation Memory",
+      "description": "Persistent conversation history with context-aware follow-ups",
+      "priority": "P0",
+      "phase": 1,
+      "status": "pending",
+      "dependencies": ["supabase_schema"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Ask: 'How is Engineering attendance?'",
+          "expected": "AI responds with Engineering attendance data"
+        },
+        {
+          "step": 2,
+          "action": "Follow up: 'What about Nursing?'",
+          "expected": "AI understands context, shows 'Based on our attendance discussion, here is Nursing...'"
+        },
+        {
+          "step": 3,
+          "action": "Close browser, reopen, continue conversation",
+          "expected": "Previous conversation preserved, AI remembers context"
+        },
+        {
+          "step": 4,
+          "action": "As Director, view another user's conversation history",
+          "expected": "Director can see all conversations"
+        },
+        {
+          "step": 5,
+          "action": "As Principal, try to view Director's conversation",
+          "expected": "Access denied, can only see own conversations"
+        }
+      ]
+    },
+    {
+      "id": "F003",
+      "name": "Progress Updates",
+      "description": "Real-time step-by-step progress for queries taking >10 seconds",
+      "priority": "P0",
+      "phase": 1,
+      "status": "pending",
+      "dependencies": ["F001"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Send complex query requiring multiple data sources",
+          "expected": "UI shows animated progress steps as each tool executes"
+        },
+        {
+          "step": 2,
+          "action": "Observe step descriptions",
+          "expected": "Steps are human-readable: 'Checking attendance data...' not technical"
+        },
+        {
+          "step": 3,
+          "action": "Count time between updates",
+          "expected": "Updates appear within 3-5 seconds of each other"
+        },
+        {
+          "step": 4,
+          "action": "Test on mobile device",
+          "expected": "Progress UI displays correctly on mobile"
+        }
+      ]
+    },
+    {
+      "id": "F004",
+      "name": "Management System Prompts",
+      "description": "Role-aware system prompts that provide executive-style responses",
+      "priority": "P1",
+      "phase": 1,
+      "status": "pending",
+      "dependencies": ["F001"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Send same query as Director and as VP",
+          "expected": "Director gets institution-wide view, VP gets department view"
+        },
+        {
+          "step": 2,
+          "action": "Check response format",
+          "expected": "Response includes: Executive summary, Key metrics, Concerns, Actions"
+        },
+        {
+          "step": 3,
+          "action": "Verify JKKN terminology",
+          "expected": "Uses 'learners' not 'students', 'learning facilitators' not 'teachers'"
+        },
+        {
+          "step": 4,
+          "action": "Send query in Tamil",
+          "expected": "AI responds in Tamil while maintaining professional tone"
+        }
+      ]
+    },
+    {
+      "id": "F005",
+      "name": "Daily Morning Briefing",
+      "description": "Automated 6 AM briefing with metrics, anomalies, and predictions",
+      "priority": "P0",
+      "phase": 2,
+      "status": "pending",
+      "dependencies": ["F001", "F004"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Trigger briefing generation manually",
+          "expected": "Briefing generates with all 4 sections: metrics, vs targets, anomalies, predictions"
+        },
+        {
+          "step": 2,
+          "action": "Check Director's briefing vs Principal's briefing",
+          "expected": "Director sees institution-wide, Principal sees only their college"
+        },
+        {
+          "step": 3,
+          "action": "Verify briefing arrives at 6:00 AM",
+          "expected": "In-app notification delivered between 6:00-6:05 AM"
+        },
+        {
+          "step": 4,
+          "action": "Click briefing notification",
+          "expected": "Opens AI Assistant with briefing displayed"
+        },
+        {
+          "step": 5,
+          "action": "Test on day with no anomalies",
+          "expected": "Briefing still generated with 'No anomalies detected' section"
+        }
+      ]
+    },
+    {
+      "id": "F006",
+      "name": "Predictive Concerns",
+      "description": "AI predicts future problems based on trend analysis",
+      "priority": "P1",
+      "phase": 2,
+      "status": "pending",
+      "dependencies": ["F005"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Review briefing prediction for attendance",
+          "expected": "Shows specific section and date when 75% threshold will be breached"
+        },
+        {
+          "step": 2,
+          "action": "Review briefing prediction for fee collection",
+          "expected": "Shows amount at risk and deadline"
+        },
+        {
+          "step": 3,
+          "action": "Ask AI: 'What issues should I watch for this month?'",
+          "expected": "AI provides consolidated prediction across all domains"
+        },
+        {
+          "step": 4,
+          "action": "Verify prediction uses historical patterns",
+          "expected": "Audit log shows historical data accessed for trend analysis"
+        }
+      ]
+    },
+    {
+      "id": "F007",
+      "name": "Cross-Entity Comparison",
+      "description": "Compare and rank colleges/programs on any metric",
+      "priority": "P1",
+      "phase": 2,
+      "status": "pending",
+      "dependencies": ["F001"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Ask: 'Compare all colleges on fee collection'",
+          "expected": "Returns ranked table with all colleges"
+        },
+        {
+          "step": 2,
+          "action": "Check triple benchmark",
+          "expected": "Each college shows: vs target, vs last year, vs peer average"
+        },
+        {
+          "step": 3,
+          "action": "Look for anomaly highlighting",
+          "expected": "Outliers (very high or low performers) visually highlighted"
+        },
+        {
+          "step": 4,
+          "action": "Click on a specific college in ranking",
+          "expected": "Drill-down to detailed view of that college"
+        },
+        {
+          "step": 5,
+          "action": "Ask as Principal (Tier 2 user)",
+          "expected": "Comparison limited to departments within their college"
+        }
+      ]
+    },
+    {
+      "id": "F008",
+      "name": "Show Sources on Request",
+      "description": "Reveal data sources and freshness when user requests verification",
+      "priority": "P1",
+      "phase": 2,
+      "status": "pending",
+      "dependencies": ["F001"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Get AI response, click 'Show Sources'",
+          "expected": "Panel expands showing: tables accessed, query details, data timestamps"
+        },
+        {
+          "step": 2,
+          "action": "Verify data freshness shown",
+          "expected": "Each data source shows 'Last updated: X hours ago'"
+        },
+        {
+          "step": 3,
+          "action": "Test with stale data scenario",
+          "expected": "Source panel highlights if data is >24 hours old"
+        }
+      ]
+    },
+    {
+      "id": "F009",
+      "name": "One-Click Actions",
+      "description": "Action buttons on AI responses to execute recommendations",
+      "priority": "P0",
+      "phase": 3,
+      "status": "pending",
+      "dependencies": ["F001"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Get recommendation to notify faculty about low attendance",
+          "expected": "Response includes 'Send Notification' button"
+        },
+        {
+          "step": 2,
+          "action": "Click 'Send Notification'",
+          "expected": "Confirmation dialog shows who will be notified"
+        },
+        {
+          "step": 3,
+          "action": "Confirm notification",
+          "expected": "In-app notification sent, success message shown"
+        },
+        {
+          "step": 4,
+          "action": "Test 'Generate Report' action",
+          "expected": "PDF downloaded with analysis content"
+        },
+        {
+          "step": 5,
+          "action": "Test 'Create Task' action",
+          "expected": "Task created and assigned to relevant person"
+        }
+      ]
+    },
+    {
+      "id": "F010",
+      "name": "User Feedback System",
+      "description": "Thumbs up/down, star rating, flag wrong, comments on responses",
+      "priority": "P1",
+      "phase": 3,
+      "status": "pending",
+      "dependencies": ["F001"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Click thumbs down on a response",
+          "expected": "Feedback recorded, thank you message shown"
+        },
+        {
+          "step": 2,
+          "action": "Click star rating (give 2 stars)",
+          "expected": "Rating recorded with timestamp and user"
+        },
+        {
+          "step": 3,
+          "action": "Click 'Flag as Wrong' and add comment",
+          "expected": "Admin receives notification of flagged response"
+        },
+        {
+          "step": 4,
+          "action": "As admin, view feedback dashboard",
+          "expected": "See all feedback aggregated with filters by type, date, user"
+        }
+      ]
+    },
+    {
+      "id": "F011",
+      "name": "Cost Tracking Dashboard",
+      "description": "Monitor API costs per user, per query type, with budget alerts",
+      "priority": "P2",
+      "phase": 3,
+      "status": "pending",
+      "dependencies": ["F001"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "As admin, open cost dashboard",
+          "expected": "See total cost today, this week, this month"
+        },
+        {
+          "step": 2,
+          "action": "View per-user breakdown",
+          "expected": "Table showing each user's API usage and cost"
+        },
+        {
+          "step": 3,
+          "action": "View per-query-type breakdown",
+          "expected": "See cost split: simple/medium/complex queries"
+        },
+        {
+          "step": 4,
+          "action": "Set budget alert threshold",
+          "expected": "Alert triggers when monthly cost exceeds threshold"
+        },
+        {
+          "step": 5,
+          "action": "As Director, view cost summary",
+          "expected": "Director can see high-level cost metrics (not per-user detail)"
+        }
+      ]
+    },
+    {
+      "id": "F012",
+      "name": "Full Audit Trail",
+      "description": "Log all queries, data accessed, reasoning, timestamps for compliance",
+      "priority": "P1",
+      "phase": 3,
+      "status": "pending",
+      "dependencies": ["F001"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "As admin, open audit log viewer",
+          "expected": "See list of all AI interactions with filters"
+        },
+        {
+          "step": 2,
+          "action": "Click on specific interaction",
+          "expected": "See: user, query, tools called, data accessed, response, feedback"
+        },
+        {
+          "step": 3,
+          "action": "Export audit log for date range",
+          "expected": "CSV/JSON export with all fields"
+        },
+        {
+          "step": 4,
+          "action": "Verify reasoning steps logged",
+          "expected": "Each planning and execution step recorded"
+        }
+      ]
+    },
+    {
+      "id": "F013",
+      "name": "Configurable Alert Thresholds",
+      "description": "Admin can configure thresholds for attendance, collection, etc.",
+      "priority": "P2",
+      "phase": 3,
+      "status": "pending",
+      "dependencies": ["F005"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "As admin, open AI configuration panel",
+          "expected": "See list of configurable thresholds"
+        },
+        {
+          "step": 2,
+          "action": "Change attendance threshold from 75% to 80%",
+          "expected": "Threshold updated, confirmation shown"
+        },
+        {
+          "step": 3,
+          "action": "Trigger briefing generation",
+          "expected": "Briefing uses new 80% threshold for alerts"
+        },
+        {
+          "step": 4,
+          "action": "As non-admin, try to access config panel",
+          "expected": "Access denied"
+        }
+      ]
+    },
+    {
+      "id": "F014",
+      "name": "Suggested Prompts UI",
+      "description": "Show example queries to help users learn the system",
+      "priority": "P2",
+      "phase": 4,
+      "status": "pending",
+      "dependencies": ["F001"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Open AI Assistant with empty conversation",
+          "expected": "See 6-8 suggested prompt chips/cards"
+        },
+        {
+          "step": 2,
+          "action": "Click on a suggested prompt",
+          "expected": "Prompt populated in input, ready to send"
+        },
+        {
+          "step": 3,
+          "action": "Verify prompts are role-appropriate",
+          "expected": "Director sees institution-wide prompts, Principal sees college-specific"
+        },
+        {
+          "step": 4,
+          "action": "Test on mobile",
+          "expected": "Suggested prompts display correctly on small screen"
+        }
+      ]
+    },
+    {
+      "id": "F015",
+      "name": "Mobile Optimization",
+      "description": "Responsive design for management on-the-go",
+      "priority": "P1",
+      "phase": 4,
+      "status": "pending",
+      "dependencies": ["F001", "F009", "F010"],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Open AI Assistant on iPhone",
+          "expected": "Full functionality, touch-friendly UI"
+        },
+        {
+          "step": 2,
+          "action": "Send query on mobile",
+          "expected": "Progress updates display smoothly"
+        },
+        {
+          "step": 3,
+          "action": "View comparison table on mobile",
+          "expected": "Table scrolls horizontally or reformats for mobile"
+        },
+        {
+          "step": 4,
+          "action": "Click action button on mobile",
+          "expected": "Action dialogs work on touch"
+        },
+        {
+          "step": 5,
+          "action": "Receive briefing notification on mobile",
+          "expected": "Notification appears, opens app to briefing"
+        }
+      ]
+    },
+    {
+      "id": "F016",
+      "name": "Fallback to Dashboards",
+      "description": "Graceful degradation when AI is unavailable",
+      "priority": "P2",
+      "phase": 4,
+      "status": "pending",
+      "dependencies": [],
+      "test_steps": [
+        {
+          "step": 1,
+          "action": "Simulate API outage (disconnect API key)",
+          "expected": "Error message: 'JKKN Assistant temporarily unavailable'"
+        },
+        {
+          "step": 2,
+          "action": "Check fallback option",
+          "expected": "'View Dashboards' button prominently displayed"
+        },
+        {
+          "step": 3,
+          "action": "Click 'View Dashboards'",
+          "expected": "Redirects to relevant dashboard based on user role"
+        },
+        {
+          "step": 4,
+          "action": "Restore API connection",
+          "expected": "AI Assistant automatically recovers, works again"
+        }
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Core Agentic Upgrade",
+      "features": ["F001", "F002", "F003", "F004"],
+      "estimated_duration": "1 week"
+    },
+    {
+      "phase": 2,
+      "name": "Daily Briefing & Comparison",
+      "features": ["F005", "F006", "F007", "F008"],
+      "estimated_duration": "1 week"
+    },
+    {
+      "phase": 3,
+      "name": "Actions & Feedback",
+      "features": ["F009", "F010", "F011", "F012", "F013"],
+      "estimated_duration": "1 week"
+    },
+    {
+      "phase": 4,
+      "name": "Polish & Scale",
+      "features": ["F014", "F015", "F016"],
+      "estimated_duration": "1 week"
+    }
+  ],
+  "total_features": 16,
+  "priority_breakdown": {
+    "P0_critical": 5,
+    "P1_high": 7,
+    "P2_medium": 4
+  }
+}

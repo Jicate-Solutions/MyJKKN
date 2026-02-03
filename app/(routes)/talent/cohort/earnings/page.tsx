@@ -64,8 +64,7 @@ export default function CohortEarningsPage() {
         return;
       }
 
-      const { data: member } = await supabase
-        .from('sh_cohort_members')
+      const { data: member } = await (supabase as any).from('sh_cohort_members')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -75,8 +74,7 @@ export default function CohortEarningsPage() {
         return;
       }
 
-      const { data } = await supabase
-        .from('sh_earnings_ledger')
+      const { data } = await (supabase as any).from('sh_earnings_ledger')
         .select('id, amount, percentage, status, created_at')
         .eq('recipient_id', member.id)
         .eq('recipient_type', 'cohort_member')

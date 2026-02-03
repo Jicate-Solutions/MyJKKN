@@ -113,8 +113,7 @@ export class BuildersService extends BaseService {
   ): Promise<BaseListResponse<BuilderWithDetails>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = this.supabase
-      .from('sh_builders')
+    let query = (this.supabase as any).from('sh_builders')
       .select(
         `
         *,
@@ -174,8 +173,7 @@ export class BuildersService extends BaseService {
    * Get a single builder by ID with all related data
    */
   static async getBuilderById(id: string): Promise<BuilderWithDetails | null> {
-    const { data, error } = await this.supabase
-      .from('sh_builders')
+    const { data, error } = await (this.supabase as any).from('sh_builders')
       .select(
         `
         *,
@@ -192,8 +190,7 @@ export class BuildersService extends BaseService {
     }
 
     // Get assignments with phase info
-    const { data: assignments } = await this.supabase
-      .from('sh_builder_assignments')
+    const { data: assignments } = await (this.supabase as any).from('sh_builder_assignments')
       .select(
         `
         *,
@@ -225,8 +222,7 @@ export class BuildersService extends BaseService {
    * Get builder by user ID
    */
   static async getBuilderByUserId(userId: string): Promise<BuilderWithDetails | null> {
-    const { data, error } = await this.supabase
-      .from('sh_builders')
+    const { data, error } = await (this.supabase as any).from('sh_builders')
       .select(
         `
         *,
@@ -249,8 +245,7 @@ export class BuildersService extends BaseService {
    * Create a new builder
    */
   static async createBuilder(input: CreateBuilderInput): Promise<Builder> {
-    const { data, error } = await this.supabase
-      .from('sh_builders')
+    const { data, error } = await (this.supabase as any).from('sh_builders')
       .insert({
         name: input.name,
         email: input.email,
@@ -270,8 +265,7 @@ export class BuildersService extends BaseService {
    * Update an existing builder
    */
   static async updateBuilder(id: string, input: UpdateBuilderInput): Promise<Builder> {
-    const { data, error } = await this.supabase
-      .from('sh_builders')
+    const { data, error } = await (this.supabase as any).from('sh_builders')
       .update({
         ...input,
         updated_at: new Date().toISOString(),
@@ -288,7 +282,7 @@ export class BuildersService extends BaseService {
    * Delete a builder
    */
   static async deleteBuilder(id: string): Promise<void> {
-    const { error } = await this.supabase.from('sh_builders').delete().eq('id', id);
+    const { error } = await (this.supabase as any).from('sh_builders').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete builder: ${error.message}`);
   }
@@ -302,8 +296,7 @@ export class BuildersService extends BaseService {
    */
   static async addBuilderSkill(input: AddSkillInput): Promise<BuilderSkill> {
     // Check for existing skill and get latest version
-    const { data: existing } = await this.supabase
-      .from('sh_builder_skills')
+    const { data: existing } = await (this.supabase as any).from('sh_builder_skills')
       .select('version')
       .eq('builder_id', input.builder_id)
       .eq('skill_name', input.skill_name)
@@ -312,8 +305,7 @@ export class BuildersService extends BaseService {
 
     const nextVersion = existing && existing.length > 0 ? existing[0].version + 1 : 1;
 
-    const { data, error } = await this.supabase
-      .from('sh_builder_skills')
+    const { data, error } = await (this.supabase as any).from('sh_builder_skills')
       .insert({
         builder_id: input.builder_id,
         skill_name: input.skill_name,
@@ -335,8 +327,7 @@ export class BuildersService extends BaseService {
     id: string,
     proficiencyLevel: number
   ): Promise<BuilderSkill> {
-    const { data, error } = await this.supabase
-      .from('sh_builder_skills')
+    const { data, error } = await (this.supabase as any).from('sh_builder_skills')
       .update({ proficiency_level: proficiencyLevel })
       .eq('id', id)
       .select()
@@ -350,7 +341,7 @@ export class BuildersService extends BaseService {
    * Remove a builder skill
    */
   static async removeBuilderSkill(id: string): Promise<void> {
-    const { error } = await this.supabase.from('sh_builder_skills').delete().eq('id', id);
+    const { error } = await (this.supabase as any).from('sh_builder_skills').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to remove skill: ${error.message}`);
   }
@@ -359,8 +350,7 @@ export class BuildersService extends BaseService {
    * Get skills for a builder
    */
   static async getBuilderSkills(builderId: string): Promise<BuilderSkill[]> {
-    const { data, error } = await this.supabase
-      .from('sh_builder_skills')
+    const { data, error } = await (this.supabase as any).from('sh_builder_skills')
       .select('*')
       .eq('builder_id', builderId)
       .order('skill_name', { ascending: true });
@@ -377,8 +367,7 @@ export class BuildersService extends BaseService {
    * Check if assignment needs approval and from whom
    */
   static async checkAssignmentApproval(phaseId: string): Promise<ApprovalResult> {
-    const { data: phase, error } = await this.supabase
-      .from('sh_solution_phases')
+    const { data: phase, error } = await (this.supabase as any).from('sh_solution_phases')
       .select('estimated_value')
       .eq('id', phaseId)
       .single();
@@ -409,8 +398,7 @@ export class BuildersService extends BaseService {
     // Check approval requirements
     const approval = await this.checkAssignmentApproval(input.phase_id);
 
-    const { data, error } = await this.supabase
-      .from('sh_builder_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_builder_assignments')
       .insert({
         phase_id: input.phase_id,
         builder_id: input.builder_id,
@@ -430,8 +418,7 @@ export class BuildersService extends BaseService {
    * Approve a pending assignment
    */
   static async approveAssignment(id: string, approverId: string): Promise<BuilderAssignment> {
-    const { data, error } = await this.supabase
-      .from('sh_builder_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_builder_assignments')
       .update({
         status: 'approved',
         approved_at: new Date().toISOString(),
@@ -449,8 +436,7 @@ export class BuildersService extends BaseService {
    * Start working on an assignment
    */
   static async startAssignment(id: string): Promise<BuilderAssignment> {
-    const { data, error } = await this.supabase
-      .from('sh_builder_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_builder_assignments')
       .update({
         status: 'active',
         started_at: new Date().toISOString(),
@@ -467,8 +453,7 @@ export class BuildersService extends BaseService {
    * Complete an assignment
    */
   static async completeAssignment(id: string): Promise<BuilderAssignment> {
-    const { data, error } = await this.supabase
-      .from('sh_builder_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_builder_assignments')
       .update({
         status: 'completed',
         completed_at: new Date().toISOString(),
@@ -485,8 +470,7 @@ export class BuildersService extends BaseService {
    * Withdraw from an assignment
    */
   static async withdrawAssignment(id: string): Promise<BuilderAssignment> {
-    const { data, error } = await this.supabase
-      .from('sh_builder_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_builder_assignments')
       .update({
         status: 'withdrawn',
       })
@@ -504,8 +488,7 @@ export class BuildersService extends BaseService {
   static async getAssignmentsByStatus(
     status: AssignmentStatus
   ): Promise<BuilderAssignmentWithPhase[]> {
-    const { data, error } = await this.supabase
-      .from('sh_builder_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_builder_assignments')
       .select(
         `
         *,
@@ -543,8 +526,7 @@ export class BuildersService extends BaseService {
    */
   static async getAvailableBuildersForPhase(phaseId: string): Promise<BuilderWithDetails[]> {
     // Get builders already assigned to this phase
-    const { data: existingAssignments } = await this.supabase
-      .from('sh_builder_assignments')
+    const { data: existingAssignments } = await (this.supabase as any).from('sh_builder_assignments')
       .select('builder_id')
       .eq('phase_id', phaseId)
       .in('status', ['requested', 'approved', 'active']);
@@ -552,8 +534,7 @@ export class BuildersService extends BaseService {
     const assignedBuilderIds = existingAssignments?.map((a) => a.builder_id) || [];
 
     // Get all active builders not assigned
-    let query = this.supabase
-      .from('sh_builders')
+    let query = (this.supabase as any).from('sh_builders')
       .select(
         `
         *,
@@ -587,20 +568,17 @@ export class BuildersService extends BaseService {
     totalSkills: number;
     activeAssignments: number;
   }> {
-    const { data: builders, error: buildersError } = await this.supabase
-      .from('sh_builders')
+    const { data: builders, error: buildersError } = await (this.supabase as any).from('sh_builders')
       .select('id, is_active, department_id');
 
     if (buildersError) throw new Error(`Failed to fetch builder stats: ${buildersError.message}`);
 
-    const { data: skills, error: skillsError } = await this.supabase
-      .from('sh_builder_skills')
+    const { data: skills, error: skillsError } = await (this.supabase as any).from('sh_builder_skills')
       .select('id');
 
     if (skillsError) throw new Error(`Failed to fetch skills count: ${skillsError.message}`);
 
-    const { data: assignments, error: assignmentsError } = await this.supabase
-      .from('sh_builder_assignments')
+    const { data: assignments, error: assignmentsError } = await (this.supabase as any).from('sh_builder_assignments')
       .select('id')
       .eq('status', 'active');
 

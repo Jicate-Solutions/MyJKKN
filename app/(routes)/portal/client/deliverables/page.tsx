@@ -75,8 +75,7 @@ export default function ClientDeliverablesPage() {
       return;
     }
 
-    const { data: client } = await supabase
-      .from('sh_clients')
+    const { data: client } = await (supabase as any).from('sh_clients')
       .select('id')
       .eq('user_id', user.id)
       .single();
@@ -87,8 +86,7 @@ export default function ClientDeliverablesPage() {
     }
 
     // Get solutions for this client
-    const { data: solutions } = await supabase
-      .from('sh_solutions')
+    const { data: solutions } = await (supabase as any).from('sh_solutions')
       .select('id, title')
       .eq('client_id', client.id);
 
@@ -100,8 +98,7 @@ export default function ClientDeliverablesPage() {
     const solutionIds = solutions.map(s => s.id);
 
     // Get content orders for these solutions
-    const { data: orders } = await supabase
-      .from('sh_content_orders')
+    const { data: orders } = await (supabase as any).from('sh_content_orders')
       .select('id, solution_id')
       .in('solution_id', solutionIds);
 
@@ -113,8 +110,7 @@ export default function ClientDeliverablesPage() {
     const orderIds = orders.map(o => o.id);
 
     // Get deliverables
-    const { data: deliverablesData } = await supabase
-      .from('sh_content_deliverables')
+    const { data: deliverablesData } = await (supabase as any).from('sh_content_deliverables')
       .select('id, title, status, file_url, notes, revision_count, created_at, order_id')
       .in('order_id', orderIds)
       .order('created_at', { ascending: false });
@@ -144,8 +140,7 @@ export default function ClientDeliverablesPage() {
     setActionLoading(true);
     const supabase = createClient();
 
-    const { error } = await supabase
-      .from('sh_content_deliverables')
+    const { error } = await (supabase as any).from('sh_content_deliverables')
       .update({ status: 'approved' })
       .eq('id', deliverableId);
 
@@ -168,8 +163,7 @@ export default function ClientDeliverablesPage() {
     setActionLoading(true);
     const supabase = createClient();
 
-    const { error } = await supabase
-      .from('sh_content_deliverables')
+    const { error } = await (supabase as any).from('sh_content_deliverables')
       .update({
         status: 'revision',
         notes: revisionNotes,

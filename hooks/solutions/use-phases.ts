@@ -31,6 +31,8 @@ export type PhaseStatus =
   | 'cancelled';
 
 export interface PhaseFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   solution_id?: string;
   status?: PhaseStatus;
   owner_department_id?: string;
@@ -206,7 +208,7 @@ export function useCreatePhase() {
 
   return useMutation({
     mutationFn: (input: CreatePhaseInput) => phasesService.createPhase(input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
       if (data?.solution_id) {
         queryClient.invalidateQueries({
@@ -226,7 +228,7 @@ export function useUpdatePhase() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdatePhaseInput }) =>
       phasesService.updatePhase(id, input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.phases.detail(data.id), data);
@@ -261,7 +263,7 @@ export function useCreateIteration() {
 
   return useMutation({
     mutationFn: (input: CreateIterationInput) => phasesService.createIteration(input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       if (data?.phase_id) {
         queryClient.invalidateQueries({
           queryKey: solutionsHubKeys.phases.detail(data.phase_id),
@@ -341,7 +343,7 @@ export function useCreateDeployment() {
 
   return useMutation({
     mutationFn: (input: CreateDeploymentInput) => phasesService.createDeployment(input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       if (data?.phase_id) {
         queryClient.invalidateQueries({
           queryKey: solutionsHubKeys.phases.detail(data.phase_id),

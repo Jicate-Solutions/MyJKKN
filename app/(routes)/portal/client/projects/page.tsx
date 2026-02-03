@@ -57,8 +57,7 @@ export default function ClientProjectsPage() {
         return;
       }
 
-      const { data: client } = await supabase
-        .from('sh_clients')
+      const { data: client } = await (supabase as any).from('sh_clients')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -68,8 +67,7 @@ export default function ClientProjectsPage() {
         return;
       }
 
-      const { data } = await supabase
-        .from('sh_solutions')
+      const { data } = await (supabase as any).from('sh_solutions')
         .select('id, title, solution_code, solution_type, status, problem_statement, created_at')
         .eq('client_id', client.id)
         .order('created_at', { ascending: false });

@@ -91,8 +91,7 @@ export default function CohortPortalHomePage() {
         return;
       }
 
-      const { data: member } = await supabase
-        .from('sh_cohort_members')
+      const { data: member } = await (supabase as any).from('sh_cohort_members')
         .select('id, level, total_earnings')
         .eq('user_id', user.id)
         .single();
@@ -110,12 +109,12 @@ export default function CohortPortalHomePage() {
         { count: upcomingCount },
         { data: nextSessionData },
       ] = await Promise.all([
-        supabase.from('sh_cohort_assignments').select('*', { count: 'exact', head: true })
+        (supabase as any).from('sh_cohort_assignments').select('*', { count: 'exact', head: true })
           .eq('cohort_member_id', member.id),
-        supabase.from('sh_training_sessions').select('*', { count: 'exact', head: true })
+        (supabase as any).from('sh_training_sessions').select('*', { count: 'exact', head: true })
           .eq('status', 'scheduled')
           .gte('session_date', new Date().toISOString().split('T')[0]),
-        supabase.from('sh_cohort_assignments')
+        (supabase as any).from('sh_cohort_assignments')
           .select(`
             role,
             session:sh_training_sessions(

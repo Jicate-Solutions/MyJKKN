@@ -18,8 +18,7 @@ export default async function ClientPortalLayout({
   }
 
   // Fetch client record
-  const { data: client } = await supabase
-    .from('sh_clients')
+  const { data: client } = await (supabase as any).from('sh_clients')
     .select('id, name, contact_email, company_name')
     .eq('user_id', user.id)
     .single();

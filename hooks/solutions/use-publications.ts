@@ -34,6 +34,8 @@ export type PublicationStatus =
 export type CreditType = 'coauthor' | 'acknowledgment';
 
 export interface PublicationFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   paper_type?: PaperType;
   journal_type?: JournalType;
   status?: PublicationStatus;
@@ -83,6 +85,8 @@ export interface AddContributorInput {
 }
 
 export interface AccreditationMetricFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   metric_type?: 'nirf' | 'naac';
   is_active?: boolean;
 }
@@ -206,7 +210,7 @@ export function useUpdatePublication() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdatePublicationInput }) =>
       publicationsService.updatePublication(id, input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.publications.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.accreditation.all });
       if (data?.id) {

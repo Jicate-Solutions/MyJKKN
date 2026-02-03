@@ -1,8 +1,10 @@
 // Admission Module Hooks
-// These are placeholder hooks - full implementation needed
+// Connected to LeadService for actual Supabase interactions
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { LeadService } from '@/lib/services/admission/lead-service';
+import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, LeadPriority } from '@/types/admission';
 
 // Re-export from use-consultants for convenience
 export { useSourcePerformance } from './use-consultants';
@@ -11,14 +13,13 @@ export { useSourcePerformance } from './use-consultants';
 // LEADS HOOKS
 // ============================================
 
-export function useAdmissionLeads(filters?: any) {
+export function useAdmissionLeads(filters?: LeadFilters) {
   const query = useQuery({
     queryKey: ['admission-leads', filters],
     queryFn: async () => {
-      // TODO: Implement with LeadService
-      return { data: [], metadata: { total: 0, page: 1, limit: 10, totalPages: 0 } };
+      return LeadService.getLeads(filters || {});
     },
-    enabled: true
+    enabled: !!filters?.institution_id
   });
 
   return {
@@ -26,6 +27,7 @@ export function useAdmissionLeads(filters?: any) {
     total: query.data?.metadata?.total || 0,
     totalPages: query.data?.metadata?.totalPages || 0,
     isLoading: query.isLoading,
+    error: query.error,
     refetch: query.refetch
   };
 }
@@ -34,104 +36,181 @@ export function useLeadMutations() {
   const queryClient = useQueryClient();
 
   const createLead = useMutation({
-    mutationFn: async (data: any) => {
-      // TODO: Implement with LeadService
+    mutationFn: async (data: CreateLeadInput) => {
+      return LeadService.createLead(data);
+    },
+    onSuccess: (data) => {
       toast.success('Lead created successfully');
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create lead');
+      throw error;
     }
   });
 
   const updateLead = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: any }) => {
-      // TODO: Implement with LeadService
-      toast.success('Lead updated successfully');
-      return data;
+    mutationFn: async ({ id, data }: { id: string; data: Partial<UpdateLeadInput> }) => {
+      return LeadService.updateLead(id, data);
     },
     onSuccess: () => {
+      toast.success('Lead updated successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update lead');
     }
   });
 
   const deleteLead = useMutation({
     mutationFn: async (id: string) => {
-      // TODO: Implement with LeadService
-      toast.success('Lead deleted successfully');
-      return id;
+      return LeadService.deleteLead(id);
     },
     onSuccess: () => {
+      toast.success('Lead deleted successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete lead');
     }
   });
 
   const updateStage = useMutation({
-    mutationFn: async ({ leadId, stage }: { leadId: string; stage: string }) => {
-      toast.success('Lead stage updated');
-      return { leadId, stage };
+    mutationFn: async ({ leadId, stage, notes }: { leadId: string; stage: FunnelStage; notes?: string }) => {
+      return LeadService.updateStage(leadId, stage, notes);
     },
     onSuccess: () => {
+      toast.success('Lead stage updated');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['lead-timeline'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update stage');
     }
   });
 
   const toggleHotLead = useMutation({
     mutationFn: async ({ leadId, isHot }: { leadId: string; isHot: boolean }) => {
-      toast.success(isHot ? 'Marked as hot lead' : 'Removed hot lead status');
-      return { leadId, isHot };
+      return LeadService.toggleHotLead(leadId, isHot);
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
+      toast.success(variables.isHot ? 'Marked as hot lead' : 'Removed hot lead status');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update hot lead status');
     }
   });
 
   const togglePriority = useMutation({
     mutationFn: async ({ leadId, isPriority }: { leadId: string; isPriority: boolean }) => {
-      toast.success(isPriority ? 'Marked as priority' : 'Removed priority status');
-      return { leadId, isPriority };
+      return LeadService.updatePriority(leadId, isPriority ? 'hot' : 'cold');
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
+      toast.success(variables.isPriority ? 'Marked as priority' : 'Removed priority status');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update priority');
     }
   });
 
   const addTag = useMutation({
     mutationFn: async ({ leadId, tag }: { leadId: string; tag: string }) => {
-      toast.success('Tag added');
-      return { leadId, tag };
+      return LeadService.addTag(leadId, tag);
     },
     onSuccess: () => {
+      toast.success('Tag added');
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to add tag');
     }
   });
 
   const removeTag = useMutation({
     mutationFn: async ({ leadId, tag }: { leadId: string; tag: string }) => {
-      toast.success('Tag removed');
-      return { leadId, tag };
+      return LeadService.removeTag(leadId, tag);
     },
     onSuccess: () => {
+      toast.success('Tag removed');
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to remove tag');
     }
   });
 
   const createLeadWithProfile = useMutation({
-    mutationFn: async (data: any) => {
-      // TODO: Implement with LeadService - creates lead with student profile
-      toast.success('Lead created with profile successfully');
+    mutationFn: async (data: CreateLeadInput) => {
+      // Create lead - profile creation will be handled separately if needed
+      return LeadService.createLead(data);
+    },
+    onSuccess: (data) => {
+      toast.success('Lead created successfully');
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create lead');
+      throw error;
     }
   });
 
-  return { createLead, updateLead, deleteLead, updateStage, toggleHotLead, togglePriority, addTag, removeTag, createLeadWithProfile };
+  const assignCounselor = useMutation({
+    mutationFn: async ({ leadId, counselorId }: { leadId: string; counselorId: string }) => {
+      return LeadService.assignCounselor(leadId, counselorId);
+    },
+    onSuccess: () => {
+      toast.success('Counselor assigned');
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to assign counselor');
+    }
+  });
+
+  const scheduleFollowup = useMutation({
+    mutationFn: async ({ leadId, followupDate }: { leadId: string; followupDate: string }) => {
+      return LeadService.scheduleFollowup(leadId, followupDate);
+    },
+    onSuccess: () => {
+      toast.success('Followup scheduled');
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to schedule followup');
+    }
+  });
+
+  return {
+    createLead,
+    updateLead,
+    deleteLead,
+    updateStage,
+    toggleHotLead,
+    togglePriority,
+    addTag,
+    removeTag,
+    createLeadWithProfile,
+    assignCounselor,
+    scheduleFollowup
+  };
 }
 
 // ============================================
@@ -291,19 +370,28 @@ export function useAdmissionDashboard(filters?: any) {
   const query = useQuery({
     queryKey: ['admission-dashboard', filters],
     queryFn: async () => {
-      // TODO: Implement
-      return {
-        summary: {
-          totalLeads: 0,
-          newLeads: 0,
-          convertedLeads: 0,
-          pendingFollowups: 0,
-          todayFollowups: 0,
-          conversionRate: 0
-        },
-        funnel: []
-      };
-    }
+      if (!filters?.institution_id) {
+        return {
+          summary: {
+            totalLeads: 0,
+            newLeads: 0,
+            convertedLeads: 0,
+            pendingFollowups: 0,
+            todayFollowups: 0,
+            conversionRate: 0
+          },
+          funnel: []
+        };
+      }
+
+      const [summary, funnel] = await Promise.all([
+        LeadService.getDashboardSummary(filters.institution_id),
+        LeadService.getFunnelSummary(filters.institution_id)
+      ]);
+
+      return { summary, funnel: funnel.stages };
+    },
+    enabled: !!filters?.institution_id
   });
 
   return {
@@ -326,15 +414,17 @@ export function useDashboardSummary(institutionId?: string) {
   const query = useQuery({
     queryKey: ['dashboard-summary', institutionId],
     queryFn: async () => {
-      // TODO: Implement
-      return {
-        totalLeads: 0,
-        newLeads: 0,
-        convertedLeads: 0,
-        pendingFollowups: 0,
-        todayFollowups: 0,
-        conversionRate: 0
-      };
+      if (!institutionId) {
+        return {
+          totalLeads: 0,
+          newLeads: 0,
+          convertedLeads: 0,
+          pendingFollowups: 0,
+          todayFollowups: 0,
+          conversionRate: 0
+        };
+      }
+      return LeadService.getDashboardSummary(institutionId);
     },
     enabled: !!institutionId
   });
@@ -357,14 +447,16 @@ export function useFunnelSummary(institutionId?: string) {
   const query = useQuery({
     queryKey: ['funnel-summary', institutionId],
     queryFn: async () => {
-      // TODO: Implement
-      return {
-        total: 0,
-        byStage: {} as Record<string, number>,
-        hotLeads: 0,
-        priorityLeads: 0,
-        stages: []
-      };
+      if (!institutionId) {
+        return {
+          total: 0,
+          byStage: {} as Record<string, number>,
+          hotLeads: 0,
+          priorityLeads: 0,
+          stages: []
+        };
+      }
+      return LeadService.getFunnelSummary(institutionId);
     },
     enabled: !!institutionId
   });
@@ -414,8 +506,8 @@ export function useAdmissionLead(id: string) {
   const query = useQuery({
     queryKey: ['admission-lead', id],
     queryFn: async () => {
-      // TODO: Implement
-      return null;
+      if (!id) return null;
+      return LeadService.getLead(id);
     },
     enabled: !!id
   });
@@ -423,6 +515,7 @@ export function useAdmissionLead(id: string) {
   return {
     lead: query.data,
     isLoading: query.isLoading,
+    error: query.error,
     refetch: query.refetch
   };
 }
@@ -431,8 +524,8 @@ export function useLeadTimeline(leadId: string) {
   const query = useQuery({
     queryKey: ['lead-timeline', leadId],
     queryFn: async () => {
-      // TODO: Implement
-      return [];
+      if (!leadId) return [];
+      return LeadService.getTimeline(leadId);
     },
     enabled: !!leadId
   });
@@ -447,7 +540,7 @@ export function useLeadCommunicationHistory(leadId: string) {
   const query = useQuery({
     queryKey: ['lead-communication-history', leadId],
     queryFn: async () => {
-      // TODO: Implement
+      // TODO: Implement with CommunicationService
       return [];
     },
     enabled: !!leadId

@@ -18,6 +18,8 @@ export type CommunicationType = 'email' | 'call' | 'meeting' | 'whatsapp' | 'oth
 export type CommunicationDirection = 'inbound' | 'outbound';
 
 export interface DiscoveryVisitFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   client_id?: string;
   department_id?: string;
   follow_up_required?: boolean;
@@ -55,6 +57,8 @@ export interface UpdateDiscoveryVisitInput {
 }
 
 export interface CommunicationFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   client_id?: string;
   solution_id?: string;
   communication_type?: CommunicationType;
@@ -187,7 +191,7 @@ export function useCreateDiscoveryVisit() {
   return useMutation({
     mutationFn: (input: CreateDiscoveryVisitInput) =>
       discoveryService.createDiscoveryVisit(input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.discoveryVisits.all });
       if (data?.client_id) {
         queryClient.invalidateQueries({
@@ -207,7 +211,7 @@ export function useUpdateDiscoveryVisit() {
   return useMutation({
     mutationFn: ({ id, updates }: { id: string; updates: UpdateDiscoveryVisitInput }) =>
       discoveryService.updateDiscoveryVisit(id, updates),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.discoveryVisits.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.discoveryVisits.detail(data.id), data);
@@ -246,7 +250,7 @@ export function useLinkVisitToResult() {
       solutionId: string;
       phaseId?: string;
     }) => discoveryService.linkVisitToResult(visitId, solutionId, phaseId),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.discoveryVisits.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.discoveryVisits.detail(data.id), data);
@@ -307,7 +311,7 @@ export function useCreateCommunication() {
   return useMutation({
     mutationFn: (input: CreateCommunicationInput) =>
       discoveryService.createCommunication(input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.communications.all });
       if (data?.client_id) {
         queryClient.invalidateQueries({
@@ -327,7 +331,7 @@ export function useUpdateCommunication() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateCommunicationInput }) =>
       discoveryService.updateCommunication(id, input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.communications.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.communications.detail(data.id), data);

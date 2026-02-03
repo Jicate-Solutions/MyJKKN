@@ -168,9 +168,8 @@ function HotLeadsList({
   institutionId: string;
 }) {
   const { leads, isLoading } = useAdmissionLeads({
-    institutionId,
-    isHotLead: true,
-    isActive: true
+    institution_id: institutionId,
+    priority: 'hot'
   });
 
   if (isLoading) {
@@ -206,12 +205,12 @@ function HotLeadsList({
             </div>
             <div>
               <p className="font-medium text-sm">{(lead as any).learner_profile?.full_name || (lead as any).full_name || 'Unknown'}</p>
-              <p className="text-xs text-muted-foreground">{lead.stage || 'New'}</p>
+              <p className="text-xs text-muted-foreground">{lead.funnel_stage || 'New'}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium px-2 py-1 rounded bg-primary/10 text-primary">
-              Score: {lead.combined_score || 0}
+              Score: {lead.score || 0}
             </span>
             <ArrowRight className="h-4 w-4 text-muted-foreground" />
           </div>

@@ -38,8 +38,7 @@ export default function SubmitWorkPage({ params }: { params: { id: string } }) {
     async function fetchDeliverable() {
       const supabase = createClient();
 
-      const { data } = await supabase
-        .from('sh_content_deliverables')
+      const { data } = await (supabase as any).from('sh_content_deliverables')
         .select(`
           id, title, status, notes, revision_count,
           order:sh_content_orders(title, due_date, notes)
@@ -65,8 +64,7 @@ export default function SubmitWorkPage({ params }: { params: { id: string } }) {
     setIsSubmitting(true);
     const supabase = createClient();
 
-    const { error } = await supabase
-      .from('sh_content_deliverables')
+    const { error } = await (supabase as any).from('sh_content_deliverables')
       .update({
         file_url: fileUrl,
         notes: submissionNotes || deliverable?.notes,

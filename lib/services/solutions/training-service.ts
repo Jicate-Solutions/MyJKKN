@@ -153,8 +153,7 @@ export class TrainingService extends BaseService {
   ): Promise<BaseListResponse<TrainingProgramWithDetails>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = this.supabase
-      .from('sh_training_programs')
+    let query = (this.supabase as any).from('sh_training_programs')
       .select(
         `
         *,
@@ -211,8 +210,7 @@ export class TrainingService extends BaseService {
    * Get a single program by ID
    */
   static async getProgramById(id: string): Promise<TrainingProgramWithDetails | null> {
-    const { data, error } = await this.supabase
-      .from('sh_training_programs')
+    const { data, error } = await (this.supabase as any).from('sh_training_programs')
       .select(
         `
         *,
@@ -241,8 +239,7 @@ export class TrainingService extends BaseService {
   static async getProgramBySolutionId(
     solutionId: string
   ): Promise<TrainingProgramWithDetails | null> {
-    const { data, error } = await this.supabase
-      .from('sh_training_programs')
+    const { data, error } = await (this.supabase as any).from('sh_training_programs')
       .select(
         `
         *,
@@ -269,8 +266,7 @@ export class TrainingService extends BaseService {
    * Create a new training program
    */
   static async createProgram(input: CreateTrainingProgramInput): Promise<TrainingProgram> {
-    const { data, error } = await this.supabase
-      .from('sh_training_programs')
+    const { data, error } = await (this.supabase as any).from('sh_training_programs')
       .insert({
         solution_id: input.solution_id,
         program_type: input.program_type,
@@ -292,8 +288,7 @@ export class TrainingService extends BaseService {
    * Update a training program
    */
   static async updateProgram(id: string, input: UpdateTrainingProgramInput): Promise<TrainingProgram> {
-    const { data, error } = await this.supabase
-      .from('sh_training_programs')
+    const { data, error } = await (this.supabase as any).from('sh_training_programs')
       .update({
         ...input,
         updated_at: new Date().toISOString(),
@@ -310,7 +305,7 @@ export class TrainingService extends BaseService {
    * Delete a training program
    */
   static async deleteProgram(id: string): Promise<void> {
-    const { error } = await this.supabase.from('sh_training_programs').delete().eq('id', id);
+    const { error } = await (this.supabase as any).from('sh_training_programs').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete program: ${error.message}`);
   }
@@ -327,8 +322,7 @@ export class TrainingService extends BaseService {
   ): Promise<BaseListResponse<TrainingSessionWithDetails>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = this.supabase
-      .from('sh_training_sessions')
+    let query = (this.supabase as any).from('sh_training_sessions')
       .select(
         `
         *,
@@ -384,8 +378,7 @@ export class TrainingService extends BaseService {
    * Get a single session by ID
    */
   static async getSessionById(id: string): Promise<TrainingSessionWithDetails | null> {
-    const { data, error } = await this.supabase
-      .from('sh_training_sessions')
+    const { data, error } = await (this.supabase as any).from('sh_training_sessions')
       .select(
         `
         *,
@@ -413,8 +406,7 @@ export class TrainingService extends BaseService {
   static async getSessionsByProgramId(
     programId: string
   ): Promise<TrainingSessionWithDetails[]> {
-    const { data, error } = await this.supabase
-      .from('sh_training_sessions')
+    const { data, error } = await (this.supabase as any).from('sh_training_sessions')
       .select(
         `
         *,
@@ -439,8 +431,7 @@ export class TrainingService extends BaseService {
     // Get next session number if not provided
     let sessionNumber = input.session_number;
     if (!sessionNumber) {
-      const { data: existing } = await this.supabase
-        .from('sh_training_sessions')
+      const { data: existing } = await (this.supabase as any).from('sh_training_sessions')
         .select('session_number')
         .eq('program_id', input.program_id)
         .order('session_number', { ascending: false })
@@ -449,8 +440,7 @@ export class TrainingService extends BaseService {
       sessionNumber = existing && existing.length > 0 ? (existing[0].session_number || 0) + 1 : 1;
     }
 
-    const { data, error } = await this.supabase
-      .from('sh_training_sessions')
+    const { data, error } = await (this.supabase as any).from('sh_training_sessions')
       .insert({
         program_id: input.program_id,
         session_number: sessionNumber,
@@ -471,8 +461,7 @@ export class TrainingService extends BaseService {
    * Update a training session
    */
   static async updateSession(id: string, input: UpdateTrainingSessionInput): Promise<TrainingSession> {
-    const { data, error } = await this.supabase
-      .from('sh_training_sessions')
+    const { data, error } = await (this.supabase as any).from('sh_training_sessions')
       .update(input)
       .eq('id', id)
       .select()
@@ -486,7 +475,7 @@ export class TrainingService extends BaseService {
    * Delete a training session
    */
   static async deleteSession(id: string): Promise<void> {
-    const { error } = await this.supabase.from('sh_training_sessions').delete().eq('id', id);
+    const { error } = await (this.supabase as any).from('sh_training_sessions').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete session: ${error.message}`);
   }
@@ -495,8 +484,7 @@ export class TrainingService extends BaseService {
    * Check if a session can be self-claimed based on solution value
    */
   static async canSelfClaimSession(sessionId: string): Promise<boolean> {
-    const { data, error } = await this.supabase
-      .from('sh_training_sessions')
+    const { data, error } = await (this.supabase as any).from('sh_training_sessions')
       .select(
         `
         program:sh_training_programs(
@@ -526,8 +514,7 @@ export class TrainingService extends BaseService {
     role: 'observer' | 'co_lead' | 'lead' | 'support' = 'lead'
   ): Promise<CohortAssignment> {
     // Check if already assigned
-    const { data: existing } = await this.supabase
-      .from('sh_cohort_assignments')
+    const { data: existing } = await (this.supabase as any).from('sh_cohort_assignments')
       .select('id')
       .eq('session_id', sessionId)
       .eq('cohort_member_id', cohortMemberId)
@@ -537,8 +524,7 @@ export class TrainingService extends BaseService {
       throw new Error('Already assigned to this session');
     }
 
-    const { data, error } = await this.supabase
-      .from('sh_cohort_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_cohort_assignments')
       .insert({
         session_id: sessionId,
         cohort_member_id: cohortMemberId,
@@ -562,8 +548,7 @@ export class TrainingService extends BaseService {
     role: 'observer' | 'co_lead' | 'lead' | 'support' = 'lead'
   ): Promise<CohortAssignment> {
     // Check if already assigned
-    const { data: existing } = await this.supabase
-      .from('sh_cohort_assignments')
+    const { data: existing } = await (this.supabase as any).from('sh_cohort_assignments')
       .select('id')
       .eq('session_id', sessionId)
       .eq('cohort_member_id', cohortMemberId)
@@ -573,8 +558,7 @@ export class TrainingService extends BaseService {
       throw new Error('Already assigned to this session');
     }
 
-    const { data, error } = await this.supabase
-      .from('sh_cohort_assignments')
+    const { data, error } = await (this.supabase as any).from('sh_cohort_assignments')
       .insert({
         session_id: sessionId,
         cohort_member_id: cohortMemberId,
@@ -592,8 +576,7 @@ export class TrainingService extends BaseService {
    * Remove assignment from session
    */
   static async removeAssignment(sessionId: string, cohortMemberId: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('sh_cohort_assignments')
+    const { error } = await (this.supabase as any).from('sh_cohort_assignments')
       .delete()
       .eq('session_id', sessionId)
       .eq('cohort_member_id', cohortMemberId);
@@ -610,8 +593,7 @@ export class TrainingService extends BaseService {
     notes?: string
   ): Promise<TrainingSession> {
     // Update session status
-    const { data: session, error: sessionError } = await this.supabase
-      .from('sh_training_sessions')
+    const { data: session, error: sessionError } = await (this.supabase as any).from('sh_training_sessions')
       .update({
         status: 'completed' as SessionStatus,
         attendance_count: attendanceCount,
@@ -624,8 +606,7 @@ export class TrainingService extends BaseService {
     if (sessionError) throw new Error(`Failed to complete session: ${sessionError.message}`);
 
     // Get assignments and update cohort member stats
-    const { data: assignments } = await this.supabase
-      .from('sh_cohort_assignments')
+    const { data: assignments } = await (this.supabase as any).from('sh_cohort_assignments')
       .select('cohort_member_id, role')
       .eq('session_id', sessionId);
 
@@ -638,16 +619,14 @@ export class TrainingService extends BaseService {
             ? 'sessions_co_led'
             : 'sessions_led';
 
-        const { data: member } = await this.supabase
-          .from('sh_cohort_members')
+        const { data: member } = await (this.supabase as any).from('sh_cohort_members')
           .select(updateField)
           .eq('id', assignment.cohort_member_id)
           .single();
 
         if (member) {
           const currentValue = (member as Record<string, number>)[updateField] || 0;
-          await this.supabase
-            .from('sh_cohort_members')
+          await (this.supabase as any).from('sh_cohort_members')
             .update({
               [updateField]: currentValue + 1,
               updated_at: new Date().toISOString(),
@@ -656,8 +635,7 @@ export class TrainingService extends BaseService {
         }
 
         // Mark assignment as completed
-        await this.supabase
-          .from('sh_cohort_assignments')
+        await (this.supabase as any).from('sh_cohort_assignments')
           .update({
             completed_at: new Date().toISOString(),
           })

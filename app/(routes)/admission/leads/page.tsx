@@ -34,6 +34,7 @@ import {
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { useAdmissionLeads, useLeadMutations } from '@/hooks/admission';
+import type { AdmissionLead, FunnelStage, LeadPriority } from '@/types/admission';
 import {
   Users,
   UserPlus,
@@ -46,8 +47,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
-  X,
-  Loader2
+  X
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -145,15 +145,13 @@ function AdmissionLeadsPageContent() {
 
   // Parse filters from URL
   const filters = {
-    institutionId: institutionId || '',
-    stage: searchParams.get('stage') || undefined,
-    isHotLead: searchParams.get('isHotLead') === 'true' ? true : undefined,
-    isPriority: searchParams.get('isPriority') === 'true' ? true : undefined,
+    institution_id: institutionId || '',
+    funnel_stage: (searchParams.get('funnel_stage') || undefined) as FunnelStage | undefined,
+    priority: (searchParams.get('priority') || undefined) as LeadPriority | undefined,
     search: searchParams.get('search') || undefined
   };
 
   const page = parseInt(searchParams.get('page') || '1', 10);
-  const pageSize = parseInt(searchParams.get('pageSize') || '20', 10);
 
   const {
     leads,
@@ -201,9 +199,8 @@ function AdmissionLeadsPageContent() {
   );
 
   const activeFilterCount = [
-    filters.stage,
-    filters.isHotLead,
-    filters.isPriority,
+    filters.funnel_stage,
+    filters.priority,
     filters.search
   ].filter(Boolean).length;
 
@@ -297,8 +294,8 @@ function AdmissionLeadsPageContent() {
                 </div>
 
                 <Select
-                  value={filters.stage || '_all'}
-                  onValueChange={(value) => updateParams('stage', value === '_all' ? undefined : value)}
+                  value={filters.funnel_stage || '_all'}
+                  onValueChange={(value) => updateParams('funnel_stage', value === '_all' ? undefined : value)}
                 >
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="All Stages" />
@@ -314,9 +311,9 @@ function AdmissionLeadsPageContent() {
                 </Select>
 
                 <Button
-                  variant={filters.isHotLead ? 'default' : 'outline'}
+                  variant={filters.priority === 'hot' ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => updateParams('isHotLead', filters.isHotLead ? undefined : 'true')}
+                  onClick={() => updateParams('priority', filters.priority === 'hot' ? undefined : 'hot')}
                   className="gap-2"
                 >
                   <Flame className="h-4 w-4" />
@@ -324,13 +321,13 @@ function AdmissionLeadsPageContent() {
                 </Button>
 
                 <Button
-                  variant={filters.isPriority ? 'default' : 'outline'}
+                  variant={filters.priority === 'warm' ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => updateParams('isPriority', filters.isPriority ? undefined : 'true')}
+                  onClick={() => updateParams('priority', filters.priority === 'warm' ? undefined : 'warm')}
                   className="gap-2"
                 >
                   <Star className="h-4 w-4" />
-                  Priority
+                  Warm Leads
                 </Button>
               </div>
             </CardContent>
@@ -373,17 +370,17 @@ function AdmissionLeadsPageContent() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    leads.map((lead) => (
+                    leads.map((lead: AdmissionLead) => (
                       <TableRow key={lead.id} className="cursor-pointer hover:bg-muted/50">
                         <TableCell>
                           <Link href={`/admission/leads/${lead.id}`} className="block">
                             <div className="flex items-center gap-2">
-                              <div className="font-medium">{(lead as any).full_name || 'Unknown'}</div>
+                              <div className="font-medium">{lead.full_name || 'Unknown'}</div>
                               <div className="flex gap-1">
-                                {lead.is_hot_lead && (
+                                {lead.priority === 'hot' && (
                                   <Flame className="h-4 w-4 text-orange-500" />
                                 )}
-                                {lead.is_priority && (
+                                {lead.priority === 'warm' && (
                                   <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
                                 )}
                               </div>
@@ -392,21 +389,21 @@ function AdmissionLeadsPageContent() {
                         </TableCell>
                         <TableCell>
                           <div className="text-sm">
-                            {(lead as any).email && <div>{(lead as any).email}</div>}
-                            {(lead as any).phone && <div className="text-muted-foreground">{(lead as any).phone}</div>}
+                            {lead.email && <div>{lead.email}</div>}
+                            {lead.phone && <div className="text-muted-foreground">{lead.phone}</div>}
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge className={getStageColor(lead.stage)} variant="secondary">
-                            {lead.stage?.replace(/_/g, ' ') || 'New'}
+                          <Badge className={getStageColor(lead.funnel_stage)} variant="secondary">
+                            {lead.funnel_stage?.replace(/_/g, ' ') || 'New'}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-center">
-                          <span className="font-medium">{lead.combined_score || 0}</span>
+                          <span className="font-medium">{lead.score || 0}</span>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm text-muted-foreground">
-                            {(lead as any).first_touch_source || '-'}
+                            {lead.source || '-'}
                           </span>
                         </TableCell>
                         <TableCell>
@@ -435,25 +432,25 @@ function AdmissionLeadsPageContent() {
                                 onClick={() => {
                                   toggleHotLead.mutate({
                                     leadId: lead.id,
-                                    isHot: !lead.is_hot_lead
+                                    isHot: lead.priority !== 'hot'
                                   });
-                                  toast.success(lead.is_hot_lead ? 'Hot status removed' : 'Marked as hot lead');
+                                  toast.success(lead.priority === 'hot' ? 'Hot status removed' : 'Marked as hot lead');
                                 }}
                               >
                                 <Flame className="h-4 w-4 mr-2" />
-                                {lead.is_hot_lead ? 'Remove Hot Status' : 'Mark as Hot'}
+                                {lead.priority === 'hot' ? 'Remove Hot Status' : 'Mark as Hot'}
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => {
                                   togglePriority.mutate({
                                     leadId: lead.id,
-                                    isPriority: !lead.is_priority
+                                    isPriority: lead.priority !== 'warm'
                                   });
-                                  toast.success(lead.is_priority ? 'Priority removed' : 'Marked as priority');
+                                  toast.success(lead.priority === 'warm' ? 'Priority removed' : 'Marked as warm');
                                 }}
                               >
                                 <Star className="h-4 w-4 mr-2" />
-                                {lead.is_priority ? 'Remove Priority' : 'Mark as Priority'}
+                                {lead.priority === 'warm' ? 'Remove Warm Status' : 'Mark as Warm'}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>

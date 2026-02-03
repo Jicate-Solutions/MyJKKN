@@ -89,8 +89,7 @@ export default function AvailableSessionsPage() {
         return;
       }
 
-      const { data: member } = await supabase
-        .from('sh_cohort_members')
+      const { data: member } = await (supabase as any).from('sh_cohort_members')
         .select('id, level')
         .eq('user_id', user.id)
         .single();
@@ -104,8 +103,7 @@ export default function AvailableSessionsPage() {
       setMemberLevel(member.level || 0);
 
       // Fetch available sessions
-      const { data } = await supabase
-        .from('sh_training_sessions')
+      const { data } = await (supabase as any).from('sh_training_sessions')
         .select(`
           id, title, session_date, start_time, location,
           program:sh_training_programs(
@@ -140,7 +138,7 @@ export default function AvailableSessionsPage() {
     setIsClaiming(true);
     const supabase = createClient();
 
-    const { error } = await supabase.from('sh_cohort_assignments').insert({
+    const { error } = await (supabase as any).from('sh_cohort_assignments').insert({
       session_id: claimSession.id,
       cohort_member_id: memberId,
       role: selectedRole,

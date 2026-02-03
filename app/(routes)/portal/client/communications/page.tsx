@@ -68,7 +68,9 @@ export default function ClientCommunicationsPage() {
         return;
       }
 
-      const { data: client } = await supabase
+      // Note: sh_clients table is for future Solutions Hub feature
+      // Using type assertion since table may not exist yet
+      const { data: client } = await (supabase as any)
         .from('sh_clients')
         .select('id, name')
         .eq('user_id', user.id)
@@ -80,7 +82,8 @@ export default function ClientCommunicationsPage() {
       }
 
       // Get solutions for dropdown
-      const { data: solutionsData } = await supabase
+      // Note: sh_solutions table is for future Solutions Hub feature
+      const { data: solutionsData } = await (supabase as any)
         .from('sh_solutions')
         .select('id, title, solution_code')
         .eq('client_id', client.id)

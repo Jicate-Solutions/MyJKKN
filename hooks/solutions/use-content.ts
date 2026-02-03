@@ -40,6 +40,8 @@ export type DeliverableStatus =
   | 'delivered';
 
 export interface ContentOrderFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   solution_id?: string;
   order_type?: ContentOrderType;
   division?: ContentDivision;
@@ -72,6 +74,8 @@ export interface UpdateContentOrderInput {
 }
 
 export interface DeliverableFilters {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   order_id?: string;
   status?: DeliverableStatus;
   search?: string;
@@ -248,7 +252,7 @@ export function useUpdateContentOrder() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateContentOrderInput }) =>
       contentService.updateContentOrder(id, input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentOrders.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.contentOrders.detail(data.id), data);
@@ -323,7 +327,7 @@ export function useCreateDeliverable() {
   return useMutation({
     mutationFn: (input: CreateDeliverableInput) =>
       contentService.createDeliverable(input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
       if (data?.order_id) {
         queryClient.invalidateQueries({
@@ -343,7 +347,7 @@ export function useUpdateDeliverable() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateDeliverableInput }) =>
       contentService.updateDeliverable(id, input),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.contentDeliverables.detail(data.id), data);

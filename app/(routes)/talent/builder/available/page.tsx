@@ -104,8 +104,7 @@ export default function AvailablePhasesPage() {
         return;
       }
 
-      const { data: builder } = await supabase
-        .from('sh_builders')
+      const { data: builder } = await (supabase as any).from('sh_builders')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -118,8 +117,7 @@ export default function AvailablePhasesPage() {
       setBuilderId(builder.id);
 
       // Fetch available phases (not yet assigned to this builder)
-      const { data } = await supabase
-        .from('sh_solution_phases')
+      const { data } = await (supabase as any).from('sh_solution_phases')
         .select(`
           id, title, description, status, estimated_value,
           solution:sh_solutions(
@@ -145,7 +143,7 @@ export default function AvailablePhasesPage() {
 
     const canSelfClaim = !selectedPhase.estimated_value || selectedPhase.estimated_value <= SELF_CLAIM_THRESHOLD;
 
-    const { error } = await supabase.from('sh_builder_assignments').insert({
+    const { error } = await (supabase as any).from('sh_builder_assignments').insert({
       phase_id: selectedPhase.id,
       builder_id: builderId,
       role: 'contributor',

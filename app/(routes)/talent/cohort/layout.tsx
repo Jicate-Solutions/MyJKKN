@@ -17,8 +17,7 @@ export default async function CohortPortalLayout({
   }
 
   // Check if user is a cohort member
-  const { data: cohortMember } = await supabase
-    .from('sh_cohort_members')
+  const { data: cohortMember } = await (supabase as any).from('sh_cohort_members')
     .select('id, name, level, is_active')
     .eq('user_id', user.id)
     .single();

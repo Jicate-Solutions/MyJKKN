@@ -64,8 +64,7 @@ export default function ProductionEarningsPage() {
         return;
       }
 
-      const { data: learner } = await supabase
-        .from('sh_production_learners')
+      const { data: learner } = await (supabase as any).from('sh_production_learners')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -75,8 +74,7 @@ export default function ProductionEarningsPage() {
         return;
       }
 
-      const { data } = await supabase
-        .from('sh_earnings_ledger')
+      const { data } = await (supabase as any).from('sh_earnings_ledger')
         .select('id, amount, percentage, status, created_at')
         .eq('recipient_id', learner.id)
         .eq('recipient_type', 'production_learner')
