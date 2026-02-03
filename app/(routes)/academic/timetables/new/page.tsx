@@ -456,8 +456,20 @@ export default function NewTimetablePage() {
             ? 'Timetable created from template successfully!'
             : 'Timetable created successfully!';
         toast.success(successMessage);
-        // Redirect to the newly created timetable's details page
-        router.push(`/academic/timetables/${(createdTimetable as any)?.id}`);
+
+        // FIX: 2026-02-03 - Validate created timetable ID before redirect
+        // Ensure we have a valid UUID, not a temporary placeholder
+        const timetableId = (createdTimetable as any)?.id;
+        if (timetableId && !timetableId.includes('%%drp:id:')) {
+          // Redirect to the newly created timetable's details page
+          router.push(`/academic/timetables/${timetableId}`);
+        } else {
+          logger.error('academic/timetables', 'Invalid timetable ID returned from creation', {
+            timetableId
+          });
+          // Redirect to list page instead of detail page with invalid ID
+          router.push('/academic/timetables');
+        }
       } else {
         toast.error('Failed to create timetable. Please try again.');
       }
