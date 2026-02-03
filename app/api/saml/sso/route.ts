@@ -13,8 +13,6 @@ import { SamlIdpService } from '@/lib/services/saml/saml-idp-service';
 import { SamlSessionService } from '@/lib/services/saml/saml-session-service';
 import { SamlError, SAML_ERROR_CODES } from '@/types/saml';
 
-export const dynamic = 'force-dynamic';
-
 export async function GET(request: NextRequest) {
   return handleSamlSso(request, 'redirect');
 }
