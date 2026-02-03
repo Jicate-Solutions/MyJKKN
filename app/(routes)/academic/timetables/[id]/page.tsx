@@ -137,6 +137,18 @@ const ALL_DAYS_OF_WEEK: DayOfWeek[] = [
   'SATURDAY'
 ];
 
+/**
+ * Validates if a string is a valid UUID format
+ * Also rejects TanStack Table's temporary drag IDs (%%drp:id:xxxxx%%)
+ */
+function isValidUUID(id: string): boolean {
+  if (!id) return false;
+  // Reject TanStack Table temporary drag IDs
+  if (id.includes('%%drp:id:')) return false;
+  // Check UUID format
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
 export default function TimetableDetailPage({
   params
 }: {
@@ -146,6 +158,24 @@ export default function TimetableDetailPage({
   const unwrappedParams = use(params);
   const timetableId = unwrappedParams.id;
   const { saveTimetableAsTemplate } = useTimetables();
+
+  // Early validation for invalid timetable IDs (e.g., TanStack Table drag placeholders)
+  if (!isValidUUID(timetableId)) {
+    return (
+      <ContentLayout title="Invalid Timetable">
+        <div className="text-center py-8">
+          <p className="text-destructive mb-4">Invalid timetable ID. Please navigate from the timetables list.</p>
+          <Button
+            variant="outline"
+            onClick={() => router.push('/academic/timetables')}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Timetables
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   // Get permissions for role-based access control
   const { canAccess, isSuperAdmin } = usePermissions();
