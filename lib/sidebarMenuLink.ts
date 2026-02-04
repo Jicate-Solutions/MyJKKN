@@ -433,6 +433,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/maturity-assessment/benchmarks': 'tqm.maturity.benchmarks.view',
   '/okr/abcd': 'okr.abcd.view',
 
+  // Value Added Courses (VAC) Module
+  '/vac': 'vac.view',
+  '/vac/progress': 'vac.progress.view',
+  '/vac/admin/courses': 'vac.admin.view',
+  '/vac/admin/courses/new': 'vac.admin.create',
+  '/vac/admin/courses/[id]': 'vac.admin.view',
+  '/vac/admin/courses/[id]/edit': 'vac.admin.edit',
+  '/vac/admin/analytics': 'vac.admin.analytics',
+  '/vac/[courseId]': 'vac.view',
+  '/vac/[courseId]/[lessonId]': 'vac.view',
+
   // Solutions Hub Module (Admin/Staff Views)
   '/solutions': 'solutions.view',
   '/solutions/clients': 'solutions.clients.view',
@@ -974,6 +985,48 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/academic/attendance/consolidation',
               label: 'Consolidation Reports',
               active: pathname.startsWith('/academic/attendance/consolidation')
+            }
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Value Added Courses',
+      menus: [
+        {
+          href: '/vac',
+          label: 'All Courses',
+          active: pathname === '/vac',
+          icon: BookOpen,
+          submenus: []
+        },
+        {
+          href: '/vac/progress',
+          label: 'My Progress',
+          active: pathname === '/vac/progress',
+          icon: TrendingUp,
+          submenus: []
+        },
+        {
+          href: '/vac/admin/courses',
+          label: 'Course Admin',
+          active: pathname.startsWith('/vac/admin'),
+          icon: Settings,
+          submenus: [
+            {
+              href: '/vac/admin/courses',
+              label: 'Manage Courses',
+              active: pathname === '/vac/admin/courses'
+            },
+            {
+              href: '/vac/admin/courses/new',
+              label: 'Create Course',
+              active: pathname === '/vac/admin/courses/new'
+            },
+            {
+              href: '/vac/admin/analytics',
+              label: 'Analytics',
+              active: pathname === '/vac/admin/analytics'
             }
           ]
         }

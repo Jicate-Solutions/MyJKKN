@@ -7,7 +7,7 @@ interface RouteConfig {
 
 export const PROTECTED_ROUTES: Record<string, RouteConfig> = {
   ADMIN_ONLY: {
-    paths: ['/system'],
+    paths: ['/system', '/vac/admin'],
     roles: [SYSTEM_ROLES.ADMINISTRATOR, SYSTEM_ROLES.SUPER_ADMIN]
   },
   USER_ONLY: {
