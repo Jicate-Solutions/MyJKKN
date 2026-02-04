@@ -66,13 +66,13 @@ CREATE TABLE IF NOT EXISTS admission_drip_sequences (
     -- Metadata
     created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now(),
-
-    -- Constraints
-    CONSTRAINT unique_active_sequence_per_lead_workflow
-        UNIQUE NULLS NOT DISTINCT (workflow_id, lead_id)
-        WHERE (status IN ('active', 'paused'))
+    updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Partial unique index to ensure only one active/paused sequence per lead per workflow
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_sequence_per_lead_workflow
+    ON admission_drip_sequences(workflow_id, lead_id)
+    WHERE status IN ('active', 'paused');
 
 -- Drip Schedule: Individual steps scheduled for execution
 CREATE TABLE IF NOT EXISTS admission_drip_schedule (
@@ -172,14 +172,14 @@ DROP TRIGGER IF EXISTS trg_drip_sequences_updated_at ON admission_drip_sequences
 CREATE TRIGGER trg_drip_sequences_updated_at
     BEFORE UPDATE ON admission_drip_sequences
     FOR EACH ROW
-    EXECUTE FUNCTION update_admission_updated_at();
+    EXECUTE FUNCTION update_updated_at_column();
 
 -- Update timestamp trigger for drip_schedule
 DROP TRIGGER IF EXISTS trg_drip_schedule_updated_at ON admission_drip_schedule;
 CREATE TRIGGER trg_drip_schedule_updated_at
     BEFORE UPDATE ON admission_drip_schedule
     FOR EACH ROW
-    EXECUTE FUNCTION update_admission_updated_at();
+    EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
 -- RLS POLICIES

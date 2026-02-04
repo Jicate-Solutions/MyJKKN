@@ -56,6 +56,59 @@ CREATE TABLE IF NOT EXISTS admission_lead_scores (
   CONSTRAINT unique_lead_score UNIQUE (lead_id)
 );
 
+-- Add missing columns if table was created by earlier migration
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'admission_lead_scores' AND column_name = 'engagement_score'
+  ) THEN
+    ALTER TABLE admission_lead_scores ADD COLUMN engagement_score INTEGER NOT NULL DEFAULT 0;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'admission_lead_scores' AND column_name = 'quality_score'
+  ) THEN
+    ALTER TABLE admission_lead_scores ADD COLUMN quality_score INTEGER NOT NULL DEFAULT 0;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'admission_lead_scores' AND column_name = 'factors'
+  ) THEN
+    ALTER TABLE admission_lead_scores ADD COLUMN factors JSONB NOT NULL DEFAULT '{}'::jsonb;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'admission_lead_scores' AND column_name = 'score_category'
+  ) THEN
+    ALTER TABLE admission_lead_scores ADD COLUMN score_category VARCHAR(50) NOT NULL DEFAULT 'Unknown';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'admission_lead_scores' AND column_name = 'recommended_action'
+  ) THEN
+    ALTER TABLE admission_lead_scores ADD COLUMN recommended_action TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'admission_lead_scores' AND column_name = 'scoring_rule_id'
+  ) THEN
+    ALTER TABLE admission_lead_scores ADD COLUMN scoring_rule_id UUID REFERENCES admission_scoring_rules(id) ON DELETE SET NULL;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'admission_lead_scores' AND column_name = 'expires_at'
+  ) THEN
+    ALTER TABLE admission_lead_scores ADD COLUMN expires_at TIMESTAMPTZ;
+  END IF;
+END $$;
+
 -- Create indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_lead_scores_institution ON admission_lead_scores(institution_id);
 CREATE INDEX IF NOT EXISTS idx_lead_scores_total_score ON admission_lead_scores(total_score DESC);

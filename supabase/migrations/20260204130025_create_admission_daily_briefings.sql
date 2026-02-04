@@ -8,22 +8,40 @@ CREATE TABLE IF NOT EXISTS admission_daily_briefings (
   institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('counselor', 'manager', 'admin')),
-  date DATE NOT NULL DEFAULT CURRENT_DATE,
+  briefing_date DATE NOT NULL DEFAULT CURRENT_DATE,
   content JSONB NOT NULL DEFAULT '{}'::jsonb,
   is_read BOOLEAN NOT NULL DEFAULT false,
   read_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-  -- Ensure one briefing per user per date
-  UNIQUE(user_id, date)
+  -- Ensure one briefing per user per briefing_date
+  UNIQUE(user_id, briefing_date)
 );
+
+-- Add missing columns if table exists from earlier migration
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'admission_daily_briefings' AND column_name = 'role'
+  ) THEN
+    ALTER TABLE admission_daily_briefings ADD COLUMN role TEXT NOT NULL DEFAULT 'counselor';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'admission_daily_briefings' AND column_name = 'updated_at'
+  ) THEN
+    ALTER TABLE admission_daily_briefings ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+END $$;
 
 -- Create indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_daily_briefings_user_id ON admission_daily_briefings(user_id);
 CREATE INDEX IF NOT EXISTS idx_daily_briefings_institution_id ON admission_daily_briefings(institution_id);
-CREATE INDEX IF NOT EXISTS idx_daily_briefings_date ON admission_daily_briefings(date DESC);
-CREATE INDEX IF NOT EXISTS idx_daily_briefings_user_date ON admission_daily_briefings(user_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_briefings_briefing_date ON admission_daily_briefings(briefing_date DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_briefings_user_briefing_date ON admission_daily_briefings(user_id, briefing_date DESC);
 CREATE INDEX IF NOT EXISTS idx_daily_briefings_is_read ON admission_daily_briefings(user_id, is_read) WHERE NOT is_read;
 
 -- Add comment describing the content JSONB structure
@@ -41,7 +59,12 @@ COMMENT ON COLUMN admission_daily_briefings.content IS 'JSON structure: {
 -- Enable RLS
 ALTER TABLE admission_daily_briefings ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies
+-- RLS Policies (drop first if exists to avoid duplicates)
+DROP POLICY IF EXISTS "Users can view own briefings" ON admission_daily_briefings;
+DROP POLICY IF EXISTS "Users can update own briefings" ON admission_daily_briefings;
+DROP POLICY IF EXISTS "Service role can manage briefings" ON admission_daily_briefings;
+DROP POLICY IF EXISTS "Managers can view institution briefings" ON admission_daily_briefings;
+
 -- Users can view their own briefings
 CREATE POLICY "Users can view own briefings"
   ON admission_daily_briefings
@@ -88,6 +111,8 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_update_admission_daily_briefings_updated_at ON admission_daily_briefings;
 
 CREATE TRIGGER trigger_update_admission_daily_briefings_updated_at
   BEFORE UPDATE ON admission_daily_briefings

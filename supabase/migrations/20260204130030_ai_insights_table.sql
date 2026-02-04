@@ -91,10 +91,10 @@ CREATE INDEX IF NOT EXISTS idx_ai_insights_institution
   ON admission_ai_insights(institution_id);
 
 CREATE INDEX IF NOT EXISTS idx_ai_insights_type
-  ON admission_ai_insights(type);
+  ON admission_ai_insights(insight_type);
 
-CREATE INDEX IF NOT EXISTS idx_ai_insights_priority
-  ON admission_ai_insights(priority);
+CREATE INDEX IF NOT EXISTS idx_ai_insights_severity
+  ON admission_ai_insights(severity);
 
 CREATE INDEX IF NOT EXISTS idx_ai_insights_created
   ON admission_ai_insights(created_at DESC);

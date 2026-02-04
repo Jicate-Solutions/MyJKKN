@@ -85,7 +85,7 @@ CREATE POLICY "Users can view institution whatsapp logs"
     USING (
         institution_id IN (
             SELECT institution_id
-            FROM institution_users
+            FROM user_institution_access
             WHERE user_id = auth.uid()
         )
     );
@@ -97,7 +97,7 @@ CREATE POLICY "Users can create institution whatsapp logs"
     WITH CHECK (
         institution_id IN (
             SELECT institution_id
-            FROM institution_users
+            FROM user_institution_access
             WHERE user_id = auth.uid()
         )
     );
@@ -109,7 +109,7 @@ CREATE POLICY "Users can update institution whatsapp logs"
     USING (
         institution_id IN (
             SELECT institution_id
-            FROM institution_users
+            FROM user_institution_access
             WHERE user_id = auth.uid()
         )
     );

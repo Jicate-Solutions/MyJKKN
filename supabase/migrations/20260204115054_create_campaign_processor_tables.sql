@@ -127,7 +127,7 @@ DROP TRIGGER IF EXISTS trigger_update_campaign_queue_updated_at ON admission_cam
 CREATE TRIGGER trigger_update_campaign_queue_updated_at
 BEFORE UPDATE ON admission_campaign_queue
 FOR EACH ROW
-EXECUTE FUNCTION update_admission_updated_at();
+EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
 -- RLS POLICIES
@@ -230,7 +230,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION claim_campaign_step(p_queue_id UUID)
 RETURNS BOOLEAN AS $$
 DECLARE
-    v_claimed BOOLEAN := false;
+    v_row_count INTEGER;
 BEGIN
     UPDATE admission_campaign_queue
     SET
@@ -243,8 +243,8 @@ BEGIN
         AND (execute_after IS NULL OR execute_after <= now())
         AND attempts < max_attempts;
 
-    GET DIAGNOSTICS v_claimed = ROW_COUNT > 0;
-    RETURN v_claimed;
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    RETURN v_row_count > 0;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
