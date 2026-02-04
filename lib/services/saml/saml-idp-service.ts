@@ -10,19 +10,20 @@ import {
   SamlSpConfig,
   ParsedSamlRequest,
   SamlError,
-  SAML_ERROR_CODES,
+  SamlStatusCode,
   MathWorksUserAttributes,
   MYJKKN_TO_MATHWORKS_AFFILIATION,
+  NameIdFormat,
 } from '@/types/saml';
 import { SamlServiceProviderService } from './saml-service-provider-service';
 
 export class SamlIdpService {
-  private static idpInstance: samlify.IdentityProvider | null = null;
+  private static idpInstance: ReturnType<typeof samlify.IdentityProvider> | null = null;
 
   /**
    * Get or create SAML IdP instance
    */
-  private static getIdP(): samlify.IdentityProvider {
+  private static getIdP(): ReturnType<typeof samlify.IdentityProvider> {
     if (this.idpInstance) {
       return this.idpInstance;
     }
@@ -36,27 +37,26 @@ export class SamlIdpService {
       isAssertionEncrypted: false,
       encPrivateKey: undefined,
       encPrivateKeyPass: undefined,
-      assertionEndpoint: config.singleSignOnServiceUrl,
       singleSignOnService: [
         {
           Binding: samlify.Constants.namespace.binding.post,
-          Location: config.singleSignOnServiceUrl,
+          Location: config.ssoServiceUrl,
         },
         {
           Binding: samlify.Constants.namespace.binding.redirect,
-          Location: config.singleSignOnServiceUrl,
+          Location: config.ssoServiceUrl,
         },
       ],
-      singleLogoutService: config.singleLogoutServiceUrl
+      singleLogoutService: config.sloServiceUrl
         ? [
             {
               Binding: samlify.Constants.namespace.binding.post,
-              Location: config.singleLogoutServiceUrl,
+              Location: config.sloServiceUrl,
             },
           ]
         : [],
-      nameIDFormat: [config.nameIdFormat || 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress'],
-      signingCert: this.formatCertificate(config.x509Certificate),
+      nameIDFormat: [config.nameIdFormat || NameIdFormat.EMAIL],
+      signingCert: this.formatCertificate(config.certificate),
     });
 
     return this.idpInstance;
@@ -73,24 +73,18 @@ export class SamlIdpService {
     if (!privateKey || !certificate) {
       throw new SamlError(
         'SAML private key or certificate not configured',
-        SAML_ERROR_CODES.CERTIFICATE_ERROR,
-        500
+        SamlStatusCode.RESPONDER,
+        'certificate_error'
       );
     }
 
     return {
       entityId: process.env.SAML_IDP_ENTITY_ID || `${baseUrl}/saml/metadata`,
-      singleSignOnServiceUrl: `${baseUrl}/api/saml/sso`,
-      singleLogoutServiceUrl: `${baseUrl}/api/saml/slo`,
-      x509Certificate: certificate,
+      ssoServiceUrl: `${baseUrl}/api/saml/sso`,
+      sloServiceUrl: `${baseUrl}/api/saml/slo`,
+      certificate: certificate,
       privateKey: privateKey,
-      responseExpiryMinutes: parseInt(
-        process.env.SAML_RESPONSE_EXPIRY_MINUTES || '5'
-      ),
-      assertionExpiryMinutes: parseInt(
-        process.env.SAML_ASSERTION_EXPIRY_MINUTES || '5'
-      ),
-      nameIdFormat: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+      nameIdFormat: NameIdFormat.EMAIL,
       signatureAlgorithm: 'sha256',
     };
   }
@@ -120,7 +114,7 @@ export class SamlIdpService {
    */
   private static async createSP(
     entityId: string
-  ): Promise<samlify.ServiceProvider> {
+  ): Promise<ReturnType<typeof samlify.ServiceProvider>> {
     const sp = await SamlServiceProviderService.validateServiceProvider(entityId);
 
     return samlify.ServiceProvider({
@@ -139,8 +133,7 @@ export class SamlIdpService {
             },
           ]
         : [],
-      wantAssertionsSigned: sp.want_assertions_signed,
-      wantAuthnRequestsSigned: sp.want_authn_requests_signed,
+      authnRequestsSigned: sp.want_authn_requests_signed,
       signingCert: sp.x509_certificate
         ? this.formatCertificate(sp.x509_certificate)
         : undefined,
@@ -166,9 +159,8 @@ export class SamlIdpService {
       if (!issuerMatch) {
         throw new SamlError(
           'Missing Issuer in SAML request',
-          SAML_ERROR_CODES.INVALID_REQUEST,
-          400,
-          'urn:oasis:names:tc:SAML:2.0:status:Requester'
+          SamlStatusCode.REQUESTER,
+          'invalid_request'
         );
       }
 
@@ -197,12 +189,11 @@ export class SamlIdpService {
       if (error instanceof SamlError) {
         throw error;
       }
+      console.error('[saml-idp] Failed to parse SAML request:', error);
       throw new SamlError(
         'Failed to parse SAML request',
-        SAML_ERROR_CODES.INVALID_REQUEST,
-        400,
-        'urn:oasis:names:tc:SAML:2.0:status:Requester',
-        error
+        SamlStatusCode.REQUESTER,
+        'invalid_request'
       );
     }
   }
@@ -231,9 +222,9 @@ export class SamlIdpService {
       const attributes = {
         email: userAttributes.email,
         eduPersonScopedAffiliation: userAttributes.affiliation,
-        displayName: userAttributes.displayName || userAttributes.identifier,
-        givenName: userAttributes.givenName || '',
-        sn: userAttributes.surname || '',
+        displayName: `${userAttributes.firstName} ${userAttributes.lastName}`.trim() || userAttributes.userId,
+        givenName: userAttributes.firstName || '',
+        sn: userAttributes.lastName || '',
       };
 
       const { context: samlResponse } = await idp.createLoginResponse(
@@ -248,25 +239,19 @@ export class SamlIdpService {
           },
         },
         'post',
-        {
-          email: userAttributes.email,
-        },
+        attributes,
         undefined,
         undefined,
-        {
-          sessionIndex,
-          attributes,
-        }
+        sessionIndex
       );
 
       return samlResponse;
     } catch (error) {
+      console.error('[saml-idp] Failed to generate SAML response:', error);
       throw new SamlError(
         'Failed to generate SAML response',
-        SAML_ERROR_CODES.RESPONSE_GENERATION_FAILED,
-        500,
-        'urn:oasis:names:tc:SAML:2.0:status:Responder',
-        error
+        SamlStatusCode.RESPONDER,
+        'response_generation_failed'
       );
     }
   }
@@ -286,12 +271,11 @@ export class SamlIdpService {
       MYJKKN_TO_MATHWORKS_AFFILIATION.student;
 
     return {
-      identifier: user.email,
+      userId: user.id,
       affiliation,
       email: user.email,
-      givenName: user.first_name,
-      surname: user.last_name,
-      displayName: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
+      firstName: user.first_name || '',
+      lastName: user.last_name || '',
     };
   }
 

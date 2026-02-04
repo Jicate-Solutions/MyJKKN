@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { SamlIdpService } from '@/lib/services/saml/saml-idp-service';
 import { SamlSessionService } from '@/lib/services/saml/saml-session-service';
-import { SamlError, SAML_ERROR_CODES } from '@/types/saml';
+import { SamlError, SamlStatusCode } from '@/types/saml';
 
 export async function GET(request: NextRequest) {
   return handleSamlSso(request, 'redirect');
@@ -41,8 +41,8 @@ async function handleSamlSso(
     if (!samlRequest) {
       throw new SamlError(
         'Missing SAMLRequest parameter',
-        SAML_ERROR_CODES.INVALID_REQUEST,
-        400
+        SamlStatusCode.REQUESTER,
+        'invalid_request'
       );
     }
 
@@ -80,8 +80,8 @@ async function handleSamlSso(
     if (profileError || !userProfile) {
       throw new SamlError(
         'User profile not found',
-        SAML_ERROR_CODES.USER_NOT_FOUND,
-        404
+        SamlStatusCode.AUTHN_FAILED,
+        'user_not_found'
       );
     }
 
@@ -94,7 +94,7 @@ async function handleSamlSso(
       service_provider_entity_id: spEntityId,
       name_id: userAttributes.email,
       name_id_format: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
-      ip_address: request.headers.get('x-forwarded-for') || request.ip || 'unknown',
+      ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
       user_agent: request.headers.get('user-agent') || 'unknown',
     });
 
@@ -128,17 +128,16 @@ async function handleSamlSso(
       return NextResponse.json(
         {
           error: error.message,
-          code: error.code,
-          samlStatus: error.samlStatusCode,
+          statusCode: error.statusCode,
+          statusDetail: error.statusDetail,
         },
-        { status: error.statusCode }
+        { status: 500 }
       );
     }
 
     return NextResponse.json(
       {
         error: 'Internal server error',
-        code: 'server_error',
       },
       { status: 500 }
     );

@@ -37,6 +37,12 @@ export interface SamlIdpConfig {
   /** NameID format to use */
   nameIdFormat?: NameIdFormat;
 
+  /** Response expiry time in minutes */
+  responseExpiryMinutes?: number;
+
+  /** Assertion expiry time in minutes */
+  assertionExpiryMinutes?: number;
+
   /** Session timeout in milliseconds */
   sessionTimeout?: number;
 
@@ -532,9 +538,9 @@ export class SamlConfigurationError extends SamlError {
 // ============================================================================
 
 /**
- * SAML IdP Configuration (Extended)
+ * SAML IdP Configuration (Extended) for samlify
  */
-export interface SamlIdpConfig {
+export interface SamlIdpConfigExtended {
   entityId: string;
   singleSignOnServiceUrl: string;
   singleLogoutServiceUrl?: string;

@@ -81,15 +81,15 @@ MyJKKN will send the following SAML attributes in the authentication response:
 
 We will provide two test accounts for SSO verification:
 
-### Test Account 1: Student
-- **Email:** `testuser1@jkkn.ac.in`
-- **Affiliation:** Student
-- **Name:** Test Student One
+### Test Account 1:
+- **Email:** `boobalan.a@jkkn.ac.in`
+- **Affiliation:** Super Admin
+- **Name:** Boobalan
 
-### Test Account 2: Faculty
-- **Email:** `testuser2@jkkn.ac.in`
-- **Affiliation:** Faculty
-- **Name:** Test Faculty Two
+### Test Account 2:
+- **Email:** `ranjith@jkkn.ac.in`
+- **Affiliation:** Super Admin
+- **Name:** Ranjith
 
 *(Note: These accounts will be created and credentials will be shared securely via separate email)*
 

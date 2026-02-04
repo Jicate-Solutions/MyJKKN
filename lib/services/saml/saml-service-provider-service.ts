@@ -10,7 +10,7 @@ import {
   SamlServiceProviderInsert,
   SamlServiceProviderUpdate,
   SamlError,
-  SAML_ERROR_CODES,
+  SamlStatusCode,
 } from '@/types/saml';
 
 export class SamlServiceProviderService {
@@ -34,12 +34,11 @@ export class SamlServiceProviderService {
     const { data, error } = await query;
 
     if (error) {
+      console.error('[saml-sp] Failed to fetch service providers:', error);
       throw new SamlError(
         'Failed to fetch service providers',
-        SAML_ERROR_CODES.DATABASE_ERROR,
-        500,
-        undefined,
-        error
+        SamlStatusCode.RESPONDER,
+        'database_error'
       );
     }
 
@@ -64,12 +63,11 @@ export class SamlServiceProviderService {
       if (error.code === 'PGRST116') {
         return null; // Not found
       }
+      console.error('[saml-sp] Failed to fetch service provider by ID:', error);
       throw new SamlError(
         'Failed to fetch service provider',
-        SAML_ERROR_CODES.DATABASE_ERROR,
-        500,
-        undefined,
-        error
+        SamlStatusCode.RESPONDER,
+        'database_error'
       );
     }
 
@@ -94,12 +92,11 @@ export class SamlServiceProviderService {
       if (error.code === 'PGRST116') {
         return null;
       }
+      console.error('[saml-sp] Failed to fetch service provider by entity ID:', error);
       throw new SamlError(
         'Failed to fetch service provider',
-        SAML_ERROR_CODES.DATABASE_ERROR,
-        500,
-        undefined,
-        error
+        SamlStatusCode.RESPONDER,
+        'database_error'
       );
     }
 
@@ -123,8 +120,8 @@ export class SamlServiceProviderService {
     if (existing) {
       throw new SamlError(
         `Service provider with entity ID ${serviceProvider.entity_id} already exists`,
-        SAML_ERROR_CODES.INVALID_REQUEST,
-        400
+        SamlStatusCode.REQUESTER,
+        'invalid_request'
       );
     }
 
@@ -138,12 +135,11 @@ export class SamlServiceProviderService {
       .single();
 
     if (error) {
+      console.error('[saml-sp] Failed to create service provider:', error);
       throw new SamlError(
         'Failed to create service provider',
-        SAML_ERROR_CODES.DATABASE_ERROR,
-        500,
-        undefined,
-        error
+        SamlStatusCode.RESPONDER,
+        'database_error'
       );
     }
 
@@ -172,12 +168,11 @@ export class SamlServiceProviderService {
       .single();
 
     if (error) {
+      console.error('[saml-sp] Failed to update service provider:', error);
       throw new SamlError(
         'Failed to update service provider',
-        SAML_ERROR_CODES.DATABASE_ERROR,
-        500,
-        undefined,
-        error
+        SamlStatusCode.RESPONDER,
+        'database_error'
       );
     }
 
@@ -209,18 +204,16 @@ export class SamlServiceProviderService {
     if (!sp) {
       throw new SamlError(
         `Unknown service provider: ${entityId}`,
-        SAML_ERROR_CODES.UNKNOWN_SERVICE_PROVIDER,
-        404,
-        'urn:oasis:names:tc:SAML:2.0:status:Requester'
+        SamlStatusCode.REQUESTER,
+        'unknown_service_provider'
       );
     }
 
     if (!sp.is_active) {
       throw new SamlError(
         `Service provider ${sp.name} is inactive`,
-        SAML_ERROR_CODES.SERVICE_PROVIDER_INACTIVE,
-        403,
-        'urn:oasis:names:tc:SAML:2.0:status:Requester'
+        SamlStatusCode.REQUESTER,
+        'service_provider_inactive'
       );
     }
 
