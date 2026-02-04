@@ -32,6 +32,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Users,
   Plus,
   Edit,
@@ -44,7 +54,6 @@ import {
   Activity,
   Target,
   Clock,
-  Filter,
   Shuffle,
   Layers,
   CheckCircle2,
@@ -54,109 +63,49 @@ import {
   MapPin,
   Building,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
+import { useUserInstitutionAccess } from "@/hooks/use-user-institution-access";
+import {
+  useAssignmentRules,
+  useAssignmentStats,
+  useAssignmentRuleMutations,
+} from "@/hooks/admission";
+import { AssignmentRulesService, type AssignmentRuleType } from "@/lib/services/admission/assignment-rules-service";
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Mock data for assignment rules
-const assignmentStats = {
-  totalRules: 8,
-  activeRules: 6,
-  leadsAssignedToday: 45,
-  avgAssignmentTime: "2 min",
-  unassignedLeads: 12,
-};
-
-const assignmentRules = [
-  {
-    id: 1,
-    name: "Program-Based Assignment",
-    type: "program",
-    description: "Assign leads based on program of interest",
-    priority: 1,
-    assignees: 5,
-    leadsProcessed: 1234,
-    status: "active",
-  },
-  {
-    id: 2,
-    name: "Round Robin (Default)",
-    type: "round_robin",
-    description: "Distribute leads equally among available counselors",
-    priority: 10,
-    assignees: 8,
-    leadsProcessed: 567,
-    status: "active",
-  },
-  {
-    id: 3,
-    name: "Geographic Region",
-    type: "location",
-    description: "Assign leads based on their location/region",
-    priority: 2,
-    assignees: 4,
-    leadsProcessed: 345,
-    status: "active",
-  },
-  {
-    id: 4,
-    name: "High Score Leads",
-    type: "score",
-    description: "Route high-scoring leads to senior counselors",
-    priority: 1,
-    assignees: 2,
-    leadsProcessed: 189,
-    status: "active",
-  },
-  {
-    id: 5,
-    name: "Source-Based",
-    type: "source",
-    description: "Assign based on lead source (website, referral, etc.)",
-    priority: 3,
-    assignees: 6,
-    leadsProcessed: 234,
-    status: "paused",
-  },
-  {
-    id: 6,
-    name: "Workload Balancing",
-    type: "workload",
-    description: "Assign to counselors with lowest current workload",
-    priority: 4,
-    assignees: 8,
-    leadsProcessed: 456,
-    status: "active",
-  },
-];
-
+// Mock counselors (would come from admission_counselors table)
 const counselors = [
-  { id: 1, name: "Priya Menon", specialization: "B.Tech", region: "Tamil Nadu", currentLoad: 45, maxCapacity: 60, status: "available" },
-  { id: 2, name: "Ravi Kumar", specialization: "MBA", region: "Karnataka", currentLoad: 38, maxCapacity: 50, status: "available" },
-  { id: 3, name: "Meena Iyer", specialization: "BBA", region: "Kerala", currentLoad: 50, maxCapacity: 50, status: "at_capacity" },
-  { id: 4, name: "Karthik S", specialization: "B.Tech", region: "Andhra Pradesh", currentLoad: 42, maxCapacity: 55, status: "available" },
-  { id: 5, name: "Deepa R", specialization: "All Programs", region: "All Regions", currentLoad: 35, maxCapacity: 60, status: "available" },
-  { id: 6, name: "Arun P", specialization: "MBA", region: "Tamil Nadu", currentLoad: 0, maxCapacity: 50, status: "on_leave" },
-];
-
-const recentAssignments = [
-  { time: "10:45 AM", lead: "Rajesh Kumar", rule: "Program-Based", assignee: "Priya Menon", program: "B.Tech CS" },
-  { time: "10:42 AM", lead: "Sneha Reddy", rule: "High Score", assignee: "Ravi Kumar", program: "MBA" },
-  { time: "10:38 AM", lead: "Vikram Singh", rule: "Round Robin", assignee: "Karthik S", program: "B.Tech EE" },
-  { time: "10:35 AM", lead: "Meera Iyer", rule: "Geographic", assignee: "Deepa R", program: "BBA" },
-  { time: "10:30 AM", lead: "Amit Patel", rule: "Workload", assignee: "Priya Menon", program: "B.Tech ME" },
+  { id: "1", name: "Priya Menon", specialization: "B.Tech", region: "Tamil Nadu", currentLoad: 45, maxCapacity: 60, status: "available" },
+  { id: "2", name: "Ravi Kumar", specialization: "MBA", region: "Karnataka", currentLoad: 38, maxCapacity: 50, status: "available" },
+  { id: "3", name: "Meena Iyer", specialization: "BBA", region: "Kerala", currentLoad: 50, maxCapacity: 50, status: "at_capacity" },
+  { id: "4", name: "Karthik S", specialization: "B.Tech", region: "Andhra Pradesh", currentLoad: 42, maxCapacity: 55, status: "available" },
+  { id: "5", name: "Deepa R", specialization: "All Programs", region: "All Regions", currentLoad: 35, maxCapacity: 60, status: "available" },
 ];
 
 function AssignmentRulesPageContent() {
+  const { selectedInstitutionId, loading: isLoadingAccess } = useUserInstitutionAccess();
+
+  const { rules, isLoading: isLoadingRules, isError, refetch } = useAssignmentRules(selectedInstitutionId);
+  const { stats, isLoading: isLoadingStats } = useAssignmentStats(selectedInstitutionId);
+  const { createRule, deleteRule, toggleStatus, isCreating, isToggling } = useAssignmentRuleMutations();
+
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [selectedRuleType, setSelectedRuleType] = useState("");
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [ruleToDelete, setRuleToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [selectedRuleType, setSelectedRuleType] = useState<AssignmentRuleType>("round_robin");
+  const [newRuleName, setNewRuleName] = useState("");
+  const [newRuleDescription, setNewRuleDescription] = useState("");
+  const [newRulePriority, setNewRulePriority] = useState(5);
+  const [newRuleEnabled, setNewRuleEnabled] = useState(true);
   const [isReassigning, setIsReassigning] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
 
   const handleReassign = async () => {
     setIsReassigning(true);
     try {
-      // Simulate API call
+      // TODO: Implement reassignment logic
       await new Promise(resolve => setTimeout(resolve, 1500));
       toast.success("Unassigned leads have been redistributed");
     } catch {
@@ -167,20 +116,67 @@ function AssignmentRulesPageContent() {
   };
 
   const handleCreateRule = async () => {
-    setIsCreating(true);
+    if (!selectedInstitutionId) {
+      toast.error("Institution not found");
+      return;
+    }
+
+    if (!newRuleName.trim()) {
+      toast.error("Rule name is required");
+      return;
+    }
+
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      toast.success("Assignment rule created successfully");
+      await createRule.mutateAsync({
+        institution_id: selectedInstitutionId,
+        name: newRuleName,
+        description: newRuleDescription || undefined,
+        priority: newRulePriority,
+        is_active: newRuleEnabled,
+        criteria: AssignmentRulesService.getDefaultCriteria(selectedRuleType),
+        action: AssignmentRulesService.getDefaultAction(selectedRuleType),
+      });
       setShowAddDialog(false);
+      resetForm();
     } catch {
-      toast.error("Failed to create rule");
-    } finally {
-      setIsCreating(false);
+      // Error handled by mutation
     }
   };
 
-  const getRuleTypeIcon = (type: string) => {
+  const handleToggleStatus = async (id: string, currentStatus: boolean) => {
+    try {
+      await toggleStatus.mutateAsync({ id, isActive: !currentStatus });
+    } catch {
+      // Error handled by mutation
+    }
+  };
+
+  const handleDeleteRule = (id: string, name: string) => {
+    setRuleToDelete({ id, name });
+    setShowDeleteDialog(true);
+  };
+
+  const confirmDeleteRule = async () => {
+    if (!ruleToDelete || !selectedInstitutionId) return;
+    try {
+      await deleteRule.mutateAsync({ id: ruleToDelete.id, institutionId: selectedInstitutionId });
+    } catch {
+      // Error handled by mutation
+    } finally {
+      setShowDeleteDialog(false);
+      setRuleToDelete(null);
+    }
+  };
+
+  const resetForm = () => {
+    setNewRuleName("");
+    setNewRuleDescription("");
+    setNewRulePriority(5);
+    setNewRuleEnabled(true);
+    setSelectedRuleType("round_robin");
+  };
+
+  const getRuleTypeIcon = (type?: string) => {
     switch (type) {
       case "program":
         return <GraduationCap className="h-4 w-4 text-blue-500" />;
@@ -199,6 +195,50 @@ function AssignmentRulesPageContent() {
     }
   };
 
+  if (isLoadingAccess || isLoadingRules) {
+    return (
+      <div className="container mx-auto py-6 space-y-6">
+        <div className="flex justify-between items-start">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-64" />
+            <Skeleton className="h-4 w-96" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-10 w-40" />
+            <Skeleton className="h-10 w-28" />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {[...Array(5)].map((_, i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
+        </div>
+        <Skeleton className="h-96 w-full" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="container mx-auto py-6">
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="flex items-center gap-4 py-6">
+            <AlertCircle className="h-8 w-8 text-red-500" />
+            <div>
+              <h3 className="font-semibold text-red-800">Failed to load assignment rules</h3>
+              <p className="text-red-600">There was an error loading the rules configuration.</p>
+            </div>
+            <Button variant="outline" onClick={() => refetch()} className="ml-auto">
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const activeRules = rules.filter(r => r.is_active);
+
   return (
     <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
@@ -213,7 +253,7 @@ function AssignmentRulesPageContent() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={handleReassign} disabled={isReassigning}>
+          <Button variant="outline" className="gap-2" onClick={handleReassign} disabled={isReassigning || stats.unassignedLeads === 0}>
             {isReassigning ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -238,7 +278,9 @@ function AssignmentRulesPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Total Rules</p>
-                <p className="text-xl font-bold">{assignmentStats.totalRules}</p>
+                <p className="text-xl font-bold">
+                  {isLoadingStats ? <Skeleton className="h-6 w-8" /> : stats.totalRules}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -252,7 +294,9 @@ function AssignmentRulesPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Active Rules</p>
-                <p className="text-xl font-bold text-green-600">{assignmentStats.activeRules}</p>
+                <p className="text-xl font-bold text-green-600">
+                  {isLoadingStats ? <Skeleton className="h-6 w-8" /> : stats.activeRules}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -266,7 +310,9 @@ function AssignmentRulesPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Assigned Today</p>
-                <p className="text-xl font-bold">{assignmentStats.leadsAssignedToday}</p>
+                <p className="text-xl font-bold">
+                  {isLoadingStats ? <Skeleton className="h-6 w-8" /> : stats.leadsAssignedToday}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -280,22 +326,24 @@ function AssignmentRulesPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Avg Assignment</p>
-                <p className="text-xl font-bold">{assignmentStats.avgAssignmentTime}</p>
+                <p className="text-xl font-bold">
+                  {isLoadingStats ? <Skeleton className="h-6 w-12" /> : stats.avgAssignmentTime}
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className={assignmentStats.unassignedLeads > 0 ? "border-red-200" : ""}>
+        <Card className={stats.unassignedLeads > 0 ? "border-red-200" : ""}>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${assignmentStats.unassignedLeads > 0 ? "bg-red-100" : "bg-gray-100"}`}>
-                <AlertTriangle className={`h-5 w-5 ${assignmentStats.unassignedLeads > 0 ? "text-red-600" : "text-gray-600"}`} />
+              <div className={`p-2 rounded-lg ${stats.unassignedLeads > 0 ? "bg-red-100" : "bg-gray-100"}`}>
+                <AlertTriangle className={`h-5 w-5 ${stats.unassignedLeads > 0 ? "text-red-600" : "text-gray-600"}`} />
               </div>
               <div>
                 <p className="text-xs text-gray-600">Unassigned</p>
-                <p className={`text-xl font-bold ${assignmentStats.unassignedLeads > 0 ? "text-red-600" : ""}`}>
-                  {assignmentStats.unassignedLeads}
+                <p className={`text-xl font-bold ${stats.unassignedLeads > 0 ? "text-red-600" : ""}`}>
+                  {isLoadingStats ? <Skeleton className="h-6 w-8" /> : stats.unassignedLeads}
                 </p>
               </div>
             </div>
@@ -314,10 +362,6 @@ function AssignmentRulesPageContent() {
             <Users className="h-4 w-4" />
             Counselor Capacity
           </TabsTrigger>
-          <TabsTrigger value="activity" className="gap-2">
-            <Activity className="h-4 w-4" />
-            Recent Activity
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="rules" className="space-y-4">
@@ -329,118 +373,130 @@ function AssignmentRulesPageContent() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[80px]">Priority</TableHead>
-                    <TableHead>Rule Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Assignees</TableHead>
-                    <TableHead>Leads Processed</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {assignmentRules
-                    .sort((a, b) => a.priority - b.priority)
-                    .map((rule) => (
-                      <TableRow key={rule.id}>
-                        <TableCell>
-                          <Badge variant="outline" className="font-mono">
-                            #{rule.priority}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{rule.name}</p>
-                            <p className="text-sm text-gray-500">{rule.description}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {getRuleTypeIcon(rule.type)}
-                            <span className="capitalize">{rule.type.replace("_", " ")}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Users className="h-4 w-4 text-gray-400" />
-                            {rule.assignees}
-                          </div>
-                        </TableCell>
-                        <TableCell>{rule.leadsProcessed.toLocaleString()}</TableCell>
-                        <TableCell>
-                          <Badge variant={rule.status === "active" ? "default" : "secondary"}>
-                            {rule.status === "active" ? (
-                              <Play className="h-3 w-3 mr-1" />
-                            ) : (
-                              <Pause className="h-3 w-3 mr-1" />
-                            )}
-                            {rule.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Button variant="ghost" size="icon" title="Edit rule">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title={rule.status === "active" ? "Pause" : "Activate"}
-                            >
-                              {rule.status === "active" ? (
-                                <Pause className="h-4 w-4" />
-                              ) : (
-                                <Play className="h-4 w-4" />
+              {rules.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <Settings className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No assignment rules configured</p>
+                  <p className="text-sm">Click &quot;Add Rule&quot; to create your first rule</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[80px]">Priority</TableHead>
+                      <TableHead>Rule Name</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rules
+                      .sort((a, b) => a.priority - b.priority)
+                      .map((rule) => (
+                        <TableRow key={rule.id}>
+                          <TableCell>
+                            <Badge variant="outline" className="font-mono">
+                              #{rule.priority}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{rule.name}</p>
+                              {rule.description && (
+                                <p className="text-sm text-gray-500">{rule.description}</p>
                               )}
-                            </Button>
-                            <Button variant="ghost" size="icon" className="text-red-500" title="Delete">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {getRuleTypeIcon(rule.type)}
+                              <span className="capitalize">{(rule.type || 'custom').replace("_", " ")}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={rule.is_active ? "default" : "secondary"}>
+                              {rule.is_active ? (
+                                <Play className="h-3 w-3 mr-1" />
+                              ) : (
+                                <Pause className="h-3 w-3 mr-1" />
+                              )}
+                              {rule.is_active ? "active" : "paused"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="icon" title="Edit rule">
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title={rule.is_active ? "Pause" : "Activate"}
+                                onClick={() => handleToggleStatus(rule.id, rule.is_active)}
+                                disabled={isToggling}
+                              >
+                                {rule.is_active ? (
+                                  <Pause className="h-4 w-4" />
+                                ) : (
+                                  <Play className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-red-500"
+                                title="Delete"
+                                onClick={() => handleDeleteRule(rule.id, rule.name)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Rule Flow Visualization</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-center gap-4 overflow-x-auto py-4">
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-center min-w-[120px]">
-                  <Users className="h-6 w-6 text-blue-500 mx-auto mb-2" />
-                  <p className="text-sm font-medium">New Lead</p>
-                </div>
-                <ArrowRight className="h-5 w-5 text-gray-400" />
-                {assignmentRules
-                  .filter((r) => r.status === "active")
-                  .sort((a, b) => a.priority - b.priority)
-                  .slice(0, 4)
-                  .map((rule, index) => (
-                    <div key={rule.id} className="flex items-center gap-4">
-                      <div className="p-4 border rounded-lg text-center min-w-[120px]">
-                        {getRuleTypeIcon(rule.type)}
-                        <p className="text-sm font-medium mt-2">{rule.name}</p>
-                        <p className="text-xs text-gray-500">Priority {rule.priority}</p>
+          {activeRules.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Rule Flow Visualization</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-center gap-4 overflow-x-auto py-4">
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-center min-w-[120px]">
+                    <Users className="h-6 w-6 text-blue-500 mx-auto mb-2" />
+                    <p className="text-sm font-medium">New Lead</p>
+                  </div>
+                  <ArrowRight className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                  {activeRules
+                    .sort((a, b) => a.priority - b.priority)
+                    .slice(0, 4)
+                    .map((rule, index) => (
+                      <div key={rule.id} className="flex items-center gap-4">
+                        <div className="p-4 border rounded-lg text-center min-w-[120px]">
+                          {getRuleTypeIcon(rule.type)}
+                          <p className="text-sm font-medium mt-2">{rule.name}</p>
+                          <p className="text-xs text-gray-500">Priority {rule.priority}</p>
+                        </div>
+                        {index < Math.min(activeRules.length - 1, 3) && (
+                          <ArrowRight className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                        )}
                       </div>
-                      {index < 3 && <ArrowRight className="h-5 w-5 text-gray-400" />}
-                    </div>
-                  ))}
-                <ArrowRight className="h-5 w-5 text-gray-400" />
-                <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-center min-w-[120px]">
-                  <CheckCircle2 className="h-6 w-6 text-green-500 mx-auto mb-2" />
-                  <p className="text-sm font-medium">Assigned</p>
+                    ))}
+                  <ArrowRight className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-center min-w-[120px]">
+                    <CheckCircle2 className="h-6 w-6 text-green-500 mx-auto mb-2" />
+                    <p className="text-sm font-medium">Assigned</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="counselors" className="space-y-4">
@@ -461,7 +517,6 @@ function AssignmentRulesPageContent() {
                     <TableHead>Current Load</TableHead>
                     <TableHead>Capacity</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -499,13 +554,7 @@ function AssignmentRulesPageContent() {
                       <TableCell>{counselor.maxCapacity}</TableCell>
                       <TableCell>
                         <Badge
-                          variant={
-                            counselor.status === "available"
-                              ? "default"
-                              : counselor.status === "at_capacity"
-                              ? "secondary"
-                              : "outline"
-                          }
+                          variant="secondary"
                           className={
                             counselor.status === "available"
                               ? "bg-green-100 text-green-800"
@@ -517,50 +566,10 @@ function AssignmentRulesPageContent() {
                           {counselor.status.replace("_", " ")}
                         </Badge>
                       </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm">
-                          <Settings className="h-4 w-4 mr-1" />
-                          Configure
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="activity" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Assignments</CardTitle>
-              <CardDescription>Last 24 hours of automatic lead assignments</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {recentAssignments.map((assignment, index) => (
-                  <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center gap-4">
-                      <div className="text-sm text-gray-500 w-20">{assignment.time}</div>
-                      <div>
-                        <p className="font-medium">{assignment.lead}</p>
-                        <p className="text-sm text-gray-500">{assignment.program}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <Badge variant="outline">{assignment.rule}</Badge>
-                      <ArrowRight className="h-4 w-4 text-gray-400" />
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-                          <User className="h-4 w-4 text-gray-500" />
-                        </div>
-                        <span className="text-sm font-medium">{assignment.assignee}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -578,11 +587,15 @@ function AssignmentRulesPageContent() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Rule Name</Label>
-              <Input placeholder="e.g., Senior Counselor Priority" />
+              <Input
+                placeholder="e.g., Senior Counselor Priority"
+                value={newRuleName}
+                onChange={(e) => setNewRuleName(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Rule Type</Label>
-              <Select value={selectedRuleType} onValueChange={setSelectedRuleType}>
+              <Select value={selectedRuleType} onValueChange={(v) => setSelectedRuleType(v as AssignmentRuleType)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select rule type" />
                 </SelectTrigger>
@@ -598,19 +611,29 @@ function AssignmentRulesPageContent() {
             </div>
             <div className="space-y-2">
               <Label>Priority (1 = highest)</Label>
-              <Input type="number" min={1} max={10} defaultValue={5} />
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={newRulePriority}
+                onChange={(e) => setNewRulePriority(parseInt(e.target.value) || 5)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <Input placeholder="Describe when this rule applies" />
+              <Input
+                placeholder="Describe when this rule applies"
+                value={newRuleDescription}
+                onChange={(e) => setNewRuleDescription(e.target.value)}
+              />
             </div>
             <div className="flex items-center justify-between">
               <Label>Enable Rule</Label>
-              <Switch defaultChecked />
+              <Switch checked={newRuleEnabled} onCheckedChange={setNewRuleEnabled} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)} disabled={isCreating}>
+            <Button variant="outline" onClick={() => { setShowAddDialog(false); resetForm(); }} disabled={isCreating}>
               Cancel
             </Button>
             <Button className="bg-[#0b6d41] hover:bg-[#095232]" onClick={handleCreateRule} disabled={isCreating}>
@@ -620,6 +643,34 @@ function AssignmentRulesPageContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Assignment Rule</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &ldquo;{ruleToDelete?.name}&rdquo;? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteRule}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteRule.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

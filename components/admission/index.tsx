@@ -5,6 +5,43 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, RefreshCw, BarChart3, Users } from 'lucide-react';
 
+// Re-export AI response components
+export { AISuggestedResponses } from './ai-suggested-responses';
+export { ResponsePersonalizer, QuickPersonalizer } from './response-personalizer';
+
+// Re-export Briefing components
+export { BriefingNotificationBanner } from './briefing-notification-banner';
+export { BriefingPopup } from './briefing-popup';
+
+// Re-export Lead Scoring components
+export {
+  LeadScoreBadge,
+  LeadScoreCard,
+  ScoreFactorsList,
+  getScoreCategory,
+  getCategoryLabel,
+  getCategoryColors,
+} from './lead-scoring';
+export type {
+  LeadScoreBadgeProps,
+  LeadScoreCardProps,
+  ScoreFactor,
+  ScoreFactorsListProps,
+  ScoreFactorWithDetails,
+  ScoreCategory,
+  TrendDirection,
+} from './lead-scoring';
+
+// Re-export Insight Actions components
+export {
+  ActionButton,
+  QuickActionButtons,
+  InsightActionButton,
+  BulkActionPanel,
+  FloatingBulkActionBar,
+  ActionConfirmDialog,
+} from './actions';
+
 // ============================================
 // ADMISSION ERROR BOUNDARY
 // ============================================

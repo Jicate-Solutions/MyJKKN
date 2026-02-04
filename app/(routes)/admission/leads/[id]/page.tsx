@@ -27,11 +27,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   useAdmissionLead,
-  useLeadTimeline,
+  useEnhancedTimeline,
   useLeadCommunicationHistory,
   useLeadMutations,
-  useCommunicationMutations
+  useCommunicationMutations,
+  useActivityMutations
 } from '@/hooks/admission';
+import type { TimelineEntry } from '@/lib/services/admission/activity-service';
 import {
   ArrowLeft,
   Flame,
@@ -159,29 +161,51 @@ function LeadDetailSkeleton() {
   );
 }
 
-function TimelineItem({
-  activity
-}: {
-  activity: { id: string; activity_type: string; metadata: Record<string, unknown>; created_at: string };
-}) {
+const timelineIcons: Record<string, typeof Activity> = {
+  phone: Phone,
+  mail: Mail,
+  calendar: Calendar,
+  'file-text': Activity,
+  'message-square': MessageSquare,
+  'message-circle': MessageSquare,
+  'git-branch': TrendingUp,
+  'check-circle': Target,
+  activity: Activity
+};
+
+const timelineColors: Record<string, string> = {
+  green: 'bg-green-100 text-green-700',
+  blue: 'bg-blue-100 text-blue-700',
+  purple: 'bg-purple-100 text-purple-700',
+  gray: 'bg-gray-100 text-gray-700',
+  orange: 'bg-orange-100 text-orange-700',
+  indigo: 'bg-indigo-100 text-indigo-700',
+  emerald: 'bg-emerald-100 text-emerald-700'
+};
+
+function TimelineItem({ entry }: { entry: TimelineEntry }) {
+  const IconComponent = timelineIcons[entry.icon || 'activity'] || Activity;
+  const colorClass = timelineColors[entry.color || 'gray'] || timelineColors.gray;
+
   return (
     <div className="flex gap-3 pb-4 border-b last:border-0 last:pb-0">
       <div className="flex-shrink-0">
-        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-          <Activity className="h-4 w-4 text-muted-foreground" />
+        <div className={`h-8 w-8 rounded-full flex items-center justify-center ${colorClass}`}>
+          <IconComponent className="h-4 w-4" />
         </div>
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium">{formatActivityType(activity.activity_type)}</p>
-        {activity.metadata && Object.keys(activity.metadata).length > 0 && (
-          <p className="text-xs text-muted-foreground mt-1">
-            {activity.metadata.old_stage && activity.metadata.new_stage
-              ? `${activity.metadata.old_stage} → ${activity.metadata.new_stage}`
-              : JSON.stringify(activity.metadata)}
-          </p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium">{entry.title}</p>
+          <Badge variant="outline" className="text-xs">
+            {entry.type === 'stage_change' ? 'Stage' : 'Activity'}
+          </Badge>
+        </div>
+        {entry.description && (
+          <p className="text-sm text-muted-foreground mt-1">{entry.description}</p>
         )}
         <p className="text-xs text-muted-foreground mt-1">
-          {new Date(activity.created_at).toLocaleString()}
+          {new Date(entry.timestamp).toLocaleString()}
         </p>
       </div>
     </div>
@@ -233,10 +257,11 @@ function LeadDetailPageContent() {
   const [showTagDialog, setShowTagDialog] = useState(false);
 
   const { lead, isLoading: leadLoading, refetch } = useAdmissionLead(leadId);
-  const { timeline, isLoading: timelineLoading } = useLeadTimeline(leadId);
+  const { timeline, isLoading: timelineLoading } = useEnhancedTimeline(leadId);
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
 
   const { updateStage, toggleHotLead, togglePriority, addTag, removeTag } = useLeadMutations();
+  const { createActivity } = useActivityMutations(leadId);
 
   const isLoading = leadLoading;
 
@@ -519,8 +544,8 @@ function LeadDetailPageContent() {
                         </div>
                       ) : (
                         <div className="space-y-4">
-                          {timeline.map((activity) => (
-                            <TimelineItem key={activity.id} activity={activity} />
+                          {timeline.map((entry) => (
+                            <TimelineItem key={entry.id} entry={entry} />
                           ))}
                         </div>
                       )}

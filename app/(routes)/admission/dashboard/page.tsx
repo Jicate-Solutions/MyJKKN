@@ -19,7 +19,8 @@ import {
   useDashboardSummary,
   useFunnelSummary,
   useAdmissionLeads,
-  useLeadMutations
+  useLeadMutations,
+  useLatestUnreadBriefing
 } from '@/hooks/admission';
 import {
   Users,
@@ -38,6 +39,8 @@ import {
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
+import { BriefingNotificationBanner } from '@/components/admission/briefing-notification-banner';
+import { BriefingPopup } from '@/components/admission/briefing-popup';
 
 // Funnel stages with colors
 const FUNNEL_STAGES = [
@@ -232,6 +235,10 @@ function AdmissionDashboardPageContent() {
   const { profile, isLoading: accessLoading } = useAuth();
   const institutionId = profile?.institution_id;
   const [isRefetching, setIsRefetching] = useState(false);
+  const [showBriefingPopup, setShowBriefingPopup] = useState(false);
+
+  // Get latest unread briefing for popup
+  const { data: latestBriefingNotification } = useLatestUnreadBriefing(profile?.id);
 
   const { summary, isLoading: summaryLoading, refetch } = useDashboardSummary(institutionId || '');
   const { funnel, isLoading: funnelLoading } = useFunnelSummary(institutionId || '');
@@ -295,6 +302,18 @@ function AdmissionDashboardPageContent() {
               </Button>
             </div>
           </div>
+
+          {/* Daily Briefing Banner */}
+          <BriefingNotificationBanner
+            onViewBriefing={() => setShowBriefingPopup(true)}
+          />
+
+          {/* Briefing Popup Modal */}
+          <BriefingPopup
+            notification={latestBriefingNotification}
+            open={showBriefingPopup}
+            onOpenChange={setShowBriefingPopup}
+          />
 
           {/* KPI Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

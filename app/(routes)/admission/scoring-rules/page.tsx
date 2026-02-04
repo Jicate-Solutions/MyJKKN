@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -18,13 +17,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Calculator,
   Plus,
   Trash2,
@@ -32,12 +24,10 @@ import {
   Save,
   RotateCcw,
   Target,
-  TrendingUp,
   Activity,
   Zap,
   Users,
   GraduationCap,
-  Clock,
   MessageSquare,
   Mail,
   Phone,
@@ -45,40 +35,20 @@ import {
   Star,
   Settings,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
+import { useUserInstitutionAccess } from "@/hooks/use-user-institution-access";
+import {
+  useActiveScoringRule,
+  useScoringRuleMutations,
+  useDefaultScoringConfig,
+} from "@/hooks/admission";
+import type { ScoringRuleConfig, ScoringCriterion } from "@/lib/services/admission/scoring-rules-service";
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Mock data for scoring rules
-const engagementCriteria = [
-  { id: 1, name: "Website Visit", points: 5, maxOccurrence: 10, enabled: true },
-  { id: 2, name: "Email Opened", points: 3, maxOccurrence: 20, enabled: true },
-  { id: 3, name: "Email Clicked", points: 10, maxOccurrence: 10, enabled: true },
-  { id: 4, name: "Form Submitted", points: 25, maxOccurrence: 5, enabled: true },
-  { id: 5, name: "WhatsApp Response", points: 15, maxOccurrence: 15, enabled: true },
-  { id: 6, name: "Call Answered", points: 20, maxOccurrence: 10, enabled: true },
-  { id: 7, name: "Campus Visit", points: 50, maxOccurrence: 3, enabled: true },
-  { id: 8, name: "Document Uploaded", points: 30, maxOccurrence: 10, enabled: true },
-];
-
-const qualityCriteria = [
-  { id: 1, name: "Academic Score (10th)", weight: 15, enabled: true },
-  { id: 2, name: "Academic Score (12th)", weight: 20, enabled: true },
-  { id: 3, name: "Entrance Exam Score", weight: 25, enabled: true },
-  { id: 4, name: "Program Match", weight: 15, enabled: true },
-  { id: 5, name: "Location Proximity", weight: 10, enabled: false },
-  { id: 6, name: "Financial Capability", weight: 10, enabled: true },
-  { id: 7, name: "Application Completeness", weight: 5, enabled: true },
-];
-
-const scoreRanges = [
-  { range: "90-100", label: "Hot Lead", color: "bg-red-500", action: "Immediate follow-up" },
-  { range: "70-89", label: "Warm Lead", color: "bg-orange-500", action: "Priority contact within 24h" },
-  { range: "50-69", label: "Qualified Lead", color: "bg-yellow-500", action: "Scheduled follow-up" },
-  { range: "30-49", label: "Nurture Lead", color: "bg-blue-500", action: "Email sequence" },
-  { range: "0-29", label: "Cold Lead", color: "bg-gray-400", action: "Re-engagement campaign" },
-];
-
+// Sample leads for preview (will be replaced with real data later)
 const sampleLeads = [
   { name: "Rajesh Kumar", engagementScore: 78, qualityScore: 85, totalScore: 82, category: "Hot Lead" },
   { name: "Priya Sharma", engagementScore: 65, qualityScore: 72, totalScore: 69, category: "Qualified Lead" },
@@ -88,29 +58,140 @@ const sampleLeads = [
 ];
 
 function ScoringRulesPageContent() {
-  const [engagementWeight, setEngagementWeight] = useState([50]);
-  const [qualityWeight, setQualityWeight] = useState([50]);
+  const { selectedInstitutionId, loading: isLoadingAccess } = useUserInstitutionAccess();
+  const defaultConfig = useDefaultScoringConfig();
+
+  const { rule, config: activeConfig, isLoading: isLoadingRule, isError, refetch } = useActiveScoringRule(selectedInstitutionId);
+  const { createRule, updateRule, isCreating, isUpdating } = useScoringRuleMutations();
+
+  // Local state for editing
   const [editMode, setEditMode] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [localConfig, setLocalConfig] = useState<ScoringRuleConfig>(defaultConfig);
+
+  // Initialize local config from active rule or default
+  useEffect(() => {
+    if (activeConfig) {
+      setLocalConfig(activeConfig);
+    } else if (!isLoadingRule && !rule) {
+      setLocalConfig(defaultConfig);
+    }
+  }, [activeConfig, isLoadingRule, rule, defaultConfig]);
+
+  const isSaving = isCreating || isUpdating;
 
   const handleSave = async () => {
-    setIsSaving(true);
+    if (!selectedInstitutionId) {
+      toast.error("Institution not found");
+      return;
+    }
+
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success("Scoring rules saved successfully");
+      if (rule) {
+        // Update existing rule
+        await updateRule.mutateAsync({
+          id: rule.id,
+          input: { criteria: localConfig },
+        });
+      } else {
+        // Create new rule
+        await createRule.mutateAsync({
+          institution_id: selectedInstitutionId,
+          name: "Default Scoring Rules",
+          description: "Auto-generated scoring rules configuration",
+          criteria: localConfig,
+        });
+      }
       setEditMode(false);
     } catch {
-      toast.error("Failed to save scoring rules");
-    } finally {
-      setIsSaving(false);
+      // Error handled by mutation
     }
   };
 
   const handleCancel = () => {
     setEditMode(false);
+    if (activeConfig) {
+      setLocalConfig(activeConfig);
+    } else {
+      setLocalConfig(defaultConfig);
+    }
     toast.info("Changes discarded");
   };
+
+  const handleEngagementWeightChange = (value: number[]) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      engagementWeight: value[0],
+      qualityWeight: 100 - value[0],
+    }));
+  };
+
+  const handleQualityWeightChange = (value: number[]) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      qualityWeight: value[0],
+      engagementWeight: 100 - value[0],
+    }));
+  };
+
+  const handleEngagementCriterionChange = (id: string, field: keyof ScoringCriterion, value: unknown) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      engagementCriteria: prev.engagementCriteria.map(c =>
+        c.id === id ? { ...c, [field]: value } : c
+      ),
+    }));
+  };
+
+  const handleQualityCriterionChange = (id: string, field: keyof ScoringCriterion, value: unknown) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      qualityCriteria: prev.qualityCriteria.map(c =>
+        c.id === id ? { ...c, [field]: value } : c
+      ),
+    }));
+  };
+
+  // Calculate total quality weight
+  const totalQualityWeight = useMemo(() => {
+    return localConfig.qualityCriteria
+      .filter(c => c.enabled)
+      .reduce((sum, c) => sum + (c.weight || 0), 0);
+  }, [localConfig.qualityCriteria]);
+
+  if (isLoadingAccess || isLoadingRule) {
+    return (
+      <div className="container mx-auto py-6 space-y-6">
+        <div className="flex justify-between items-start">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-64" />
+            <Skeleton className="h-4 w-96" />
+          </div>
+          <Skeleton className="h-10 w-32" />
+        </div>
+        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-96 w-full" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="container mx-auto py-6">
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="flex items-center gap-4 py-6">
+            <AlertCircle className="h-8 w-8 text-red-500" />
+            <div>
+              <h3 className="font-semibold text-red-800">Failed to load scoring rules</h3>
+              <p className="text-red-600">There was an error loading the scoring configuration.</p>
+            </div>
+            <Button variant="outline" onClick={() => refetch()} className="ml-auto">
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -124,6 +205,11 @@ function ScoringRulesPageContent() {
           <p className="text-gray-600 mt-1">
             Configure scoring rules for automatic lead prioritization
           </p>
+          {rule && (
+            <Badge variant="outline" className="mt-2">
+              Last updated: {new Date(rule.updated_at).toLocaleDateString()}
+            </Badge>
+          )}
         </div>
         <div className="flex gap-2">
           {editMode ? (
@@ -166,14 +252,11 @@ function ScoringRulesPageContent() {
                   <Activity className="h-5 w-5 text-blue-500" />
                   <span className="font-medium">Engagement Score</span>
                 </div>
-                <span className="text-2xl font-bold text-blue-600">{engagementWeight[0]}%</span>
+                <span className="text-2xl font-bold text-blue-600">{localConfig.engagementWeight}%</span>
               </div>
               <Slider
-                value={engagementWeight}
-                onValueChange={(value) => {
-                  setEngagementWeight(value);
-                  setQualityWeight([100 - value[0]]);
-                }}
+                value={[localConfig.engagementWeight]}
+                onValueChange={handleEngagementWeightChange}
                 max={100}
                 step={5}
                 disabled={!editMode}
@@ -189,14 +272,11 @@ function ScoringRulesPageContent() {
                   <Target className="h-5 w-5 text-green-500" />
                   <span className="font-medium">Quality Score</span>
                 </div>
-                <span className="text-2xl font-bold text-green-600">{qualityWeight[0]}%</span>
+                <span className="text-2xl font-bold text-green-600">{localConfig.qualityWeight}%</span>
               </div>
               <Slider
-                value={qualityWeight}
-                onValueChange={(value) => {
-                  setQualityWeight(value);
-                  setEngagementWeight([100 - value[0]]);
-                }}
+                value={[localConfig.qualityWeight]}
+                onValueChange={handleQualityWeightChange}
                 max={100}
                 step={5}
                 disabled={!editMode}
@@ -241,7 +321,7 @@ function ScoringRulesPageContent() {
                   </CardDescription>
                 </div>
                 {editMode && (
-                  <Button size="sm" className="gap-2">
+                  <Button size="sm" className="gap-2" variant="outline">
                     <Plus className="h-4 w-4" />
                     Add Criteria
                   </Button>
@@ -261,7 +341,7 @@ function ScoringRulesPageContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {engagementCriteria.map((criteria) => (
+                  {localConfig.engagementCriteria.map((criteria) => (
                     <TableRow key={criteria.id}>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -281,26 +361,39 @@ function ScoringRulesPageContent() {
                       </TableCell>
                       <TableCell>
                         {editMode ? (
-                          <Input type="number" defaultValue={criteria.points} className="w-20" />
+                          <Input
+                            type="number"
+                            value={criteria.points || 0}
+                            onChange={(e) => handleEngagementCriterionChange(criteria.id, 'points', parseInt(e.target.value) || 0)}
+                            className="w-20"
+                          />
                         ) : (
                           <Badge variant="outline">+{criteria.points}</Badge>
                         )}
                       </TableCell>
                       <TableCell>
                         {editMode ? (
-                          <Input type="number" defaultValue={criteria.maxOccurrence} className="w-20" />
+                          <Input
+                            type="number"
+                            value={criteria.maxOccurrence || 0}
+                            onChange={(e) => handleEngagementCriterionChange(criteria.id, 'maxOccurrence', parseInt(e.target.value) || 0)}
+                            className="w-20"
+                          />
                         ) : (
                           criteria.maxOccurrence
                         )}
                       </TableCell>
                       <TableCell>
                         <span className="font-medium text-[#0b6d41]">
-                          {criteria.points * criteria.maxOccurrence}
+                          {(criteria.points || 0) * (criteria.maxOccurrence || 0)}
                         </span>
                       </TableCell>
                       <TableCell>
                         {editMode ? (
-                          <Switch checked={criteria.enabled} />
+                          <Switch
+                            checked={criteria.enabled}
+                            onCheckedChange={(checked) => handleEngagementCriterionChange(criteria.id, 'enabled', checked)}
+                          />
                         ) : (
                           <Badge variant={criteria.enabled ? "default" : "outline"}>
                             {criteria.enabled ? "Active" : "Disabled"}
@@ -333,7 +426,7 @@ function ScoringRulesPageContent() {
                   </CardDescription>
                 </div>
                 {editMode && (
-                  <Button size="sm" className="gap-2">
+                  <Button size="sm" className="gap-2" variant="outline">
                     <Plus className="h-4 w-4" />
                     Add Criteria
                   </Button>
@@ -351,7 +444,7 @@ function ScoringRulesPageContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {qualityCriteria.map((criteria) => (
+                  {localConfig.qualityCriteria.map((criteria) => (
                     <TableRow key={criteria.id}>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -368,7 +461,12 @@ function ScoringRulesPageContent() {
                       <TableCell>
                         {editMode ? (
                           <div className="flex items-center gap-2 w-32">
-                            <Slider defaultValue={[criteria.weight]} max={100} step={5} />
+                            <Slider
+                              value={[criteria.weight || 0]}
+                              onValueChange={([value]) => handleQualityCriterionChange(criteria.id, 'weight', value)}
+                              max={100}
+                              step={5}
+                            />
                             <span className="w-10 text-sm">{criteria.weight}%</span>
                           </div>
                         ) : (
@@ -385,7 +483,10 @@ function ScoringRulesPageContent() {
                       </TableCell>
                       <TableCell>
                         {editMode ? (
-                          <Switch checked={criteria.enabled} />
+                          <Switch
+                            checked={criteria.enabled}
+                            onCheckedChange={(checked) => handleQualityCriterionChange(criteria.id, 'enabled', checked)}
+                          />
                         ) : (
                           <Badge variant={criteria.enabled ? "default" : "outline"}>
                             {criteria.enabled ? "Active" : "Disabled"}
@@ -405,9 +506,8 @@ function ScoringRulesPageContent() {
               </Table>
               <div className="mt-4 p-4 bg-gray-50 rounded-lg">
                 <p className="text-sm text-gray-600">
-                  <strong>Total Weight:</strong>{" "}
-                  {qualityCriteria.filter((c) => c.enabled).reduce((sum, c) => sum + c.weight, 0)}%
-                  {qualityCriteria.filter((c) => c.enabled).reduce((sum, c) => sum + c.weight, 0) !== 100 && (
+                  <strong>Total Weight:</strong> {totalQualityWeight}%
+                  {totalQualityWeight !== 100 && (
                     <Badge variant="destructive" className="ml-2">Should be 100%</Badge>
                   )}
                 </p>
@@ -426,16 +526,16 @@ function ScoringRulesPageContent() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {scoreRanges.map((range, index) => (
+                {localConfig.scoreRanges.map((range) => (
                   <div
-                    key={index}
+                    key={range.id}
                     className="flex items-center justify-between p-4 border rounded-lg"
                   >
                     <div className="flex items-center gap-4">
                       <div className={`w-4 h-4 rounded-full ${range.color}`} />
                       <div>
                         <p className="font-medium">{range.label}</p>
-                        <p className="text-sm text-gray-600">Score: {range.range}</p>
+                        <p className="text-sm text-gray-600">Score: {range.min}-{range.max}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -455,6 +555,7 @@ function ScoringRulesPageContent() {
           <Card>
             <CardHeader>
               <CardTitle>Score Distribution</CardTitle>
+              <CardDescription>Current lead distribution by score category</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex items-end gap-2 h-32">

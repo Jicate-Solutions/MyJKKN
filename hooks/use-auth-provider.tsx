@@ -37,8 +37,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (sessionError) throw sessionError;
 
-        // 2. If user exists, get Profile from the 'profiles' table
+        // 2. If user exists, get Profile via RPC to bypass PostgREST cache
         if (session?.user) {
+          // Get profile from profiles table
           const { data: userProfile, error: profileError } = await supabase
             .from('profiles')
             .select('*')

@@ -9,6 +9,226 @@ import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, LeadPr
 // Re-export from use-consultants for convenience
 export { useSourcePerformance } from './use-consultants';
 
+// Re-export AI response hooks
+export {
+  useAIServiceStatus,
+  useGenerateResponse,
+  useSuggestedReplies,
+  usePersonalizeTemplate,
+  useAIResponses,
+  useResponseIntents,
+  useCommunicationChannels as useAICommunicationChannels,
+  aiResponseKeys,
+} from './use-ai-responses';
+
+// Re-export scoring rules hooks
+export {
+  useScoringRules,
+  useActiveScoringRule,
+  useScoringRule,
+  useScoringRuleMutations,
+  useDefaultScoringConfig,
+  useCalculateScore,
+  scoringRulesKeys,
+} from './use-scoring-rules';
+
+// Re-export assignment rules hooks
+export {
+  useAssignmentRules,
+  useActiveAssignmentRules,
+  useAssignmentRule,
+  useAssignmentStats,
+  useAssignmentRuleMutations,
+  assignmentRulesKeys,
+} from './use-assignment-rules';
+
+// Re-export communication templates hooks
+export {
+  useCommunicationTemplates,
+  useActiveTemplates,
+  useCommunicationTemplate,
+  useTemplateStats,
+  useTemplateMutations,
+  useTemplateVariables,
+  communicationTemplatesKeys,
+} from './use-communication-templates';
+
+// Re-export workflows hooks
+export {
+  useWorkflows,
+  useActiveWorkflows,
+  useWorkflow,
+  useWorkflowStats,
+  useWorkflowExecutions,
+  useWorkflowMutations,
+  useWorkflowHelpers,
+  workflowsKeys,
+} from './use-workflows';
+
+// Re-export activity hooks
+export {
+  useLeadActivities,
+  useEnhancedTimeline,
+  useActivityStats,
+  useActivityMutations,
+  activityKeys,
+} from './use-activities';
+
+// Re-export campaign processor hooks
+export {
+  useQueuedSteps,
+  usePendingSteps,
+  useCampaignLogs,
+  useQueueStats,
+  useExecutionStatus,
+  useCampaignProcessorMutations,
+  useCampaignProcessorHelpers,
+  useQueueRealtime,
+  campaignProcessorKeys,
+} from './use-campaign-processor';
+
+// Re-export SMS campaign hooks
+export {
+  useSMSLogs,
+  useLeadSMSLogs,
+  useSMSDeliveryStatus,
+  useSMSCampaignStats,
+  useSMSMutations,
+  useSMSTemplateHelpers,
+  useSMSStatusBadge,
+  smsCampaignKeys,
+} from './use-sms-campaign';
+
+// Re-export WhatsApp campaign hooks
+export {
+  useWhatsAppMessages,
+  useLeadWhatsAppMessages,
+  useWhatsAppMessageStatus,
+  useWhatsAppCampaignStats,
+  useWhatsAppCampaignMutations,
+  useWhatsAppTemplateHelpers,
+  useDeliveryStatusDisplay,
+  whatsappCampaignKeys,
+} from './use-whatsapp-campaign';
+
+// Re-export lead scoring engine hooks
+export {
+  useLeadScore,
+  useScoreBreakdown,
+  useLeadsByScoreRange,
+  useLeadsWithScores,
+  useScoreStatistics,
+  useScoreCalculation,
+  useScoreCategoryDisplay,
+  useScoreBreakdownFormatter,
+  leadScoringKeys,
+} from './use-lead-scoring';
+
+// Re-export drip executor hooks
+export {
+  useActiveSequences,
+  useDripStatus,
+  useDripStats,
+  useLeadSequences,
+  useHasActiveSequence,
+  useDripMutations,
+  useDripExecutor,
+  dripExecutorKeys,
+} from './use-drip-executor';
+
+// Re-export campaign monitoring hooks
+export {
+  useCampaignStats,
+  useDeliveryMetrics,
+  useActiveSequences as useMonitoringActiveSequences,
+  useExecutionLogs,
+  useRealtimeUpdates,
+  useCampaigns,
+  useCampaign,
+  useCampaignMonitoringDashboard,
+  campaignMonitoringKeys,
+} from './use-campaign-monitoring';
+
+// Re-export daily briefing hooks
+export {
+  useDailyBriefing,
+  useLatestBriefing,
+  useUnreadBriefings,
+  useBriefingHistory,
+  useBriefingMutations,
+  useHasUnreadBriefingToday,
+  useDailyBriefingDashboard,
+  dailyBriefingKeys,
+} from './use-daily-briefing';
+
+// Re-export briefing notification hooks
+export {
+  useBriefingNotifications,
+  useUnreadBriefingCount,
+  useLatestUnreadBriefing,
+  useBriefing,
+  useLatestBriefing as useLatestInstitutionBriefing,
+  useTodaysBriefing,
+  useMarkNotificationRead,
+  useMarkAllNotificationsRead,
+  useDismissNotification,
+  useBriefingBanner,
+  useBriefingPopup,
+  briefingNotificationsKeys,
+} from './use-briefing-notifications';
+
+// Re-export insight actions hooks
+export {
+  useAvailableActions,
+  useActionMetadata,
+  useExecuteAction,
+  useBulkAction,
+  useCancelAction,
+  useActionHistory,
+  useActionExecution,
+  useActionButtonState,
+  useLeadSelection,
+  useActionStyles,
+  useInsightActionMutations,
+  insightActionsKeys,
+} from './use-insight-actions';
+
+// Re-export AI insights dashboard hooks
+export {
+  useInsights,
+  useActiveInsights,
+  useInsightsByType,
+  useHighPriorityInsights,
+  useRecommendations,
+  useTrends,
+  useAnomalies,
+  useDismissInsight,
+  useGenerateInsights,
+  useAIInsightsDashboard,
+  useInsightPriorityStyles,
+  useInsightTypeStyles,
+  aiInsightsKeys,
+} from './use-ai-insights';
+
+// Re-export agentic query hooks
+export {
+  useAgenticQuery,
+  useAgenticQuerySync,
+  useSuggestedQueries,
+  useQueryHistory,
+  useQueryTemplates,
+  useQueryResultFormatter,
+  agenticQueryKeys,
+} from './use-agentic-query';
+export type {
+  QueryIntent,
+  QueryFilter,
+  TimeRange,
+  QueryStep,
+  AgenticQueryResult,
+  QueryHistoryEntry,
+} from './use-agentic-query';
+
 // ============================================
 // LEADS HOOKS
 // ============================================

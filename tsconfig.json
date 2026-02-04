@@ -55,6 +55,7 @@
   ],
   "exclude": [
     "node_modules",
-    "**/*.example.ts"
+    "**/*.example.ts",
+    "scripts/**"
   ]
 }
