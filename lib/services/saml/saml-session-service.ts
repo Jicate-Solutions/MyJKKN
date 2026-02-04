@@ -9,7 +9,7 @@ import {
   SamlSession,
   SamlSessionInsert,
   SamlError,
-  SAML_ERROR_CODES,
+  SamlStatusCode,
 } from '@/types/saml';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -18,7 +18,7 @@ export class SamlSessionService {
    * Create new SAML session
    */
   static async createSession(
-    sessionData: Omit<SamlSessionInsert, 'session_index'>,
+    sessionData: Omit<SamlSessionInsert, 'session_index' | 'expires_at'>,
     expiryMinutes = 480 // 8 hours default
   ): Promise<SamlSession> {
     const supabase = await createClient();
@@ -38,12 +38,11 @@ export class SamlSessionService {
       .single();
 
     if (error) {
+      console.error('[saml-session] Failed to create session:', error);
       throw new SamlError(
         'Failed to create SAML session',
-        SAML_ERROR_CODES.SESSION_CREATION_FAILED,
-        500,
-        undefined,
-        error
+        SamlStatusCode.RESPONDER,
+        'session_creation_failed'
       );
     }
 
@@ -68,12 +67,11 @@ export class SamlSessionService {
       if (error.code === 'PGRST116') {
         return null;
       }
+      console.error('[saml-session] Failed to fetch session:', error);
       throw new SamlError(
         'Failed to fetch session',
-        SAML_ERROR_CODES.DATABASE_ERROR,
-        500,
-        undefined,
-        error
+        SamlStatusCode.RESPONDER,
+        'database_error'
       );
     }
 
@@ -101,12 +99,11 @@ export class SamlSessionService {
       .order('created_at', { ascending: false });
 
     if (error) {
+      console.error('[saml-session] Failed to fetch user sessions:', error);
       throw new SamlError(
         'Failed to fetch user sessions',
-        SAML_ERROR_CODES.DATABASE_ERROR,
-        500,
-        undefined,
-        error
+        SamlStatusCode.RESPONDER,
+        'database_error'
       );
     }
 
@@ -125,12 +122,11 @@ export class SamlSessionService {
       .eq('session_index', sessionIndex);
 
     if (error) {
+      console.error('[saml-session] Failed to delete session:', error);
       throw new SamlError(
         'Failed to delete session',
-        SAML_ERROR_CODES.DATABASE_ERROR,
-        500,
-        undefined,
-        error
+        SamlStatusCode.RESPONDER,
+        'database_error'
       );
     }
   }
@@ -147,12 +143,11 @@ export class SamlSessionService {
       .eq('user_id', userId);
 
     if (error) {
+      console.error('[saml-session] Failed to delete user sessions:', error);
       throw new SamlError(
         'Failed to delete user sessions',
-        SAML_ERROR_CODES.DATABASE_ERROR,
-        500,
-        undefined,
-        error
+        SamlStatusCode.RESPONDER,
+        'database_error'
       );
     }
   }
@@ -170,12 +165,11 @@ export class SamlSessionService {
       .select('id');
 
     if (error) {
+      console.error('[saml-session] Failed to cleanup expired sessions:', error);
       throw new SamlError(
         'Failed to cleanup expired sessions',
-        SAML_ERROR_CODES.DATABASE_ERROR,
-        500,
-        undefined,
-        error
+        SamlStatusCode.RESPONDER,
+        'database_error'
       );
     }
 

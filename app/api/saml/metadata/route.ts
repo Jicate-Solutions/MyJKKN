@@ -28,16 +28,16 @@ export async function GET() {
       return NextResponse.json(
         {
           error: error.message,
-          code: error.code,
+          statusCode: error.statusCode,
+          statusDetail: error.statusDetail,
         },
-        { status: error.statusCode }
+        { status: 500 }
       );
     }
 
     return NextResponse.json(
       {
         error: 'Internal server error',
-        code: 'server_error',
       },
       { status: 500 }
     );
