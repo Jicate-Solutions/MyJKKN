@@ -173,7 +173,8 @@ function TalentTypeBreakdownCard({
 // ============================================
 
 export default function UnifiedEarningsPage() {
-  const { userId } = useAuth();
+  const { profile } = useAuth();
+  const userId = profile?.id;
   const [activeTab, setActiveTab] = useState<string>('all');
 
   // Fetch data
