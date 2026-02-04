@@ -20,8 +20,12 @@ const PUBLIC_PATHS_SET = new Set([
   '/sw.js',
   '/manifest.json',
   '/browserconfig.xml',
-  '/pwa-test.html'
+  '/pwa-test.html',
+  '/courses' // Public VAC course listing
 ]);
+
+// Public path prefixes - paths that start with these are public
+const PUBLIC_PATH_PREFIXES = ['/courses/'];
 
 // Regex for static assets - single check instead of multiple endsWith
 const STATIC_ASSET_PATTERN =
@@ -37,6 +41,11 @@ const isPublicPath = (path: string): boolean => {
 
   // Special cases
   if (path.startsWith('/api') || path.includes('favicon.ico')) return true;
+
+  // Check public path prefixes (for nested public routes like /courses/[id])
+  for (const prefix of PUBLIC_PATH_PREFIXES) {
+    if (path.startsWith(prefix)) return true;
+  }
 
   return false;
 };

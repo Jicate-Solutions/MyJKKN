@@ -1,0 +1,482 @@
+{
+  "project": "MyJKKN Enhancement",
+  "version": "1.0",
+  "created": "2026-02-04",
+  "total_effort_weeks": 16,
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "CRM Activation",
+      "priority": "P0",
+      "effort_weeks": 2,
+      "status": "completed",
+      "features": [
+        {
+          "id": "crm-scoring-rules",
+          "name": "Lead Scoring Rules UI",
+          "description": "Build /admission/crm/scoring-rules page to configure scoring criteria",
+          "table_exists": "admission_scoring_rules",
+          "effort_days": 3,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "lib/services/admission/scoring-rules-service.ts",
+            "hooks/admission/use-scoring-rules.ts"
+          ],
+          "files_updated": [
+            "app/(routes)/admission/scoring-rules/page.tsx",
+            "lib/services/admission/index.ts",
+            "hooks/admission/index.ts"
+          ],
+          "dependencies": []
+        },
+        {
+          "id": "crm-assignment-rules",
+          "name": "Assignment Rules UI",
+          "description": "Build /admission/crm/assignment-rules page for auto-assignment configuration",
+          "table_exists": "admission_assignment_rules",
+          "effort_days": 3,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "lib/services/admission/assignment-rules-service.ts",
+            "hooks/admission/use-assignment-rules.ts"
+          ],
+          "files_updated": [
+            "app/(routes)/admission/assignment-rules/page.tsx",
+            "lib/services/admission/index.ts",
+            "hooks/admission/index.ts"
+          ],
+          "dependencies": []
+        },
+        {
+          "id": "crm-templates",
+          "name": "Communication Templates UI",
+          "description": "Build /admission/crm/templates page for WhatsApp/SMS/Email templates",
+          "table_exists": "admission_communication_templates",
+          "effort_days": 3,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "lib/services/admission/communication-templates-service.ts",
+            "hooks/admission/use-communication-templates.ts"
+          ],
+          "files_updated": [
+            "app/(routes)/admission/templates/page.tsx",
+            "lib/services/admission/index.ts",
+            "hooks/admission/index.ts"
+          ],
+          "dependencies": []
+        },
+        {
+          "id": "crm-workflows",
+          "name": "Workflow Configuration UI",
+          "description": "Build /admission/crm/workflows page with visual workflow builder",
+          "table_exists": "admission_workflows",
+          "effort_days": 4,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "lib/services/admission/workflows-service.ts",
+            "hooks/admission/use-workflows.ts"
+          ],
+          "files_updated": [
+            "app/(routes)/admission/workflows/page.tsx",
+            "lib/services/admission/index.ts",
+            "hooks/admission/index.ts"
+          ],
+          "dependencies": []
+        },
+        {
+          "id": "crm-activity-timeline",
+          "name": "Enhanced Activity Timeline",
+          "description": "Improve lead activity timeline display with all touchpoints",
+          "table_exists": "admission_lead_activities",
+          "effort_days": 2,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "lib/services/admission/activity-service.ts",
+            "hooks/admission/use-activities.ts"
+          ],
+          "files_updated": [
+            "app/(routes)/admission/leads/[id]/page.tsx",
+            "lib/services/admission/index.ts",
+            "hooks/admission/index.ts"
+          ],
+          "dependencies": []
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "Campaign Execution",
+      "priority": "P1",
+      "effort_weeks": 2,
+      "status": "completed",
+      "features": [
+        {
+          "id": "campaign-processor",
+          "name": "Background Job Processor",
+          "description": "Supabase Edge Function for processing workflow steps",
+          "table_exists": "admission_campaign_queue",
+          "effort_days": 5,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "supabase/migrations/20260204115054_create_campaign_processor_tables.sql",
+            "lib/services/admission/campaign-processor-service.ts",
+            "hooks/admission/use-campaign-processor.ts"
+          ],
+          "dependencies": ["crm-workflows"]
+        },
+        {
+          "id": "campaign-drip-executor",
+          "name": "Drip Sequence Executor",
+          "description": "Execute campaign steps with delays and conditions",
+          "table_exists": "admission_drip_sequences",
+          "effort_days": 3,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "supabase/migrations/20260204130000_drip_executor_tables.sql",
+            "lib/services/admission/drip-executor-service.ts",
+            "hooks/admission/use-drip-executor.ts",
+            "components/admission/drip-sequence-status.tsx"
+          ],
+          "dependencies": ["campaign-processor"]
+        },
+        {
+          "id": "campaign-whatsapp",
+          "name": "WhatsApp Integration",
+          "description": "Connect campaign executor to WhatsApp Business API",
+          "table_exists": "admission_whatsapp_logs",
+          "effort_days": 2,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "supabase/migrations/20260204130000_whatsapp_campaign_logs.sql",
+            "lib/services/admission/whatsapp-campaign-service.ts",
+            "hooks/admission/use-whatsapp-campaign.ts",
+            "app/api/webhooks/whatsapp/route.ts"
+          ],
+          "dependencies": ["campaign-drip-executor", "crm-templates"]
+        },
+        {
+          "id": "campaign-sms",
+          "name": "SMS Integration",
+          "description": "Connect campaign executor to SMS gateway",
+          "table_exists": "admission_sms_logs",
+          "effort_days": 1,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "supabase/migrations/20260204130001_sms_campaign_logs.sql",
+            "lib/services/admission/sms-campaign-service.ts",
+            "hooks/admission/use-sms-campaign.ts",
+            "app/api/webhooks/sms/route.ts"
+          ],
+          "dependencies": ["campaign-drip-executor", "crm-templates"]
+        },
+        {
+          "id": "campaign-monitoring",
+          "name": "Campaign Monitoring Dashboard",
+          "description": "Dashboard showing campaign progress and metrics",
+          "table_exists": null,
+          "effort_days": 2,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "app/(routes)/admission/campaigns/monitoring/page.tsx",
+            "lib/services/admission/campaign-monitoring-service.ts",
+            "hooks/admission/use-campaign-monitoring.ts",
+            "components/admission/campaign-monitoring/campaign-stats-cards.tsx",
+            "components/admission/campaign-monitoring/delivery-chart.tsx",
+            "components/admission/campaign-monitoring/drip-progress-table.tsx",
+            "components/admission/campaign-monitoring/execution-log.tsx"
+          ],
+          "dependencies": ["campaign-drip-executor"]
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "AI Features",
+      "priority": "P1",
+      "effort_weeks": 4,
+      "status": "completed",
+      "features": [
+        {
+          "id": "ai-scoring-rules",
+          "name": "Rule-Based Lead Scoring",
+          "description": "Calculate lead scores based on configured rules and engagement signals",
+          "table_exists": "admission_lead_scores",
+          "effort_days": 5,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "supabase/migrations/20260204130019_create_admission_lead_scores_table.sql",
+            "lib/services/admission/lead-scoring-engine-service.ts",
+            "hooks/admission/use-lead-scoring.ts"
+          ],
+          "dependencies": ["crm-scoring-rules"]
+        },
+        {
+          "id": "ai-scoring-display",
+          "name": "AI Score Display",
+          "description": "Show AI scores with factor breakdown on lead cards and profiles",
+          "table_exists": null,
+          "effort_days": 2,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "components/admission/lead-scoring/lead-score-badge.tsx",
+            "components/admission/lead-scoring/lead-score-card.tsx",
+            "components/admission/lead-scoring/score-factors-list.tsx",
+            "components/admission/lead-scoring/index.ts"
+          ],
+          "dependencies": ["ai-scoring-rules"]
+        },
+        {
+          "id": "ai-response-gen",
+          "name": "AI Response Generation",
+          "description": "Generate contextual response suggestions for counselors",
+          "table_exists": null,
+          "effort_days": 5,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "lib/services/admission/ai-response-service.ts",
+            "hooks/admission/use-ai-responses.ts",
+            "app/api/ai/generate-response/route.ts",
+            "components/admission/ai-suggested-responses.tsx"
+          ],
+          "dependencies": []
+        },
+        {
+          "id": "ai-insights-dashboard",
+          "name": "AI Insights Dashboard",
+          "description": "Dashboard with AI-generated insights and recommendations",
+          "table_exists": "admission_ai_insights",
+          "effort_days": 3,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "supabase/migrations/20260204130030_ai_insights_table.sql",
+            "lib/services/admission/ai-insights-service.ts",
+            "hooks/admission/use-ai-insights.ts",
+            "app/(routes)/admission/insights/page.tsx",
+            "components/admission/insights/"
+          ],
+          "dependencies": ["ai-scoring-rules"]
+        },
+        {
+          "id": "ai-daily-briefing",
+          "name": "Daily Briefing Generation",
+          "description": "Automated daily briefing generation for each user tier",
+          "table_exists": "admission_daily_briefings",
+          "effort_days": 5,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "supabase/migrations/20260204130025_create_admission_daily_briefings.sql",
+            "lib/services/admission/daily-briefing-service.ts",
+            "hooks/admission/use-daily-briefing.ts"
+          ],
+          "dependencies": ["ai-insights-dashboard"]
+        },
+        {
+          "id": "ai-briefing-delivery",
+          "name": "Briefing Notification Delivery",
+          "description": "Deliver daily briefings via in-app notifications at 6 AM",
+          "table_exists": null,
+          "effort_days": 2,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "lib/services/admission/briefing-delivery-service.ts",
+            "hooks/admission/use-briefing-notifications.ts",
+            "components/admission/briefing-notification-banner.tsx",
+            "components/admission/briefing-popup.tsx",
+            "app/(routes)/admission/briefing/page.tsx"
+          ],
+          "dependencies": ["ai-daily-briefing"]
+        },
+        {
+          "id": "ai-agentic-upgrade",
+          "name": "Agentic Query Processing",
+          "description": "Multi-step reasoning with progress display for complex queries",
+          "table_exists": null,
+          "effort_days": 5,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "lib/services/admission/agentic-query-service.ts",
+            "hooks/admission/use-agentic-query.ts",
+            "app/api/ai/agentic-query/route.ts",
+            "components/admission/agentic-query/"
+          ],
+          "dependencies": []
+        },
+        {
+          "id": "ai-one-click-actions",
+          "name": "One-Click Actions from Insights",
+          "description": "Actionable buttons in AI responses (notify, report, schedule)",
+          "table_exists": null,
+          "effort_days": 3,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "lib/services/admission/insight-actions-service.ts",
+            "hooks/admission/use-insight-actions.ts",
+            "components/admission/actions/action-button.tsx",
+            "components/admission/actions/bulk-action-panel.tsx",
+            "components/admission/actions/action-confirm-dialog.tsx"
+          ],
+          "dependencies": ["ai-agentic-upgrade"]
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "Solutions Hub Completion",
+      "priority": "P1",
+      "effort_weeks": 2,
+      "status": "completed",
+      "features": [
+        {
+          "id": "portal-builder",
+          "name": "Builder Portal",
+          "description": "Complete /talent/builder portal with assignments and earnings",
+          "table_exists": "sh_builders",
+          "effort_days": 3,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "files_created": [
+            "lib/services/solutions/builder-portal-service.ts"
+          ],
+          "files_updated": [
+            "hooks/solutions/use-builder-portal.ts",
+            "lib/services/solutions/index.ts"
+          ],
+          "dependencies": []
+        },
+        {
+          "id": "portal-cohort",
+          "name": "Cohort Portal",
+          "description": "Complete /talent/cohort portal with sessions and earnings",
+          "table_exists": "sh_cohort_members",
+          "effort_days": 3,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "notes": "Already connected to real services via use-cohort-portal.ts",
+          "dependencies": []
+        },
+        {
+          "id": "portal-production",
+          "name": "Production Portal",
+          "description": "Complete /talent/production portal with queue and earnings",
+          "table_exists": "sh_production_learners",
+          "effort_days": 3,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "notes": "Already connected to real services via use-production-portal.ts",
+          "dependencies": []
+        },
+        {
+          "id": "portal-client",
+          "name": "Client Portal",
+          "description": "Complete /portal/client portal with projects and invoices",
+          "table_exists": "sh_clients",
+          "effort_days": 3,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "notes": "Already connected to real services via use-client-portal.ts",
+          "dependencies": []
+        },
+        {
+          "id": "earnings-dashboard",
+          "name": "Earnings Dashboard",
+          "description": "Unified earnings view for all talent types",
+          "table_exists": "sh_earnings_ledger",
+          "effort_days": 2,
+          "status": "completed",
+          "completed_at": "2026-02-04",
+          "notes": "Unified dashboard at /solutions/earnings with stats and history table",
+          "dependencies": ["portal-builder", "portal-cohort", "portal-production"]
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "name": "TQM Modules",
+      "priority": "P2",
+      "effort_weeks": 6,
+      "status": "not_started",
+      "features": [
+        {
+          "id": "tqm-nps",
+          "name": "Stakeholder NPS",
+          "description": "NPS survey system for students, parents, staff, employers",
+          "table_exists": null,
+          "effort_days": 10,
+          "status": "not_started",
+          "dependencies": []
+        },
+        {
+          "id": "tqm-process",
+          "name": "Process Excellence",
+          "description": "Process documentation and improvement tracking",
+          "table_exists": null,
+          "effort_days": 10,
+          "status": "not_started",
+          "dependencies": []
+        },
+        {
+          "id": "tqm-grievance",
+          "name": "Grievance Management",
+          "description": "Grievance submission, tracking, and resolution workflow",
+          "table_exists": null,
+          "effort_days": 10,
+          "status": "not_started",
+          "dependencies": []
+        },
+        {
+          "id": "tqm-maturity",
+          "name": "Maturity Assessment",
+          "description": "Institutional maturity assessment framework",
+          "table_exists": null,
+          "effort_days": 10,
+          "status": "not_started",
+          "dependencies": []
+        },
+        {
+          "id": "tqm-okr-extension",
+          "name": "OKR A/B/C/D Matrix",
+          "description": "Extend OKR module with A/B/C/D classification",
+          "table_exists": "okrs",
+          "effort_days": 5,
+          "status": "not_started",
+          "dependencies": []
+        },
+        {
+          "id": "tqm-copq",
+          "name": "COPQ Tracking",
+          "description": "Cost of Poor Quality tracking in billing module",
+          "table_exists": null,
+          "effort_days": 5,
+          "status": "not_started",
+          "dependencies": []
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_features": 34,
+    "not_started": 6,
+    "partial": 0,
+    "completed": 23,
+    "tables_already_exist": 20,
+    "new_tables_needed": 0
+  }
+}
