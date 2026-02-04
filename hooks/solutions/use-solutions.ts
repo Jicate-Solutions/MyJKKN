@@ -9,77 +9,49 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { solutionsService } from '@/lib/services/solutions/solutions-service';
+import type {
+  SolutionFilters as ServiceSolutionFilters,
+  UpdateSolutionInput as ServiceUpdateSolutionInput,
+} from '@/lib/services/solutions/solutions-service';
+import type { CreateSolutionInput as ServiceCreateSolutionInput } from '@/lib/services/solutions/types';
 
 // ============================================
-// TYPES
+// TYPES (Re-export for backward compatibility)
 // ============================================
 
-export interface SolutionFilters {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-  solution_type?: 'software' | 'training' | 'content';
-  status?: string;
-  client_id?: string;
-  lead_department_id?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
-}
+export type SolutionFilters = ServiceSolutionFilters;
 
 export interface CreateSolutionInput {
   solution_type: 'software' | 'training' | 'content';
   title: string;
   description?: string;
+  problem_statement?: string;
   client_id: string;
   lead_department_id: string;
   base_price?: number;
+  hod_discount?: number;
   final_price?: number;
-  start_date?: string;
-  target_date?: string;
+  started_date?: string;
+  target_completion?: string;
   notes?: string;
+  created_by: string;
 }
 
 export interface UpdateSolutionInput {
   title?: string;
   description?: string;
+  problem_statement?: string;
   status?: string;
+  lead_department_id?: string;
   base_price?: number;
+  hod_discount?: number;
   final_price?: number;
-  start_date?: string;
-  target_date?: string;
-  completion_date?: string;
+  started_date?: string;
+  target_completion?: string;
+  completed_date?: string;
   notes?: string;
 }
-
-// ============================================
-// SERVICE PLACEHOLDER
-// Services will be implemented in lib/services/solutions/
-// ============================================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SolutionService = any;
-
-// These will be replaced with actual service imports
-const solutionsService: SolutionService = {
-  getSolutions: async (_filters?: SolutionFilters) => {
-    throw new Error('solutionsService.getSolutions not implemented');
-  },
-  getSolutionById: async (_id: string) => {
-    throw new Error('solutionsService.getSolutionById not implemented');
-  },
-  createSolution: async (_input: CreateSolutionInput) => {
-    throw new Error('solutionsService.createSolution not implemented');
-  },
-  updateSolution: async (_id: string, _input: UpdateSolutionInput) => {
-    throw new Error('solutionsService.updateSolution not implemented');
-  },
-  deleteSolution: async (_id: string) => {
-    throw new Error('solutionsService.deleteSolution not implemented');
-  },
-  getSolutionStats: async () => {
-    throw new Error('solutionsService.getSolutionStats not implemented');
-  },
-};
 
 // ============================================
 // QUERY HOOKS
@@ -130,7 +102,10 @@ export function useCreateSolution() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateSolutionInput) => solutionsService.createSolution(input),
+    mutationFn: async (input: CreateSolutionInput) => {
+      const result = await solutionsService.createSolution(input);
+      return result as { id: string } & Record<string, unknown>;
+    },
     onSuccess: () => {
       // Invalidate solutions list and stats
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.solutions.all });

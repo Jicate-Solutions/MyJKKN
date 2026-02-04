@@ -1,8 +1,11 @@
-import { Metadata } from 'next';
+'use client';
+
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Table,
   TableBody,
@@ -11,13 +14,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { TrendingUp, Users, Building2, GraduationCap, Wallet, Calendar } from 'lucide-react';
+import { TrendingUp, Users, Building2, GraduationCap, Wallet, Calendar, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
-
-export const metadata: Metadata = {
-  title: 'Earnings Ledger | Solutions Hub',
-  description: 'Track revenue splits and earnings distribution',
-};
+import {
+  useEarnings,
+  useEarningsStats,
+  getRecipientTypeDisplayName,
+  getEarningsStatusColor,
+} from '@/hooks/solutions/use-earnings';
+import type { RecipientType, EarningsStatus } from '@/lib/services/solutions/types';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -27,76 +32,36 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+const recipientConfig: Record<RecipientType, { label: string; icon: React.ElementType; color: string }> = {
+  builder: { label: 'Builder', icon: Users, color: 'bg-blue-100 text-blue-800' },
+  cohort_member: { label: 'Cohort', icon: GraduationCap, color: 'bg-green-100 text-green-800' },
+  production_learner: { label: 'Production', icon: Users, color: 'bg-purple-100 text-purple-800' },
+  department: { label: 'Department', icon: Building2, color: 'bg-orange-100 text-orange-800' },
+  jicate: { label: 'JICATE', icon: Building2, color: 'bg-indigo-100 text-indigo-800' },
+  institution: { label: 'Institution', icon: Building2, color: 'bg-gray-100 text-gray-800' },
+  council: { label: 'Council', icon: Building2, color: 'bg-teal-100 text-teal-800' },
+  infrastructure: { label: 'Infrastructure', icon: Building2, color: 'bg-slate-100 text-slate-800' },
+  referral_bonus: { label: 'Referral', icon: Users, color: 'bg-amber-100 text-amber-800' },
+};
+
+const statusConfig: Record<EarningsStatus, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
+  calculated: { label: 'Calculated', variant: 'secondary' },
+  approved: { label: 'Approved', variant: 'outline' },
+  paid: { label: 'Paid', variant: 'default' },
+};
+
 export default function EarningsPage() {
-  // Placeholder data
-  const earnings = [
-    {
-      id: '1',
-      payment: { id: '1', solution: { code: 'JKKN-SOL-2026-001', title: 'Student Portal' }, amount: 150000 },
-      recipient_type: 'builder',
-      recipient_name: 'John Doe',
-      department: null,
-      amount: 60000,
-      percentage: 40,
-      status: 'paid',
-      processed_at: '2026-01-20',
-    },
-    {
-      id: '2',
-      payment: { id: '1', solution: { code: 'JKKN-SOL-2026-001', title: 'Student Portal' }, amount: 150000 },
-      recipient_type: 'department',
-      recipient_name: 'Computer Science',
-      department: { name: 'Computer Science' },
-      amount: 45000,
-      percentage: 30,
-      status: 'paid',
-      processed_at: '2026-01-20',
-    },
-    {
-      id: '3',
-      payment: { id: '1', solution: { code: 'JKKN-SOL-2026-001', title: 'Student Portal' }, amount: 150000 },
-      recipient_type: 'jicate',
-      recipient_name: 'JICATE',
-      department: null,
-      amount: 22500,
-      percentage: 15,
-      status: 'paid',
-      processed_at: '2026-01-20',
-    },
-    {
-      id: '4',
-      payment: { id: '2', solution: { code: 'JKKN-SOL-2026-002', title: 'AI Workshop' }, amount: 100000 },
-      recipient_type: 'cohort_member',
-      recipient_name: 'Dr. Sarah Wilson',
-      department: null,
-      amount: 60000,
-      percentage: 60,
-      status: 'pending',
-      processed_at: null,
-    },
-  ];
+  // Fetch real data from hooks
+  const { data: earningsData, isLoading, error } = useEarnings({ limit: 50 });
+  const { data: stats, isLoading: statsLoading } = useEarningsStats();
 
-  const stats = {
-    totalDistributed: earnings.filter((e) => e.status === 'paid').reduce((s, e) => s + e.amount, 0),
-    totalPending: earnings.filter((e) => e.status === 'pending').reduce((s, e) => s + e.amount, 0),
-    buildersEarned: earnings.filter((e) => e.recipient_type === 'builder' && e.status === 'paid').reduce((s, e) => s + e.amount, 0),
-    cohortEarned: earnings.filter((e) => e.recipient_type === 'cohort_member' && e.status === 'paid').reduce((s, e) => s + e.amount, 0),
-  };
+  const earnings = earningsData?.data || [];
 
-  const recipientConfig: Record<string, { label: string; icon: React.ElementType; color: string }> = {
-    builder: { label: 'Builder', icon: Users, color: 'bg-blue-100 text-blue-800' },
-    cohort_member: { label: 'Cohort', icon: GraduationCap, color: 'bg-green-100 text-green-800' },
-    production_learner: { label: 'Production', icon: Users, color: 'bg-purple-100 text-purple-800' },
-    department: { label: 'Department', icon: Building2, color: 'bg-orange-100 text-orange-800' },
-    jicate: { label: 'JICATE', icon: Building2, color: 'bg-indigo-100 text-indigo-800' },
-    institution: { label: 'Institution', icon: Building2, color: 'bg-gray-100 text-gray-800' },
-  };
-
-  const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
-    pending: { label: 'Pending', variant: 'secondary' },
-    processed: { label: 'Processed', variant: 'outline' },
-    paid: { label: 'Paid', variant: 'default' },
-  };
+  // Calculate stats from real data
+  const totalDistributed = stats?.total_paid || 0;
+  const totalPending = stats?.total_approved || 0;
+  const buildersEarned = stats?.by_recipient_type?.builder?.paid || 0;
+  const cohortEarned = stats?.by_recipient_type?.cohort_member?.paid || 0;
 
   return (
     <ContentLayout title="Earnings Ledger">
@@ -115,13 +80,27 @@ export default function EarningsPage() {
           </p>
         </div>
 
+        {/* Error State */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Failed to load earnings. Please try refreshing the page.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Stats */}
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardContent className="flex items-center gap-3 py-4">
               <TrendingUp className="h-8 w-8 text-green-500" />
               <div>
-                <p className="text-2xl font-bold">{formatCurrency(stats.totalDistributed)}</p>
+                {statsLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  <p className="text-2xl font-bold">{formatCurrency(totalDistributed)}</p>
+                )}
                 <p className="text-sm text-muted-foreground">Total Distributed</p>
               </div>
             </CardContent>
@@ -130,7 +109,11 @@ export default function EarningsPage() {
             <CardContent className="flex items-center gap-3 py-4">
               <Wallet className="h-8 w-8 text-yellow-500" />
               <div>
-                <p className="text-2xl font-bold">{formatCurrency(stats.totalPending)}</p>
+                {statsLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  <p className="text-2xl font-bold">{formatCurrency(totalPending)}</p>
+                )}
                 <p className="text-sm text-muted-foreground">Pending</p>
               </div>
             </CardContent>
@@ -139,7 +122,11 @@ export default function EarningsPage() {
             <CardContent className="flex items-center gap-3 py-4">
               <Users className="h-8 w-8 text-blue-500" />
               <div>
-                <p className="text-2xl font-bold">{formatCurrency(stats.buildersEarned)}</p>
+                {statsLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  <p className="text-2xl font-bold">{formatCurrency(buildersEarned)}</p>
+                )}
                 <p className="text-sm text-muted-foreground">Builders Earned</p>
               </div>
             </CardContent>
@@ -148,7 +135,11 @@ export default function EarningsPage() {
             <CardContent className="flex items-center gap-3 py-4">
               <GraduationCap className="h-8 w-8 text-green-500" />
               <div>
-                <p className="text-2xl font-bold">{formatCurrency(stats.cohortEarned)}</p>
+                {statsLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  <p className="text-2xl font-bold">{formatCurrency(cohortEarned)}</p>
+                )}
                 <p className="text-sm text-muted-foreground">Cohort Earned</p>
               </div>
             </CardContent>
@@ -162,64 +153,83 @@ export default function EarningsPage() {
             <CardDescription>Revenue distribution to stakeholders</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Solution</TableHead>
-                  <TableHead>Recipient</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-center">%</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Processed</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {earnings.map((earning) => {
-                  const recipient = recipientConfig[earning.recipient_type];
-                  const RecipientIcon = recipient?.icon || Users;
-                  const status = statusConfig[earning.status];
+            {isLoading ? (
+              <div className="p-4 space-y-4">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Skeleton key={i} className="h-16 w-full" />
+                ))}
+              </div>
+            ) : earnings.length === 0 ? (
+              <div className="text-center py-10">
+                <TrendingUp className="mx-auto h-10 w-10 text-muted-foreground" />
+                <h3 className="mt-4 font-semibold">No earnings found</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Earnings will appear here when payments are processed
+                </p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Solution</TableHead>
+                    <TableHead>Recipient</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-center">%</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Processed</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {earnings.map((earning) => {
+                    const recipientType = earning.recipient_type as RecipientType;
+                    const recipient = recipientConfig[recipientType] || recipientConfig.builder;
+                    const RecipientIcon = recipient?.icon || Users;
+                    const status = statusConfig[earning.status as EarningsStatus] || statusConfig.calculated;
 
-                  return (
-                    <TableRow key={earning.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{earning.payment.solution.title}</p>
-                          <p className="text-sm text-muted-foreground">{earning.payment.solution.code}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Badge className={recipient.color}>
-                            <RecipientIcon className="mr-1 h-3 w-3" />
-                            {recipient.label}
-                          </Badge>
-                          <span>{earning.recipient_name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatCurrency(earning.amount)}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {earning.percentage}%
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={status.variant}>{status.label}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        {earning.processed_at ? (
-                          <div className="flex items-center gap-1 text-sm">
-                            <Calendar className="h-3 w-3" />
-                            {format(new Date(earning.processed_at), 'dd MMM yyyy')}
+                    return (
+                      <TableRow key={earning.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{earning.payment?.solution?.title || 'Unknown Solution'}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {earning.payment?.solution?.solution_code || 'N/A'}
+                            </p>
                           </div>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Badge className={recipient.color}>
+                              <RecipientIcon className="mr-1 h-3 w-3" />
+                              {recipient.label}
+                            </Badge>
+                            <span>{earning.recipient_name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(earning.amount)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {earning.percentage}%
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={status.variant}>{status.label}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {earning.paid_at ? (
+                            <div className="flex items-center gap-1 text-sm">
+                              <Calendar className="h-3 w-3" />
+                              {format(new Date(earning.paid_at), 'dd MMM yyyy')}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>

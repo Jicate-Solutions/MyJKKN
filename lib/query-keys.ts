@@ -22,6 +22,11 @@
  * queryClient.invalidateQueries({ queryKey: queryKeys.students.all });
  */
 
+// Type helper for filter objects - allows any object with string keys
+// This is intentionally permissive to work with various filter interfaces
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FilterObject = { [key: string]: any } | undefined;
+
 // ============================================
 // Organization Module Keys
 // ============================================
@@ -31,7 +36,7 @@ export const organizationKeys = {
   // Institutions
   institutions: {
     all: ['organization', 'institutions'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...organizationKeys.institutions.all, 'list', filters] as const,
     detail: (id: string) =>
       [...organizationKeys.institutions.all, 'detail', id] as const
@@ -40,7 +45,7 @@ export const organizationKeys = {
   // Degrees
   degrees: {
     all: ['organization', 'degrees'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...organizationKeys.degrees.all, 'list', filters] as const,
     detail: (id: string) =>
       [...organizationKeys.degrees.all, 'detail', id] as const
@@ -49,7 +54,7 @@ export const organizationKeys = {
   // Departments
   departments: {
     all: ['organization', 'departments'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...organizationKeys.departments.all, 'list', filters] as const,
     detail: (id: string) =>
       [...organizationKeys.departments.all, 'detail', id] as const
@@ -58,7 +63,7 @@ export const organizationKeys = {
   // Programs
   programs: {
     all: ['organization', 'programs'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...organizationKeys.programs.all, 'list', filters] as const,
     detail: (id: string) =>
       [...organizationKeys.programs.all, 'detail', id] as const
@@ -67,7 +72,7 @@ export const organizationKeys = {
   // Semesters
   semesters: {
     all: ['organization', 'semesters'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...organizationKeys.semesters.all, 'list', filters] as const,
     detail: (id: string) =>
       [...organizationKeys.semesters.all, 'detail', id] as const
@@ -76,7 +81,7 @@ export const organizationKeys = {
   // Sections
   sections: {
     all: ['organization', 'sections'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...organizationKeys.sections.all, 'list', filters] as const,
     detail: (id: string) =>
       [...organizationKeys.sections.all, 'detail', id] as const
@@ -85,11 +90,11 @@ export const organizationKeys = {
   // Courses
   courses: {
     all: ['organization', 'courses'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...organizationKeys.courses.all, 'list', filters] as const,
     detail: (id: string) =>
       [...organizationKeys.courses.all, 'detail', id] as const,
-    mappings: (filters?: Record<string, unknown>) =>
+    mappings: (filters?: FilterObject) =>
       [...organizationKeys.courses.all, 'mappings', filters] as const
   }
 };
@@ -99,10 +104,10 @@ export const organizationKeys = {
 // ============================================
 export const studentKeys = {
   all: ['students'] as const,
-  list: (filters?: Record<string, unknown>) =>
+  list: (filters?: FilterObject) =>
     [...studentKeys.all, 'list', filters] as const,
   detail: (id: string) => [...studentKeys.all, 'detail', id] as const,
-  search: (query: string, filters?: Record<string, unknown>) =>
+  search: (query: string, filters?: FilterObject) =>
     [...studentKeys.all, 'search', query, filters] as const,
   billing: (studentId: string) =>
     [...studentKeys.all, 'billing', studentId] as const,
@@ -115,12 +120,12 @@ export const studentKeys = {
 // ============================================
 export const staffKeys = {
   all: ['staff'] as const,
-  list: (filters?: Record<string, unknown>) =>
+  list: (filters?: FilterObject) =>
     [...staffKeys.all, 'list', filters] as const,
   detail: (id: string) => [...staffKeys.all, 'detail', id] as const,
-  search: (query: string, filters?: Record<string, unknown>) =>
+  search: (query: string, filters?: FilterObject) =>
     [...staffKeys.all, 'search', query, filters] as const,
-  plans: (filters?: Record<string, unknown>) =>
+  plans: (filters?: FilterObject) =>
     [...staffKeys.all, 'plans', filters] as const
 };
 
@@ -133,7 +138,7 @@ export const billingKeys = {
   // Invoices
   invoices: {
     all: ['billing', 'invoices'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...billingKeys.invoices.all, 'list', filters] as const,
     detail: (id: string) =>
       [...billingKeys.invoices.all, 'detail', id] as const,
@@ -144,7 +149,7 @@ export const billingKeys = {
   // Receipts
   receipts: {
     all: ['billing', 'receipts'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...billingKeys.receipts.all, 'list', filters] as const,
     detail: (id: string) =>
       [...billingKeys.receipts.all, 'detail', id] as const,
@@ -155,7 +160,7 @@ export const billingKeys = {
   // Bills
   bills: {
     all: ['billing', 'bills'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...billingKeys.bills.all, 'list', filters] as const,
     detail: (id: string) => [...billingKeys.bills.all, 'detail', id] as const,
     byStudent: (studentId: string) =>
@@ -165,7 +170,7 @@ export const billingKeys = {
   // Discounts
   discounts: {
     all: ['billing', 'discounts'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...billingKeys.discounts.all, 'list', filters] as const,
     detail: (id: string) =>
       [...billingKeys.discounts.all, 'detail', id] as const
@@ -174,7 +179,7 @@ export const billingKeys = {
   // Refunds
   refunds: {
     all: ['billing', 'refunds'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...billingKeys.refunds.all, 'list', filters] as const,
     detail: (id: string) => [...billingKeys.refunds.all, 'detail', id] as const
   },
@@ -182,20 +187,20 @@ export const billingKeys = {
   // Categories
   categories: {
     all: ['billing', 'categories'] as const,
-    parent: (filters?: Record<string, unknown>) =>
+    parent: (filters?: FilterObject) =>
       [...billingKeys.categories.all, 'parent', filters] as const,
-    sub: (filters?: Record<string, unknown>) =>
+    sub: (filters?: FilterObject) =>
       [...billingKeys.categories.all, 'sub', filters] as const,
-    items: (filters?: Record<string, unknown>) =>
+    items: (filters?: FilterObject) =>
       [...billingKeys.categories.all, 'items', filters] as const
   },
 
   // Reports
   reports: {
     all: ['billing', 'reports'] as const,
-    summary: (filters?: Record<string, unknown>) =>
+    summary: (filters?: FilterObject) =>
       [...billingKeys.reports.all, 'summary', filters] as const,
-    detailed: (filters?: Record<string, unknown>) =>
+    detailed: (filters?: FilterObject) =>
       [...billingKeys.reports.all, 'detailed', filters] as const
   }
 };
@@ -209,7 +214,7 @@ export const academicKeys = {
   // Academic Years
   academicYears: {
     all: ['academic', 'years'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...academicKeys.academicYears.all, 'list', filters] as const,
     detail: (id: string) =>
       [...academicKeys.academicYears.all, 'detail', id] as const,
@@ -219,7 +224,7 @@ export const academicKeys = {
   // Timetables
   timetables: {
     all: ['academic', 'timetables'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...academicKeys.timetables.all, 'list', filters] as const,
     detail: (id: string) =>
       [...academicKeys.timetables.all, 'detail', id] as const,
@@ -244,7 +249,7 @@ export const academicKeys = {
         academicYearId,
         refreshTrigger
       ] as const,
-    pending: (filters?: Record<string, unknown>, refreshTrigger?: number) =>
+    pending: (filters?: FilterObject, refreshTrigger?: number) =>
       [
         ...academicKeys.attendance.all,
         'pending',
@@ -253,7 +258,7 @@ export const academicKeys = {
       ] as const,
     trend: (institutionId?: string, days?: number) =>
       [...academicKeys.attendance.all, 'trend', institutionId, days] as const,
-    byStudent: (studentId: string, filters?: Record<string, unknown>) =>
+    byStudent: (studentId: string, filters?: FilterObject) =>
       [...academicKeys.attendance.all, 'student', studentId, filters] as const,
     bySection: (sectionId: string, date?: string) =>
       [...academicKeys.attendance.all, 'section', sectionId, date] as const
@@ -262,7 +267,7 @@ export const academicKeys = {
   // Periods
   periods: {
     all: ['academic', 'periods'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...academicKeys.periods.all, 'list', filters] as const,
     byInstitution: (institutionId: string) =>
       [...academicKeys.periods.all, 'institution', institutionId] as const
@@ -274,10 +279,10 @@ export const academicKeys = {
 // ============================================
 export const admissionKeys = {
   all: ['admissions'] as const,
-  list: (filters?: Record<string, unknown>) =>
+  list: (filters?: FilterObject) =>
     [...admissionKeys.all, 'list', filters] as const,
   detail: (id: string) => [...admissionKeys.all, 'detail', id] as const,
-  analytics: (filters?: Record<string, unknown>) =>
+  analytics: (filters?: FilterObject) =>
     [...admissionKeys.all, 'analytics', filters] as const,
   byStudent: (studentId: string) =>
     [...admissionKeys.all, 'student', studentId] as const
@@ -288,7 +293,7 @@ export const admissionKeys = {
 // ============================================
 export const userKeys = {
   all: ['users'] as const,
-  list: (filters?: Record<string, unknown>) =>
+  list: (filters?: FilterObject) =>
     [...userKeys.all, 'list', filters] as const,
   detail: (id: string) => [...userKeys.all, 'detail', id] as const,
   profile: () => [...userKeys.all, 'profile'] as const,
@@ -305,19 +310,19 @@ export const userKeys = {
 // ============================================
 export const resourceKeys = {
   all: ['resources'] as const,
-  list: (filters?: Record<string, unknown>) =>
+  list: (filters?: FilterObject) =>
     [...resourceKeys.all, 'list', filters] as const,
   detail: (id: string) => [...resourceKeys.all, 'detail', id] as const,
   categories: {
     all: ['resources', 'categories'] as const,
-    parent: (filters?: Record<string, unknown>) =>
+    parent: (filters?: FilterObject) =>
       [...resourceKeys.categories.all, 'parent', filters] as const,
-    sub: (filters?: Record<string, unknown>) =>
+    sub: (filters?: FilterObject) =>
       [...resourceKeys.categories.all, 'sub', filters] as const
   },
   reservations: {
     all: ['resources', 'reservations'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...resourceKeys.reservations.all, 'list', filters] as const,
     detail: (id: string) =>
       [...resourceKeys.reservations.all, 'detail', id] as const,
@@ -326,7 +331,7 @@ export const resourceKeys = {
   },
   maintenance: {
     all: ['resources', 'maintenance'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...resourceKeys.maintenance.all, 'list', filters] as const,
     detail: (id: string) =>
       [...resourceKeys.maintenance.all, 'detail', id] as const
@@ -342,7 +347,7 @@ export const solutionsHubKeys = {
   // Clients
   clients: {
     all: ['solutions-hub', 'clients'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.clients.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.clients.all, 'detail', id] as const,
@@ -353,7 +358,7 @@ export const solutionsHubKeys = {
   // Solutions
   solutions: {
     all: ['solutions-hub', 'solutions'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.solutions.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.solutions.all, 'detail', id] as const,
@@ -364,7 +369,7 @@ export const solutionsHubKeys = {
   // Phases
   phases: {
     all: ['solutions-hub', 'phases'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.phases.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.phases.all, 'detail', id] as const,
@@ -376,10 +381,59 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.phases.all, 'next-number', solutionId] as const
   },
 
+  // Iterations
+  iterations: {
+    all: ['solutions-hub', 'iterations'] as const,
+    list: (filters?: FilterObject) =>
+      [...solutionsHubKeys.iterations.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.iterations.all, 'detail', id] as const,
+    byPhase: (phaseId: string) =>
+      [...solutionsHubKeys.iterations.all, 'phase', phaseId] as const,
+    latest: (phaseId: string) =>
+      [...solutionsHubKeys.iterations.all, 'latest', phaseId] as const,
+    stats: () =>
+      [...solutionsHubKeys.iterations.all, 'stats'] as const
+  },
+
+  // Bugs
+  bugs: {
+    all: ['solutions-hub', 'bugs'] as const,
+    list: (filters?: FilterObject) =>
+      [...solutionsHubKeys.bugs.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.bugs.all, 'detail', id] as const,
+    byPhase: (phaseId: string) =>
+      [...solutionsHubKeys.bugs.all, 'phase', phaseId] as const,
+    byIteration: (iterationId: string) =>
+      [...solutionsHubKeys.bugs.all, 'iteration', iterationId] as const,
+    stats: () =>
+      [...solutionsHubKeys.bugs.all, 'stats'] as const,
+    openCount: (phaseId: string) =>
+      [...solutionsHubKeys.bugs.all, 'open-count', phaseId] as const
+  },
+
+  // Deployments
+  deployments: {
+    all: ['solutions-hub', 'deployments'] as const,
+    list: (filters?: FilterObject) =>
+      [...solutionsHubKeys.deployments.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.deployments.all, 'detail', id] as const,
+    byPhase: (phaseId: string) =>
+      [...solutionsHubKeys.deployments.all, 'phase', phaseId] as const,
+    latest: (phaseId: string, environment: string) =>
+      [...solutionsHubKeys.deployments.all, 'latest', phaseId, environment] as const,
+    stats: () =>
+      [...solutionsHubKeys.deployments.all, 'stats'] as const,
+    activeUrl: (phaseId: string, environment: string) =>
+      [...solutionsHubKeys.deployments.all, 'active-url', phaseId, environment] as const
+  },
+
   // MOUs
   mous: {
     all: ['solutions-hub', 'mous'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.mous.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.mous.all, 'detail', id] as const,
@@ -390,7 +444,7 @@ export const solutionsHubKeys = {
   // Builders
   builders: {
     all: ['solutions-hub', 'builders'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.builders.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.builders.all, 'detail', id] as const,
@@ -431,7 +485,7 @@ export const solutionsHubKeys = {
   // Training Programs
   trainingPrograms: {
     all: ['solutions-hub', 'training-programs'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.trainingPrograms.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.trainingPrograms.all, 'detail', id] as const,
@@ -442,7 +496,7 @@ export const solutionsHubKeys = {
   // Training Sessions
   trainingSessions: {
     all: ['solutions-hub', 'training-sessions'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.trainingSessions.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.trainingSessions.all, 'detail', id] as const,
@@ -455,7 +509,7 @@ export const solutionsHubKeys = {
   // Cohort Members
   cohortMembers: {
     all: ['solutions-hub', 'cohort-members'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.cohortMembers.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.cohortMembers.all, 'detail', id] as const,
@@ -493,7 +547,7 @@ export const solutionsHubKeys = {
   // Content Orders
   contentOrders: {
     all: ['solutions-hub', 'content-orders'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.contentOrders.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.contentOrders.all, 'detail', id] as const,
@@ -508,7 +562,7 @@ export const solutionsHubKeys = {
   // Content Deliverables
   contentDeliverables: {
     all: ['solutions-hub', 'content-deliverables'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.contentDeliverables.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.contentDeliverables.all, 'detail', id] as const,
@@ -519,7 +573,7 @@ export const solutionsHubKeys = {
   // Production Learners
   productionLearners: {
     all: ['solutions-hub', 'production-learners'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.productionLearners.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.productionLearners.all, 'detail', id] as const,
@@ -551,7 +605,7 @@ export const solutionsHubKeys = {
   // Discovery Visits
   discoveryVisits: {
     all: ['solutions-hub', 'discovery-visits'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.discoveryVisits.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.discoveryVisits.all, 'detail', id] as const,
@@ -562,7 +616,7 @@ export const solutionsHubKeys = {
   // Communications
   communications: {
     all: ['solutions-hub', 'communications'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.communications.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.communications.all, 'detail', id] as const,
@@ -573,7 +627,7 @@ export const solutionsHubKeys = {
   // Payments
   payments: {
     all: ['solutions-hub', 'payments'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.payments.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.payments.all, 'detail', id] as const,
@@ -586,7 +640,7 @@ export const solutionsHubKeys = {
   // Earnings
   earnings: {
     all: ['solutions-hub', 'earnings'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.earnings.all, 'list', filters] as const,
     byRecipient: (recipientType: string, recipientId: string) =>
       [...solutionsHubKeys.earnings.all, 'recipient', recipientType, recipientId] as const,
@@ -603,7 +657,7 @@ export const solutionsHubKeys = {
   // Publications
   publications: {
     all: ['solutions-hub', 'publications'] as const,
-    list: (filters?: Record<string, unknown>) =>
+    list: (filters?: FilterObject) =>
       [...solutionsHubKeys.publications.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.publications.all, 'detail', id] as const,
@@ -616,7 +670,7 @@ export const solutionsHubKeys = {
   // Accreditation
   accreditation: {
     all: ['solutions-hub', 'accreditation'] as const,
-    metrics: (filters?: Record<string, unknown>) =>
+    metrics: (filters?: FilterObject) =>
       [...solutionsHubKeys.accreditation.all, 'metrics', filters] as const
   },
 

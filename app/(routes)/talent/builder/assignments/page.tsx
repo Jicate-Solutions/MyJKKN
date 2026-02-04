@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -41,6 +40,14 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useBuilderProfile,
+  useMyAssignments,
+  useStartPhaseWork,
+  useCompletePhaseWork,
+  useWithdrawFromPhase,
+} from '@/hooks/solutions/use-builder-portal';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -79,26 +86,24 @@ interface Assignment {
   id: string;
   status: string;
   role: string;
-  requested_at: string;
+  requested_at?: string;
   phase?: {
     id: string;
-    title: string;
-    estimated_value: number;
+    title?: string;
+    estimated_value?: number;
     prototype_url?: string;
     solution?: {
-      solution_code: string;
-      title: string;
+      solution_code?: string;
+      title?: string;
       client?: {
-        name: string;
+        name?: string;
       };
     };
   };
 }
 
 export default function AssignmentsPage() {
-  const [builderId, setBuilderId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const { profile, isLoading: authLoading } = useAuth();
   const [selectedTab, setSelectedTab] = useState('active');
   const [confirmAction, setConfirmAction] = useState<{
     type: 'start' | 'complete' | 'withdraw';
@@ -106,83 +111,40 @@ export default function AssignmentsPage() {
     phaseTitle: string;
   } | null>(null);
 
-  useEffect(() => {
-    async function fetchAssignments() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get builder profile
+  const { data: builderProfile, isLoading: profileLoading } = useBuilderProfile(profile?.id || '');
+  const builderId = builderProfile?.id;
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  // Get assignments
+  const { data: assignments, isLoading: assignmentsLoading } = useMyAssignments(builderId || '');
 
-      const { data: builder } = await (supabase as any).from('sh_builders')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
+  // Mutations
+  const startWork = useStartPhaseWork();
+  const completeWork = useCompletePhaseWork();
+  const withdrawWork = useWithdrawFromPhase();
 
-      if (!builder) {
-        setIsLoading(false);
-        return;
-      }
-
-      setBuilderId(builder.id);
-
-      const { data } = await (supabase as any).from('sh_builder_assignments')
-        .select(`
-          id, status, role, requested_at,
-          phase:sh_solution_phases(
-            id, title, estimated_value, prototype_url,
-            solution:sh_solutions(
-              solution_code, title,
-              client:sh_clients(name)
-            )
-          )
-        `)
-        .eq('builder_id', builder.id)
-        .order('requested_at', { ascending: false });
-
-      setAssignments((data as Assignment[]) || []);
-      setIsLoading(false);
-    }
-
-    fetchAssignments();
-  }, []);
+  const isLoading = authLoading || profileLoading || assignmentsLoading;
 
   const handleAction = async () => {
     if (!confirmAction || !builderId) return;
 
-    const supabase = createClient();
-    let newStatus: string;
-
-    switch (confirmAction.type) {
-      case 'start':
-        newStatus = 'active';
-        break;
-      case 'complete':
-        newStatus = 'completed';
-        break;
-      case 'withdraw':
-        newStatus = 'withdrawn';
-        break;
-      default:
-        return;
-    }
-
-    const { error } = await (supabase as any).from('sh_builder_assignments')
-      .update({ status: newStatus })
-      .eq('id', confirmAction.assignmentId);
-
-    if (error) {
+    try {
+      switch (confirmAction.type) {
+        case 'start':
+          await startWork.mutateAsync({ assignmentId: confirmAction.assignmentId, builderId });
+          toast.success('Assignment started');
+          break;
+        case 'complete':
+          await completeWork.mutateAsync({ assignmentId: confirmAction.assignmentId, builderId });
+          toast.success('Assignment completed');
+          break;
+        case 'withdraw':
+          await withdrawWork.mutateAsync({ assignmentId: confirmAction.assignmentId, builderId });
+          toast.success('Withdrawn from assignment');
+          break;
+      }
+    } catch (error) {
       toast.error('Action failed. Please try again.');
-    } else {
-      toast.success(`Assignment ${confirmAction.type === 'start' ? 'started' : confirmAction.type === 'complete' ? 'completed' : 'withdrawn'}`);
-      // Refresh assignments
-      setAssignments(prev =>
-        prev.map(a =>
-          a.id === confirmAction.assignmentId ? { ...a, status: newStatus } : a
-        )
-      );
     }
 
     setConfirmAction(null);
@@ -198,11 +160,30 @@ export default function AssignmentsPage() {
     );
   }
 
-  const activeAssignments = assignments.filter(
+  if (!builderProfile) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-yellow-600" />
+            <div>
+              <h2 className="text-lg font-semibold">Builder Profile Not Found</h2>
+              <p className="text-muted-foreground mt-1">
+                Your builder profile has not been set up yet.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const typedAssignments = (assignments || []) as Assignment[];
+  const activeAssignments = typedAssignments.filter(
     (a) => a.status === 'active' || a.status === 'approved'
   );
-  const pendingAssignments = assignments.filter((a) => a.status === 'requested');
-  const completedAssignments = assignments.filter((a) => a.status === 'completed');
+  const pendingAssignments = typedAssignments.filter((a) => a.status === 'requested');
+  const completedAssignments = typedAssignments.filter((a) => a.status === 'completed');
 
   const getFilteredAssignments = () => {
     switch (selectedTab) {
@@ -213,7 +194,7 @@ export default function AssignmentsPage() {
       case 'completed':
         return completedAssignments;
       default:
-        return assignments;
+        return typedAssignments;
     }
   };
 
@@ -407,6 +388,7 @@ export default function AssignmentsPage() {
             <AlertDialogAction
               onClick={handleAction}
               className={confirmAction?.type === 'withdraw' ? 'bg-destructive hover:bg-destructive/90' : ''}
+              disabled={startWork.isPending || completeWork.isPending || withdrawWork.isPending}
             >
               {confirmAction?.type === 'start' && 'Start Working'}
               {confirmAction?.type === 'complete' && 'Mark Complete'}

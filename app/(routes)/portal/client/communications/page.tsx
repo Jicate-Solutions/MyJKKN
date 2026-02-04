@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -18,89 +18,38 @@ import {
 import {
   MessageSquare,
   Send,
-  Clock,
-  CheckCircle2,
   User,
   Building,
+  AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
-import { format, formatDistanceToNow } from 'date-fns';
-
-interface Message {
-  id: string;
-  subject: string;
-  message: string;
-  sender_type: 'client' | 'staff';
-  sender_name: string;
-  status: string;
-  created_at: string;
-  solution?: {
-    title: string;
-    solution_code: string;
-  };
-}
-
-interface Solution {
-  id: string;
-  title: string;
-  solution_code: string;
-}
+import { formatDistanceToNow } from 'date-fns';
+import {
+  useCurrentClient,
+  useClientSolutions,
+  useClientCommunicationsQuery,
+  useSendClientMessage,
+} from '@/hooks/solutions';
 
 export default function ClientCommunicationsPage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [solutions, setSolutions] = useState<Solution[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [newMessage, setNewMessage] = useState({
     subject: '',
     message: '',
     solution_id: '',
   });
 
-  useEffect(() => {
-    async function fetchData() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  const { data: client, isLoading: clientLoading, error: clientError } = useCurrentClient();
+  const clientId = client?.id || '';
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  const { data: solutions, isLoading: solutionsLoading } = useClientSolutions(clientId);
+  const { data: messages, isLoading: messagesLoading, refetch } = useClientCommunicationsQuery(clientId);
 
-      // Note: sh_clients table is for future Solutions Hub feature
-      // Using type assertion since table may not exist yet
-      const { data: client } = await (supabase as any)
-        .from('sh_clients')
-        .select('id, name')
-        .eq('user_id', user.id)
-        .single();
+  const sendMessageMutation = useSendClientMessage();
 
-      if (!client) {
-        setIsLoading(false);
-        return;
-      }
-
-      // Get solutions for dropdown
-      // Note: sh_solutions table is for future Solutions Hub feature
-      const { data: solutionsData } = await (supabase as any)
-        .from('sh_solutions')
-        .select('id, title, solution_code')
-        .eq('client_id', client.id)
-        .order('created_at', { ascending: false });
-
-      setSolutions((solutionsData as Solution[]) || []);
-
-      // Get messages
-      // Note: In a real implementation, there would be a communications/messages table
-      // For now, we'll show a placeholder since this table may not exist yet
-      setMessages([]);
-
-      setIsLoading(false);
-    }
-
-    fetchData();
-  }, []);
+  const isLoading = clientLoading || solutionsLoading || messagesLoading;
+  const isSubmitting = sendMessageMutation.isPending;
+  const solutionsList = solutions || [];
+  const messagesList = messages || [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,25 +59,56 @@ export default function ClientCommunicationsPage() {
       return;
     }
 
-    setIsSubmitting(true);
+    if (!clientId) {
+      toast.error('Unable to identify client');
+      return;
+    }
 
-    // Note: In a real implementation, this would insert into a communications table
-    // For now, we'll just show a success message
-    toast.success('Message sent successfully. Our team will respond shortly.');
-
-    setNewMessage({
-      subject: '',
-      message: '',
-      solution_id: '',
-    });
-
-    setIsSubmitting(false);
+    try {
+      await sendMessageMutation.mutateAsync({
+        clientId,
+        subject: newMessage.subject,
+        message: newMessage.message,
+        solutionId: newMessage.solution_id || undefined,
+      });
+      toast.success('Message sent successfully. Our team will respond shortly.');
+      setNewMessage({
+        subject: '',
+        message: '',
+        solution_id: '',
+      });
+      refetch();
+    } catch (error) {
+      toast.error('Failed to send message. Please try again.');
+    }
   };
 
+  // Error state
+  if (clientError) {
+    return (
+      <div className="flex items-center justify-center h-[50vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Error Loading Communications</h2>
+            <p className="text-muted-foreground mb-4">
+              {clientError instanceof Error ? clientError.message : 'Failed to load data'}
+            </p>
+            <Button onClick={() => window.location.reload()}>Retry</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Loading state
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
+        <div>
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-64 mt-2" />
+        </div>
         <div className="grid gap-6 md:grid-cols-2">
           <Skeleton className="h-96" />
           <Skeleton className="h-96" />
@@ -174,7 +154,7 @@ export default function ClientCommunicationsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">General Inquiry</SelectItem>
-                    {solutions.map((solution) => (
+                    {solutionsList.map((solution) => (
                       <SelectItem key={solution.id} value={solution.id}>
                         {solution.title} ({solution.solution_code})
                       </SelectItem>
@@ -229,44 +209,38 @@ export default function ClientCommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {messages.length > 0 ? (
-              <div className="space-y-4">
-                {messages.map((message) => (
+            {messagesList.length > 0 ? (
+              <div className="space-y-4 max-h-[500px] overflow-y-auto">
+                {messagesList.map((message) => (
                   <div
                     key={message.id}
                     className={`p-4 rounded-lg border ${
-                      message.sender_type === 'client'
+                      message.direction === 'inbound'
                         ? 'bg-primary/5 border-primary/20'
                         : 'bg-muted'
                     }`}
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        {message.sender_type === 'client' ? (
+                        {message.direction === 'inbound' ? (
                           <User className="h-4 w-4 text-primary" />
                         ) : (
                           <Building className="h-4 w-4 text-muted-foreground" />
                         )}
-                        <span className="font-medium text-sm">
-                          {message.sender_name}
-                        </span>
                         <Badge variant="outline" className="text-xs">
-                          {message.sender_type === 'client' ? 'You' : 'JKKN Team'}
+                          {message.direction === 'inbound' ? 'You' : 'JKKN Team'}
                         </Badge>
                       </div>
                       <span className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(message.created_at), {
+                        {formatDistanceToNow(new Date(message.communication_date), {
                           addSuffix: true,
                         })}
                       </span>
                     </div>
-                    <p className="font-medium text-sm mb-1">{message.subject}</p>
-                    <p className="text-sm text-muted-foreground">{message.message}</p>
-                    {message.solution && (
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Re: {message.solution.title} ({message.solution.solution_code})
-                      </p>
+                    {message.subject && (
+                      <p className="font-medium text-sm mb-1">{message.subject}</p>
                     )}
+                    <p className="text-sm text-muted-foreground">{message.summary}</p>
                   </div>
                 ))}
               </div>

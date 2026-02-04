@@ -9,56 +9,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { builderPortalService } from '@/lib/services/solutions/builder-portal-service';
 import type { AssignmentStatus, BuilderRole } from './use-builders';
-
-// ============================================
-// SERVICE PLACEHOLDER
-// ============================================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type BuilderPortalService = any;
-
-const builderPortalService: BuilderPortalService = {
-  getBuilderByUserId: async (_userId: string) => {
-    throw new Error('builderPortalService.getBuilderByUserId not implemented');
-  },
-  getMyAssignments: async (_builderId: string, _statusFilter?: AssignmentStatus) => {
-    throw new Error('builderPortalService.getMyAssignments not implemented');
-  },
-  getAvailablePhases: async (_builderId: string) => {
-    throw new Error('builderPortalService.getAvailablePhases not implemented');
-  },
-  claimPhase: async (_phaseId: string, _builderId: string, _role?: BuilderRole) => {
-    throw new Error('builderPortalService.claimPhase not implemented');
-  },
-  startPhaseWork: async (_assignmentId: string) => {
-    throw new Error('builderPortalService.startPhaseWork not implemented');
-  },
-  completePhaseWork: async (_assignmentId: string) => {
-    throw new Error('builderPortalService.completePhaseWork not implemented');
-  },
-  withdrawFromPhase: async (_assignmentId: string) => {
-    throw new Error('builderPortalService.withdrawFromPhase not implemented');
-  },
-  getMySkills: async (_builderId: string) => {
-    throw new Error('builderPortalService.getMySkills not implemented');
-  },
-  addMySkill: async (_builderId: string, _skillName: string, _proficiencyLevel?: number) => {
-    throw new Error('builderPortalService.addMySkill not implemented');
-  },
-  updateMySkillProficiency: async (_skillId: string, _proficiencyLevel: number) => {
-    throw new Error('builderPortalService.updateMySkillProficiency not implemented');
-  },
-  removeMySkill: async (_skillId: string) => {
-    throw new Error('builderPortalService.removeMySkill not implemented');
-  },
-  getMyEarnings: async (_builderId: string) => {
-    throw new Error('builderPortalService.getMyEarnings not implemented');
-  },
-  getPortalOverview: async (_builderId: string) => {
-    throw new Error('builderPortalService.getPortalOverview not implemented');
-  },
-};
 
 // ============================================
 // QUERY HOOKS - PROFILE

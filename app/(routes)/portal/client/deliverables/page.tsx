@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -28,7 +28,13 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import {
+  useCurrentClient,
+  useClientDeliverables,
+  useApproveClientDeliverable,
+  useRequestClientDeliverableRevision,
+  type ClientDeliverableWithOrder,
+} from '@/hooks/solutions';
 
 const statusColors: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
@@ -39,119 +45,61 @@ const statusColors: Record<string, string> = {
   rejected: 'bg-red-100 text-red-700',
 };
 
-interface Deliverable {
-  id: string;
-  title: string;
-  status: string;
-  file_url: string | null;
-  notes: string | null;
-  revision_count: number;
-  created_at: string;
-  order?: {
-    id: string;
-    solution?: {
-      id: string;
-      title: string;
-    };
-  };
-}
-
 export default function ClientDeliverablesPage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('all');
-  const [actionLoading, setActionLoading] = useState(false);
   const [revisionDialogOpen, setRevisionDialogOpen] = useState(false);
-  const [selectedDeliverable, setSelectedDeliverable] = useState<Deliverable | null>(null);
+  const [selectedDeliverable, setSelectedDeliverable] = useState<ClientDeliverableWithOrder | null>(null);
   const [revisionNotes, setRevisionNotes] = useState('');
 
-  const loadDeliverables = useCallback(async () => {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+  const { data: client, isLoading: clientLoading, error: clientError } = useCurrentClient();
+  const clientId = client?.id || '';
 
-    if (!user) {
-      setIsLoading(false);
-      return;
-    }
+  const { data: deliverables, isLoading: deliverablesLoading, refetch } = useClientDeliverables(clientId);
 
-    const { data: client } = await (supabase as any).from('sh_clients')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
+  const approveMutation = useApproveClientDeliverable();
+  const revisionMutation = useRequestClientDeliverableRevision();
 
-    if (!client) {
-      setIsLoading(false);
-      return;
-    }
+  const isLoading = clientLoading || deliverablesLoading;
+  const actionLoading = approveMutation.isPending || revisionMutation.isPending;
+  const deliverablesList = useMemo(() => deliverables || [], [deliverables]);
 
-    // Get solutions for this client
-    const { data: solutions } = await (supabase as any).from('sh_solutions')
-      .select('id, title')
-      .eq('client_id', client.id);
+  // Filter deliverables
+  const filteredDeliverables = useMemo(() => {
+    return deliverablesList.filter((deliverable) => {
+      if (activeTab !== 'all') {
+        if (activeTab === 'pending' && deliverable.status !== 'review') return false;
+        if (activeTab === 'approved' && deliverable.status !== 'approved') return false;
+        if (activeTab === 'revision' && deliverable.status !== 'revision') return false;
+      }
 
-    if (!solutions || solutions.length === 0) {
-      setIsLoading(false);
-      return;
-    }
+      if (search) {
+        const searchLower = search.toLowerCase();
+        return (
+          deliverable.title.toLowerCase().includes(searchLower) ||
+          deliverable.order?.solution?.title?.toLowerCase().includes(searchLower)
+        );
+      }
 
-    const solutionIds = solutions.map(s => s.id);
-
-    // Get content orders for these solutions
-    const { data: orders } = await (supabase as any).from('sh_content_orders')
-      .select('id, solution_id')
-      .in('solution_id', solutionIds);
-
-    if (!orders || orders.length === 0) {
-      setIsLoading(false);
-      return;
-    }
-
-    const orderIds = orders.map(o => o.id);
-
-    // Get deliverables
-    const { data: deliverablesData } = await (supabase as any).from('sh_content_deliverables')
-      .select('id, title, status, file_url, notes, revision_count, created_at, order_id')
-      .in('order_id', orderIds)
-      .order('created_at', { ascending: false });
-
-    // Map deliverables with their solution info
-    const mappedDeliverables = (deliverablesData || []).map(d => {
-      const order = orders.find(o => o.id === d.order_id);
-      const solution = order ? solutions.find(s => s.id === order.solution_id) : null;
-      return {
-        ...d,
-        order: order ? {
-          id: order.id,
-          solution: solution ? { id: solution.id, title: solution.title } : undefined,
-        } : undefined,
-      };
+      return true;
     });
+  }, [deliverablesList, activeTab, search]);
 
-    setDeliverables(mappedDeliverables);
-    setIsLoading(false);
-  }, []);
-
-  useEffect(() => {
-    loadDeliverables();
-  }, [loadDeliverables]);
+  const counts = useMemo(() => ({
+    all: deliverablesList.length,
+    pending: deliverablesList.filter((d) => d.status === 'review').length,
+    approved: deliverablesList.filter((d) => d.status === 'approved').length,
+    revision: deliverablesList.filter((d) => d.status === 'revision').length,
+  }), [deliverablesList]);
 
   const handleApprove = async (deliverableId: string) => {
-    setActionLoading(true);
-    const supabase = createClient();
-
-    const { error } = await (supabase as any).from('sh_content_deliverables')
-      .update({ status: 'approved' })
-      .eq('id', deliverableId);
-
-    if (error) {
-      toast.error('Failed to approve deliverable');
-    } else {
+    try {
+      await approveMutation.mutateAsync(deliverableId);
       toast.success('Deliverable approved successfully');
-      await loadDeliverables();
+      refetch();
+    } catch (error) {
+      toast.error('Failed to approve deliverable');
     }
-
-    setActionLoading(false);
   };
 
   const handleRequestRevision = async () => {
@@ -160,60 +108,49 @@ export default function ClientDeliverablesPage() {
       return;
     }
 
-    setActionLoading(true);
-    const supabase = createClient();
-
-    const { error } = await (supabase as any).from('sh_content_deliverables')
-      .update({
-        status: 'revision',
+    try {
+      await revisionMutation.mutateAsync({
+        deliverableId: selectedDeliverable.id,
         notes: revisionNotes,
-        revision_count: selectedDeliverable.revision_count + 1,
-      })
-      .eq('id', selectedDeliverable.id);
-
-    if (error) {
-      toast.error('Failed to request revision');
-    } else {
+      });
       toast.success('Revision requested successfully');
       setRevisionDialogOpen(false);
       setRevisionNotes('');
       setSelectedDeliverable(null);
-      await loadDeliverables();
+      refetch();
+    } catch (error) {
+      toast.error('Failed to request revision');
     }
-
-    setActionLoading(false);
   };
 
-  // Filter deliverables
-  const filteredDeliverables = deliverables.filter((deliverable) => {
-    if (activeTab !== 'all') {
-      if (activeTab === 'pending' && deliverable.status !== 'review') return false;
-      if (activeTab === 'approved' && deliverable.status !== 'approved') return false;
-      if (activeTab === 'revision' && deliverable.status !== 'revision') return false;
-    }
+  // Error state
+  if (clientError) {
+    return (
+      <div className="flex items-center justify-center h-[50vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Error Loading Deliverables</h2>
+            <p className="text-muted-foreground mb-4">
+              {clientError instanceof Error ? clientError.message : 'Failed to load data'}
+            </p>
+            <Button onClick={() => window.location.reload()}>Retry</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
-    if (search) {
-      const searchLower = search.toLowerCase();
-      return (
-        deliverable.title.toLowerCase().includes(searchLower) ||
-        deliverable.order?.solution?.title?.toLowerCase().includes(searchLower)
-      );
-    }
-
-    return true;
-  });
-
-  const counts = {
-    all: deliverables.length,
-    pending: deliverables.filter((d) => d.status === 'review').length,
-    approved: deliverables.filter((d) => d.status === 'approved').length,
-    revision: deliverables.filter((d) => d.status === 'revision').length,
-  };
-
+  // Loading state
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
+        <div>
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-64 mt-2" />
+        </div>
+        <Skeleton className="h-12 w-full max-w-sm" />
+        <Skeleton className="h-10 w-full max-w-lg" />
         <div className="space-y-4">
           {[...Array(4)].map((_, i) => (
             <Skeleton key={i} className="h-40" />

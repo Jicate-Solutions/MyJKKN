@@ -1,9 +1,12 @@
-import { Metadata } from 'next';
+'use client';
+
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Table,
   TableBody,
@@ -15,11 +18,8 @@ import {
 import Link from 'next/link';
 import { Plus, DollarSign, Clock, CheckCircle2, AlertCircle, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
-
-export const metadata: Metadata = {
-  title: 'Payments | Solutions Hub',
-  description: 'Track payments and revenue',
-};
+import { usePayments, usePaymentStats } from '@/hooks/solutions/use-payments';
+import type { PaymentStatus } from '@/lib/services/solutions/types';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -29,73 +29,35 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+const statusConfig: Record<PaymentStatus, { label: string; color: string; icon: React.ElementType }> = {
+  pending: { label: 'Pending', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
+  invoiced: { label: 'Invoiced', color: 'bg-blue-100 text-blue-800', icon: DollarSign },
+  received: { label: 'Received', color: 'bg-green-100 text-green-800', icon: CheckCircle2 },
+  overdue: { label: 'Overdue', color: 'bg-red-100 text-red-800', icon: AlertCircle },
+  failed: { label: 'Failed', color: 'bg-orange-100 text-orange-800', icon: AlertCircle },
+};
+
+const typeLabels: Record<string, string> = {
+  advance: 'Advance',
+  milestone: 'Milestone',
+  completion: 'Completion',
+  mou_signing: 'MoU Signing',
+  deployment: 'Deployment',
+  acceptance: 'Acceptance',
+  amc: 'AMC',
+};
+
 export default function PaymentsPage() {
-  // Placeholder data
-  const payments = [
-    {
-      id: '1',
-      solution: { code: 'JKKN-SOL-2026-001', title: 'Student Portal' },
-      amount: 150000,
-      payment_type: 'advance',
-      status: 'received',
-      due_date: '2026-01-20',
-      paid_at: '2026-01-18',
-      reference: 'UTR123456789',
-    },
-    {
-      id: '2',
-      solution: { code: 'JKKN-SOL-2026-002', title: 'HR System' },
-      amount: 75000,
-      payment_type: 'milestone',
-      status: 'pending',
-      due_date: '2026-02-15',
-      paid_at: null,
-      reference: null,
-    },
-    {
-      id: '3',
-      solution: { code: 'JKKN-SOL-2026-001', title: 'Student Portal' },
-      amount: 200000,
-      payment_type: 'milestone',
-      status: 'invoiced',
-      due_date: '2026-03-01',
-      paid_at: null,
-      reference: 'INV-2026-003',
-    },
-    {
-      id: '4',
-      solution: { code: 'JKKN-SOL-2026-003', title: 'Marketing Package' },
-      amount: 50000,
-      payment_type: 'completion',
-      status: 'overdue',
-      due_date: '2026-01-30',
-      paid_at: null,
-      reference: 'INV-2026-001',
-    },
-  ];
+  // Fetch real data from hooks
+  const { data: paymentsData, isLoading, error } = usePayments({ limit: 50 });
+  const { data: stats, isLoading: statsLoading } = usePaymentStats();
 
-  const stats = {
-    totalReceived: payments.filter((p) => p.status === 'received').reduce((s, p) => s + p.amount, 0),
-    totalPending: payments.filter((p) => p.status === 'pending' || p.status === 'invoiced').reduce((s, p) => s + p.amount, 0),
-    totalOverdue: payments.filter((p) => p.status === 'overdue').reduce((s, p) => s + p.amount, 0),
-  };
+  const payments = paymentsData?.data || [];
 
-  const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-    pending: { label: 'Pending', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
-    invoiced: { label: 'Invoiced', color: 'bg-blue-100 text-blue-800', icon: DollarSign },
-    received: { label: 'Received', color: 'bg-green-100 text-green-800', icon: CheckCircle2 },
-    overdue: { label: 'Overdue', color: 'bg-red-100 text-red-800', icon: AlertCircle },
-  };
-
-  const typeLabels: Record<string, string> = {
-    advance: 'Advance',
-    milestone: 'Milestone',
-    completion: 'Completion',
-    mou_signing: 'MoU Signing',
-    deployment: 'Deployment',
-    acceptance: 'Acceptance',
-    amc: 'AMC',
-  };
+  // Calculate stats from real data
+  const totalReceived = stats?.total_received || 0;
+  const totalPending = stats?.total_pending || 0;
+  const totalOverdue = payments.filter(p => p.status === 'overdue').reduce((sum, p) => sum + (p.amount || 0), 0);
 
   return (
     <ContentLayout title="Payments">
@@ -122,6 +84,16 @@ export default function PaymentsPage() {
           </Button>
         </div>
 
+        {/* Error State */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Failed to load payments. Please try refreshing the page.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Stats */}
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
@@ -130,7 +102,11 @@ export default function PaymentsPage() {
                 <CheckCircle2 className="h-5 w-5 text-green-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(stats.totalReceived)}</p>
+                {statsLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  <p className="text-2xl font-bold text-green-600">{formatCurrency(totalReceived)}</p>
+                )}
                 <p className="text-sm text-muted-foreground">Received</p>
               </div>
             </CardContent>
@@ -141,7 +117,11 @@ export default function PaymentsPage() {
                 <Clock className="h-5 w-5 text-yellow-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-yellow-600">{formatCurrency(stats.totalPending)}</p>
+                {statsLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  <p className="text-2xl font-bold text-yellow-600">{formatCurrency(totalPending)}</p>
+                )}
                 <p className="text-sm text-muted-foreground">Pending</p>
               </div>
             </CardContent>
@@ -152,7 +132,11 @@ export default function PaymentsPage() {
                 <AlertCircle className="h-5 w-5 text-red-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-red-600">{formatCurrency(stats.totalOverdue)}</p>
+                {isLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  <p className="text-2xl font-bold text-red-600">{formatCurrency(totalOverdue)}</p>
+                )}
                 <p className="text-sm text-muted-foreground">Overdue</p>
               </div>
             </CardContent>
@@ -165,51 +149,77 @@ export default function PaymentsPage() {
             <CardTitle>Payment History</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Solution</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead>Reference</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {payments.map((payment) => {
-                  const status = statusConfig[payment.status];
-                  return (
-                    <TableRow key={payment.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{payment.solution.title}</p>
-                          <p className="text-sm text-muted-foreground">{payment.solution.code}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{typeLabels[payment.payment_type]}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatCurrency(payment.amount)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={status.color}>{status.label}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1 text-sm">
-                          <Calendar className="h-3 w-3" />
-                          {format(new Date(payment.due_date), 'dd MMM yyyy')}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {payment.reference || '-'}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            {isLoading ? (
+              <div className="p-4 space-y-4">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Skeleton key={i} className="h-16 w-full" />
+                ))}
+              </div>
+            ) : payments.length === 0 ? (
+              <div className="text-center py-10">
+                <DollarSign className="mx-auto h-10 w-10 text-muted-foreground" />
+                <h3 className="mt-4 font-semibold">No payments found</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Record your first payment to get started
+                </p>
+                <Button asChild className="mt-4">
+                  <Link href="/solutions/payments/new">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Record Payment
+                  </Link>
+                </Button>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Solution</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead>Reference</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {payments.map((payment) => {
+                    const status = statusConfig[payment.status as PaymentStatus] || statusConfig.pending;
+                    return (
+                      <TableRow key={payment.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{payment.solution?.title || 'Unknown Solution'}</p>
+                            <p className="text-sm text-muted-foreground">{payment.solution?.solution_code || 'N/A'}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{typeLabels[payment.payment_type] || payment.payment_type}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(payment.amount || 0)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={status.color}>{status.label}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {payment.due_date ? (
+                            <div className="flex items-center gap-1 text-sm">
+                              <Calendar className="h-3 w-3" />
+                              {format(new Date(payment.due_date), 'dd MMM yyyy')}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {payment.payment_reference || '-'}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>

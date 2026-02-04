@@ -4,216 +4,139 @@
  * Solutions Hub - Training Hooks
  * Purpose: React Query hooks for training programs, sessions, and cohort members
  * Migrated from: JKKN-Solutions-Hub/src/hooks/use-training.ts
+ *
+ * Services Used:
+ * - trainingService: Training programs and sessions CRUD
+ * - cohortService: Cohort members management
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { trainingService, cohortService } from '@/lib/services/solutions';
+import type {
+  ProgramType,
+  CohortTrack,
+  LocationPreference,
+  SessionStatus,
+  TrainingProgram,
+  TrainingSession,
+  CohortMember,
+  CohortAssignment,
+} from '@/lib/services/solutions/types';
 
 // ============================================
-// TYPES
+// RE-EXPORT TYPES
 // ============================================
 
-export type ProgramType =
-  | 'workshop'
-  | 'bootcamp'
-  | 'certification'
-  | 'custom'
-  | 'faculty_development'
-  | 'corporate'
-  | 'academic';
-
+export type { ProgramType, SessionStatus };
 export type CohortLevel = 'observer' | 'co_lead' | 'lead' | 'master';
 export type CohortRole = 'observer' | 'co_lead' | 'lead' | 'support';
-export type SessionStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+
+// ============================================
+// FILTER TYPES
+// ============================================
 
 export interface TrainingProgramFilters {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
+  [key: string]: unknown;
   solution_id?: string;
   program_type?: ProgramType;
-  status?: string;
+  track?: CohortTrack;
+  location_preference?: LocationPreference;
   search?: string;
   page?: number;
   limit?: number;
-}
-
-export interface CreateTrainingProgramInput {
-  solution_id: string;
-  title: string;
-  program_type: ProgramType;
-  track?: string;
-  participant_count?: number;
-  location_preference?: string;
-  start_date?: string;
-  end_date?: string;
-}
-
-export interface UpdateTrainingProgramInput {
-  title?: string;
-  program_type?: ProgramType;
-  track?: string;
-  participant_count?: number;
-  location_preference?: string;
-  start_date?: string;
-  end_date?: string;
-  status?: string;
 }
 
 export interface TrainingSessionFilters {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
+  [key: string]: unknown;
   program_id?: string;
   status?: SessionStatus;
-  session_date?: string;
+  from_date?: string;
+  to_date?: string;
   search?: string;
   page?: number;
   limit?: number;
+}
+
+export interface CohortMemberFilters {
+  [key: string]: unknown;
+  department_id?: string;
+  level?: number;
+  track?: CohortTrack;
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+// ============================================
+// INPUT TYPES
+// ============================================
+
+export interface CreateTrainingProgramInput {
+  solution_id: string;
+  program_type?: ProgramType;
+  track?: CohortTrack;
+  participant_count?: number;
+  location?: string;
+  location_preference?: LocationPreference;
+  scheduled_start?: string;
+  scheduled_end?: string;
+}
+
+export interface UpdateTrainingProgramInput {
+  program_type?: ProgramType;
+  track?: CohortTrack;
+  participant_count?: number;
+  location?: string;
+  location_preference?: LocationPreference;
+  scheduled_start?: string;
+  scheduled_end?: string;
+  actual_start?: string;
+  actual_end?: string;
 }
 
 export interface CreateTrainingSessionInput {
   program_id: string;
-  session_number: number;
+  session_number?: number;
   title?: string;
-  session_date?: string;
-  start_time?: string;
-  end_time?: string;
+  scheduled_at?: string;
+  duration_minutes?: number;
   location?: string;
 }
 
 export interface UpdateTrainingSessionInput {
+  session_number?: number;
   title?: string;
-  session_date?: string;
-  start_time?: string;
-  end_time?: string;
+  scheduled_at?: string;
+  duration_minutes?: number;
   location?: string;
+  google_calendar_event_id?: string;
   status?: SessionStatus;
   attendance_count?: number;
   notes?: string;
-}
-
-export interface CohortMemberFilters {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-  department_id?: string;
-  level?: CohortLevel;
-  track?: string;
-  is_active?: boolean;
-  search?: string;
-  page?: number;
-  limit?: number;
 }
 
 export interface CreateCohortMemberInput {
   user_id?: string;
   name: string;
   email?: string;
+  phone?: string;
   department_id?: string;
-  level?: CohortLevel;
-  track?: string;
+  level?: number;
+  track?: CohortTrack;
 }
 
 export interface UpdateCohortMemberInput {
   name?: string;
   email?: string;
+  phone?: string;
   department_id?: string;
-  level?: CohortLevel;
-  track?: string;
-  is_active?: boolean;
+  level?: number;
+  track?: CohortTrack;
+  status?: string;
 }
-
-// ============================================
-// SERVICE PLACEHOLDER
-// ============================================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TrainingService = any;
-
-const trainingService: TrainingService = {
-  // Training Programs
-  getTrainingPrograms: async (_filters?: TrainingProgramFilters) => {
-    throw new Error('trainingService.getTrainingPrograms not implemented');
-  },
-  getTrainingProgramById: async (_id: string) => {
-    throw new Error('trainingService.getTrainingProgramById not implemented');
-  },
-  getTrainingProgramBySolutionId: async (_solutionId: string) => {
-    throw new Error('trainingService.getTrainingProgramBySolutionId not implemented');
-  },
-  createTrainingProgram: async (_input: CreateTrainingProgramInput) => {
-    throw new Error('trainingService.createTrainingProgram not implemented');
-  },
-  updateTrainingProgram: async (_id: string, _input: UpdateTrainingProgramInput) => {
-    throw new Error('trainingService.updateTrainingProgram not implemented');
-  },
-  deleteTrainingProgram: async (_id: string) => {
-    throw new Error('trainingService.deleteTrainingProgram not implemented');
-  },
-
-  // Training Sessions
-  getTrainingSessions: async (_filters?: TrainingSessionFilters) => {
-    throw new Error('trainingService.getTrainingSessions not implemented');
-  },
-  getTrainingSessionById: async (_id: string) => {
-    throw new Error('trainingService.getTrainingSessionById not implemented');
-  },
-  getSessionsByProgramId: async (_programId: string) => {
-    throw new Error('trainingService.getSessionsByProgramId not implemented');
-  },
-  createTrainingSession: async (_input: CreateTrainingSessionInput) => {
-    throw new Error('trainingService.createTrainingSession not implemented');
-  },
-  updateTrainingSession: async (_id: string, _input: UpdateTrainingSessionInput) => {
-    throw new Error('trainingService.updateTrainingSession not implemented');
-  },
-  deleteTrainingSession: async (_id: string) => {
-    throw new Error('trainingService.deleteTrainingSession not implemented');
-  },
-  claimSession: async (_sessionId: string, _cohortMemberId: string, _role?: CohortRole) => {
-    throw new Error('trainingService.claimSession not implemented');
-  },
-  assignSession: async (_sessionId: string, _cohortMemberId: string, _assignedById: string, _role?: CohortRole) => {
-    throw new Error('trainingService.assignSession not implemented');
-  },
-  removeAssignment: async (_sessionId: string, _cohortMemberId: string) => {
-    throw new Error('trainingService.removeAssignment not implemented');
-  },
-  completeSession: async (_sessionId: string, _attendanceCount?: number, _notes?: string) => {
-    throw new Error('trainingService.completeSession not implemented');
-  },
-  canSelfClaimSession: async (_sessionId: string) => {
-    throw new Error('trainingService.canSelfClaimSession not implemented');
-  },
-
-  // Cohort Members
-  getCohortMembers: async (_filters?: CohortMemberFilters) => {
-    throw new Error('trainingService.getCohortMembers not implemented');
-  },
-  getCohortMemberById: async (_id: string) => {
-    throw new Error('trainingService.getCohortMemberById not implemented');
-  },
-  getCohortMemberByUserId: async (_userId: string) => {
-    throw new Error('trainingService.getCohortMemberByUserId not implemented');
-  },
-  createCohortMember: async (_input: CreateCohortMemberInput) => {
-    throw new Error('trainingService.createCohortMember not implemented');
-  },
-  updateCohortMember: async (_id: string, _input: UpdateCohortMemberInput) => {
-    throw new Error('trainingService.updateCohortMember not implemented');
-  },
-  deleteCohortMember: async (_id: string) => {
-    throw new Error('trainingService.deleteCohortMember not implemented');
-  },
-  levelUpCohortMember: async (_id: string) => {
-    throw new Error('trainingService.levelUpCohortMember not implemented');
-  },
-  getCohortMemberStats: async () => {
-    throw new Error('trainingService.getCohortMemberStats not implemented');
-  },
-  getAvailableSessionsForMember: async (_memberId: string) => {
-    throw new Error('trainingService.getAvailableSessionsForMember not implemented');
-  },
-};
 
 // ============================================
 // QUERY HOOKS - TRAINING PROGRAMS
@@ -225,7 +148,7 @@ const trainingService: TrainingService = {
 export function useTrainingPrograms(filters?: TrainingProgramFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingPrograms.list(filters),
-    queryFn: () => trainingService.getTrainingPrograms(filters),
+    queryFn: () => trainingService.getPrograms(filters),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -236,7 +159,7 @@ export function useTrainingPrograms(filters?: TrainingProgramFilters) {
 export function useTrainingProgram(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingPrograms.detail(id),
-    queryFn: () => trainingService.getTrainingProgramById(id),
+    queryFn: () => trainingService.getProgramById(id),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -248,7 +171,7 @@ export function useTrainingProgram(id: string) {
 export function useTrainingProgramBySolution(solutionId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingPrograms.bySolution(solutionId),
-    queryFn: () => trainingService.getTrainingProgramBySolutionId(solutionId),
+    queryFn: () => trainingService.getProgramBySolutionId(solutionId),
     enabled: !!solutionId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -266,7 +189,7 @@ export function useCreateTrainingProgram() {
 
   return useMutation({
     mutationFn: (input: CreateTrainingProgramInput) =>
-      trainingService.createTrainingProgram(input),
+      trainingService.createProgram(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingPrograms.all });
     },
@@ -281,8 +204,8 @@ export function useUpdateTrainingProgram() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateTrainingProgramInput }) =>
-      trainingService.updateTrainingProgram(id, input),
-    onSuccess: (data: any) => {
+      trainingService.updateProgram(id, input),
+    onSuccess: (data: TrainingProgram) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingPrograms.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.trainingPrograms.detail(data.id), data);
@@ -298,7 +221,7 @@ export function useDeleteTrainingProgram() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => trainingService.deleteTrainingProgram(id),
+    mutationFn: (id: string) => trainingService.deleteProgram(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingPrograms.all });
     },
@@ -315,7 +238,7 @@ export function useDeleteTrainingProgram() {
 export function useTrainingSessions(filters?: TrainingSessionFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingSessions.list(filters),
-    queryFn: () => trainingService.getTrainingSessions(filters),
+    queryFn: () => trainingService.getSessions(filters),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -326,7 +249,7 @@ export function useTrainingSessions(filters?: TrainingSessionFilters) {
 export function useTrainingSession(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingSessions.detail(id),
-    queryFn: () => trainingService.getTrainingSessionById(id),
+    queryFn: () => trainingService.getSessionById(id),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -345,7 +268,7 @@ export function useSessionsByProgram(programId: string) {
 }
 
 /**
- * Check if session can be self-claimed
+ * Check if session can be self-claimed (based on 2L threshold)
  */
 export function useCanSelfClaimSession(sessionId: string) {
   return useQuery({
@@ -353,6 +276,20 @@ export function useCanSelfClaimSession(sessionId: string) {
     queryFn: () => trainingService.canSelfClaimSession(sessionId),
     enabled: !!sessionId,
     staleTime: 0,
+  });
+}
+
+/**
+ * Get upcoming sessions for dashboard
+ */
+export function useUpcomingTrainingSessions() {
+  return useQuery({
+    queryKey: [...solutionsHubKeys.trainingSessions.all, 'upcoming'],
+    queryFn: () => trainingService.getSessions({
+      status: 'scheduled',
+      from_date: new Date().toISOString(),
+    }),
+    ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
 
@@ -368,8 +305,8 @@ export function useCreateTrainingSession() {
 
   return useMutation({
     mutationFn: (input: CreateTrainingSessionInput) =>
-      trainingService.createTrainingSession(input),
-    onSuccess: (data: any) => {
+      trainingService.createSession(input),
+    onSuccess: (data: TrainingSession) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       if (data?.program_id) {
         queryClient.invalidateQueries({
@@ -388,8 +325,8 @@ export function useUpdateTrainingSession() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateTrainingSessionInput }) =>
-      trainingService.updateTrainingSession(id, input),
-    onSuccess: (data: any) => {
+      trainingService.updateSession(id, input),
+    onSuccess: (data: TrainingSession) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.trainingSessions.detail(data.id), data);
@@ -405,7 +342,7 @@ export function useDeleteTrainingSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => trainingService.deleteTrainingSession(id),
+    mutationFn: (id: string) => trainingService.deleteSession(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
     },
@@ -414,6 +351,7 @@ export function useDeleteTrainingSession() {
 
 /**
  * Claim a session (cohort member self-claim)
+ * Business Rule: ≤2L self-claim allowed, >2L needs MD approval
  */
 export function useClaimSession() {
   const queryClient = useQueryClient();
@@ -431,12 +369,13 @@ export function useClaimSession() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortPortal.all });
     },
   });
 }
 
 /**
- * Assign a cohort member to a session (admin action)
+ * Assign a cohort member to a session (admin/HOD action)
  */
 export function useAssignSession() {
   const queryClient = useQueryClient();
@@ -456,6 +395,7 @@ export function useAssignSession() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortPortal.all });
     },
   });
 }
@@ -477,12 +417,13 @@ export function useRemoveAssignment() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortPortal.all });
     },
   });
 }
 
 /**
- * Complete a session
+ * Complete a session and update cohort member stats
  */
 export function useCompleteSession() {
   const queryClient = useQueryClient();
@@ -500,6 +441,9 @@ export function useCompleteSession() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortPortal.all });
+      // Also invalidate earnings as session completion triggers earnings calculation
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
     },
   });
 }
@@ -514,7 +458,7 @@ export function useCompleteSession() {
 export function useCohortMembers(filters?: CohortMemberFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortMembers.list(filters),
-    queryFn: () => trainingService.getCohortMembers(filters),
+    queryFn: () => cohortService.getCohortMembers(filters),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -525,7 +469,7 @@ export function useCohortMembers(filters?: CohortMemberFilters) {
 export function useCohortMember(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortMembers.detail(id),
-    queryFn: () => trainingService.getCohortMemberById(id),
+    queryFn: () => cohortService.getCohortMemberById(id),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -537,7 +481,7 @@ export function useCohortMember(id: string) {
 export function useCohortMemberByUser(userId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortMembers.byUser(userId),
-    queryFn: () => trainingService.getCohortMemberByUserId(userId),
+    queryFn: () => cohortService.getCohortMemberByUserId(userId),
     enabled: !!userId,
     ...QUERY_CONFIG.USER_SESSION_DATA,
   });
@@ -545,24 +489,37 @@ export function useCohortMemberByUser(userId: string) {
 
 /**
  * Fetch cohort member statistics
+ * Returns: total, byLevel, byTrack, activeMembers
  */
 export function useCohortMemberStats() {
   return useQuery({
     queryKey: solutionsHubKeys.cohortMembers.stats(),
-    queryFn: () => trainingService.getCohortMemberStats(),
+    queryFn: () => cohortService.getCohortStats(),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
 
 /**
- * Fetch available sessions for a member
+ * Fetch available sessions for a member to claim
  */
 export function useAvailableSessionsForMember(memberId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortMembers.availableSessions(memberId),
-    queryFn: () => trainingService.getAvailableSessionsForMember(memberId),
+    queryFn: () => cohortService.getAvailableSessionsForMember(memberId),
     enabled: !!memberId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
+}
+
+/**
+ * Fetch assignments for a cohort member
+ */
+export function useCohortMemberAssignments(memberId: string) {
+  return useQuery({
+    queryKey: [...solutionsHubKeys.cohortMembers.detail(memberId), 'assignments'],
+    queryFn: () => cohortService.getAssignmentsByMemberId(memberId),
+    enabled: !!memberId,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
 
@@ -578,7 +535,7 @@ export function useCreateCohortMember() {
 
   return useMutation({
     mutationFn: (input: CreateCohortMemberInput) =>
-      trainingService.createCohortMember(input),
+      cohortService.createCohortMember(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
     },
@@ -593,8 +550,8 @@ export function useUpdateCohortMember() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateCohortMemberInput }) =>
-      trainingService.updateCohortMember(id, input),
-    onSuccess: (data: any) => {
+      cohortService.updateCohortMember(id, input),
+    onSuccess: (data: CohortMember) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.cohortMembers.detail(data.id), data);
@@ -610,7 +567,7 @@ export function useDeleteCohortMember() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => trainingService.deleteCohortMember(id),
+    mutationFn: (id: string) => cohortService.deleteCohortMember(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
     },
@@ -618,18 +575,100 @@ export function useDeleteCohortMember() {
 }
 
 /**
- * Level up a cohort member
+ * Level up a cohort member (0→1→2→3)
+ * Levels: 0=Observer, 1=Co-Lead, 2=Lead, 3=Master Trainer
  */
 export function useLevelUpCohortMember() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => trainingService.levelUpCohortMember(id),
-    onSuccess: (data: any) => {
+    mutationFn: (id: string) => cohortService.levelUpCohortMember(id),
+    onSuccess: (data: CohortMember) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortPortal.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.cohortMembers.detail(data.id), data);
       }
     },
   });
 }
+
+/**
+ * Add earnings to a cohort member
+ */
+export function useAddCohortMemberEarnings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, amount }: { id: string; amount: number }) =>
+      cohortService.addEarnings(id, amount),
+    onSuccess: (data: CohortMember) => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
+      if (data?.id) {
+        queryClient.setQueryData(solutionsHubKeys.cohortMembers.detail(data.id), data);
+      }
+    },
+  });
+}
+
+/**
+ * Update cohort assignment (earnings, rating, feedback)
+ */
+export function useUpdateCohortAssignment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      id,
+      input,
+    }: {
+      id: string;
+      input: { earnings?: number; rating?: number; feedback?: string };
+    }) => cohortService.updateAssignment(id, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortPortal.all });
+    },
+  });
+}
+
+// ============================================
+// HELPER EXPORTS
+// ============================================
+
+/**
+ * Re-export label helpers from services
+ */
+export {
+  PROGRAM_TYPE_LABELS,
+  TRACK_LABELS,
+  LOCATION_PREFERENCE_LABELS,
+  SESSION_STATUS_INFO,
+} from '@/lib/services/solutions/training-service';
+
+export {
+  COHORT_LEVELS,
+  LEVEL_COLORS,
+} from '@/lib/services/solutions/cohort-service';
+
+/**
+ * Get level info helper
+ */
+export const getLevelInfo = cohortService.getLevelInfo;
+
+/**
+ * Get track display label helper
+ */
+export const getTrackDisplayLabel = cohortService.getTrackDisplayLabel;
+
+/**
+ * Get program type label helper
+ */
+export const getProgramTypeLabel = trainingService.getProgramTypeLabel;
+
+/**
+ * Get session status info helper
+ */
+export const getSessionStatusInfo = trainingService.getSessionStatusInfo;

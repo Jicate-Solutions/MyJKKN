@@ -325,10 +325,10 @@ export class BuildersService extends BaseService {
    */
   static async updateBuilderSkill(
     id: string,
-    proficiencyLevel: number
+    input: { proficiency_level: number }
   ): Promise<BuilderSkill> {
     const { data, error } = await (this.supabase as any).from('sh_builder_skills')
-      .update({ proficiency_level: proficiencyLevel })
+      .update({ proficiency_level: input.proficiency_level })
       .eq('id', id)
       .select()
       .single();

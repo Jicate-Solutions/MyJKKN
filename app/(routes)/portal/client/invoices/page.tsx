@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -19,10 +19,14 @@ import {
   Clock,
   CheckCircle,
   AlertTriangle,
-  Download,
   ExternalLink,
+  AlertCircle,
 } from 'lucide-react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import {
+  useCurrentClient,
+  useClientPayments,
+  useClientPaymentSummary,
+} from '@/hooks/solutions';
 import { format } from 'date-fns';
 
 function formatCurrency(amount: number): string {
@@ -47,139 +51,72 @@ const statusLabels: Record<string, string> = {
   overdue: 'Overdue',
 };
 
-interface Payment {
-  id: string;
-  amount: number;
-  payment_type: string;
-  status: string;
-  due_date: string | null;
-  received_date: string | null;
-  invoice_url: string | null;
-  created_at: string;
-  solution?: {
-    id: string;
-    title: string;
-    solution_code: string;
-  };
-}
-
-interface PaymentSummary {
-  total: number;
-  pending: number;
-  paid: number;
-  overdue: number;
-}
-
 export default function ClientInvoicesPage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [summary, setSummary] = useState<PaymentSummary>({
-    total: 0,
-    pending: 0,
-    paid: 0,
-    overdue: 0,
-  });
   const [activeTab, setActiveTab] = useState('all');
 
-  useEffect(() => {
-    async function fetchPayments() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  const { data: client, isLoading: clientLoading, error: clientError } = useCurrentClient();
+  const clientId = client?.id || '';
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  const { data: payments, isLoading: paymentsLoading } = useClientPayments(clientId);
+  const { data: summary, isLoading: summaryLoading } = useClientPaymentSummary(clientId);
 
-      const { data: client } = await (supabase as any).from('sh_clients')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!client) {
-        setIsLoading(false);
-        return;
-      }
-
-      // Get solutions for this client
-      const { data: solutions } = await (supabase as any).from('sh_solutions')
-        .select('id, title, solution_code')
-        .eq('client_id', client.id);
-
-      if (!solutions || solutions.length === 0) {
-        setIsLoading(false);
-        return;
-      }
-
-      const solutionIds = solutions.map(s => s.id);
-
-      // Get payments
-      const { data: paymentsData } = await (supabase as any).from('sh_payments')
-        .select('id, amount, payment_type, status, due_date, received_date, invoice_url, created_at, solution_id')
-        .in('solution_id', solutionIds)
-        .order('created_at', { ascending: false });
-
-      // Map payments with solution info
-      const mappedPayments = (paymentsData || []).map(p => ({
-        ...p,
-        solution: solutions.find(s => s.id === p.solution_id),
-      }));
-
-      setPayments(mappedPayments);
-
-      // Calculate summary
-      let total = 0;
-      let pending = 0;
-      let paid = 0;
-      let overdue = 0;
-
-      mappedPayments.forEach(p => {
-        total += p.amount;
-        if (p.status === 'received') {
-          paid += p.amount;
-        } else if (p.status === 'overdue') {
-          overdue += p.amount;
-        } else {
-          pending += p.amount;
-        }
-      });
-
-      setSummary({ total, pending, paid, overdue });
-      setIsLoading(false);
-    }
-
-    fetchPayments();
-  }, []);
+  const isLoading = clientLoading || paymentsLoading || summaryLoading;
+  const paymentsList = useMemo(() => payments || [], [payments]);
 
   // Filter payments by tab
-  const filteredPayments = payments.filter((payment) => {
-    if (activeTab === 'all') return true;
-    if (activeTab === 'pending') {
-      return payment.status === 'pending' || payment.status === 'invoiced';
-    }
-    if (activeTab === 'paid') return payment.status === 'received';
-    if (activeTab === 'overdue') return payment.status === 'overdue';
-    return true;
-  });
+  const filteredPayments = useMemo(() => {
+    return paymentsList.filter((payment) => {
+      if (activeTab === 'all') return true;
+      if (activeTab === 'pending') {
+        return payment.status === 'pending' || payment.status === 'invoiced';
+      }
+      if (activeTab === 'paid') return payment.status === 'received';
+      if (activeTab === 'overdue') return payment.status === 'overdue';
+      return true;
+    });
+  }, [paymentsList, activeTab]);
 
-  const counts = {
-    all: payments.length,
-    pending: payments.filter(
+  const counts = useMemo(() => ({
+    all: paymentsList.length,
+    pending: paymentsList.filter(
       (p) => p.status === 'pending' || p.status === 'invoiced'
     ).length,
-    paid: payments.filter((p) => p.status === 'received').length,
-    overdue: payments.filter((p) => p.status === 'overdue').length,
-  };
+    paid: paymentsList.filter((p) => p.status === 'received').length,
+    overdue: paymentsList.filter((p) => p.status === 'overdue').length,
+  }), [paymentsList]);
 
+  // Error state
+  if (clientError) {
+    return (
+      <div className="flex items-center justify-center h-[50vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Error Loading Invoices</h2>
+            <p className="text-muted-foreground mb-4">
+              {clientError instanceof Error ? clientError.message : 'Failed to load data'}
+            </p>
+            <Button onClick={() => window.location.reload()}>Retry</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Loading state
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
+        <div>
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-64 mt-2" />
+        </div>
         <div className="grid gap-4 md:grid-cols-4">
           {[...Array(4)].map((_, i) => (
             <Skeleton key={i} className="h-24" />
           ))}
         </div>
+        <Skeleton className="h-10 w-full max-w-lg" />
         <Skeleton className="h-96" />
       </div>
     );
@@ -203,7 +140,7 @@ export default function ClientInvoicesPage() {
             <Receipt className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(summary.total)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(summary?.total || 0)}</div>
           </CardContent>
         </Card>
 
@@ -214,7 +151,7 @@ export default function ClientInvoicesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-emerald-600">
-              {formatCurrency(summary.paid)}
+              {formatCurrency(summary?.paid || 0)}
             </div>
           </CardContent>
         </Card>
@@ -226,7 +163,7 @@ export default function ClientInvoicesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">
-              {formatCurrency(summary.pending)}
+              {formatCurrency(summary?.pending || 0)}
             </div>
           </CardContent>
         </Card>
@@ -238,7 +175,7 @@ export default function ClientInvoicesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
-              {formatCurrency(summary.overdue)}
+              {formatCurrency(summary?.overdue || 0)}
             </div>
           </CardContent>
         </Card>
@@ -302,7 +239,7 @@ export default function ClientInvoicesPage() {
                   {filteredPayments.map((payment) => (
                     <TableRow key={payment.id}>
                       <TableCell>
-                        {format(new Date(payment.created_at), 'MMM d, yyyy')}
+                        {payment.created_at ? format(new Date(payment.created_at), 'MMM d, yyyy') : '-'}
                       </TableCell>
                       <TableCell>
                         <div>
@@ -329,10 +266,10 @@ export default function ClientInvoicesPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        {payment.invoice_url && (
+                        {(payment as any).invoice_url && (
                           <Button variant="ghost" size="sm" asChild>
                             <a
-                              href={payment.invoice_url}
+                              href={(payment as any).invoice_url}
                               target="_blank"
                               rel="noopener noreferrer"
                             >

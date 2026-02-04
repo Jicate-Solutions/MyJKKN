@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Calendar, Clock, MapPin, CalendarCheck } from 'lucide-react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import { Calendar, Clock, MapPin, CalendarCheck, AlertCircle } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useCohortProfile,
+  useMySchedule,
+} from '@/hooks/solutions/use-cohort-portal';
 
 function formatDateTime(dateStr: string | null): string {
   if (!dateStr) return 'TBD';
@@ -18,75 +21,17 @@ function formatDateTime(dateStr: string | null): string {
   });
 }
 
-interface ScheduledSession {
-  id: string;
-  role: string;
-  session?: {
-    id: string;
-    title: string;
-    session_date: string;
-    start_time: string;
-    location: string | null;
-    status: string;
-    program?: {
-      title: string;
-      solution?: {
-        title: string;
-        client?: {
-          name: string;
-        };
-      };
-    };
-  };
-}
-
 export default function MySchedulePage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [assignments, setAssignments] = useState<ScheduledSession[]>([]);
+  const { profile, isLoading: authLoading } = useAuth();
 
-  useEffect(() => {
-    async function fetchData() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get cohort member profile
+  const { data: cohortProfile, isLoading: profileLoading } = useCohortProfile(profile?.id || '');
+  const memberId = cohortProfile?.id;
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  // Get schedule
+  const { data: assignments, isLoading: scheduleLoading } = useMySchedule(memberId || '');
 
-      const { data: member } = await (supabase as any).from('sh_cohort_members')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!member) {
-        setIsLoading(false);
-        return;
-      }
-
-      const { data } = await (supabase as any).from('sh_cohort_assignments')
-        .select(`
-          id, role,
-          session:sh_training_sessions(
-            id, title, session_date, start_time, location, status,
-            program:sh_training_programs(
-              title,
-              solution:sh_solutions(
-                title,
-                client:sh_clients(name)
-              )
-            )
-          )
-        `)
-        .eq('cohort_member_id', member.id)
-        .order('created_at', { ascending: false });
-
-      setAssignments((data as ScheduledSession[]) || []);
-      setIsLoading(false);
-    }
-
-    fetchData();
-  }, []);
+  const isLoading = authLoading || profileLoading || scheduleLoading;
 
   if (isLoading) {
     return (
@@ -101,8 +46,52 @@ export default function MySchedulePage() {
     );
   }
 
-  const upcomingSessions = assignments.filter(a => a.session?.status === 'scheduled');
-  const pastSessions = assignments.filter(a => a.session?.status === 'completed');
+  if (!cohortProfile) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-yellow-600" />
+            <div>
+              <h2 className="text-lg font-semibold">Cohort Profile Not Found</h2>
+              <p className="text-muted-foreground mt-1">
+                Your cohort member profile has not been set up yet.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const typedAssignments = (assignments || []) as Array<{
+    id: string;
+    role: string;
+    session?: {
+      id: string;
+      title: string;
+      scheduled_at: string;
+      location?: string | null;
+      status: string;
+      program?: {
+        title: string;
+        solution?: {
+          title: string;
+          client?: {
+            name: string;
+          };
+        };
+      };
+    };
+  }>;
+
+  const now = new Date();
+  const upcomingSessions = typedAssignments.filter(
+    (a) => a.session && new Date(a.session.scheduled_at) > now && a.session.status !== 'completed'
+  );
+  const pastSessions = typedAssignments.filter(
+    (a) => a.session && (new Date(a.session.scheduled_at) <= now || a.session.status === 'completed')
+  );
 
   return (
     <div className="space-y-6">
@@ -136,11 +125,7 @@ export default function MySchedulePage() {
                   <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4" />
-                      {formatDateTime(assignment.session?.session_date || null)}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4" />
-                      {assignment.session?.start_time || 'TBD'}
+                      {formatDateTime(assignment.session?.scheduled_at || null)}
                     </div>
                     {assignment.session?.location && (
                       <div className="flex items-center gap-2">
@@ -191,7 +176,7 @@ export default function MySchedulePage() {
                   <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4" />
-                      {formatDateTime(assignment.session?.session_date || null)}
+                      {formatDateTime(assignment.session?.scheduled_at || null)}
                     </div>
                   </div>
                 </CardContent>

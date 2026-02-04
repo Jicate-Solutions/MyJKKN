@@ -3,17 +3,29 @@
 /**
  * Solutions Hub - Payments Hooks
  * Purpose: React Query hooks for payment management
- * Migrated from: JKKN-Solutions-Hub/src/hooks/use-payments.ts
+ * Implements: getPayments, getPaymentById, createPayment, updatePayment, deletePayment,
+ *             getPaymentsBySolution, getPaymentStats, flagPayment, processAllPendingSplits
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import {
+  paymentsService,
+  type PaymentFilters as ServicePaymentFilters,
+  type PaymentWithDetails,
+  type UpdatePaymentInput as ServiceUpdatePaymentInput,
+  type MonthlyBatchSummary,
+  type SplitType,
+  type CalculatedSplit,
+} from '@/lib/services/solutions';
+import type { CreatePaymentInput as ServiceCreatePaymentInput, PaymentStatus } from '@/lib/services/solutions/types';
 
 // ============================================
-// TYPES
+// TYPES (Re-export for convenience)
 // ============================================
 
+export type { PaymentStatus };
 export type PaymentType =
   | 'advance'
   | 'milestone'
@@ -23,86 +35,26 @@ export type PaymentType =
   | 'deployment'
   | 'acceptance';
 
-export type PaymentStatus =
-  | 'pending'
-  | 'processing'
-  | 'completed'
-  | 'failed'
-  | 'refunded';
-
-export interface PaymentFilters {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
+export interface PaymentFilters extends ServicePaymentFilters {
   solution_id?: string;
-  phase_id?: string;
-  payment_type?: PaymentType;
-  status?: PaymentStatus;
-  from_date?: string;
-  to_date?: string;
   search?: string;
-  page?: number;
-  limit?: number;
 }
 
-export interface CreatePaymentInput {
-  solution_id?: string;
-  phase_id?: string;
-  order_id?: string;
-  program_id?: string;
-  amount: number;
-  payment_type: PaymentType;
-  payment_date?: string;
-  reference_number?: string;
-  split_model_id?: string;
-  notes?: string;
+export interface CreatePaymentInput extends Omit<ServiceCreatePaymentInput, 'recorded_by'> {
+  recorded_by?: string;
 }
 
-export interface UpdatePaymentInput {
-  amount?: number;
-  payment_type?: PaymentType;
-  status?: PaymentStatus;
-  payment_date?: string;
-  reference_number?: string;
-  split_model_id?: string;
-  notes?: string;
+export type UpdatePaymentInput = ServiceUpdatePaymentInput;
+
+export interface PaymentStats {
+  total_received: number;
+  total_pending: number;
+  this_month_received: number;
+  this_month_pending: number;
+  by_status: Record<PaymentStatus, number>;
 }
 
-// ============================================
-// SERVICE PLACEHOLDER
-// ============================================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type PaymentService = any;
-
-const paymentsService: PaymentService = {
-  getPayments: async (_filters?: PaymentFilters) => {
-    throw new Error('paymentsService.getPayments not implemented');
-  },
-  getPaymentById: async (_id: string) => {
-    throw new Error('paymentsService.getPaymentById not implemented');
-  },
-  createPayment: async (_input: CreatePaymentInput) => {
-    throw new Error('paymentsService.createPayment not implemented');
-  },
-  updatePayment: async (_id: string, _input: UpdatePaymentInput) => {
-    throw new Error('paymentsService.updatePayment not implemented');
-  },
-  deletePayment: async (_id: string) => {
-    throw new Error('paymentsService.deletePayment not implemented');
-  },
-  getMonthlyBatch: async (_month: number, _year: number) => {
-    throw new Error('paymentsService.getMonthlyBatch not implemented');
-  },
-  getPaymentStats: async () => {
-    throw new Error('paymentsService.getPaymentStats not implemented');
-  },
-  flagPayment: async (_id: string, _reason: string) => {
-    throw new Error('paymentsService.flagPayment not implemented');
-  },
-  autoProcessPendingPayments: async () => {
-    throw new Error('paymentsService.autoProcessPendingPayments not implemented');
-  },
-};
+export type { PaymentWithDetails, MonthlyBatchSummary, SplitType, CalculatedSplit };
 
 // ============================================
 // QUERY HOOKS
@@ -132,6 +84,18 @@ export function usePayment(id: string) {
 }
 
 /**
+ * Fetch payments for a specific solution
+ */
+export function usePaymentsBySolution(solutionId: string) {
+  return useQuery({
+    queryKey: ['solutions-hub', 'payments', 'solution', solutionId],
+    queryFn: () => paymentsService.getPaymentsBySolution(solutionId),
+    enabled: !!solutionId,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+/**
  * Fetch payment statistics
  */
 export function usePaymentStats() {
@@ -154,6 +118,17 @@ export function useMonthlyBatch(month: number, year: number) {
   });
 }
 
+/**
+ * Fetch all revenue split models
+ */
+export function useRevenueSplitModels() {
+  return useQuery({
+    queryKey: ['solutions-hub', 'revenue-split-models'],
+    queryFn: () => paymentsService.getAllSplitModels(),
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
 // ============================================
 // MUTATION HOOKS
 // ============================================
@@ -165,7 +140,8 @@ export function useCreatePayment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreatePaymentInput) => paymentsService.createPayment(input),
+    mutationFn: (input: CreatePaymentInput) =>
+      paymentsService.createPayment(input as ServiceCreatePaymentInput),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.payments.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
@@ -187,6 +163,7 @@ export function useUpdatePayment() {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.payments.detail(variables.id),
       });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
     },
   });
 }
@@ -225,16 +202,90 @@ export function useFlagPayment() {
 }
 
 /**
- * Auto-process pending payments
+ * Process all pending payment splits
  */
-export function useAutoProcessPayments() {
+export function useProcessAllPendingSplits() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: () => paymentsService.autoProcessPendingPayments(),
+    mutationFn: () => paymentsService.processAllPendingSplits(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.payments.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
     },
   });
+}
+
+/**
+ * Calculate and distribute splits for a specific payment
+ */
+export function useCalculateAndDistributeSplits() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (paymentId: string) =>
+      paymentsService.calculateAndDistributeSplits(paymentId),
+    onSuccess: (_, paymentId) => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.payments.all });
+      queryClient.invalidateQueries({
+        queryKey: solutionsHubKeys.payments.detail(paymentId),
+      });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
+    },
+  });
+}
+
+/**
+ * Update a revenue split model
+ */
+export function useUpdateSplitModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      id,
+      splitConfig,
+    }: {
+      id: string;
+      splitConfig: Record<string, number>;
+    }) => paymentsService.updateSplitModel(id, splitConfig),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['solutions-hub', 'revenue-split-models'],
+      });
+    },
+  });
+}
+
+// ============================================
+// UTILITY HOOKS
+// ============================================
+
+/**
+ * Helper to calculate revenue splits (client-side preview)
+ * Uses the service's calculation method without persisting
+ */
+export function useCalculateRevenueSplits() {
+  return {
+    calculate: (
+      amount: number,
+      splitType: SplitType,
+      options?: {
+        hodDiscount?: number;
+        isFirstPhase?: boolean;
+        hasReferral?: boolean;
+      }
+    ) => paymentsService.calculateRevenueSplits(amount, splitType, options),
+  };
+}
+
+/**
+ * Helper to get split type from solution type and track
+ */
+export function useGetSplitType() {
+  return {
+    getSplitType: paymentsService.getSplitType,
+    REVENUE_SPLIT_CONFIGS: paymentsService.REVENUE_SPLIT_CONFIGS,
+    RECIPIENT_NAMES: paymentsService.RECIPIENT_NAMES,
+  };
 }

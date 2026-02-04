@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,8 +14,15 @@ import {
   Clock,
   ArrowRight,
   TrendingUp,
+  AlertCircle,
 } from 'lucide-react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useCohortProfile,
+  useDashboardStats,
+  useLevelProgress,
+  useUpcomingSessions,
+} from '@/hooks/solutions/use-cohort-portal';
 
 function formatCurrency(amount: number | null | undefined): string {
   if (!amount) return '0';
@@ -56,97 +62,28 @@ const LEVEL_TITLES: Record<number, string> = {
   3: 'Master Trainer',
 };
 
-const LEVEL_REQUIREMENTS: Record<number, { sessions: number; description: string }> = {
-  1: { sessions: 5, description: 'Complete 5 sessions as Observer to reach Co-Lead' },
-  2: { sessions: 10, description: 'Complete 10 sessions as Co-Lead to reach Lead' },
-  3: { sessions: 20, description: 'Complete 20 sessions as Lead to reach Master' },
-};
-
-interface CohortStats {
-  level: number;
-  total_earnings: number;
-  completed_sessions: number;
-  upcoming_sessions: number;
-}
-
-interface NextSession {
-  title: string;
-  scheduled_at: string;
-  role: string;
-}
-
 export default function CohortPortalHomePage() {
-  const [memberId, setMemberId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [stats, setStats] = useState<CohortStats | null>(null);
-  const [nextSession, setNextSession] = useState<NextSession | null>(null);
+  const { profile, isLoading: authLoading } = useAuth();
 
-  useEffect(() => {
-    async function fetchData() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get cohort member profile
+  const {
+    data: cohortProfile,
+    isLoading: profileLoading,
+    error: profileError,
+  } = useCohortProfile(profile?.id || '');
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  const memberId = cohortProfile?.id;
 
-      const { data: member } = await (supabase as any).from('sh_cohort_members')
-        .select('id, level, total_earnings')
-        .eq('user_id', user.id)
-        .single();
+  // Get dashboard stats
+  const { data: stats, isLoading: statsLoading } = useDashboardStats(memberId || '');
 
-      if (!member) {
-        setIsLoading(false);
-        return;
-      }
+  // Get level progress
+  const { data: levelProgress, isLoading: levelLoading } = useLevelProgress(memberId || '');
 
-      setMemberId(member.id);
+  // Get upcoming sessions
+  const { data: upcomingSessions, isLoading: sessionsLoading } = useUpcomingSessions(memberId || '');
 
-      // Get session counts
-      const [
-        { count: completedCount },
-        { count: upcomingCount },
-        { data: nextSessionData },
-      ] = await Promise.all([
-        (supabase as any).from('sh_cohort_assignments').select('*', { count: 'exact', head: true })
-          .eq('cohort_member_id', member.id),
-        (supabase as any).from('sh_training_sessions').select('*', { count: 'exact', head: true })
-          .eq('status', 'scheduled')
-          .gte('session_date', new Date().toISOString().split('T')[0]),
-        (supabase as any).from('sh_cohort_assignments')
-          .select(`
-            role,
-            session:sh_training_sessions(
-              title, session_date, start_time
-            )
-          `)
-          .eq('cohort_member_id', member.id)
-          .order('created_at', { ascending: false })
-          .limit(1),
-      ]);
-
-      setStats({
-        level: member.level || 0,
-        total_earnings: member.total_earnings || 0,
-        completed_sessions: completedCount || 0,
-        upcoming_sessions: upcomingCount || 0,
-      });
-
-      if (nextSessionData && nextSessionData.length > 0) {
-        const session = nextSessionData[0];
-        setNextSession({
-          title: (session.session as any)?.title || 'Training Session',
-          scheduled_at: (session.session as any)?.session_date || '',
-          role: session.role,
-        });
-      }
-
-      setIsLoading(false);
-    }
-
-    fetchData();
-  }, []);
+  const isLoading = authLoading || profileLoading || statsLoading || levelLoading || sessionsLoading;
 
   if (isLoading) {
     return (
@@ -165,11 +102,27 @@ export default function CohortPortalHomePage() {
     );
   }
 
+  if (profileError || !cohortProfile) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-yellow-600" />
+            <div>
+              <h2 className="text-lg font-semibold">Cohort Profile Not Found</h2>
+              <p className="text-muted-foreground mt-1">
+                Your cohort member profile has not been set up yet.
+                Please contact the training council to get registered.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const currentLevel = stats?.level || 0;
-  const nextLevelReq = LEVEL_REQUIREMENTS[currentLevel + 1];
-  const progressToNext = nextLevelReq
-    ? Math.min((stats?.completed_sessions || 0) / nextLevelReq.sessions * 100, 100)
-    : 100;
+  const nextSession = upcomingSessions && upcomingSessions.length > 0 ? upcomingSessions[0] : null;
 
   return (
     <div className="space-y-6">
@@ -197,8 +150,8 @@ export default function CohortPortalHomePage() {
               </Badge>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {nextLevelReq
-                ? `${stats?.completed_sessions || 0}/${nextLevelReq.sessions} to next level`
+              {levelProgress && levelProgress.sessionsNeeded > 0
+                ? `${levelProgress.currentSessions}/${levelProgress.sessionsNeeded} to next level`
                 : 'Maximum level reached'}
             </p>
           </CardContent>
@@ -211,7 +164,7 @@ export default function CohortPortalHomePage() {
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.upcoming_sessions || 0}</div>
+            <div className="text-2xl font-bold">{stats?.upcomingSessions || 0}</div>
             <p className="text-xs text-muted-foreground">
               Sessions scheduled
             </p>
@@ -225,7 +178,7 @@ export default function CohortPortalHomePage() {
             <CalendarCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.completed_sessions || 0}</div>
+            <div className="text-2xl font-bold">{stats?.totalSessions || 0}</div>
             <p className="text-xs text-muted-foreground">
               Sessions completed
             </p>
@@ -240,7 +193,7 @@ export default function CohortPortalHomePage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(stats?.total_earnings)}
+              {formatCurrency(stats?.totalEarnings)}
             </div>
             <p className="text-xs text-muted-foreground">
               All time earnings
@@ -264,10 +217,10 @@ export default function CohortPortalHomePage() {
               <div className="space-y-4">
                 <div>
                   <h3 className="font-semibold text-lg">
-                    {nextSession.title}
+                    {nextSession.session?.title || 'Training Session'}
                   </h3>
                   <p className="text-sm text-muted-foreground">
-                    {formatDateTime(nextSession.scheduled_at)}
+                    {formatDateTime(nextSession.session?.scheduled_at || null)}
                   </p>
                   <Badge className="mt-2" variant="outline">
                     Role: {nextSession.role || 'Not assigned'}
@@ -304,19 +257,19 @@ export default function CohortPortalHomePage() {
             <CardDescription>Your progression to the next level</CardDescription>
           </CardHeader>
           <CardContent>
-            {nextLevelReq ? (
+            {levelProgress && levelProgress.sessionsNeeded > 0 ? (
               <div className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span>Progress to Level {currentLevel + 1}</span>
+                    <span>Progress to {levelProgress.nextLevelTitle}</span>
                     <span className="font-medium">
-                      {stats?.completed_sessions || 0} / {nextLevelReq.sessions}
+                      {levelProgress.currentSessions} / {levelProgress.sessionsNeeded}
                     </span>
                   </div>
-                  <Progress value={progressToNext} />
+                  <Progress value={levelProgress.progress} />
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {nextLevelReq.description}
+                  {levelProgress.levelDescription}
                 </p>
                 <Button asChild className="w-full">
                   <Link href="/talent/cohort/level">

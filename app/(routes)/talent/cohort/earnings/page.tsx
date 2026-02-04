@@ -1,7 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -13,7 +11,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Wallet, TrendingUp, Clock, CheckCircle2 } from 'lucide-react';
+import { Wallet, TrendingUp, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useCohortProfile,
+  useMyCohortEarnings,
+} from '@/hooks/solutions/use-cohort-portal';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -36,69 +39,17 @@ function getStatusBadge(status: string) {
   }
 }
 
-interface EarningsEntry {
-  id: string;
-  amount: number;
-  percentage: number | null;
-  status: string;
-  created_at: string;
-}
-
 export default function CohortEarningsPage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [entries, setEntries] = useState<EarningsEntry[]>([]);
-  const [totals, setTotals] = useState({
-    pending: 0,
-    processed: 0,
-    paid: 0,
-    overall: 0,
-  });
+  const { profile, isLoading: authLoading } = useAuth();
 
-  useEffect(() => {
-    async function fetchEarnings() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get cohort member profile
+  const { data: cohortProfile, isLoading: profileLoading } = useCohortProfile(profile?.id || '');
+  const memberId = cohortProfile?.id;
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  // Get earnings
+  const { data: earningsData, isLoading: earningsLoading } = useMyCohortEarnings(memberId || '');
 
-      const { data: member } = await (supabase as any).from('sh_cohort_members')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!member) {
-        setIsLoading(false);
-        return;
-      }
-
-      const { data } = await (supabase as any).from('sh_earnings_ledger')
-        .select('id, amount, percentage, status, created_at')
-        .eq('recipient_id', member.id)
-        .eq('recipient_type', 'cohort_member')
-        .order('created_at', { ascending: false });
-
-      const earningsData = (data as EarningsEntry[]) || [];
-      setEntries(earningsData);
-
-      const pending = earningsData.filter(e => e.status === 'pending').reduce((sum, e) => sum + e.amount, 0);
-      const processed = earningsData.filter(e => e.status === 'processed').reduce((sum, e) => sum + e.amount, 0);
-      const paid = earningsData.filter(e => e.status === 'paid').reduce((sum, e) => sum + e.amount, 0);
-
-      setTotals({
-        pending,
-        processed,
-        paid,
-        overall: pending + processed + paid,
-      });
-
-      setIsLoading(false);
-    }
-
-    fetchEarnings();
-  }, []);
+  const isLoading = authLoading || profileLoading || earningsLoading;
 
   if (isLoading) {
     return (
@@ -113,6 +64,39 @@ export default function CohortEarningsPage() {
       </div>
     );
   }
+
+  if (!cohortProfile) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-yellow-600" />
+            <div>
+              <h2 className="text-lg font-semibold">Cohort Profile Not Found</h2>
+              <p className="text-muted-foreground mt-1">
+                Your cohort member profile has not been set up yet.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const entries = (earningsData?.entries || []) as Array<{
+    id: string;
+    amount: number;
+    percentage?: number | null;
+    status: string;
+    created_at: string;
+  }>;
+
+  const totals = {
+    pending: earningsData?.byStatus?.pending || 0,
+    processed: earningsData?.byStatus?.processed || 0,
+    paid: earningsData?.byStatus?.paid || 0,
+    overall: earningsData?.total || 0,
+  };
 
   return (
     <div className="space-y-6">

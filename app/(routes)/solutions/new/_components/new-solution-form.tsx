@@ -14,13 +14,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Hammer, BookOpen, Video, Loader2 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Hammer, BookOpen, Video, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-
-// TODO: Replace with real hooks after service migration
-// import { useCreateSolution } from '@/hooks/solutions/use-solutions';
-// import { useClients } from '@/hooks/solutions/use-clients';
-// import { useDepartments } from '@/hooks/use-departments';
+import { useCreateSolution } from '@/hooks/solutions/use-solutions';
+import { useClients } from '@/hooks/solutions/use-clients';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { useAuth } from '@/hooks/use-auth';
 
 type SolutionType = 'software' | 'training' | 'content';
 
@@ -50,39 +50,75 @@ const typeOptions = [
 
 export function NewSolutionForm() {
   const router = useRouter();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { profile } = useAuth();
   const [selectedType, setSelectedType] = useState<SolutionType | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<string>('');
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('');
 
-  // Placeholder data
-  const clients = [
-    { id: '1', name: 'ABC University' },
-    { id: '2', name: 'XYZ Corp' },
-    { id: '3', name: 'DEF Institute' },
-  ];
-  const departments = [
-    { id: '1', name: 'Computer Science' },
-    { id: '2', name: 'Information Technology' },
-    { id: '3', name: 'Media Studies' },
-  ];
+  // Fetch clients from database
+  const { data: clientsData, isLoading: clientsLoading, error: clientsError } = useClients({
+    is_active: true,
+    limit: 100,
+  });
+
+  // Fetch departments from database
+  const { data: departmentsData, isLoading: departmentsLoading, error: departmentsError } = useDepartments({
+    isActive: true,
+    limit: 100,
+  });
+
+  // Create solution mutation
+  const createSolution = useCreateSolution();
+
+  const clients = clientsData?.data || [];
+  const departments = departmentsData?.data || [];
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setIsSubmitting(true);
+
+    if (!selectedType) {
+      toast.error('Please select a solution type');
+      return;
+    }
+
+    const formData = new FormData(e.currentTarget);
+    const title = formData.get('title') as string;
+    const basePriceStr = formData.get('base_price') as string;
+    const startDate = formData.get('start_date') as string;
+    const targetDate = formData.get('target_date') as string;
+    const problemStatement = formData.get('problem_statement') as string;
+    const description = formData.get('description') as string;
+
+    if (!title || !selectedClientId || !selectedDepartmentId) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
 
     try {
-      // TODO: Implement with actual mutation
-      const formData = new FormData(e.currentTarget);
-      console.log('Creating solution:', Object.fromEntries(formData));
+      const result = await createSolution.mutateAsync({
+        solution_type: selectedType,
+        title,
+        client_id: selectedClientId,
+        lead_department_id: selectedDepartmentId,
+        base_price: basePriceStr ? parseFloat(basePriceStr) : undefined,
+        started_date: startDate || undefined,
+        target_completion: targetDate || undefined,
+        problem_statement: problemStatement || undefined,
+        description: description || undefined,
+        created_by: profile?.id || 'system',
+      });
 
       toast.success('Solution created successfully');
-      router.push('/solutions/list');
+      // Result is Solution type from the service
+      const solutionId = (result as { id: string })?.id;
+      router.push(`/solutions/${solutionId}`);
     } catch (error) {
-      toast.error('Failed to create solution');
-    } finally {
-      setIsSubmitting(false);
+      console.error('Failed to create solution:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to create solution');
     }
   };
 
+  // Type selection screen
   if (!selectedType) {
     return (
       <div className="grid gap-4 md:grid-cols-3">
@@ -108,6 +144,8 @@ export function NewSolutionForm() {
 
   const selectedOption = typeOptions.find((o) => o.value === selectedType)!;
   const SelectedIcon = selectedOption.icon;
+  const isLoading = clientsLoading || departmentsLoading;
+  const hasError = clientsError || departmentsError;
 
   return (
     <Card>
@@ -129,6 +167,13 @@ export function NewSolutionForm() {
         </div>
       </CardHeader>
       <CardContent>
+        {hasError && (
+          <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center gap-2 text-destructive">
+            <AlertCircle className="h-5 w-5" />
+            <span>Failed to load data. Please refresh the page.</span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <input type="hidden" name="solution_type" value={selectedType} />
 
@@ -145,34 +190,62 @@ export function NewSolutionForm() {
 
             <div className="space-y-2">
               <Label htmlFor="client_id">Client *</Label>
-              <Select name="client_id" required>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select client" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients.map((client) => (
-                    <SelectItem key={client.id} value={client.id}>
-                      {client.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {clientsLoading ? (
+                <Skeleton className="h-10 w-full" />
+              ) : (
+                <Select
+                  value={selectedClientId}
+                  onValueChange={setSelectedClientId}
+                  required
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients.length === 0 ? (
+                      <div className="p-2 text-sm text-muted-foreground text-center">
+                        No clients found. <a href="/solutions/clients/new" className="text-primary hover:underline">Add a client</a>
+                      </div>
+                    ) : (
+                      clients.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="lead_department_id">Lead Department *</Label>
-              <Select name="lead_department_id" required>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select department" />
-                </SelectTrigger>
-                <SelectContent>
-                  {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.id}>
-                      {dept.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {departmentsLoading ? (
+                <Skeleton className="h-10 w-full" />
+              ) : (
+                <Select
+                  value={selectedDepartmentId}
+                  onValueChange={setSelectedDepartmentId}
+                  required
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.length === 0 ? (
+                      <div className="p-2 text-sm text-muted-foreground text-center">
+                        No departments found
+                      </div>
+                    ) : (
+                      departments.map((dept) => (
+                        <SelectItem key={dept.id} value={dept.id}>
+                          {dept.department_name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -182,6 +255,7 @@ export function NewSolutionForm() {
                 name="base_price"
                 type="number"
                 placeholder="0"
+                min="0"
               />
             </div>
 
@@ -224,8 +298,8 @@ export function NewSolutionForm() {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Button type="submit" disabled={createSolution.isPending || isLoading}>
+              {createSolution.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create Solution
             </Button>
           </div>

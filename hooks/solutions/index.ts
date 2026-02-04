@@ -36,25 +36,103 @@ export {
   useSolutionPhases,
   usePhaseStats,
   useNextPhaseNumber,
+  useActivePhases,
   useCreatePhase,
   useUpdatePhase,
+  useUpdatePhaseStatus,
   useDeletePhase,
-  // Iterations
+  // Iterations (convenience wrappers)
   useCreateIteration,
   useUpdateIteration,
-  // Bug Reports
+  // Bug Reports (convenience wrappers)
   useCreateBugReport,
   useUpdateBugReport,
-  // Deployments
+  // Deployments (convenience wrappers)
   useCreateDeployment,
+  // Constants
+  PHASE_STATUSES,
   type PhaseStatus,
   type PhaseFilters,
+  type PhaseWithDetails,
   type CreatePhaseInput,
   type UpdatePhaseInput,
   type CreateIterationInput,
   type CreateBugReportInput,
   type CreateDeploymentInput,
 } from './use-phases';
+
+export {
+  // Iterations (full API)
+  useIterations,
+  useIteration,
+  usePhaseIterations,
+  useLatestIteration,
+  useIterationStats,
+  useNextVersionNumber,
+  useCreateIteration as useCreateIterationFull,
+  useUpdateIteration as useUpdateIterationFull,
+  useCompleteIteration,
+  useDeleteIteration,
+  useAddIterationFeedback,
+  type IterationFilters,
+  type IterationWithBugs,
+  type CreateIterationInput as CreateIterationServiceInput,
+  type UpdateIterationInput,
+} from './use-iterations';
+
+export {
+  // Bugs (full API)
+  useBugs,
+  useBug,
+  usePhaseBugs,
+  useIterationBugs,
+  useBugStats,
+  useOpenBugCount,
+  useCreateBug,
+  useUpdateBug,
+  useResolveBug,
+  useCloseBug,
+  useReopenBug,
+  useDeleteBug,
+  useChangeBugSeverity,
+  useChangeBugStatus,
+  // Constants
+  BUG_SEVERITY_LABELS,
+  BUG_STATUS_LABELS,
+  type BugFilters,
+  type BugWithDetails,
+  type BugSeverity,
+  type BugStatus,
+  type CreateBugInput,
+  type UpdateBugInput,
+} from './use-bugs';
+
+export {
+  // Deployments (full API)
+  useDeployments,
+  useDeployment,
+  usePhaseDeployments,
+  useLatestDeployment,
+  useDeploymentStats,
+  useActiveDeploymentUrl,
+  useHasActiveDeployments,
+  useCreateDeployment as useCreateDeploymentFull,
+  useUpdateDeployment,
+  useDeactivateDeployment,
+  useRollbackDeployment,
+  useDeleteDeployment,
+  useDeployToStaging,
+  useDeployToProduction,
+  // Constants
+  DEPLOYMENT_ENVIRONMENTS,
+  DEPLOYMENT_STATUS_LABELS,
+  type DeploymentFilters,
+  type DeploymentWithPhase,
+  type DeploymentEnvironment,
+  type DeploymentStatus,
+  type CreateDeploymentInput as CreateDeploymentServiceInput,
+  type UpdateDeploymentInput as UpdateDeploymentServiceInput,
+} from './use-deployments';
 
 export {
   // Clients
@@ -142,6 +220,7 @@ export {
   useTrainingSession,
   useSessionsByProgram,
   useCanSelfClaimSession,
+  useUpcomingTrainingSessions,
   useCreateTrainingSession,
   useUpdateTrainingSession,
   useDeleteTrainingSession,
@@ -155,10 +234,26 @@ export {
   useCohortMemberByUser,
   useCohortMemberStats,
   useAvailableSessionsForMember,
+  useCohortMemberAssignments,
   useCreateCohortMember,
   useUpdateCohortMember,
   useDeleteCohortMember,
   useLevelUpCohortMember,
+  useAddCohortMemberEarnings,
+  useUpdateCohortAssignment,
+  // Helper functions
+  getLevelInfo,
+  getTrackDisplayLabel,
+  getProgramTypeLabel,
+  getSessionStatusInfo,
+  // Constants
+  PROGRAM_TYPE_LABELS,
+  TRACK_LABELS,
+  LOCATION_PREFERENCE_LABELS,
+  SESSION_STATUS_INFO,
+  COHORT_LEVELS,
+  LEVEL_COLORS,
+  // Types
   type ProgramType,
   type CohortLevel,
   type CohortRole,
@@ -214,6 +309,8 @@ export {
   useSubmitForReview,
   useRequestRevision,
   useApproveDeliverable,
+  useRejectDeliverable,
+  useDeliverableStats,
   useMarkDelivered,
   type ContentOrderType,
   type ContentDivision,
@@ -227,9 +324,12 @@ export {
 } from './use-content';
 
 export {
-  // Production Portal
+  // Production Portal & Learners
   useLearnerByUserId,
+  useProductionLearner,
+  useProductionLearners,
   useMyStats,
+  useProductionLearnerStats,
   useAvailableWork,
   useAllAvailableWork,
   useMyWork,
@@ -238,6 +338,16 @@ export {
   useDeliverableForSubmission,
   useClaimWork,
   useSubmitWork,
+  useCompleteAssignment as useCompleteProductionAssignment,
+  useCreateProductionLearner,
+  useUpdateProductionLearner,
+  useDeleteProductionLearner,
+  useAddLearnerEarnings,
+  useUpdateLearnerSkillLevel,
+  type ProductionLearnerFilters,
+  type CreateProductionLearnerInput,
+  type UpdateProductionLearnerInput,
+  type SkillLevel,
 } from './use-production-portal';
 
 // ============================================
@@ -249,6 +359,8 @@ export {
   useDiscoveryVisits,
   useDiscoveryVisit,
   useClientDiscoveryVisits,
+  useRecentDiscoveryVisits,
+  useDiscoveryVisitStats,
   useCreateDiscoveryVisit,
   useUpdateDiscoveryVisit,
   useDeleteDiscoveryVisit,
@@ -257,9 +369,13 @@ export {
   useCommunications,
   useCommunication,
   useClientCommunications,
+  useSolutionCommunications,
   useCreateCommunication,
   useUpdateCommunication,
   useDeleteCommunication,
+  // Constants
+  COMMUNICATION_TYPE_LABELS,
+  COMMUNICATION_DIRECTION_LABELS,
   type CommunicationType,
   type CommunicationDirection,
   type DiscoveryVisitFilters,
@@ -268,6 +384,8 @@ export {
   type CommunicationFilters,
   type CreateCommunicationInput,
   type UpdateCommunicationInput,
+  type DiscoveryVisit,
+  type ClientCommunication,
 } from './use-discovery';
 
 // ============================================
@@ -278,16 +396,27 @@ export {
   // Payments
   usePayments,
   usePayment,
+  usePaymentsBySolution,
   usePaymentStats,
   useMonthlyBatch,
+  useRevenueSplitModels,
   useCreatePayment,
   useUpdatePayment,
   useDeletePayment,
   useFlagPayment,
-  useAutoProcessPayments,
+  useProcessAllPendingSplits,
+  useCalculateAndDistributeSplits,
+  useUpdateSplitModel,
+  useCalculateRevenueSplits,
+  useGetSplitType,
   type PaymentType,
   type PaymentStatus,
   type PaymentFilters,
+  type PaymentStats,
+  type PaymentWithDetails,
+  type MonthlyBatchSummary,
+  type SplitType,
+  type CalculatedSplit,
   type CreatePaymentInput,
   type UpdatePaymentInput,
 } from './use-payments';
@@ -297,17 +426,59 @@ export {
   useEarnings,
   useEarningsByRecipient,
   useEarningsSummary,
+  useEarningsStats,
   useRecipientTotalEarnings,
   useDepartmentEarnings,
   useMonthlyEarningsReport,
+  useCreateEarningEntry,
   useUpdateEarningsStatus,
   useBulkUpdateEarningsStatus,
   useApprovePaymentEarnings,
   useMarkEarningsAsPaid,
+  // Utility functions
+  getRecipientTypeDisplayName,
+  getEarningsStatusColor,
+  formatEarningsAmount,
   type RecipientType,
   type EarningsStatus,
   type EarningsFilters,
+  type CreateEarningInput,
+  type EarningsStats,
+  type DepartmentEarnings,
+  type MonthlyEarningsReport,
+  type EarningsWithPayment,
+  type EarningsSummary,
+  type RecipientTotalEarnings,
 } from './use-earnings';
+
+export {
+  // Revenue Split Models
+  useRevenueSplitModels as useAllRevenueSplitModels,
+  useRevenueSplitModel,
+  useDefaultRevenueSplitModel,
+  useRevenueSplitModelByType,
+  useSplitConfig,
+  useCreateRevenueSplitModel,
+  useUpdateRevenueSplitModel,
+  useDeleteRevenueSplitModel,
+  // Revenue Split Calculations
+  useCalculateRevenueSplit,
+  useCalculateRevenueSplitForSolution,
+  useRevenueSplitPreview,
+  useSplitTypeHelpers,
+  // Utility functions
+  formatSplitDescription,
+  validatePercentages,
+  // Constants
+  DEFAULT_REVENUE_SPLITS,
+  RECIPIENT_DISPLAY_NAMES,
+  SPLIT_TYPE_LABELS,
+  type SplitConfig,
+  type CreateRevenueSplitModelInput,
+  type UpdateRevenueSplitModelInput,
+  type RevenueSplitCalculation,
+  type RevenueSplitModel,
+} from './use-revenue-splits';
 
 // ============================================
 // PUBLICATIONS & ACCREDITATION HOOKS
@@ -317,6 +488,7 @@ export {
   // Publications
   usePublications,
   usePublication,
+  usePublicationsBySolution,
   usePublicationStats,
   useContributors,
   useCreatePublication,
@@ -326,6 +498,14 @@ export {
   useRemoveContributor,
   // Accreditation
   useAccreditationMetrics,
+  useNIRFMetrics,
+  useNAACCriteria,
+  // Constants
+  PAPER_TYPE_LABELS,
+  PAPER_TYPE_CONFIG,
+  JOURNAL_TYPE_LABELS,
+  PUBLICATION_STATUS_LABELS,
+  PUBLICATION_STATUS_CONFIG,
   type PaperType,
   type JournalType,
   type PublicationStatus,
@@ -335,4 +515,67 @@ export {
   type UpdatePublicationInput,
   type AddContributorInput,
   type AccreditationMetricFilters,
+  type Publication,
+  type PublicationContributor,
+  type PublicationWithSolution,
+  type PublicationStats,
+  type NIRFMetrics,
+  type NAACCriteria,
+  type AccreditationMetric,
 } from './use-publications';
+
+// ============================================
+// CLIENT PORTAL HOOKS
+// ============================================
+
+export {
+  // Client Profile
+  useClientProfile,
+  useCurrentClient,
+  // Dashboard
+  useClientDashboardStats,
+  // Solutions
+  useClientSolutions,
+  useClientSolution,
+  // Deliverables
+  useClientDeliverables,
+  // Payments
+  useClientPayments,
+  useClientPaymentSummary,
+  // Communications
+  useClientCommunicationsQuery,
+  // Mutations
+  useApproveClientDeliverable,
+  useRequestClientDeliverableRevision,
+  useSendClientMessage,
+  // Types
+  type ClientPortalProfile,
+  type ClientDashboardStats,
+  type ClientSolutionWithDetails,
+  type ClientDeliverableWithOrder,
+  type PaymentWithSolution,
+} from './use-client-portal';
+
+// ============================================
+// UNIFIED EARNINGS HOOKS
+// ============================================
+
+export {
+  // Unified Earnings
+  useUnifiedEarnings,
+  useEarningsSummary as useUnifiedEarningsSummary,
+  usePayoutHistory,
+  // Helper functions
+  getTalentTypeLabel,
+  getTalentTypeColor,
+  getTalentTypeIcon,
+  formatEarningsAmount as formatUnifiedEarningsAmount,
+  getEarningsStatusVariant,
+  getEarningsStatusLabel,
+  // Types
+  type TalentType,
+  type UnifiedEarningsFilters,
+  type UnifiedEarningsEntry,
+  type EarningsSummary as UnifiedEarningsSummaryType,
+  type PayoutHistoryEntry,
+} from './use-unified-earnings';

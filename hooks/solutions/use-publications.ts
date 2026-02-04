@@ -3,133 +3,60 @@
 /**
  * Solutions Hub - Publications Hooks
  * Purpose: React Query hooks for publications and accreditation metrics
- * Migrated from: JKKN-Solutions-Hub/src/hooks/use-publications.ts & use-accreditation.ts
+ * Connected to: lib/services/solutions/publications-service.ts
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import {
+  publicationsService,
+  type PublicationFilters,
+  type CreatePublicationInput,
+  type UpdatePublicationInput,
+  type AddContributorInput,
+  type PublicationStats,
+  type NIRFMetrics,
+  type NAACCriteria,
+  type PublicationWithSolution,
+} from '@/lib/services/solutions/publications-service';
+import type {
+  Publication,
+  PublicationContributor,
+  AccreditationMetric,
+  PaperType,
+  JournalType,
+  PublicationStatus,
+} from '@/lib/services/solutions/types';
 
 // ============================================
-// TYPES
+// RE-EXPORT TYPES FOR CONVENIENCE
 // ============================================
 
-export type PaperType =
-  | 'journal'
-  | 'conference'
-  | 'patent'
-  | 'book_chapter'
-  | 'case_study';
-
-export type JournalType = 'scopus' | 'wos' | 'ugc' | 'other';
-
-export type PublicationStatus =
-  | 'draft'
-  | 'submitted'
-  | 'under_review'
-  | 'accepted'
-  | 'published'
-  | 'rejected';
+export type {
+  PublicationFilters,
+  CreatePublicationInput,
+  UpdatePublicationInput,
+  AddContributorInput,
+  PublicationStats,
+  NIRFMetrics,
+  NAACCriteria,
+  PublicationWithSolution,
+  Publication,
+  PublicationContributor,
+  AccreditationMetric,
+  PaperType,
+  JournalType,
+  PublicationStatus,
+};
 
 export type CreditType = 'coauthor' | 'acknowledgment';
 
-export interface PublicationFilters {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-  paper_type?: PaperType;
-  journal_type?: JournalType;
-  status?: PublicationStatus;
-  solution_id?: string;
-  from_date?: string;
-  to_date?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
-}
-
-export interface CreatePublicationInput {
-  solution_id?: string;
-  phase_id?: string;
-  paper_type: PaperType;
-  title: string;
-  authors: string[];
-  abstract?: string;
-  journal_name?: string;
-  journal_type?: JournalType;
-  nirf_category?: string;
-  naac_criterion?: string;
-}
-
-export interface UpdatePublicationInput {
-  title?: string;
-  authors?: string[];
-  abstract?: string;
-  journal_name?: string;
-  journal_type?: JournalType;
-  status?: PublicationStatus;
-  submission_date?: string;
-  acceptance_date?: string;
-  publication_date?: string;
-  doi?: string;
-  nirf_category?: string;
-  naac_criterion?: string;
-}
-
-export interface AddContributorInput {
-  publication_id: string;
-  builder_id?: string;
-  cohort_member_id?: string;
-  learner_id?: string;
-  credit_type?: CreditType;
-  contribution_description?: string;
-}
-
 export interface AccreditationMetricFilters {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
+  [key: string]: unknown;
   metric_type?: 'nirf' | 'naac';
   is_active?: boolean;
 }
-
-// ============================================
-// SERVICE PLACEHOLDER
-// ============================================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type PublicationsService = any;
-
-const publicationsService: PublicationsService = {
-  getPublications: async (_filters?: PublicationFilters) => {
-    throw new Error('publicationsService.getPublications not implemented');
-  },
-  getPublicationById: async (_id: string) => {
-    throw new Error('publicationsService.getPublicationById not implemented');
-  },
-  createPublication: async (_input: CreatePublicationInput) => {
-    throw new Error('publicationsService.createPublication not implemented');
-  },
-  updatePublication: async (_id: string, _input: UpdatePublicationInput) => {
-    throw new Error('publicationsService.updatePublication not implemented');
-  },
-  deletePublication: async (_id: string) => {
-    throw new Error('publicationsService.deletePublication not implemented');
-  },
-  getContributors: async (_publicationId: string) => {
-    throw new Error('publicationsService.getContributors not implemented');
-  },
-  addContributor: async (_input: AddContributorInput) => {
-    throw new Error('publicationsService.addContributor not implemented');
-  },
-  removeContributor: async (_id: string) => {
-    throw new Error('publicationsService.removeContributor not implemented');
-  },
-  getPublicationStats: async () => {
-    throw new Error('publicationsService.getPublicationStats not implemented');
-  },
-  getAccreditationMetrics: async (_filters?: AccreditationMetricFilters) => {
-    throw new Error('publicationsService.getAccreditationMetrics not implemented');
-  },
-};
 
 // ============================================
 // QUERY HOOKS - PUBLICATIONS
@@ -154,6 +81,18 @@ export function usePublication(id: string) {
     queryKey: solutionsHubKeys.publications.detail(id),
     queryFn: () => publicationsService.getPublicationById(id),
     enabled: !!id,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+/**
+ * Fetch publications for a specific solution
+ */
+export function usePublicationsBySolution(solutionId: string) {
+  return useQuery({
+    queryKey: [...solutionsHubKeys.publications.all, 'solution', solutionId],
+    queryFn: () => publicationsService.getPublicationsBySolution(solutionId),
+    enabled: !!solutionId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -210,7 +149,7 @@ export function useUpdatePublication() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdatePublicationInput }) =>
       publicationsService.updatePublication(id, input),
-    onSuccess: (data: any) => {
+    onSuccess: (data: Publication) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.publications.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.accreditation.all });
       if (data?.id) {
@@ -280,7 +219,80 @@ export function useRemoveContributor() {
 export function useAccreditationMetrics(filters?: AccreditationMetricFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.accreditation.metrics(filters),
-    queryFn: () => publicationsService.getAccreditationMetrics(filters),
+    queryFn: () => publicationsService.getAccreditationMetrics(filters?.metric_type),
     ...QUERY_CONFIG.STABLE_DATA,
   });
 }
+
+/**
+ * Calculate NIRF metrics
+ */
+export function useNIRFMetrics() {
+  return useQuery({
+    queryKey: [...solutionsHubKeys.accreditation.all, 'nirf-calculated'],
+    queryFn: () => publicationsService.calculateNIRFMetrics(),
+    ...QUERY_CONFIG.DASHBOARD_DATA,
+  });
+}
+
+/**
+ * Calculate NAAC criteria
+ */
+export function useNAACCriteria() {
+  return useQuery({
+    queryKey: [...solutionsHubKeys.accreditation.all, 'naac-calculated'],
+    queryFn: () => publicationsService.calculateNAACCriteria(),
+    ...QUERY_CONFIG.DASHBOARD_DATA,
+  });
+}
+
+// ============================================
+// PAPER TYPE & JOURNAL TYPE LABELS
+// ============================================
+
+export const PAPER_TYPE_LABELS: Record<PaperType, string> = {
+  problem: 'Problem Statement',
+  design: 'Design Paper',
+  technical: 'Technical Paper',
+  data: 'Data Paper',
+  impact: 'Impact Study',
+};
+
+export const PAPER_TYPE_CONFIG: Record<PaperType, { label: string; color: string }> = {
+  problem: { label: 'Problem Statement', color: 'bg-red-100 text-red-800' },
+  design: { label: 'Design Paper', color: 'bg-blue-100 text-blue-800' },
+  technical: { label: 'Technical Paper', color: 'bg-green-100 text-green-800' },
+  data: { label: 'Data Paper', color: 'bg-purple-100 text-purple-800' },
+  impact: { label: 'Impact Study', color: 'bg-orange-100 text-orange-800' },
+};
+
+export const JOURNAL_TYPE_LABELS: Record<JournalType, string> = {
+  scopus: 'Scopus',
+  ugc_care: 'UGC-CARE',
+  other: 'Other',
+};
+
+export const PUBLICATION_STATUS_LABELS: Record<PublicationStatus, string> = {
+  identified: 'Identified',
+  drafting: 'Drafting',
+  submitted: 'Submitted',
+  under_review: 'Under Review',
+  revision: 'Revision',
+  accepted: 'Accepted',
+  published: 'Published',
+  rejected: 'Rejected',
+};
+
+export const PUBLICATION_STATUS_CONFIG: Record<
+  PublicationStatus,
+  { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }
+> = {
+  identified: { label: 'Identified', variant: 'outline' },
+  drafting: { label: 'Drafting', variant: 'secondary' },
+  submitted: { label: 'Submitted', variant: 'secondary' },
+  under_review: { label: 'Under Review', variant: 'secondary' },
+  revision: { label: 'Revision', variant: 'secondary' },
+  accepted: { label: 'Accepted', variant: 'default' },
+  published: { label: 'Published', variant: 'default' },
+  rejected: { label: 'Rejected', variant: 'destructive' },
+};

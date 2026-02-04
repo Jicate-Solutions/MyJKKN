@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   BookOpen,
   Users,
@@ -12,49 +14,47 @@ import {
   ArrowRight,
   GraduationCap,
   MapPin,
+  AlertCircle,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import {
+  useTrainingPrograms,
+  useUpcomingTrainingSessions,
+  useCohortMemberStats,
+  useTrainingSessions,
+} from '@/hooks/solutions/use-training';
 
 export function TrainingOverview() {
+  // Fetch real data from hooks
+  const { data: programsData, isLoading: programsLoading, error: programsError } = useTrainingPrograms({ limit: 100 });
+  const { data: sessionsData, isLoading: sessionsLoading } = useTrainingSessions({ limit: 100 });
+  const { data: upcomingData, isLoading: upcomingLoading } = useUpcomingTrainingSessions();
+  const { data: cohortStats, isLoading: cohortLoading } = useCohortMemberStats();
+
+  const isLoading = programsLoading || sessionsLoading || upcomingLoading || cohortLoading;
+
+  // Calculate stats from real data
   const stats = {
-    activePrograms: 8,
-    scheduledSessions: 42,
-    cohortMembers: 25,
-    completedSessions: 156,
+    activePrograms: programsData?.count || 0,
+    scheduledSessions: sessionsData?.data?.filter(s => s.status === 'scheduled').length || 0,
+    cohortMembers: cohortStats?.total || 0,
+    completedSessions: sessionsData?.data?.filter(s => s.status === 'completed').length || 0,
   };
 
-  const upcomingSessions = [
-    {
-      id: '1',
-      title: 'AI Fundamentals - Day 1',
-      program: { title: 'AI Workshop Series' },
-      date: '2026-02-10',
-      time: '10:00 AM',
-      location: 'Seminar Hall A',
-      cohort_count: 3,
-    },
-    {
-      id: '2',
-      title: 'Web Dev Bootcamp - Week 2',
-      program: { title: 'Full Stack Bootcamp' },
-      date: '2026-02-12',
-      time: '09:00 AM',
-      location: 'Computer Lab 3',
-      cohort_count: 2,
-    },
-    {
-      id: '3',
-      title: 'Data Science Intro',
-      program: { title: 'Data Science Certification' },
-      date: '2026-02-15',
-      time: '02:00 PM',
-      location: 'Virtual',
-      cohort_count: 4,
-    },
-  ];
+  const upcomingSessions = upcomingData?.data?.slice(0, 3) || [];
 
   return (
     <div className="space-y-6">
+      {/* Error State */}
+      {programsError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Failed to load training data. Please try refreshing the page.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
@@ -63,7 +63,11 @@ export function TrainingOverview() {
             <BookOpen className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.activePrograms}</div>
+            {programsLoading ? (
+              <Skeleton className="h-8 w-16" />
+            ) : (
+              <div className="text-2xl font-bold">{stats.activePrograms}</div>
+            )}
             <p className="text-xs text-muted-foreground">Training programs</p>
           </CardContent>
         </Card>
@@ -74,7 +78,11 @@ export function TrainingOverview() {
             <Calendar className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.scheduledSessions}</div>
+            {sessionsLoading ? (
+              <Skeleton className="h-8 w-16" />
+            ) : (
+              <div className="text-2xl font-bold">{stats.scheduledSessions}</div>
+            )}
             <p className="text-xs text-muted-foreground">Upcoming sessions</p>
           </CardContent>
         </Card>
@@ -85,7 +93,11 @@ export function TrainingOverview() {
             <Users className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.cohortMembers}</div>
+            {cohortLoading ? (
+              <Skeleton className="h-8 w-16" />
+            ) : (
+              <div className="text-2xl font-bold">{stats.cohortMembers}</div>
+            )}
             <p className="text-xs text-muted-foreground">Active trainers</p>
           </CardContent>
         </Card>
@@ -96,7 +108,11 @@ export function TrainingOverview() {
             <GraduationCap className="h-4 w-4 text-emerald-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.completedSessions}</div>
+            {sessionsLoading ? (
+              <Skeleton className="h-8 w-16" />
+            ) : (
+              <div className="text-2xl font-bold">{stats.completedSessions}</div>
+            )}
             <p className="text-xs text-muted-foreground">Sessions delivered</p>
           </CardContent>
         </Card>
@@ -155,39 +171,60 @@ export function TrainingOverview() {
           </Button>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {upcomingSessions.map((session) => (
-              <div
-                key={session.id}
-                className="flex items-center justify-between p-4 rounded-lg border"
-              >
-                <div className="flex-1">
-                  <p className="font-medium">{session.title}</p>
-                  <p className="text-sm text-muted-foreground">{session.program.title}</p>
-                  <div className="flex items-center gap-4 mt-2 text-sm">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      {format(new Date(session.date), 'dd MMM yyyy')}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {session.time}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MapPin className="h-3 w-3" />
-                      {session.location}
-                    </span>
+          {upcomingLoading ? (
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-20 w-full" />
+              ))}
+            </div>
+          ) : upcomingSessions.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Calendar className="mx-auto h-10 w-10 mb-2" />
+              <p>No upcoming sessions scheduled</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {upcomingSessions.map((session) => (
+                <div
+                  key={session.id}
+                  className="flex items-center justify-between p-4 rounded-lg border"
+                >
+                  <div className="flex-1">
+                    <p className="font-medium">{session.title || `Session ${session.session_number}`}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {session.program?.solution?.title || 'Training Program'}
+                    </p>
+                    <div className="flex items-center gap-4 mt-2 text-sm">
+                      {session.scheduled_at && (
+                        <>
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {format(new Date(session.scheduled_at), 'dd MMM yyyy')}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {format(new Date(session.scheduled_at), 'hh:mm a')}
+                          </span>
+                        </>
+                      )}
+                      {session.location && (
+                        <span className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {session.location}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">
+                      <Users className="mr-1 h-3 w-3" />
+                      {session.cohort_count || 0} cohort
+                    </Badge>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">
-                    <Users className="mr-1 h-3 w-3" />
-                    {session.cohort_count} cohort
-                  </Badge>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

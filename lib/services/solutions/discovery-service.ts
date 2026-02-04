@@ -15,6 +15,7 @@ import type {
 // ============================================
 
 export interface DiscoveryVisitFilters extends PaginationParams {
+  [key: string]: unknown;
   client_id?: string;
   solution_id?: string;
   department_id?: string;
@@ -23,6 +24,7 @@ export interface DiscoveryVisitFilters extends PaginationParams {
 }
 
 export interface CommunicationFilters extends PaginationParams {
+  [key: string]: unknown;
   client_id?: string;
   solution_id?: string;
   phase_id?: string;
@@ -253,6 +255,69 @@ export class DiscoveryService extends BaseService {
     });
   }
 
+  /**
+   * Get recent discovery visits (for dashboard)
+   */
+  static async getRecentDiscoveryVisits(limit: number = 5): Promise<DiscoveryVisit[]> {
+    const { data, error } = await (this.supabase as any).from('sh_discovery_visits')
+      .select(`
+        *,
+        client:sh_clients(id, name),
+        department:sh_departments(id, name)
+      `)
+      .order('visit_date', { ascending: false })
+      .limit(limit);
+
+    if (error) throw new Error(`Failed to fetch recent discovery visits: ${error.message}`);
+    return (data || []) as DiscoveryVisit[];
+  }
+
+  /**
+   * Get discovery visit statistics (for dashboard)
+   */
+  static async getDiscoveryVisitStats(): Promise<{
+    total: number;
+    thisMonth: number;
+    thisWeek: number;
+    pendingFollowUp: number;
+    byDepartment: Record<string, number>;
+    conversionRate: number;
+  }> {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay())).toISOString();
+
+    // Get all visits
+    const { data: visits, error } = await (this.supabase as any).from('sh_discovery_visits')
+      .select('id, visit_date, department_id, solution_id, next_steps');
+
+    if (error) throw new Error(`Failed to fetch visit stats: ${error.message}`);
+
+    const allVisits = visits || [];
+    const total = allVisits.length;
+    const thisMonth = allVisits.filter((v: any) => v.visit_date >= startOfMonth).length;
+    const thisWeek = allVisits.filter((v: any) => v.visit_date >= startOfWeek).length;
+    const pendingFollowUp = allVisits.filter((v: any) => v.next_steps && !v.solution_id).length;
+    const converted = allVisits.filter((v: any) => v.solution_id).length;
+
+    // Count by department
+    const byDepartment: Record<string, number> = {};
+    allVisits.forEach((v: any) => {
+      if (v.department_id) {
+        byDepartment[v.department_id] = (byDepartment[v.department_id] || 0) + 1;
+      }
+    });
+
+    return {
+      total,
+      thisMonth,
+      thisWeek,
+      pendingFollowUp,
+      byDepartment,
+      conversionRate: total > 0 ? Math.round((converted / total) * 100) : 0,
+    };
+  }
+
   // ============================================
   // COMMUNICATION OPERATIONS
   // ============================================
@@ -428,6 +493,8 @@ export const discoveryService = {
   updateDiscoveryVisit: DiscoveryService.updateDiscoveryVisit.bind(DiscoveryService),
   deleteDiscoveryVisit: DiscoveryService.deleteDiscoveryVisit.bind(DiscoveryService),
   linkVisitToResult: DiscoveryService.linkVisitToResult.bind(DiscoveryService),
+  getRecentDiscoveryVisits: DiscoveryService.getRecentDiscoveryVisits.bind(DiscoveryService),
+  getDiscoveryVisitStats: DiscoveryService.getDiscoveryVisitStats.bind(DiscoveryService),
   getCommunications: DiscoveryService.getCommunications.bind(DiscoveryService),
   getCommunicationById: DiscoveryService.getCommunicationById.bind(DiscoveryService),
   getClientCommunications: DiscoveryService.getClientCommunications.bind(DiscoveryService),

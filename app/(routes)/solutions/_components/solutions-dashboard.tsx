@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import Link from 'next/link';
 import {
   Hammer,
@@ -15,10 +16,13 @@ import {
   FileText,
   Plus,
   ArrowRight,
+  AlertCircle,
 } from 'lucide-react';
-
-// TODO: Replace with real hooks after service migration
-// import { useSolutionStats } from '@/hooks/solutions/use-solutions';
+import { useSolutionStats } from '@/hooks/solutions/use-solutions';
+import { useBuilderStats } from '@/hooks/solutions/use-builders';
+import { useCohortMemberStats } from '@/hooks/solutions/use-training';
+import { useContentOrderStats } from '@/hooks/solutions/use-content';
+import { usePhaseStats } from '@/hooks/solutions/use-phases';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -29,20 +33,14 @@ function formatCurrency(amount: number): string {
 }
 
 export function SolutionsDashboard() {
-  // Placeholder data until hooks are migrated
-  const stats = {
-    bySolutionType: {
-      software: 12,
-      training: 8,
-      content: 15,
-    },
-    totalValue: 2500000,
-    totalClients: 25,
-    activeBuilders: 18,
-    activeCohort: 12,
-    productionLearners: 20,
-  };
-  const statsLoading = false;
+  // Fetch real data from hooks
+  const { data: solutionStats, isLoading: statsLoading, error: statsError } = useSolutionStats();
+  const { data: builderStats, isLoading: buildersLoading } = useBuilderStats();
+  const { data: cohortStats, isLoading: cohortLoading } = useCohortMemberStats();
+  const { data: contentStats, isLoading: contentLoading } = useContentOrderStats();
+  const { data: phaseStats, isLoading: phasesLoading } = usePhaseStats();
+
+  const isLoading = statsLoading || buildersLoading || cohortLoading || contentLoading || phasesLoading;
 
   return (
     <div className="space-y-6">
@@ -62,6 +60,16 @@ export function SolutionsDashboard() {
         </Button>
       </div>
 
+      {/* Error State */}
+      {statsError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Failed to load dashboard stats. Please try refreshing the page.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -70,11 +78,11 @@ export function SolutionsDashboard() {
             <Hammer className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            {statsLoading ? (
+            {isLoading ? (
               <Skeleton className="h-8 w-20" />
             ) : (
               <div className="text-2xl font-bold">
-                {stats?.bySolutionType.software || 0}
+                {solutionStats?.bySolutionType?.software || 0}
               </div>
             )}
             <p className="text-xs text-muted-foreground">Active solutions</p>
@@ -87,11 +95,11 @@ export function SolutionsDashboard() {
             <BookOpen className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            {statsLoading ? (
+            {isLoading ? (
               <Skeleton className="h-8 w-20" />
             ) : (
               <div className="text-2xl font-bold">
-                {stats?.bySolutionType.training || 0}
+                {solutionStats?.bySolutionType?.training || 0}
               </div>
             )}
             <p className="text-xs text-muted-foreground">Active programs</p>
@@ -104,11 +112,11 @@ export function SolutionsDashboard() {
             <Video className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
-            {statsLoading ? (
+            {isLoading ? (
               <Skeleton className="h-8 w-20" />
             ) : (
               <div className="text-2xl font-bold">
-                {stats?.bySolutionType.content || 0}
+                {solutionStats?.bySolutionType?.content || 0}
               </div>
             )}
             <p className="text-xs text-muted-foreground">Active orders</p>
@@ -121,11 +129,11 @@ export function SolutionsDashboard() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            {statsLoading ? (
+            {isLoading ? (
               <Skeleton className="h-8 w-32" />
             ) : (
               <div className="text-2xl font-bold">
-                {formatCurrency(stats?.totalValue || 0)}
+                {formatCurrency(solutionStats?.totalValue || 0)}
               </div>
             )}
             <p className="text-xs text-muted-foreground">All solutions</p>
@@ -147,11 +155,19 @@ export function SolutionsDashboard() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">Active Phases</p>
-                <p className="text-lg font-semibold">24</p>
+                {phasesLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{phaseStats?.activePhases || 0}</p>
+                )}
               </div>
               <div>
                 <p className="text-muted-foreground">Builders</p>
-                <p className="text-lg font-semibold">{stats.activeBuilders}</p>
+                {buildersLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{builderStats?.totalBuilders || 0}</p>
+                )}
               </div>
             </div>
             <div className="flex gap-2">
@@ -180,11 +196,19 @@ export function SolutionsDashboard() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">Sessions</p>
-                <p className="text-lg font-semibold">42</p>
+                {isLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{solutionStats?.bySolutionType?.training || 0}</p>
+                )}
               </div>
               <div>
                 <p className="text-muted-foreground">Cohort</p>
-                <p className="text-lg font-semibold">{stats.activeCohort}</p>
+                {cohortLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{cohortStats?.total || 0}</p>
+                )}
               </div>
             </div>
             <div className="flex gap-2">
@@ -213,11 +237,19 @@ export function SolutionsDashboard() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">In Queue</p>
-                <p className="text-lg font-semibold">18</p>
+                {contentLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{contentStats?.inQueue || 0}</p>
+                )}
               </div>
               <div>
                 <p className="text-muted-foreground">Learners</p>
-                <p className="text-lg font-semibold">{stats.productionLearners}</p>
+                {contentLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{contentStats?.productionLearners || 0}</p>
+                )}
               </div>
             </div>
             <div className="flex gap-2">
@@ -255,7 +287,11 @@ export function SolutionsDashboard() {
               <Building2 className="h-8 w-8 text-muted-foreground" />
               <div>
                 <p className="font-medium">Clients</p>
-                <p className="text-sm text-muted-foreground">{stats.totalClients} total</p>
+                {isLoading ? (
+                  <Skeleton className="h-4 w-16" />
+                ) : (
+                  <p className="text-sm text-muted-foreground">{solutionStats?.totalClients || 0} total</p>
+                )}
               </div>
             </CardContent>
           </Link>

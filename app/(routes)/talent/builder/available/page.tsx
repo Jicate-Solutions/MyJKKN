@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +33,8 @@ import {
   IndianRupee,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/use-auth';
+import { useBuilderProfile, useAvailablePhases, useClaimPhase } from '@/hooks/solutions/use-builder-portal';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -69,15 +70,15 @@ function getPhaseStatusBadge(status: string) {
 
 interface AvailablePhase {
   id: string;
-  title: string;
-  description: string | null;
+  title?: string;
+  description?: string | null;
   status: string;
-  estimated_value: number | null;
+  estimated_value?: number | null;
   solution?: {
-    solution_code: string;
-    title: string;
+    solution_code?: string;
+    title?: string;
     client?: {
-      name: string;
+      name?: string;
     };
   };
 }
@@ -86,84 +87,38 @@ interface AvailablePhase {
 const SELF_CLAIM_THRESHOLD = 300000;
 
 export default function AvailablePhasesPage() {
-  const [builderId, setBuilderId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [phases, setPhases] = useState<AvailablePhase[]>([]);
+  const { profile, isLoading: authLoading } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedPhase, setSelectedPhase] = useState<AvailablePhase | null>(null);
-  const [isClaiming, setIsClaiming] = useState(false);
 
-  useEffect(() => {
-    async function fetchData() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get builder profile
+  const { data: builderProfile, isLoading: profileLoading } = useBuilderProfile(profile?.id || '');
+  const builderId = builderProfile?.id;
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  // Get available phases
+  const { data: phases, isLoading: phasesLoading } = useAvailablePhases(builderId || '');
 
-      const { data: builder } = await (supabase as any).from('sh_builders')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
+  // Claim phase mutation
+  const claimPhase = useClaimPhase();
 
-      if (!builder) {
-        setIsLoading(false);
-        return;
-      }
-
-      setBuilderId(builder.id);
-
-      // Fetch available phases (not yet assigned to this builder)
-      const { data } = await (supabase as any).from('sh_solution_phases')
-        .select(`
-          id, title, description, status, estimated_value,
-          solution:sh_solutions(
-            solution_code, title,
-            client:sh_clients(name)
-          )
-        `)
-        .in('status', ['prd_writing', 'prototype_building', 'revisions', 'deploying', 'training'])
-        .order('created_at', { ascending: false });
-
-      setPhases((data as AvailablePhase[]) || []);
-      setIsLoading(false);
-    }
-
-    fetchData();
-  }, []);
+  const isLoading = authLoading || profileLoading || phasesLoading;
 
   const handleClaimPhase = async () => {
     if (!selectedPhase || !builderId) return;
 
-    setIsClaiming(true);
-    const supabase = createClient();
-
-    const canSelfClaim = !selectedPhase.estimated_value || selectedPhase.estimated_value <= SELF_CLAIM_THRESHOLD;
-
-    const { error } = await (supabase as any).from('sh_builder_assignments').insert({
-      phase_id: selectedPhase.id,
-      builder_id: builderId,
-      role: 'contributor',
-      status: canSelfClaim ? 'approved' : 'requested',
-      requested_at: new Date().toISOString(),
-    });
-
-    if (error) {
-      toast.error('Failed to claim phase. Please try again.');
-    } else {
+    try {
+      await claimPhase.mutateAsync({ phaseId: selectedPhase.id, builderId, role: 'contributor' });
+      const canSelfClaim = !selectedPhase.estimated_value || selectedPhase.estimated_value <= SELF_CLAIM_THRESHOLD;
       if (canSelfClaim) {
         toast.success('Phase claimed successfully! You can start working.');
       } else {
         toast.success('Phase claim request submitted. Awaiting MD approval.');
       }
-      // Remove from available list
-      setPhases(prev => prev.filter(p => p.id !== selectedPhase.id));
+    } catch (error) {
+      toast.error('Failed to claim phase. Please try again.');
     }
 
-    setIsClaiming(false);
     setSelectedPhase(null);
   };
 
@@ -184,20 +139,40 @@ export default function AvailablePhasesPage() {
     );
   }
 
+  if (!builderProfile) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-yellow-600" />
+            <div>
+              <h2 className="text-lg font-semibold">Builder Profile Not Found</h2>
+              <p className="text-muted-foreground mt-1">
+                Your builder profile has not been set up yet.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const typedPhases = (phases || []) as AvailablePhase[];
+
   // Filter phases
-  const filteredPhases = phases.filter((phase) => {
+  const filteredPhases = typedPhases.filter((phase) => {
     const matchesSearch =
       searchQuery === '' ||
-      phase.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      phase.solution?.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      phase.solution?.client?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+      (phase.title?.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (phase.solution?.title?.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (phase.solution?.client?.name?.toLowerCase().includes(searchQuery.toLowerCase()));
 
     const matchesStatus = statusFilter === 'all' || phase.status === statusFilter;
 
     return matchesSearch && matchesStatus;
   });
 
-  const uniqueStatuses = [...new Set(phases.map((p) => p.status))];
+  const uniqueStatuses = [...new Set(typedPhases.map((p) => p.status))];
 
   return (
     <div className="space-y-6">
@@ -255,7 +230,7 @@ export default function AvailablePhasesPage() {
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <CardTitle className="text-lg">{phase.title}</CardTitle>
+                      <CardTitle className="text-lg">{phase.title || 'Untitled Phase'}</CardTitle>
                       <CardDescription className="mt-1">
                         {phase.solution?.solution_code} - {phase.solution?.title}
                       </CardDescription>
@@ -365,8 +340,8 @@ export default function AvailablePhasesPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleClaimPhase} disabled={isClaiming}>
-              {isClaiming ? 'Claiming...' : 'Claim Phase'}
+            <AlertDialogAction onClick={handleClaimPhase} disabled={claimPhase.isPending}>
+              {claimPhase.isPending ? 'Claiming...' : 'Claim Phase'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

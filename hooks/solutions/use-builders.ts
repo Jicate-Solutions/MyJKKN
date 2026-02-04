@@ -9,9 +9,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { buildersService } from '@/lib/services/solutions/builders-service';
 
 // ============================================
-// TYPES
+// TYPES (Re-exported from service for convenience)
 // ============================================
 
 export type BuilderRole = 'lead' | 'contributor';
@@ -21,7 +22,7 @@ export interface BuilderFilters {
   [key: string]: string | number | boolean | undefined;
   department_id?: string;
   is_active?: boolean;
-  specialization?: string;
+  has_skill?: string;
   search?: string;
   page?: number;
   limit?: number;
@@ -33,15 +34,12 @@ export interface CreateBuilderInput {
   email?: string;
   department_id?: string;
   trained_date?: string;
-  specialization?: string;
 }
 
 export interface UpdateBuilderInput {
   name?: string;
   email?: string;
   department_id?: string;
-  trained_date?: string;
-  specialization?: string;
   is_active?: boolean;
 }
 
@@ -49,6 +47,7 @@ export interface AddSkillInput {
   builder_id: string;
   skill_name: string;
   proficiency_level?: number;
+  acquired_date?: string;
 }
 
 export interface CreateAssignmentInput {
@@ -56,70 +55,6 @@ export interface CreateAssignmentInput {
   builder_id: string;
   role?: BuilderRole;
 }
-
-// ============================================
-// SERVICE PLACEHOLDER
-// ============================================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type BuilderService = any;
-
-const buildersService: BuilderService = {
-  getBuilders: async (_filters?: BuilderFilters) => {
-    throw new Error('buildersService.getBuilders not implemented');
-  },
-  getBuilderById: async (_id: string) => {
-    throw new Error('buildersService.getBuilderById not implemented');
-  },
-  createBuilder: async (_input: CreateBuilderInput) => {
-    throw new Error('buildersService.createBuilder not implemented');
-  },
-  updateBuilder: async (_id: string, _input: UpdateBuilderInput) => {
-    throw new Error('buildersService.updateBuilder not implemented');
-  },
-  deleteBuilder: async (_id: string) => {
-    throw new Error('buildersService.deleteBuilder not implemented');
-  },
-  addBuilderSkill: async (_input: AddSkillInput) => {
-    throw new Error('buildersService.addBuilderSkill not implemented');
-  },
-  updateBuilderSkill: async (_id: string, _input: { proficiency_level: number }) => {
-    throw new Error('buildersService.updateBuilderSkill not implemented');
-  },
-  removeBuilderSkill: async (_id: string) => {
-    throw new Error('buildersService.removeBuilderSkill not implemented');
-  },
-  requestAssignment: async (_input: CreateAssignmentInput) => {
-    throw new Error('buildersService.requestAssignment not implemented');
-  },
-  approveAssignment: async (_id: string, _approverId: string) => {
-    throw new Error('buildersService.approveAssignment not implemented');
-  },
-  startAssignment: async (_id: string) => {
-    throw new Error('buildersService.startAssignment not implemented');
-  },
-  completeAssignment: async (_id: string) => {
-    throw new Error('buildersService.completeAssignment not implemented');
-  },
-  withdrawAssignment: async (_id: string) => {
-    throw new Error('buildersService.withdrawAssignment not implemented');
-  },
-  getPendingAssignmentRequests: async () => {
-    throw new Error('buildersService.getPendingAssignmentRequests not implemented');
-  },
-  getAssignmentsByStatus: async (_status: AssignmentStatus) => {
-    throw new Error('buildersService.getAssignmentsByStatus not implemented');
-  },
-  getBuilderStats: async () => {
-    throw new Error('buildersService.getBuilderStats not implemented');
-  },
-  getAvailableBuildersForPhase: async (_phaseId: string) => {
-    throw new Error('buildersService.getAvailableBuildersForPhase not implemented');
-  },
-  checkAssignmentApproval: async (_phaseId: string) => {
-    throw new Error('buildersService.checkAssignmentApproval not implemented');
-  },
-};
 
 // ============================================
 // QUERY HOOKS - BUILDERS

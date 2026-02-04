@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -18,8 +17,9 @@ import {
   CheckCircle,
   ExternalLink,
   FileText,
+  AlertCircle,
 } from 'lucide-react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import { useCurrentClient, useClientSolution } from '@/hooks/solutions';
 import { format, formatDistanceToNow } from 'date-fns';
 
 function formatCurrency(amount: number): string {
@@ -61,149 +61,70 @@ const phaseStatusColors: Record<string, string> = {
   cancelled: 'bg-red-100 text-red-700',
 };
 
-interface SolutionDetail {
-  id: string;
-  title: string;
-  solution_code: string;
-  solution_type: 'software' | 'training' | 'content';
-  status: string;
-  problem_statement: string | null;
-  description: string | null;
-  final_price: number | null;
-  partner_discount_applied: number;
-  started_date: string | null;
-  target_completion: string | null;
-  created_at: string;
-}
-
-interface Phase {
-  id: string;
-  phase_number: number;
-  title: string;
-  description: string | null;
-  status: string;
-  production_url: string | null;
-}
-
-interface TrainingSession {
-  id: string;
-  session_number: number | null;
-  title: string | null;
-  status: string;
-  scheduled_at: string | null;
-}
-
-interface ContentOrder {
-  id: string;
-  order_type: string | null;
-  quantity: number;
-  division: string;
-  due_date: string | null;
-  deliverables: {
-    id: string;
-    title: string;
-    status: string;
-  }[];
-}
-
 export default function ClientProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
-  const [solution, setSolution] = useState<SolutionDetail | null>(null);
-  const [phases, setPhases] = useState<Phase[]>([]);
-  const [sessions, setSessions] = useState<TrainingSession[]>([]);
-  const [contentOrders, setContentOrders] = useState<ContentOrder[]>([]);
-
   const solutionId = params.id as string;
 
-  useEffect(() => {
-    async function fetchSolution() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  const { data: client, isLoading: clientLoading, error: clientError } = useCurrentClient();
+  const clientId = client?.id || '';
 
-      if (!user) {
-        router.push('/auth/login');
-        return;
-      }
+  const { data: solution, isLoading: solutionLoading, error: solutionError } = useClientSolution(solutionId, clientId);
 
-      const { data: client } = await (supabase as any).from('sh_clients')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
+  const isLoading = clientLoading || solutionLoading;
+  const error = clientError || solutionError;
 
-      if (!client) {
-        router.push('/portal/client');
-        return;
-      }
+  // Error state
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-[50vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Error Loading Project</h2>
+            <p className="text-muted-foreground mb-4">
+              {error instanceof Error ? error.message : 'Failed to load project data'}
+            </p>
+            <Button onClick={() => router.push('/portal/client/projects')} variant="outline">
+              Back to Projects
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
-      // Fetch solution
-      const { data: solutionData } = await (supabase as any).from('sh_solutions')
-        .select('*')
-        .eq('id', solutionId)
-        .eq('client_id', client.id)
-        .single();
-
-      if (!solutionData) {
-        router.push('/portal/client/projects');
-        return;
-      }
-
-      setSolution(solutionData as SolutionDetail);
-
-      // Fetch type-specific data
-      if (solutionData.solution_type === 'software') {
-        const { data: phasesData } = await (supabase as any).from('sh_software_phases')
-          .select('id, phase_number, title, description, status, production_url')
-          .eq('solution_id', solutionId)
-          .order('phase_number');
-        setPhases((phasesData as Phase[]) || []);
-      } else if (solutionData.solution_type === 'training') {
-        const { data: programData } = await (supabase as any).from('sh_training_programs')
-          .select('id')
-          .eq('solution_id', solutionId)
-          .single();
-
-        if (programData) {
-          const { data: sessionsData } = await (supabase as any).from('sh_training_sessions')
-            .select('id, session_number, title, status, scheduled_at')
-            .eq('program_id', programData.id)
-            .order('session_number');
-          setSessions((sessionsData as TrainingSession[]) || []);
-        }
-      } else if (solutionData.solution_type === 'content') {
-        const { data: ordersData } = await (supabase as any).from('sh_content_orders')
-          .select(`
-            id, order_type, quantity, division, due_date,
-            deliverables:sh_content_deliverables(id, title, status)
-          `)
-          .eq('solution_id', solutionId);
-        setContentOrders((ordersData as ContentOrder[]) || []);
-      }
-
-      setIsLoading(false);
-    }
-
-    fetchSolution();
-  }, [solutionId, router]);
-
+  // Loading state
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-8 w-32" />
+        <div className="flex gap-4">
+          <Skeleton className="h-16 w-16 rounded-xl" />
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-8 w-64" />
+          </div>
+        </div>
+        <Skeleton className="h-32" />
         <Skeleton className="h-48" />
         <Skeleton className="h-64" />
       </div>
     );
   }
 
+  // Not found state
   if (!solution) {
     return (
       <div className="flex items-center justify-center h-[50vh]">
         <Card className="max-w-md">
           <CardContent className="pt-6 text-center">
-            <p className="text-muted-foreground">Solution not found</p>
-            <Button className="mt-4" onClick={() => router.push('/portal/client/projects')} variant="outline">
+            <FileText className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Solution Not Found</h2>
+            <p className="text-muted-foreground mb-4">
+              The solution you are looking for does not exist or you do not have access to it.
+            </p>
+            <Button onClick={() => router.push('/portal/client/projects')} variant="outline">
               Back to Projects
             </Button>
           </CardContent>
@@ -218,15 +139,18 @@ export default function ClientProjectDetailPage() {
 
   // Calculate progress
   let progress = 0;
-  if (solution.solution_type === 'software' && phases.length > 0) {
-    const completedPhases = phases.filter(p => ['approved', 'live', 'completed', 'in_amc'].includes(p.status)).length;
-    progress = Math.round((completedPhases / phases.length) * 100);
-  } else if (solution.solution_type === 'training' && sessions.length > 0) {
-    const completedSessions = sessions.filter(s => s.status === 'completed').length;
-    progress = Math.round((completedSessions / sessions.length) * 100);
-  } else if (solution.solution_type === 'content' && contentOrders.length > 0) {
-    const allDeliverables = contentOrders.flatMap(o => o.deliverables || []);
-    const approvedDeliverables = allDeliverables.filter(d => d.status === 'approved').length;
+  if (solution.solution_type === 'software' && solution.phases && solution.phases.length > 0) {
+    const completedPhases = solution.phases.filter(p => ['approved', 'live', 'completed', 'in_amc'].includes(p.status)).length;
+    progress = Math.round((completedPhases / solution.phases.length) * 100);
+  } else if (solution.solution_type === 'training' && solution.training_program) {
+    // Get sessions from the training_program relation if available
+    const sessions = (solution.training_program as any).sessions || [];
+    const totalSessions = sessions.length;
+    const completedSessions = sessions.filter((s: any) => s.status === 'completed').length;
+    progress = totalSessions > 0 ? Math.round((completedSessions / totalSessions) * 100) : 0;
+  } else if (solution.solution_type === 'content' && solution.content_orders && solution.content_orders.length > 0) {
+    const allDeliverables = solution.content_orders.flatMap(o => (o as any).deliverables || []);
+    const approvedDeliverables = allDeliverables.filter((d: any) => d.status === 'approved').length;
     progress = allDeliverables.length > 0 ? Math.round((approvedDeliverables / allDeliverables.length) * 100) : 0;
   }
 
@@ -261,7 +185,7 @@ export default function ClientProjectDetailPage() {
             <CardContent className="pt-4 pb-4">
               <p className="text-sm text-muted-foreground">Solution Value</p>
               <p className="text-2xl font-bold">{formatCurrency(solution.final_price)}</p>
-              {solution.partner_discount_applied > 0 && (
+              {solution.partner_discount_applied && solution.partner_discount_applied > 0 && (
                 <p className="text-xs text-emerald-600">
                   {Math.round(solution.partner_discount_applied * 100)}% partner discount applied
                 </p>
@@ -322,7 +246,7 @@ export default function ClientProjectDetailPage() {
       )}
 
       {/* Software Phases */}
-      {solution.solution_type === 'software' && phases.length > 0 && (
+      {solution.solution_type === 'software' && solution.phases && solution.phases.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Development Phases</CardTitle>
@@ -330,7 +254,7 @@ export default function ClientProjectDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {phases.map((phase) => (
+              {solution.phases.map((phase) => (
                 <div
                   key={phase.id}
                   className="flex items-center justify-between p-4 rounded-lg border"
@@ -369,56 +293,36 @@ export default function ClientProjectDetailPage() {
         </Card>
       )}
 
-      {/* Training Sessions */}
-      {solution.solution_type === 'training' && sessions.length > 0 && (
+      {/* Training Program Info */}
+      {solution.solution_type === 'training' && solution.training_program && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Training Sessions</CardTitle>
-            <CardDescription>View scheduled and completed sessions</CardDescription>
+            <CardTitle className="text-base">Training Program</CardTitle>
+            <CardDescription>View your training program progress</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {sessions.map((session) => (
-                <div
-                  key={session.id}
-                  className="flex items-center justify-between p-3 rounded-lg border"
-                >
-                  <div className="flex items-center gap-3">
-                    {session.status === 'completed' ? (
-                      <CheckCircle className="h-5 w-5 text-emerald-600" />
-                    ) : (
-                      <Clock className="h-5 w-5 text-muted-foreground" />
-                    )}
-                    <div>
-                      <p className="font-medium">
-                        Session {session.session_number}: {session.title || 'Untitled'}
-                      </p>
-                      {session.scheduled_at && (
-                        <p className="text-sm text-muted-foreground">
-                          {format(new Date(session.scheduled_at), 'MMM d, yyyy h:mm a')}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <Badge
-                    variant="secondary"
-                    className={
-                      session.status === 'completed'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-gray-100 text-gray-700'
-                    }
-                  >
-                    {session.status}
-                  </Badge>
-                </div>
-              ))}
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="p-4 rounded-lg border">
+                <p className="text-sm text-muted-foreground">Program Type</p>
+                <p className="font-medium capitalize">{solution.training_program.program_type?.replace(/_/g, ' ') || 'N/A'}</p>
+              </div>
+              <div className="p-4 rounded-lg border">
+                <p className="text-sm text-muted-foreground">Track</p>
+                <p className="font-medium capitalize">{solution.training_program.track?.replace(/_/g, ' ') || 'N/A'}</p>
+              </div>
+              <div className="p-4 rounded-lg border">
+                <p className="text-sm text-muted-foreground">Sessions</p>
+                <p className="font-medium">
+                  {((solution.training_program as any).sessions || []).filter((s: any) => s.status === 'completed').length} / {((solution.training_program as any).sessions || []).length} completed
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
       )}
 
       {/* Content Orders */}
-      {solution.solution_type === 'content' && contentOrders.length > 0 && (
+      {solution.solution_type === 'content' && solution.content_orders && solution.content_orders.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Content Orders</CardTitle>
@@ -426,7 +330,7 @@ export default function ClientProjectDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
-              {contentOrders.map((order) => (
+              {solution.content_orders.map((order: any) => (
                 <div key={order.id} className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -445,7 +349,7 @@ export default function ClientProjectDetailPage() {
                   </div>
                   {order.deliverables && order.deliverables.length > 0 ? (
                     <div className="space-y-2 pl-4 border-l-2">
-                      {order.deliverables.map((deliverable) => (
+                      {order.deliverables.map((deliverable: any) => (
                         <div
                           key={deliverable.id}
                           className="flex items-center justify-between py-2"

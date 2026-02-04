@@ -26,6 +26,7 @@ export interface PublicationWithSolution extends Publication {
 }
 
 export interface PublicationFilters extends PaginationParams {
+  [key: string]: unknown;
   solution_id?: string;
   paper_type?: PaperType;
   journal_type?: JournalType;
@@ -271,6 +272,19 @@ export class PublicationsService extends BaseService {
     if (error) throw new Error(`Failed to delete publication: ${error.message}`);
   }
 
+  /**
+   * Get publications for a specific solution
+   */
+  static async getPublicationsBySolution(solutionId: string): Promise<Publication[]> {
+    const { data, error } = await (this.supabase as any).from('sh_publications')
+      .select('*')
+      .eq('solution_id', solutionId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(`Failed to fetch publications by solution: ${error.message}`);
+    return (data || []) as Publication[];
+  }
+
   // ============================================
   // CONTRIBUTOR OPERATIONS
   // ============================================
@@ -492,6 +506,7 @@ export const publicationsService = {
   createPublication: PublicationsService.createPublication.bind(PublicationsService),
   updatePublication: PublicationsService.updatePublication.bind(PublicationsService),
   deletePublication: PublicationsService.deletePublication.bind(PublicationsService),
+  getPublicationsBySolution: PublicationsService.getPublicationsBySolution.bind(PublicationsService),
   getContributors: PublicationsService.getContributors.bind(PublicationsService),
   addContributor: PublicationsService.addContributor.bind(PublicationsService),
   removeContributor: PublicationsService.removeContributor.bind(PublicationsService),

@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -42,8 +41,17 @@ import {
   Pencil,
   Trash2,
   Star,
+  AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useBuilderProfile,
+  useMySkills,
+  useAddMySkill,
+  useUpdateMySkillProficiency,
+  useRemoveMySkill,
+} from '@/hooks/solutions/use-builder-portal';
 
 const PROFICIENCY_LABELS = ['Beginner', 'Basic', 'Intermediate', 'Advanced', 'Expert'];
 
@@ -83,14 +91,12 @@ interface BuilderSkill {
   id: string;
   skill_name: string;
   proficiency_level: number | null;
-  assessed_date: string | null;
+  assessed_date?: string | null;
   created_at: string;
 }
 
 export default function SkillsPage() {
-  const [builderId, setBuilderId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [skills, setSkills] = useState<BuilderSkill[]>([]);
+  const { profile, isLoading: authLoading } = useAuth();
 
   // Dialog states
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -101,114 +107,68 @@ export default function SkillsPage() {
   const [newSkillName, setNewSkillName] = useState('');
   const [newProficiency, setNewProficiency] = useState(3);
   const [editProficiency, setEditProficiency] = useState(3);
-  const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    async function fetchSkills() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get builder profile
+  const { data: builderProfile, isLoading: profileLoading } = useBuilderProfile(profile?.id || '');
+  const builderId = builderProfile?.id;
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  // Get skills
+  const { data: skills, isLoading: skillsLoading } = useMySkills(builderId || '');
 
-      const { data: builder } = await (supabase as any).from('sh_builders')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
+  // Mutations
+  const addSkill = useAddMySkill();
+  const updateSkill = useUpdateMySkillProficiency();
+  const removeSkill = useRemoveMySkill();
 
-      if (!builder) {
-        setIsLoading(false);
-        return;
-      }
-
-      setBuilderId(builder.id);
-
-      const { data } = await (supabase as any).from('sh_builder_skills')
-        .select('*')
-        .eq('builder_id', builder.id)
-        .order('skill_name');
-
-      setSkills((data as BuilderSkill[]) || []);
-      setIsLoading(false);
-    }
-
-    fetchSkills();
-  }, []);
+  const isLoading = authLoading || profileLoading || skillsLoading;
 
   const handleAddSkill = async () => {
     if (!builderId || !newSkillName.trim()) return;
 
-    setIsSaving(true);
-    const supabase = createClient();
-
-    const { data, error } = await (supabase as any).from('sh_builder_skills')
-      .insert({
-        builder_id: builderId,
-        skill_name: newSkillName.trim(),
-        proficiency_level: newProficiency,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      toast.error('Failed to add skill');
-    } else {
+    try {
+      await addSkill.mutateAsync({
+        builderId,
+        skillName: newSkillName.trim(),
+        proficiencyLevel: newProficiency,
+      });
       toast.success('Skill added successfully');
-      setSkills(prev => [...prev, data as BuilderSkill].sort((a, b) => a.skill_name.localeCompare(b.skill_name)));
       setIsAddDialogOpen(false);
       setNewSkillName('');
       setNewProficiency(3);
+    } catch (error) {
+      toast.error('Failed to add skill');
     }
-
-    setIsSaving(false);
   };
 
   const handleUpdateProficiency = async () => {
     if (!builderId || !editingSkill) return;
 
-    setIsSaving(true);
-    const supabase = createClient();
-
-    const { error } = await (supabase as any).from('sh_builder_skills')
-      .update({ proficiency_level: editProficiency })
-      .eq('id', editingSkill.id);
-
-    if (error) {
-      toast.error('Failed to update proficiency');
-    } else {
+    try {
+      await updateSkill.mutateAsync({
+        skillId: editingSkill.id,
+        proficiencyLevel: editProficiency,
+        builderId,
+      });
       toast.success('Proficiency updated');
-      setSkills(prev =>
-        prev.map(s =>
-          s.id === editingSkill.id ? { ...s, proficiency_level: editProficiency } : s
-        )
-      );
       setEditingSkill(null);
+    } catch (error) {
+      toast.error('Failed to update proficiency');
     }
-
-    setIsSaving(false);
   };
 
   const handleRemoveSkill = async () => {
     if (!builderId || !deletingSkill) return;
 
-    setIsSaving(true);
-    const supabase = createClient();
-
-    const { error } = await (supabase as any).from('sh_builder_skills')
-      .delete()
-      .eq('id', deletingSkill.id);
-
-    if (error) {
-      toast.error('Failed to remove skill');
-    } else {
+    try {
+      await removeSkill.mutateAsync({
+        skillId: deletingSkill.id,
+        builderId,
+      });
       toast.success('Skill removed');
-      setSkills(prev => prev.filter(s => s.id !== deletingSkill.id));
       setDeletingSkill(null);
+    } catch (error) {
+      toast.error('Failed to remove skill');
     }
-
-    setIsSaving(false);
   };
 
   if (isLoading) {
@@ -223,8 +183,28 @@ export default function SkillsPage() {
     );
   }
 
+  if (!builderProfile) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-yellow-600" />
+            <div>
+              <h2 className="text-lg font-semibold">Builder Profile Not Found</h2>
+              <p className="text-muted-foreground mt-1">
+                Your builder profile has not been set up yet.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const typedSkills = (skills || []) as BuilderSkill[];
+
   // Group skills by proficiency for stats
-  const skillsByLevel = skills.reduce((acc, skill) => {
+  const skillsByLevel = typedSkills.reduce((acc, skill) => {
     const level = skill.proficiency_level || 1;
     acc[level] = (acc[level] || 0) + 1;
     return acc;
@@ -289,9 +269,9 @@ export default function SkillsPage() {
               </Button>
               <Button
                 onClick={handleAddSkill}
-                disabled={!newSkillName.trim() || isSaving}
+                disabled={!newSkillName.trim() || addSkill.isPending}
               >
-                {isSaving ? 'Adding...' : 'Add Skill'}
+                {addSkill.isPending ? 'Adding...' : 'Add Skill'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -305,7 +285,7 @@ export default function SkillsPage() {
             <CardTitle className="text-sm font-medium">Total Skills</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{skills.length}</div>
+            <div className="text-2xl font-bold">{typedSkills.length}</div>
           </CardContent>
         </Card>
         <Card>
@@ -343,7 +323,7 @@ export default function SkillsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {skills.length === 0 ? (
+          {typedSkills.length === 0 ? (
             <div className="text-center py-12">
               <Wrench className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
               <h3 className="text-lg font-semibold mb-2">No skills registered</h3>
@@ -367,7 +347,7 @@ export default function SkillsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {skills.map((skill) => (
+                {typedSkills.map((skill) => (
                   <TableRow key={skill.id}>
                     <TableCell className="font-medium">{skill.skill_name}</TableCell>
                     <TableCell>{getProficiencyBadge(skill.proficiency_level)}</TableCell>
@@ -444,8 +424,8 @@ export default function SkillsPage() {
             <Button variant="outline" onClick={() => setEditingSkill(null)}>
               Cancel
             </Button>
-            <Button onClick={handleUpdateProficiency} disabled={isSaving}>
-              {isSaving ? 'Updating...' : 'Update'}
+            <Button onClick={handleUpdateProficiency} disabled={updateSkill.isPending}>
+              {updateSkill.isPending ? 'Updating...' : 'Update'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -466,8 +446,9 @@ export default function SkillsPage() {
             <AlertDialogAction
               onClick={handleRemoveSkill}
               className="bg-destructive hover:bg-destructive/90"
+              disabled={removeSkill.isPending}
             >
-              {isSaving ? 'Removing...' : 'Remove Skill'}
+              {removeSkill.isPending ? 'Removing...' : 'Remove Skill'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,7 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -22,6 +20,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { useBuilderProfile, useMyBuilderEarnings } from '@/hooks/solutions/use-builder-portal';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -35,9 +35,9 @@ function getStatusBadge(status: string) {
   switch (status) {
     case 'paid':
       return <Badge className="bg-green-100 text-green-800">Paid</Badge>;
-    case 'processed':
-      return <Badge className="bg-blue-100 text-blue-800">Processed</Badge>;
-    case 'pending':
+    case 'approved':
+      return <Badge className="bg-blue-100 text-blue-800">Approved</Badge>;
+    case 'calculated':
       return <Badge variant="outline">Pending</Badge>;
     default:
       return <Badge variant="outline">{status}</Badge>;
@@ -47,88 +47,32 @@ function getStatusBadge(status: string) {
 interface EarningsEntry {
   id: string;
   amount: number;
-  percentage: number | null;
+  percentage?: number | null;
   status: string;
   created_at: string;
-  processed_at: string | null;
+  paid_at?: string | null;
   payment?: {
     phase?: {
-      title: string;
+      title?: string;
       solution?: {
-        solution_code: string;
-        title: string;
+        solution_code?: string;
+        title?: string;
       };
     };
   };
 }
 
 export default function EarningsPage() {
-  const [builderId, setBuilderId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [entries, setEntries] = useState<EarningsEntry[]>([]);
-  const [totals, setTotals] = useState({
-    pending: 0,
-    processed: 0,
-    paid: 0,
-    overall: 0,
-  });
+  const { profile, isLoading: authLoading } = useAuth();
 
-  useEffect(() => {
-    async function fetchEarnings() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get builder profile
+  const { data: builderProfile, isLoading: profileLoading } = useBuilderProfile(profile?.id || '');
+  const builderId = builderProfile?.id;
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  // Get earnings
+  const { data: earningsData, isLoading: earningsLoading } = useMyBuilderEarnings(builderId || '');
 
-      const { data: builder } = await (supabase as any).from('sh_builders')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!builder) {
-        setIsLoading(false);
-        return;
-      }
-
-      setBuilderId(builder.id);
-
-      const { data } = await (supabase as any).from('sh_earnings_ledger')
-        .select(`
-          id, amount, percentage, status, created_at, processed_at,
-          payment:sh_payments(
-            phase:sh_solution_phases(
-              title,
-              solution:sh_solutions(solution_code, title)
-            )
-          )
-        `)
-        .eq('recipient_id', builder.id)
-        .eq('recipient_type', 'builder')
-        .order('created_at', { ascending: false });
-
-      const earningsData = (data as EarningsEntry[]) || [];
-      setEntries(earningsData);
-
-      // Calculate totals
-      const pending = earningsData.filter(e => e.status === 'pending').reduce((sum, e) => sum + e.amount, 0);
-      const processed = earningsData.filter(e => e.status === 'processed').reduce((sum, e) => sum + e.amount, 0);
-      const paid = earningsData.filter(e => e.status === 'paid').reduce((sum, e) => sum + e.amount, 0);
-
-      setTotals({
-        pending,
-        processed,
-        paid,
-        overall: pending + processed + paid,
-      });
-
-      setIsLoading(false);
-    }
-
-    fetchEarnings();
-  }, []);
+  const isLoading = authLoading || profileLoading || earningsLoading;
 
   if (isLoading) {
     return (
@@ -143,6 +87,32 @@ export default function EarningsPage() {
       </div>
     );
   }
+
+  if (!builderProfile) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-yellow-600" />
+            <div>
+              <h2 className="text-lg font-semibold">Builder Profile Not Found</h2>
+              <p className="text-muted-foreground mt-1">
+                Your builder profile has not been set up yet.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const entries = (earningsData?.assignments || []) as EarningsEntry[];
+  const totals = {
+    pending: entries.filter(e => e.status === 'calculated').reduce((sum, e) => sum + e.amount, 0),
+    approved: entries.filter(e => e.status === 'approved').reduce((sum, e) => sum + e.amount, 0),
+    paid: entries.filter(e => e.status === 'paid').reduce((sum, e) => sum + e.amount, 0),
+    overall: earningsData?.total || 0,
+  };
 
   // Calculate month-over-month change
   const now = new Date();
@@ -209,11 +179,11 @@ export default function EarningsPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Processed</CardTitle>
+            <CardTitle className="text-sm font-medium">Approved</CardTitle>
             <TrendingUp className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(totals.processed)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(totals.approved)}</div>
             <p className="text-xs text-muted-foreground">Awaiting payout</p>
           </CardContent>
         </Card>
@@ -283,9 +253,9 @@ export default function EarningsPage() {
                     <TableCell>
                       <div>
                         <p>{new Date(entry.created_at).toLocaleDateString()}</p>
-                        {entry.status === 'paid' && entry.processed_at && (
+                        {entry.status === 'paid' && entry.paid_at && (
                           <p className="text-xs text-muted-foreground">
-                            Paid: {new Date(entry.processed_at).toLocaleDateString()}
+                            Paid: {new Date(entry.paid_at).toLocaleDateString()}
                           </p>
                         )}
                       </div>
@@ -320,15 +290,15 @@ export default function EarningsPage() {
           <Card className="border-blue-200 bg-blue-50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-blue-800">
-                Processed Earnings
+                Approved Earnings
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-blue-900">
-                {formatCurrency(totals.processed)}
+                {formatCurrency(totals.approved)}
               </div>
               <p className="text-xs text-blue-700">
-                {entries.filter((e) => e.status === 'processed').length} entries awaiting payout
+                {entries.filter((e) => e.status === 'approved').length} entries awaiting payout
               </p>
             </CardContent>
           </Card>
@@ -344,7 +314,7 @@ export default function EarningsPage() {
                 {formatCurrency(totals.pending)}
               </div>
               <p className="text-xs text-yellow-700">
-                {entries.filter((e) => e.status === 'pending').length} entries pending review
+                {entries.filter((e) => e.status === 'calculated').length} entries pending review
               </p>
             </CardContent>
           </Card>

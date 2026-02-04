@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,7 +14,11 @@ import {
   Eye,
   AlertCircle,
 } from 'lucide-react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useProductionProfile,
+  useMyWork,
+} from '@/hooks/solutions/use-production-portal';
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -52,46 +55,16 @@ interface MyDeliverable {
 }
 
 export default function MyWorkPage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [deliverables, setDeliverables] = useState<MyDeliverable[]>([]);
+  const { profile, isLoading: authLoading } = useAuth();
 
-  useEffect(() => {
-    async function fetchData() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get production learner profile
+  const { data: productionProfile, isLoading: profileLoading } = useProductionProfile(profile?.id || '');
+  const learnerId = productionProfile?.id;
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  // Get my work
+  const { data: assignments, isLoading: workLoading } = useMyWork(learnerId || '');
 
-      const { data: learner } = await (supabase as any).from('sh_production_learners')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!learner) {
-        setIsLoading(false);
-        return;
-      }
-
-      const { data } = await (supabase as any).from('sh_production_assignments')
-        .select(`
-          id, role,
-          deliverable:sh_content_deliverables(
-            id, title, status, file_url, notes, revision_count,
-            order:sh_content_orders(title, due_date)
-          )
-        `)
-        .eq('learner_id', learner.id)
-        .order('created_at', { ascending: false });
-
-      setDeliverables((data as MyDeliverable[]) || []);
-      setIsLoading(false);
-    }
-
-    fetchData();
-  }, []);
+  const isLoading = authLoading || profileLoading || workLoading;
 
   if (isLoading) {
     return (
@@ -107,10 +80,32 @@ export default function MyWorkPage() {
     );
   }
 
-  const inProgress = deliverables.filter(d => d.deliverable?.status === 'in_progress');
-  const inReview = deliverables.filter(d => d.deliverable?.status === 'review');
-  const needsRevision = deliverables.filter(d => d.deliverable?.status === 'revision');
-  const completed = deliverables.filter(d => ['approved', 'delivered'].includes(d.deliverable?.status || ''));
+  if (!productionProfile) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-yellow-600" />
+            <div>
+              <h2 className="text-lg font-semibold">Profile Not Found</h2>
+              <p className="text-muted-foreground mt-1">
+                Your production learner profile has not been set up yet.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const typedAssignments = (assignments || []) as MyDeliverable[];
+
+  const inProgress = typedAssignments.filter((d) => d.deliverable?.status === 'in_progress');
+  const inReview = typedAssignments.filter((d) => d.deliverable?.status === 'review');
+  const needsRevision = typedAssignments.filter((d) => d.deliverable?.status === 'revision');
+  const completed = typedAssignments.filter((d) =>
+    ['approved', 'delivered'].includes(d.deliverable?.status || '')
+  );
 
   const renderDeliverableCard = (item: MyDeliverable) => {
     const d = item.deliverable;
@@ -123,7 +118,7 @@ export default function MyWorkPage() {
             <div>
               <CardTitle className="text-lg">{d.title}</CardTitle>
               <CardDescription>
-                {(d.order as any)?.title || 'Order'}
+                {(d.order as Record<string, unknown>)?.title as string || 'Order'}
               </CardDescription>
             </div>
             {getStatusBadge(d.status)}
@@ -133,8 +128,8 @@ export default function MyWorkPage() {
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <span className="flex items-center gap-1">
               <Clock className="h-4 w-4" />
-              {(d.order as any)?.due_date
-                ? `Due: ${new Date((d.order as any).due_date).toLocaleDateString()}`
+              {(d.order as Record<string, unknown>)?.due_date
+                ? `Due: ${new Date((d.order as Record<string, unknown>).due_date as string).toLocaleDateString()}`
                 : 'No deadline'}
             </span>
             {d.revision_count > 0 && (

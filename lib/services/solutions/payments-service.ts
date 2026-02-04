@@ -255,6 +255,85 @@ export class PaymentsService extends BaseService {
   }
 
   /**
+   * Get payments for a specific solution (via phase, program, or order)
+   */
+  static async getPaymentsBySolution(solutionId: string): Promise<PaymentWithDetails[]> {
+    // Get all phases, programs, and orders for this solution
+    const [phasesResult, programsResult, ordersResult] = await Promise.all([
+      (this.supabase as any).from('sh_solution_phases').select('id').eq('solution_id', solutionId),
+      (this.supabase as any).from('sh_training_programs').select('id').eq('solution_id', solutionId),
+      (this.supabase as any).from('sh_content_orders').select('id').eq('solution_id', solutionId),
+    ]);
+
+    const phaseIds = (phasesResult.data || []).map((p: { id: string }) => p.id);
+    const programIds = (programsResult.data || []).map((p: { id: string }) => p.id);
+    const orderIds = (ordersResult.data || []).map((o: { id: string }) => o.id);
+
+    if (phaseIds.length === 0 && programIds.length === 0 && orderIds.length === 0) {
+      return [];
+    }
+
+    let query = (this.supabase as any).from('sh_payments')
+      .select(
+        `
+        *,
+        phase:sh_solution_phases(
+          id,
+          title,
+          solution:sh_solutions(
+            id,
+            title,
+            solution_code,
+            client:sh_clients(id, name)
+          )
+        ),
+        program:sh_training_programs(
+          id,
+          solution:sh_solutions(
+            id,
+            title,
+            solution_code,
+            client:sh_clients(id, name)
+          )
+        ),
+        order:sh_content_orders(
+          id,
+          solution:sh_solutions(
+            id,
+            title,
+            solution_code,
+            client:sh_clients(id, name)
+          )
+        ),
+        earnings:sh_earnings_ledger(*)
+      `
+      )
+      .order('created_at', { ascending: false });
+
+    // Build OR conditions
+    const orConditions: string[] = [];
+    if (phaseIds.length > 0) {
+      orConditions.push(`phase_id.in.(${phaseIds.join(',')})`);
+    }
+    if (programIds.length > 0) {
+      orConditions.push(`program_id.in.(${programIds.join(',')})`);
+    }
+    if (orderIds.length > 0) {
+      orConditions.push(`order_id.in.(${orderIds.join(',')})`);
+    }
+
+    if (orConditions.length > 0) {
+      query = query.or(orConditions.join(','));
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw new Error(`Failed to fetch payments by solution: ${error.message}`);
+
+    return (data || []) as PaymentWithDetails[];
+  }
+
+  /**
    * Get a single payment by ID
    */
   static async getPaymentById(id: string): Promise<PaymentWithDetails | null> {
@@ -618,16 +697,16 @@ export class PaymentsService extends BaseService {
     // Determine split type
     let splitType: SplitType = 'software';
     let departmentId: string | undefined;
-    let hodDiscount = 0;
+    const hodDiscount = 0;
 
     if (payment.phase) {
       splitType = 'software';
-      const phaseData = Array.isArray(payment.phase) ? payment.phase[0] : payment.phase;
-      const solutionData = Array.isArray(phaseData?.solution) ? phaseData.solution[0] : phaseData?.solution;
-      // Would get department_id and hod_discount from solution
+      // Note: phaseData and solutionData can be used to get department_id and hod_discount from solution
+      // const phaseData = Array.isArray(payment.phase) ? payment.phase[0] : payment.phase;
+      // const solutionData = Array.isArray(phaseData?.solution) ? phaseData.solution[0] : phaseData?.solution;
     } else if (payment.program) {
-      const programData = Array.isArray(payment.program) ? payment.program[0] : payment.program;
-      // Would determine track_a or track_b
+      // Note: programData can be used to determine track_a or track_b
+      // const programData = Array.isArray(payment.program) ? payment.program[0] : payment.program;
       splitType = 'training_track_b';
     } else if (payment.order) {
       splitType = 'content';
@@ -738,6 +817,7 @@ export class PaymentsService extends BaseService {
 export const paymentsService = {
   getPayments: PaymentsService.getPayments.bind(PaymentsService),
   getPaymentById: PaymentsService.getPaymentById.bind(PaymentsService),
+  getPaymentsBySolution: PaymentsService.getPaymentsBySolution.bind(PaymentsService),
   createPayment: PaymentsService.createPayment.bind(PaymentsService),
   updatePayment: PaymentsService.updatePayment.bind(PaymentsService),
   deletePayment: PaymentsService.deletePayment.bind(PaymentsService),

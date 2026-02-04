@@ -3,163 +3,39 @@
 /**
  * Solutions Hub - Content Hooks
  * Purpose: React Query hooks for content orders and deliverables
- * Migrated from: JKKN-Solutions-Hub/src/hooks/use-content-orders.ts & use-content-deliverables.ts
+ * Connected to: content-service.ts
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import {
+  contentService,
+  type ContentOrderFilters,
+  type DeliverableFilters,
+  type CreateContentOrderInput,
+  type UpdateContentOrderInput,
+  type CreateDeliverableInput,
+  type UpdateDeliverableInput,
+  type ContentOrderType,
+  type ContentDivision,
+  type DeliverableStatus,
+} from '@/lib/services/solutions';
 
 // ============================================
-// TYPES
+// TYPES (re-export from service types)
 // ============================================
 
-export type ContentOrderType =
-  | 'video'
-  | 'graphic'
-  | 'document'
-  | 'presentation'
-  | 'animation'
-  | 'social_media'
-  | 'other';
-
-export type ContentDivision =
-  | 'video'
-  | 'design'
-  | 'writing'
-  | 'animation'
-  | 'social'
-  | 'other';
-
-export type DeliverableStatus =
-  | 'pending'
-  | 'in_progress'
-  | 'review'
-  | 'revision'
-  | 'approved'
-  | 'delivered';
-
-export interface ContentOrderFilters {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-  solution_id?: string;
-  order_type?: ContentOrderType;
-  division?: ContentDivision;
-  status?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
-}
-
-export interface CreateContentOrderInput {
-  solution_id: string;
-  title: string;
-  order_type: ContentOrderType;
-  division: ContentDivision;
-  quantity?: number;
-  revision_rounds?: number;
-  due_date?: string;
-  notes?: string;
-}
-
-export interface UpdateContentOrderInput {
-  title?: string;
-  order_type?: ContentOrderType;
-  division?: ContentDivision;
-  quantity?: number;
-  revision_rounds?: number;
-  due_date?: string;
-  status?: string;
-  notes?: string;
-}
-
-export interface DeliverableFilters {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-  order_id?: string;
-  status?: DeliverableStatus;
-  search?: string;
-  page?: number;
-  limit?: number;
-}
-
-export interface CreateDeliverableInput {
-  order_id: string;
-  title: string;
-}
-
-export interface UpdateDeliverableInput {
-  title?: string;
-  file_url?: string;
-  status?: DeliverableStatus;
-  notes?: string;
-}
-
-// ============================================
-// SERVICE PLACEHOLDER
-// ============================================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ContentService = any;
-
-const contentService: ContentService = {
-  // Content Orders
-  getContentOrders: async (_filters?: ContentOrderFilters) => {
-    throw new Error('contentService.getContentOrders not implemented');
-  },
-  getContentOrderById: async (_id: string) => {
-    throw new Error('contentService.getContentOrderById not implemented');
-  },
-  getContentOrderBySolutionId: async (_solutionId: string) => {
-    throw new Error('contentService.getContentOrderBySolutionId not implemented');
-  },
-  createContentOrder: async (_input: CreateContentOrderInput) => {
-    throw new Error('contentService.createContentOrder not implemented');
-  },
-  updateContentOrder: async (_id: string, _input: UpdateContentOrderInput) => {
-    throw new Error('contentService.updateContentOrder not implemented');
-  },
-  deleteContentOrder: async (_id: string) => {
-    throw new Error('contentService.deleteContentOrder not implemented');
-  },
-  getOrdersByDivision: async (_division: ContentDivision) => {
-    throw new Error('contentService.getOrdersByDivision not implemented');
-  },
-  getContentOrderStats: async () => {
-    throw new Error('contentService.getContentOrderStats not implemented');
-  },
-
-  // Content Deliverables
-  getDeliverables: async (_filters?: DeliverableFilters) => {
-    throw new Error('contentService.getDeliverables not implemented');
-  },
-  getDeliverableById: async (_id: string) => {
-    throw new Error('contentService.getDeliverableById not implemented');
-  },
-  getDeliverablesByOrder: async (_orderId: string) => {
-    throw new Error('contentService.getDeliverablesByOrder not implemented');
-  },
-  createDeliverable: async (_input: CreateDeliverableInput) => {
-    throw new Error('contentService.createDeliverable not implemented');
-  },
-  updateDeliverable: async (_id: string, _input: UpdateDeliverableInput) => {
-    throw new Error('contentService.updateDeliverable not implemented');
-  },
-  deleteDeliverable: async (_id: string) => {
-    throw new Error('contentService.deleteDeliverable not implemented');
-  },
-  submitForReview: async (_id: string, _fileUrl: string) => {
-    throw new Error('contentService.submitForReview not implemented');
-  },
-  requestRevision: async (_id: string, _notes: string) => {
-    throw new Error('contentService.requestRevision not implemented');
-  },
-  approveDeliverable: async (_id: string) => {
-    throw new Error('contentService.approveDeliverable not implemented');
-  },
-  markDelivered: async (_id: string) => {
-    throw new Error('contentService.markDelivered not implemented');
-  },
+export type {
+  ContentOrderType,
+  ContentDivision,
+  DeliverableStatus,
+  ContentOrderFilters,
+  CreateContentOrderInput,
+  UpdateContentOrderInput,
+  DeliverableFilters,
+  CreateDeliverableInput,
+  UpdateDeliverableInput,
 };
 
 // ============================================
@@ -172,7 +48,7 @@ const contentService: ContentService = {
 export function useContentOrders(filters?: ContentOrderFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.contentOrders.list(filters),
-    queryFn: () => contentService.getContentOrders(filters),
+    queryFn: () => contentService.getOrders(filters),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -183,7 +59,7 @@ export function useContentOrders(filters?: ContentOrderFilters) {
 export function useContentOrder(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.contentOrders.detail(id),
-    queryFn: () => contentService.getContentOrderById(id),
+    queryFn: () => contentService.getOrderById(id),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -195,7 +71,7 @@ export function useContentOrder(id: string) {
 export function useContentOrderBySolution(solutionId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.contentOrders.bySolution(solutionId),
-    queryFn: () => contentService.getContentOrderBySolutionId(solutionId),
+    queryFn: () => contentService.getOrderBySolutionId(solutionId),
     enabled: !!solutionId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -219,7 +95,7 @@ export function useOrdersByDivision(division: ContentDivision) {
 export function useContentOrderStats() {
   return useQuery({
     queryKey: solutionsHubKeys.contentOrders.stats(),
-    queryFn: () => contentService.getContentOrderStats(),
+    queryFn: () => contentService.getOrderStats(),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -236,7 +112,7 @@ export function useCreateContentOrder() {
 
   return useMutation({
     mutationFn: (input: CreateContentOrderInput) =>
-      contentService.createContentOrder(input),
+      contentService.createOrder(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentOrders.all });
     },
@@ -251,8 +127,8 @@ export function useUpdateContentOrder() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateContentOrderInput }) =>
-      contentService.updateContentOrder(id, input),
-    onSuccess: (data: any) => {
+      contentService.updateOrder(id, input),
+    onSuccess: (data: { id?: string }) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentOrders.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.contentOrders.detail(data.id), data);
@@ -268,7 +144,7 @@ export function useDeleteContentOrder() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => contentService.deleteContentOrder(id),
+    mutationFn: (id: string) => contentService.deleteOrder(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentOrders.all });
     },
@@ -308,7 +184,7 @@ export function useDeliverable(id: string) {
 export function useDeliverablesByOrder(orderId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.contentDeliverables.byOrder(orderId),
-    queryFn: () => contentService.getDeliverablesByOrder(orderId),
+    queryFn: () => contentService.getDeliverablesByOrderId(orderId),
     enabled: !!orderId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -327,7 +203,7 @@ export function useCreateDeliverable() {
   return useMutation({
     mutationFn: (input: CreateDeliverableInput) =>
       contentService.createDeliverable(input),
-    onSuccess: (data: any) => {
+    onSuccess: (data: { order_id?: string }) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
       if (data?.order_id) {
         queryClient.invalidateQueries({
@@ -347,7 +223,7 @@ export function useUpdateDeliverable() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateDeliverableInput }) =>
       contentService.updateDeliverable(id, input),
-    onSuccess: (data: any) => {
+    onSuccess: (data: { id?: string }) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.contentDeliverables.detail(data.id), data);
@@ -377,8 +253,8 @@ export function useSubmitForReview() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, fileUrl }: { id: string; fileUrl: string }) =>
-      contentService.submitForReview(id, fileUrl),
+    mutationFn: ({ id, fileUrl, fileType }: { id: string; fileUrl: string; fileType?: string }) =>
+      contentService.submitForReview(id, fileUrl, fileType),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
     },
@@ -392,7 +268,7 @@ export function useRequestRevision() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, notes }: { id: string; notes: string }) =>
+    mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
       contentService.requestRevision(id, notes),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
@@ -407,7 +283,8 @@ export function useApproveDeliverable() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => contentService.approveDeliverable(id),
+    mutationFn: ({ id, approvedBy }: { id: string; approvedBy: string }) =>
+      contentService.approveDeliverable(id, approvedBy),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
     },
@@ -415,13 +292,41 @@ export function useApproveDeliverable() {
 }
 
 /**
- * Mark deliverable as delivered
+ * Reject a deliverable
+ */
+export function useRejectDeliverable() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
+      contentService.rejectDeliverable(id, notes),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
+    },
+  });
+}
+
+/**
+ * Get deliverable statistics
+ */
+export function useDeliverableStats(orderId?: string) {
+  return useQuery({
+    queryKey: [...solutionsHubKeys.contentDeliverables.all, 'stats', orderId],
+    queryFn: () => contentService.getDeliverableStats(orderId),
+    ...QUERY_CONFIG.DASHBOARD_DATA,
+  });
+}
+
+/**
+ * Mark deliverable as delivered (alias for updateDeliverable with status)
+ * @deprecated Use useUpdateDeliverable with status: 'approved' instead
  */
 export function useMarkDelivered() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => contentService.markDelivered(id),
+    mutationFn: (id: string) =>
+      contentService.updateDeliverable(id, { status: 'approved' as DeliverableStatus }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
     },

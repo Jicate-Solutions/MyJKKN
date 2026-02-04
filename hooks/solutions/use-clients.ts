@@ -9,86 +9,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import {
+  clientsService,
+  type ClientFilters,
+  type UpdateClientInput,
+} from '@/lib/services/solutions/clients-service';
+import type { CreateClientInput, SourceType, PartnerStatus } from '@/lib/services/solutions/types';
 
-// ============================================
-// TYPES
-// ============================================
-
-export type SourceType = 'placement' | 'alumni' | 'clinical' | 'referral' | 'direct' | 'yi' | 'intent';
-export type PartnerStatus = 'standard' | 'yi' | 'alumni' | 'mou' | 'referral';
-
-export interface ClientFilters {
-  source_type?: SourceType;
-  partner_status?: PartnerStatus;
-  source_department_id?: string;
-  is_active?: boolean;
-  search?: string;
-  page?: number;
-  limit?: number;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-}
-
-export interface CreateClientInput {
-  name: string;
-  contact_person?: string;
-  contact_email?: string;
-  contact_phone?: string;
-  address?: string;
-  source_type: SourceType;
-  source_department_id?: string;
-  partner_status?: PartnerStatus;
-  intent_agency_id?: string;
-  notes?: string;
-}
-
-export interface UpdateClientInput {
-  name?: string;
-  contact_person?: string;
-  contact_email?: string;
-  contact_phone?: string;
-  address?: string;
-  source_type?: SourceType;
-  source_department_id?: string;
-  partner_status?: PartnerStatus;
-  intent_agency_id?: string;
-  notes?: string;
-  is_active?: boolean;
-}
-
-// ============================================
-// SERVICE PLACEHOLDER
-// ============================================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ClientService = any;
-
-const clientsService: ClientService = {
-  getClients: async (_filters?: ClientFilters) => {
-    throw new Error('clientsService.getClients not implemented');
-  },
-  getClientById: async (_id: string) => {
-    throw new Error('clientsService.getClientById not implemented');
-  },
-  createClient: async (_input: CreateClientInput) => {
-    throw new Error('clientsService.createClient not implemented');
-  },
-  updateClient: async (_id: string, _input: UpdateClientInput) => {
-    throw new Error('clientsService.updateClient not implemented');
-  },
-  deactivateClient: async (_id: string) => {
-    throw new Error('clientsService.deactivateClient not implemented');
-  },
-  reactivateClient: async (_id: string) => {
-    throw new Error('clientsService.reactivateClient not implemented');
-  },
-  incrementReferralCount: async (_id: string) => {
-    throw new Error('clientsService.incrementReferralCount not implemented');
-  },
-  getClientIndustries: async () => {
-    throw new Error('clientsService.getClientIndustries not implemented');
-  },
-};
+// Re-export types for convenience
+export type { ClientFilters, UpdateClientInput, CreateClientInput, SourceType, PartnerStatus };
 
 // ============================================
 // QUERY HOOKS
@@ -139,7 +68,10 @@ export function useCreateClient() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateClientInput) => clientsService.createClient(input),
+    mutationFn: async (input: CreateClientInput) => {
+      const result = await clientsService.createClient(input);
+      return result as { id: string } & Record<string, unknown>;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.clients.all });
     },

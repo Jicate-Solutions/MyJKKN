@@ -48,6 +48,48 @@ export type {
   ApprovalResult,
 } from './builders-service';
 
+export { builderPortalService, BuilderPortalService } from './builder-portal-service';
+export type {
+  BuilderWithDetails as BuilderPortalProfile,
+  BuilderAssignmentWithPhase as BuilderPortalAssignment,
+  AvailablePhase,
+  BuilderEarningsSummary,
+  PortalOverview,
+} from './builder-portal-service';
+
+export { iterationsService, IterationsService } from './iterations-service';
+export type {
+  IterationWithBugs,
+  IterationFilters,
+  CreateIterationInput as CreateIterationServiceInput,
+  UpdateIterationInput,
+} from './iterations-service';
+
+export { bugsService, BugsService, BUG_SEVERITY_LABELS, BUG_STATUS_LABELS } from './bugs-service';
+export type {
+  BugSeverity,
+  BugStatus,
+  BugWithDetails,
+  BugFilters,
+  CreateBugInput,
+  UpdateBugInput,
+} from './bugs-service';
+
+export {
+  deploymentsService,
+  DeploymentsService,
+  DEPLOYMENT_ENVIRONMENTS,
+  DEPLOYMENT_STATUS_LABELS,
+} from './deployments-service';
+export type {
+  DeploymentEnvironment,
+  DeploymentStatus,
+  DeploymentWithPhase,
+  DeploymentFilters,
+  CreateDeploymentInput as CreateDeploymentServiceInput,
+  UpdateDeploymentInput as UpdateDeploymentServiceInput,
+} from './deployments-service';
+
 // ============================================
 // TRAINING MODULE SERVICES
 // ============================================
@@ -149,6 +191,29 @@ export type {
   EarningsSummary,
   RecipientTotalEarnings,
 } from './earnings-service';
+
+export { unifiedEarningsService, UnifiedEarningsService } from './unified-earnings-service';
+export type {
+  TalentType,
+  UnifiedEarningsEntry,
+  EarningsSummary as UnifiedEarningsSummary,
+  PayoutHistoryEntry,
+  UnifiedEarningsFilters,
+} from './unified-earnings-service';
+
+export {
+  revenueSplitService,
+  RevenueSplitService,
+  DEFAULT_REVENUE_SPLITS,
+  RECIPIENT_DISPLAY_NAMES,
+} from './revenue-split-service';
+export type {
+  SplitConfig,
+  CreateRevenueSplitModelInput,
+  UpdateRevenueSplitModelInput,
+  CalculatedSplit as RevenueSplitCalculatedSplit,
+  RevenueSplitCalculation,
+} from './revenue-split-service';
 
 export { publicationsService, PublicationsService } from './publications-service';
 export type {

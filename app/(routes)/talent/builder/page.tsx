@@ -1,8 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +15,14 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useBuilderProfile,
+  useMyAssignments,
+  useAvailablePhases,
+  useMySkills,
+  useMyBuilderEarnings,
+} from '@/hooks/solutions/use-builder-portal';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -41,113 +47,41 @@ function getStatusBadge(status: string) {
   }
 }
 
-interface BuilderStats {
-  active_assignments: number;
-  completed_assignments: number;
-  total_earnings: number;
-  skills_count: number;
-}
-
-interface Assignment {
-  id: string;
-  status: string;
-  role: string;
-  requested_at: string;
-  phase?: {
-    id: string;
-    title: string;
-    solution?: {
-      solution_code: string;
-      title: string;
-      client?: {
-        name: string;
-      };
-    };
-  };
-}
-
 export default function BuilderPortalPage() {
-  const [builderId, setBuilderId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [stats, setStats] = useState<BuilderStats | null>(null);
-  const [activeAssignments, setActiveAssignments] = useState<Assignment[]>([]);
-  const [pendingApprovals, setPendingApprovals] = useState<Assignment[]>([]);
-  const [availablePhaseCount, setAvailablePhaseCount] = useState(0);
+  const { profile, isLoading: authLoading } = useAuth();
 
-  useEffect(() => {
-    async function fetchBuilderData() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get builder profile by user ID
+  const {
+    data: builderProfile,
+    isLoading: profileLoading,
+    error: profileError,
+  } = useBuilderProfile(profile?.id || '');
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  const builderId = builderProfile?.id;
 
-      // Get builder profile
-      const { data: builder } = await (supabase as any).from('sh_builders')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
+  // Get builder data using hooks
+  const { data: assignments, isLoading: assignmentsLoading } = useMyAssignments(builderId || '');
+  const { data: availablePhases, isLoading: phasesLoading } = useAvailablePhases(builderId || '');
+  const { data: skills, isLoading: skillsLoading } = useMySkills(builderId || '');
+  const { data: earnings, isLoading: earningsLoading } = useMyBuilderEarnings(builderId || '');
 
-      if (!builder) {
-        setIsLoading(false);
-        return;
-      }
+  const isLoading = authLoading || profileLoading || assignmentsLoading || phasesLoading || skillsLoading || earningsLoading;
 
-      setBuilderId(builder.id);
+  // Filter assignments by status
+  const activeAssignments = (assignments || []).filter(
+    (a: { status: string }) => a.status === 'active' || a.status === 'approved'
+  );
+  const pendingApprovals = (assignments || []).filter(
+    (a: { status: string }) => a.status === 'requested'
+  );
 
-      // Fetch stats
-      const [
-        { count: activeCount },
-        { count: completedCount },
-        { data: earningsData },
-        { count: skillsCount },
-        { data: assignments },
-        { count: availableCount },
-      ] = await Promise.all([
-        (supabase as any).from('sh_builder_assignments').select('*', { count: 'exact', head: true }).eq('builder_id', builder.id).eq('status', 'active'),
-        (supabase as any).from('sh_builder_assignments').select('*', { count: 'exact', head: true }).eq('builder_id', builder.id).eq('status', 'completed'),
-        (supabase as any).from('sh_earnings_ledger').select('amount').eq('recipient_id', builder.id).eq('recipient_type', 'builder'),
-        (supabase as any).from('sh_builder_skills').select('*', { count: 'exact', head: true }).eq('builder_id', builder.id),
-        (supabase as any).from('sh_builder_assignments')
-          .select(`
-            id, status, role, requested_at,
-            phase:sh_solution_phases(
-              id, title,
-              solution:sh_solutions(
-                solution_code, title,
-                client:sh_clients(name)
-              )
-            )
-          `)
-          .eq('builder_id', builder.id)
-          .in('status', ['active', 'approved', 'requested'])
-          .order('requested_at', { ascending: false })
-          .limit(10),
-        (supabase as any).from('sh_solution_phases').select('*', { count: 'exact', head: true }).in('status', ['prd_writing', 'prototype_building', 'revisions']),
-      ]);
-
-      const totalEarnings = earningsData?.reduce((sum, e) => sum + (e.amount || 0), 0) || 0;
-
-      setStats({
-        active_assignments: activeCount || 0,
-        completed_assignments: completedCount || 0,
-        total_earnings: totalEarnings,
-        skills_count: skillsCount || 0,
-      });
-
-      const active = (assignments || []).filter(a => a.status === 'active' || a.status === 'approved');
-      const pending = (assignments || []).filter(a => a.status === 'requested');
-
-      setActiveAssignments(active as Assignment[]);
-      setPendingApprovals(pending as Assignment[]);
-      setAvailablePhaseCount(availableCount || 0);
-      setIsLoading(false);
-    }
-
-    fetchBuilderData();
-  }, []);
+  // Calculate stats
+  const stats = {
+    active_assignments: activeAssignments.length,
+    completed_assignments: (assignments || []).filter((a: { status: string }) => a.status === 'completed').length,
+    total_earnings: earnings?.total || 0,
+    skills_count: (skills || []).length,
+  };
 
   if (isLoading) {
     return (
@@ -160,6 +94,25 @@ export default function BuilderPortalPage() {
           {[1, 2, 3, 4].map((i) => (
             <Skeleton key={i} className="h-32" />
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (profileError || !builderProfile) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-yellow-600" />
+            <div>
+              <h2 className="text-lg font-semibold">Builder Profile Not Found</h2>
+              <p className="text-muted-foreground mt-1">
+                Your builder profile has not been set up yet.
+                Please contact the JICATE team to get registered as a builder.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -185,9 +138,9 @@ export default function BuilderPortalPage() {
             <FolderKanban className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.active_assignments || 0}</div>
+            <div className="text-2xl font-bold">{stats.active_assignments}</div>
             <p className="text-xs text-muted-foreground">
-              {stats?.completed_assignments || 0} completed total
+              {stats.completed_assignments} completed total
             </p>
           </CardContent>
         </Card>
@@ -198,7 +151,7 @@ export default function BuilderPortalPage() {
             <Hammer className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{availablePhaseCount}</div>
+            <div className="text-2xl font-bold">{(availablePhases || []).length}</div>
             <p className="text-xs text-muted-foreground">
               Phases you can claim
             </p>
@@ -211,7 +164,7 @@ export default function BuilderPortalPage() {
             <Wrench className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.skills_count || 0}</div>
+            <div className="text-2xl font-bold">{stats.skills_count}</div>
             <p className="text-xs text-muted-foreground">
               Skills registered
             </p>
@@ -225,7 +178,7 @@ export default function BuilderPortalPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(stats?.total_earnings || 0)}
+              {formatCurrency(stats.total_earnings)}
             </div>
             <p className="text-xs text-muted-foreground">
               From all phases
@@ -260,7 +213,17 @@ export default function BuilderPortalPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {activeAssignments.slice(0, 5).map((assignment) => (
+                {activeAssignments.slice(0, 5).map((assignment: {
+                  id: string;
+                  status: string;
+                  phase?: {
+                    title?: string;
+                    solution?: {
+                      solution_code?: string;
+                      client?: { name?: string };
+                    };
+                  };
+                }) => (
                   <div
                     key={assignment.id}
                     className="flex items-center justify-between p-3 rounded-lg border"
@@ -301,7 +264,11 @@ export default function BuilderPortalPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {pendingApprovals.map((approval) => (
+                {pendingApprovals.map((approval: {
+                  id: string;
+                  requested_at?: string;
+                  phase?: { title?: string };
+                }) => (
                   <div
                     key={approval.id}
                     className="flex items-center justify-between p-3 rounded-lg border border-yellow-200 bg-yellow-50"
@@ -312,7 +279,7 @@ export default function BuilderPortalPage() {
                       </p>
                       <p className="text-sm text-muted-foreground">
                         Requested on{' '}
-                        {new Date(approval.requested_at).toLocaleDateString()}
+                        {approval.requested_at ? new Date(approval.requested_at).toLocaleDateString() : 'Unknown'}
                       </p>
                     </div>
                     <Badge variant="outline" className="border-yellow-500 text-yellow-700">

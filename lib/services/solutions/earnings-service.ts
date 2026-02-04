@@ -143,6 +143,94 @@ export class EarningsService extends BaseService {
   }
 
   /**
+   * Create a new earnings entry
+   */
+  static async createEarningEntry(input: {
+    payment_id: string;
+    recipient_type: RecipientType;
+    recipient_name: string;
+    recipient_id?: string;
+    department_id?: string;
+    amount: number;
+    percentage: number;
+    status?: EarningsStatus;
+  }): Promise<EarningsLedger> {
+    const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
+      .insert({
+        payment_id: input.payment_id,
+        recipient_type: input.recipient_type,
+        recipient_name: input.recipient_name,
+        recipient_id: input.recipient_id,
+        department_id: input.department_id,
+        amount: input.amount,
+        percentage: input.percentage,
+        status: input.status || 'calculated',
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to create earnings entry: ${error.message}`);
+    return data as EarningsLedger;
+  }
+
+  /**
+   * Get earnings statistics for dashboard
+   */
+  static async getEarningsStats(): Promise<{
+    total_calculated: number;
+    total_approved: number;
+    total_paid: number;
+    this_month_total: number;
+    by_recipient_type: Record<string, { calculated: number; approved: number; paid: number }>;
+  }> {
+    const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
+      .select('amount, status, recipient_type, created_at');
+
+    if (error) throw new Error(`Failed to fetch earnings stats: ${error.message}`);
+
+    const now = new Date();
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const stats = {
+      total_calculated: 0,
+      total_approved: 0,
+      total_paid: 0,
+      this_month_total: 0,
+      by_recipient_type: {} as Record<string, { calculated: number; approved: number; paid: number }>,
+    };
+
+    for (const entry of data || []) {
+      const amount = Number(entry.amount);
+      const createdAt = new Date(entry.created_at);
+      const isThisMonth = createdAt >= thisMonthStart;
+      const recipientType = entry.recipient_type || 'unknown';
+
+      // Initialize recipient type if not exists
+      if (!stats.by_recipient_type[recipientType]) {
+        stats.by_recipient_type[recipientType] = { calculated: 0, approved: 0, paid: 0 };
+      }
+
+      // Aggregate by status
+      if (entry.status === 'calculated') {
+        stats.total_calculated += amount;
+        stats.by_recipient_type[recipientType].calculated += amount;
+      } else if (entry.status === 'approved') {
+        stats.total_approved += amount;
+        stats.by_recipient_type[recipientType].approved += amount;
+      } else if (entry.status === 'paid') {
+        stats.total_paid += amount;
+        stats.by_recipient_type[recipientType].paid += amount;
+      }
+
+      if (isThisMonth) {
+        stats.this_month_total += amount;
+      }
+    }
+
+    return stats;
+  }
+
+  /**
    * Get earnings summary by recipient type
    */
   static async getEarningsSummary(): Promise<EarningsSummary[]> {
@@ -361,7 +449,9 @@ export class EarningsService extends BaseService {
 export const earningsService = {
   getEarnings: EarningsService.getEarnings.bind(EarningsService),
   getEarningsByRecipient: EarningsService.getEarningsByRecipient.bind(EarningsService),
+  createEarningEntry: EarningsService.createEarningEntry.bind(EarningsService),
   getEarningsSummary: EarningsService.getEarningsSummary.bind(EarningsService),
+  getEarningsStats: EarningsService.getEarningsStats.bind(EarningsService),
   getRecipientTotalEarnings: EarningsService.getRecipientTotalEarnings.bind(EarningsService),
   updateEarningsStatus: EarningsService.updateEarningsStatus.bind(EarningsService),
   bulkUpdateEarningsStatus: EarningsService.bulkUpdateEarningsStatus.bind(EarningsService),

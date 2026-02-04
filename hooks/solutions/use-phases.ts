@@ -3,42 +3,43 @@
 /**
  * Solutions Hub - Phases Hooks
  * Purpose: React Query hooks for solution phases CRUD and related operations
- * Migrated from: JKKN-Solutions-Hub/src/hooks/use-phases.ts
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import {
+  phasesService,
+  PHASE_STATUSES,
+  iterationsService,
+  bugsService,
+  deploymentsService,
+  type PhaseFilters as ServicePhaseFilters,
+  type PhaseWithDetails,
+  type UpdatePhaseInput as ServiceUpdatePhaseInput,
+  type CreateIterationInput as ServiceCreateIterationInput,
+  type CreateBugReportInput as ServiceCreateBugReportInput,
+  type CreateDeploymentInput as ServiceCreateDeploymentInput,
+} from '@/lib/services/solutions';
+import type {
+  PhaseStatus,
+  SolutionPhase,
+  PrototypeIteration,
+  BugReport,
+  PhaseDeployment,
+  CreatePhaseInput as ServiceCreatePhaseInput,
+} from '@/lib/services/solutions/types';
 
 // ============================================
-// TYPES
+// RE-EXPORT TYPES & CONSTANTS
 // ============================================
 
-export type PhaseStatus =
-  | 'prospecting'
-  | 'discovery'
-  | 'prd_writing'
-  | 'prototype_building'
-  | 'client_demo'
-  | 'revisions'
-  | 'approved'
-  | 'deploying'
-  | 'training'
-  | 'live'
-  | 'in_amc'
-  | 'completed'
-  | 'on_hold'
-  | 'cancelled';
+export type { PhaseStatus, PhaseWithDetails };
+export { PHASE_STATUSES };
 
-export interface PhaseFilters {
+export interface PhaseFilters extends ServicePhaseFilters {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
-  solution_id?: string;
-  status?: PhaseStatus;
-  owner_department_id?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
 }
 
 export interface CreatePhaseInput {
@@ -47,92 +48,39 @@ export interface CreatePhaseInput {
   description?: string;
   owner_department_id?: string;
   estimated_value?: number;
-  start_date?: string;
-  due_date?: string;
+  started_date?: string;
+  target_completion?: string;
+  created_by: string;
 }
 
-export interface UpdatePhaseInput {
-  title?: string;
-  description?: string;
-  status?: PhaseStatus;
-  owner_department_id?: string;
-  estimated_value?: number;
-  start_date?: string;
-  due_date?: string;
-  completion_date?: string;
-}
+export interface UpdatePhaseInput extends ServiceUpdatePhaseInput {}
 
 export interface CreateIterationInput {
   phase_id: string;
-  version: number;
-  prototype_url?: string;
+  prototype_url: string;
   changes_made?: string;
+  demo_date?: string;
 }
 
 export interface CreateBugReportInput {
   iteration_id: string;
-  title: string;
-  description?: string;
-  severity?: 'low' | 'medium' | 'high' | 'critical';
   reported_by: string;
+  description: string;
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+  screenshots_urls?: string[];
 }
 
 export interface CreateDeploymentInput {
   phase_id: string;
-  environment: 'development' | 'staging' | 'production';
+  environment: 'staging' | 'production';
+  version?: string;
   vercel_url?: string;
   supabase_project_id?: string;
+  custom_domain?: string;
+  deployed_date: string;
+  deployed_by: string;
   notes?: string;
 }
-
-// ============================================
-// SERVICE PLACEHOLDER
-// ============================================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type PhaseService = any;
-
-const phasesService: PhaseService = {
-  getPhases: async (_filters?: PhaseFilters) => {
-    throw new Error('phasesService.getPhases not implemented');
-  },
-  getPhaseById: async (_id: string) => {
-    throw new Error('phasesService.getPhaseById not implemented');
-  },
-  getPhasesBySolution: async (_solutionId: string) => {
-    throw new Error('phasesService.getPhasesBySolution not implemented');
-  },
-  createPhase: async (_input: CreatePhaseInput) => {
-    throw new Error('phasesService.createPhase not implemented');
-  },
-  updatePhase: async (_id: string, _input: UpdatePhaseInput) => {
-    throw new Error('phasesService.updatePhase not implemented');
-  },
-  deletePhase: async (_id: string) => {
-    throw new Error('phasesService.deletePhase not implemented');
-  },
-  getNextPhaseNumber: async (_solutionId: string) => {
-    throw new Error('phasesService.getNextPhaseNumber not implemented');
-  },
-  getPhaseStats: async () => {
-    throw new Error('phasesService.getPhaseStats not implemented');
-  },
-  createIteration: async (_input: CreateIterationInput) => {
-    throw new Error('phasesService.createIteration not implemented');
-  },
-  updateIteration: async (_id: string, _input: { feedback?: string; client_approved?: boolean }) => {
-    throw new Error('phasesService.updateIteration not implemented');
-  },
-  createBugReport: async (_input: CreateBugReportInput) => {
-    throw new Error('phasesService.createBugReport not implemented');
-  },
-  updateBugReport: async (_id: string, _input: { status?: string; resolved_by?: string; resolution_notes?: string }) => {
-    throw new Error('phasesService.updateBugReport not implemented');
-  },
-  createDeployment: async (_input: CreateDeploymentInput) => {
-    throw new Error('phasesService.createDeployment not implemented');
-  },
-};
 
 // ============================================
 // QUERY HOOKS
@@ -167,7 +115,7 @@ export function usePhase(id: string) {
 export function useSolutionPhases(solutionId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.phases.bySolution(solutionId),
-    queryFn: () => phasesService.getPhasesBySolution(solutionId),
+    queryFn: () => phasesService.getPhasesBySolutionId(solutionId),
     enabled: !!solutionId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -196,6 +144,35 @@ export function useNextPhaseNumber(solutionId: string) {
   });
 }
 
+/**
+ * Get active phases (in progress)
+ */
+export function useActivePhases() {
+  return useQuery({
+    queryKey: [...solutionsHubKeys.phases.all, 'active'],
+    queryFn: async () => {
+      const activeStatuses: PhaseStatus[] = [
+        'prospecting',
+        'discovery',
+        'prd_writing',
+        'prototype_building',
+        'client_demo',
+        'revisions',
+        'approved',
+        'deploying',
+        'training',
+      ];
+      // Fetch phases that are not completed, on_hold, cancelled, live, or in_amc
+      const result = await phasesService.getPhases({ limit: 100 });
+      return {
+        ...result,
+        data: result.data.filter(phase => activeStatuses.includes(phase.status as PhaseStatus)),
+      };
+    },
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
+}
+
 // ============================================
 // MUTATION HOOKS - PHASES
 // ============================================
@@ -207,12 +184,16 @@ export function useCreatePhase() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreatePhaseInput) => phasesService.createPhase(input),
-    onSuccess: (data: any) => {
+    mutationFn: (input: CreatePhaseInput) =>
+      phasesService.createPhase(input as ServiceCreatePhaseInput),
+    onSuccess: (data: SolutionPhase) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
       if (data?.solution_id) {
         queryClient.invalidateQueries({
           queryKey: solutionsHubKeys.phases.bySolution(data.solution_id),
+        });
+        queryClient.invalidateQueries({
+          queryKey: solutionsHubKeys.phases.nextNumber(data.solution_id),
         });
       }
     },
@@ -228,7 +209,25 @@ export function useUpdatePhase() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdatePhaseInput }) =>
       phasesService.updatePhase(id, input),
-    onSuccess: (data: any) => {
+    onSuccess: (data: SolutionPhase) => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
+      if (data?.id) {
+        queryClient.setQueryData(solutionsHubKeys.phases.detail(data.id), data);
+      }
+    },
+  });
+}
+
+/**
+ * Update phase status
+ */
+export function useUpdatePhaseStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: PhaseStatus }) =>
+      phasesService.updatePhaseStatus(id, status),
+    onSuccess: (data: SolutionPhase) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.phases.detail(data.id), data);
@@ -252,7 +251,7 @@ export function useDeletePhase() {
 }
 
 // ============================================
-// MUTATION HOOKS - ITERATIONS
+// MUTATION HOOKS - ITERATIONS (convenience wrappers)
 // ============================================
 
 /**
@@ -262,11 +261,16 @@ export function useCreateIteration() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateIterationInput) => phasesService.createIteration(input),
-    onSuccess: (data: any) => {
+    mutationFn: (input: CreateIterationInput) =>
+      iterationsService.createIteration(input as ServiceCreateIterationInput),
+    onSuccess: (data: PrototypeIteration) => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.iterations.all });
       if (data?.phase_id) {
         queryClient.invalidateQueries({
           queryKey: solutionsHubKeys.phases.detail(data.phase_id),
+        });
+        queryClient.invalidateQueries({
+          queryKey: solutionsHubKeys.iterations.byPhase(data.phase_id),
         });
       }
     },
@@ -286,15 +290,21 @@ export function useUpdateIteration() {
     }: {
       id: string;
       input: { feedback?: string; client_approved?: boolean };
-    }) => phasesService.updateIteration(id, input),
-    onSuccess: () => {
+    }) => iterationsService.updateIteration(id, input),
+    onSuccess: (data: PrototypeIteration) => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.iterations.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
+      if (data?.phase_id) {
+        queryClient.invalidateQueries({
+          queryKey: solutionsHubKeys.iterations.byPhase(data.phase_id),
+        });
+      }
     },
   });
 }
 
 // ============================================
-// MUTATION HOOKS - BUG REPORTS
+// MUTATION HOOKS - BUG REPORTS (convenience wrappers)
 // ============================================
 
 /**
@@ -304,9 +314,18 @@ export function useCreateBugReport() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateBugReportInput) => phasesService.createBugReport(input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
+    mutationFn: (input: CreateBugReportInput) =>
+      bugsService.createBug(input as ServiceCreateBugReportInput),
+    onSuccess: (data: BugReport) => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all });
+      if (data?.iteration_id) {
+        queryClient.invalidateQueries({
+          queryKey: solutionsHubKeys.bugs.byIteration(data.iteration_id),
+        });
+        queryClient.invalidateQueries({
+          queryKey: solutionsHubKeys.iterations.detail(data.iteration_id),
+        });
+      }
     },
   });
 }
@@ -324,15 +343,25 @@ export function useUpdateBugReport() {
     }: {
       id: string;
       input: { status?: string; resolved_by?: string; resolution_notes?: string };
-    }) => phasesService.updateBugReport(id, input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
+    }) =>
+      bugsService.updateBug(id, {
+        status: input.status as 'open' | 'in_progress' | 'resolved' | 'closed' | undefined,
+        resolved_by: input.resolved_by,
+        resolution_notes: input.resolution_notes,
+      }),
+    onSuccess: (data: BugReport) => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all });
+      if (data?.iteration_id) {
+        queryClient.invalidateQueries({
+          queryKey: solutionsHubKeys.bugs.byIteration(data.iteration_id),
+        });
+      }
     },
   });
 }
 
 // ============================================
-// MUTATION HOOKS - DEPLOYMENTS
+// MUTATION HOOKS - DEPLOYMENTS (convenience wrappers)
 // ============================================
 
 /**
@@ -342,12 +371,18 @@ export function useCreateDeployment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateDeploymentInput) => phasesService.createDeployment(input),
-    onSuccess: (data: any) => {
+    mutationFn: (input: CreateDeploymentInput) =>
+      deploymentsService.createDeployment(input as ServiceCreateDeploymentInput),
+    onSuccess: (data: PhaseDeployment) => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.deployments.all });
       if (data?.phase_id) {
         queryClient.invalidateQueries({
           queryKey: solutionsHubKeys.phases.detail(data.phase_id),
         });
+        queryClient.invalidateQueries({
+          queryKey: solutionsHubKeys.deployments.byPhase(data.phase_id),
+        });
+        queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
       }
     },
   });

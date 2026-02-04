@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,8 +15,14 @@ import {
   Search,
   Clock,
   DollarSign,
+  AlertCircle,
 } from 'lucide-react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useProductionProfile,
+  useAvailableWork,
+  useClaimWork,
+} from '@/hooks/solutions/use-production-portal';
 
 const divisionIcons: Record<string, typeof Video> = {
   video: Video,
@@ -48,105 +53,30 @@ interface AvailableWork {
 }
 
 export default function ProductionQueuePage() {
-  const [learnerId, setLearnerId] = useState<string | null>(null);
-  const [learnerDivision, setLearnerDivision] = useState<string>('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [myDivisionWork, setMyDivisionWork] = useState<AvailableWork[]>([]);
-  const [allWork, setAllWork] = useState<Record<string, AvailableWork[]>>({});
-  const [isClaiming, setIsClaiming] = useState(false);
+  const { profile, isLoading: authLoading } = useAuth();
 
-  useEffect(() => {
-    async function fetchData() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get production learner profile
+  const { data: productionProfile, isLoading: profileLoading } = useProductionProfile(profile?.id || '');
+  const learnerId = productionProfile?.id;
+  const learnerDivision = productionProfile?.division || '';
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  // Get available work
+  const { data: availableWork, isLoading: workLoading } = useAvailableWork(learnerId || '');
 
-      const { data: learner } = await (supabase as any).from('sh_production_learners')
-        .select('id, division')
-        .eq('user_id', user.id)
-        .single();
+  // Claim mutation
+  const claimMutation = useClaimWork();
 
-      if (!learner) {
-        setIsLoading(false);
-        return;
-      }
-
-      setLearnerId(learner.id);
-      setLearnerDivision(learner.division);
-
-      // Fetch available deliverables (not yet claimed)
-      const { data: deliverables } = await (supabase as any).from('sh_content_deliverables')
-        .select(`
-          id, title, notes,
-          order:sh_content_orders(division, due_date)
-        `)
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false });
-
-      const available = (deliverables as AvailableWork[]) || [];
-
-      // Filter for my division
-      const myDivision = available.filter(d => (d.order as any)?.division === learner.division);
-      setMyDivisionWork(myDivision);
-
-      // Group all by division
-      const byDivision: Record<string, AvailableWork[]> = {};
-      available.forEach(d => {
-        const division = (d.order as any)?.division || 'other';
-        if (!byDivision[division]) byDivision[division] = [];
-        byDivision[division].push(d);
-      });
-      setAllWork(byDivision);
-
-      setIsLoading(false);
-    }
-
-    fetchData();
-  }, []);
+  const isLoading = authLoading || profileLoading || workLoading;
 
   const handleClaim = async (deliverableId: string) => {
     if (!learnerId) return;
 
-    setIsClaiming(true);
-    const supabase = createClient();
-
-    // Create assignment and update deliverable status
-    const { error: assignError } = await (supabase as any).from('sh_production_assignments').insert({
-      deliverable_id: deliverableId,
-      learner_id: learnerId,
-      role: 'creator',
-    });
-
-    if (assignError) {
-      toast.error('Failed to claim deliverable');
-      setIsClaiming(false);
-      return;
-    }
-
-    const { error: updateError } = await (supabase as any).from('sh_content_deliverables')
-      .update({ status: 'in_progress' })
-      .eq('id', deliverableId);
-
-    if (updateError) {
-      toast.error('Claimed but status update failed');
-    } else {
+    try {
+      await claimMutation.mutateAsync({ deliverableId, learnerId });
       toast.success('Deliverable claimed successfully');
-      // Remove from lists
-      setMyDivisionWork(prev => prev.filter(w => w.id !== deliverableId));
-      setAllWork(prev => {
-        const updated: Record<string, AvailableWork[]> = {};
-        Object.entries(prev).forEach(([div, items]) => {
-          updated[div] = items.filter(w => w.id !== deliverableId);
-        });
-        return updated;
-      });
+    } catch (error) {
+      toast.error('Failed to claim deliverable');
     }
-
-    setIsClaiming(false);
   };
 
   if (isLoading) {
@@ -162,8 +92,41 @@ export default function ProductionQueuePage() {
     );
   }
 
+  if (!productionProfile) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-yellow-600" />
+            <div>
+              <h2 className="text-lg font-semibold">Profile Not Found</h2>
+              <p className="text-muted-foreground mt-1">
+                Your production learner profile has not been set up yet.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const typedWork = (availableWork || []) as AvailableWork[];
+
+  // Filter for my division
+  const myDivisionWork = typedWork.filter(
+    (d) => (d.order as Record<string, unknown>)?.division === learnerDivision
+  );
+
+  // Group all by division
+  const byDivision: Record<string, AvailableWork[]> = {};
+  typedWork.forEach((d) => {
+    const division = (d.order as Record<string, unknown>)?.division as string || 'other';
+    if (!byDivision[division]) byDivision[division] = [];
+    byDivision[division].push(d);
+  });
+
   const renderWorkCard = (work: AvailableWork) => {
-    const division = (work.order as any)?.division || 'other';
+    const division = (work.order as Record<string, unknown>)?.division as string || 'other';
     const DivisionIcon = divisionIcons[division] || FileText;
 
     return (
@@ -193,8 +156,8 @@ export default function ProductionQueuePage() {
             <div className="flex items-center gap-4">
               <span className="flex items-center gap-1 text-muted-foreground">
                 <Clock className="h-4 w-4" />
-                {(work.order as any)?.due_date
-                  ? new Date((work.order as any).due_date).toLocaleDateString()
+                {(work.order as Record<string, unknown>)?.due_date
+                  ? new Date((work.order as Record<string, unknown>).due_date as string).toLocaleDateString()
                   : 'No deadline'}
               </span>
               <span className="flex items-center gap-1 text-green-600">
@@ -206,10 +169,10 @@ export default function ProductionQueuePage() {
 
           <Button
             onClick={() => handleClaim(work.id)}
-            disabled={isClaiming}
+            disabled={claimMutation.isPending}
             className="w-full"
           >
-            {isClaiming ? 'Claiming...' : 'Claim This Work'}
+            {claimMutation.isPending ? 'Claiming...' : 'Claim This Work'}
           </Button>
         </CardContent>
       </Card>
@@ -256,7 +219,7 @@ export default function ProductionQueuePage() {
 
         <TabsContent value="all" className="mt-6">
           <div className="space-y-8">
-            {Object.entries(allWork).map(([division, work]) => {
+            {Object.entries(byDivision).map(([division, work]) => {
               if (!work || work.length === 0) return null;
               const DivisionIcon = divisionIcons[division] || FileText;
 
@@ -274,7 +237,7 @@ export default function ProductionQueuePage() {
               );
             })}
 
-            {Object.values(allWork).every(w => !w || w.length === 0) && (
+            {Object.values(byDivision).every((w) => !w || w.length === 0) && (
               <Card>
                 <CardContent className="py-12 text-center">
                   <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />

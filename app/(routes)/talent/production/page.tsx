@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,7 +14,11 @@ import {
   ArrowRight,
   AlertCircle,
 } from 'lucide-react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useProductionProfile,
+  useMyStats,
+} from '@/hooks/solutions/use-production-portal';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -25,76 +28,22 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
-interface LearnerStats {
-  totalDeliverables: number;
-  inProgress: number;
-  inReview: number;
-  approved: number;
-  totalEarnings: number;
-  avgRating: number | null;
-  division: string;
-}
-
 export default function ProductionPortalPage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [learner, setLearner] = useState<{ id: string; name: string; division: string } | null>(null);
-  const [stats, setStats] = useState<LearnerStats | null>(null);
+  const { profile, isLoading: authLoading } = useAuth();
 
-  useEffect(() => {
-    async function fetchData() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get production learner profile
+  const {
+    data: productionProfile,
+    isLoading: profileLoading,
+    error: profileError,
+  } = useProductionProfile(profile?.id || '');
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  const learnerId = productionProfile?.id;
 
-      const { data: learnerData } = await (supabase as any).from('sh_production_learners')
-        .select('id, name, division, total_earnings')
-        .eq('user_id', user.id)
-        .single();
+  // Get production stats
+  const { data: stats, isLoading: statsLoading } = useMyStats(learnerId || '');
 
-      if (!learnerData) {
-        setIsLoading(false);
-        return;
-      }
-
-      setLearner(learnerData);
-
-      // Get assignment counts
-      const { data: assignments } = await (supabase as any).from('sh_production_assignments')
-        .select(`
-          id, quality_rating,
-          deliverable:sh_content_deliverables(status)
-        `)
-        .eq('learner_id', learnerData.id);
-
-      const deliverables = assignments || [];
-      const inProgress = deliverables.filter(a => (a.deliverable as any)?.status === 'in_progress').length;
-      const inReview = deliverables.filter(a => (a.deliverable as any)?.status === 'review').length;
-      const approved = deliverables.filter(a => (a.deliverable as any)?.status === 'approved').length;
-
-      const ratingsWithValue = deliverables.filter(a => a.quality_rating != null);
-      const avgRating = ratingsWithValue.length > 0
-        ? ratingsWithValue.reduce((sum, a) => sum + (a.quality_rating || 0), 0) / ratingsWithValue.length
-        : null;
-
-      setStats({
-        totalDeliverables: deliverables.length,
-        inProgress,
-        inReview,
-        approved,
-        totalEarnings: learnerData.total_earnings || 0,
-        avgRating,
-        division: learnerData.division,
-      });
-
-      setIsLoading(false);
-    }
-
-    fetchData();
-  }, []);
+  const isLoading = authLoading || profileLoading || statsLoading;
 
   if (isLoading) {
     return (
@@ -109,7 +58,7 @@ export default function ProductionPortalPage() {
     );
   }
 
-  if (!learner) {
+  if (profileError || !productionProfile) {
     return (
       <div className="space-y-6">
         <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
@@ -133,7 +82,7 @@ export default function ProductionPortalPage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold tracking-tight">
-          Welcome, {learner.name?.split(' ')[0] || 'Learner'}
+          Welcome, {productionProfile.name?.split(' ')[0] || 'Learner'}
         </h1>
         <p className="text-muted-foreground">
           Your production dashboard and work queue
@@ -148,9 +97,9 @@ export default function ProductionPortalPage() {
             <FileStack className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.totalDeliverables || 0}</div>
+            <div className="text-2xl font-bold">{stats?.totalAssignments || 0}</div>
             <p className="text-xs text-muted-foreground">
-              {stats?.approved || 0} approved
+              {stats?.completed || 0} approved
             </p>
           </CardContent>
         </Card>
@@ -207,7 +156,9 @@ export default function ProductionPortalPage() {
         </CardHeader>
         <CardContent>
           <Badge variant="secondary" className="text-lg px-4 py-2">
-            {stats?.division ? stats.division.charAt(0).toUpperCase() + stats.division.slice(1) : 'Not Assigned'}
+            {productionProfile.division
+              ? productionProfile.division.charAt(0).toUpperCase() + productionProfile.division.slice(1)
+              : 'Not Assigned'}
           </Badge>
         </CardContent>
       </Card>

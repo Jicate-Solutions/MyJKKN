@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Briefcase, Hammer, BookOpen, Video } from 'lucide-react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import { Search, Briefcase, Hammer, BookOpen, Video, AlertCircle } from 'lucide-react';
+import { useCurrentClient, useClientSolutions } from '@/hooks/solutions';
 
 const typeIcons: Record<string, typeof Hammer> = {
   software: Hammer,
@@ -31,83 +31,73 @@ const statusColors: Record<string, string> = {
   in_amc: 'bg-indigo-100 text-indigo-700',
 };
 
-interface Solution {
-  id: string;
-  title: string;
-  solution_code: string;
-  solution_type: 'software' | 'training' | 'content';
-  status: string;
-  problem_statement: string | null;
-  created_at: string;
-}
-
 export default function ClientProjectsPage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [solutions, setSolutions] = useState<Solution[]>([]);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('all');
 
-  useEffect(() => {
-    async function fetchSolutions() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  const { data: client, isLoading: clientLoading, error: clientError } = useCurrentClient();
+  const clientId = client?.id || '';
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  const { data: solutions, isLoading: solutionsLoading } = useClientSolutions(clientId);
 
-      const { data: client } = await (supabase as any).from('sh_clients')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!client) {
-        setIsLoading(false);
-        return;
-      }
-
-      const { data } = await (supabase as any).from('sh_solutions')
-        .select('id, title, solution_code, solution_type, status, problem_statement, created_at')
-        .eq('client_id', client.id)
-        .order('created_at', { ascending: false });
-
-      setSolutions((data as Solution[]) || []);
-      setIsLoading(false);
-    }
-
-    fetchSolutions();
-  }, []);
+  const isLoading = clientLoading || solutionsLoading;
+  const solutionsList = useMemo(() => solutions || [], [solutions]);
 
   // Filter solutions
-  const filteredSolutions = solutions.filter((solution) => {
-    if (activeTab !== 'all' && solution.solution_type !== activeTab) {
-      return false;
-    }
+  const filteredSolutions = useMemo(() => {
+    return solutionsList.filter((solution) => {
+      if (activeTab !== 'all' && solution.solution_type !== activeTab) {
+        return false;
+      }
 
-    if (search) {
-      const searchLower = search.toLowerCase();
-      return (
-        solution.title.toLowerCase().includes(searchLower) ||
-        solution.solution_code.toLowerCase().includes(searchLower) ||
-        solution.problem_statement?.toLowerCase().includes(searchLower)
-      );
-    }
+      if (search) {
+        const searchLower = search.toLowerCase();
+        return (
+          solution.title.toLowerCase().includes(searchLower) ||
+          solution.solution_code.toLowerCase().includes(searchLower) ||
+          solution.problem_statement?.toLowerCase().includes(searchLower)
+        );
+      }
 
-    return true;
-  });
+      return true;
+    });
+  }, [solutionsList, activeTab, search]);
 
-  const counts = {
-    all: solutions.length,
-    software: solutions.filter((s) => s.solution_type === 'software').length,
-    training: solutions.filter((s) => s.solution_type === 'training').length,
-    content: solutions.filter((s) => s.solution_type === 'content').length,
-  };
+  const counts = useMemo(() => ({
+    all: solutionsList.length,
+    software: solutionsList.filter((s) => s.solution_type === 'software').length,
+    training: solutionsList.filter((s) => s.solution_type === 'training').length,
+    content: solutionsList.filter((s) => s.solution_type === 'content').length,
+  }), [solutionsList]);
 
+  // Error state
+  if (clientError) {
+    return (
+      <div className="flex items-center justify-center h-[50vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Error Loading Projects</h2>
+            <p className="text-muted-foreground mb-4">
+              {clientError instanceof Error ? clientError.message : 'Failed to load data'}
+            </p>
+            <Button onClick={() => window.location.reload()}>Retry</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Loading state
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
+        <div>
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-64 mt-2" />
+        </div>
+        <Skeleton className="h-10 w-80" />
+        <Skeleton className="h-10 w-full max-w-lg" />
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {[...Array(6)].map((_, i) => (
             <Skeleton key={i} className="h-64" />

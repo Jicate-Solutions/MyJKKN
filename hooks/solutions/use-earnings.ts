@@ -3,83 +3,64 @@
 /**
  * Solutions Hub - Earnings Hooks
  * Purpose: React Query hooks for earnings ledger management
- * Migrated from: JKKN-Solutions-Hub/src/hooks/use-earnings.ts
+ * Implements: getEarnings, getEarningsByRecipient, createEarningEntry, getEarningsStats,
+ *             getEarningsSummary, updateEarningsStatus, bulkUpdateEarningsStatus,
+ *             approvePaymentEarnings, markEarningsAsPaid, getDepartmentEarnings,
+ *             getMonthlyEarningsReport
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import {
+  earningsService,
+  type EarningsFilters as ServiceEarningsFilters,
+  type EarningsWithPayment,
+  type EarningsSummary,
+  type RecipientTotalEarnings,
+} from '@/lib/services/solutions';
+import type { RecipientType, EarningsStatus } from '@/lib/services/solutions/types';
 
 // ============================================
-// TYPES
+// TYPES (Re-export for convenience)
 // ============================================
 
-export type RecipientType =
-  | 'builder'
-  | 'cohort_member'
-  | 'production_learner'
-  | 'department'
-  | 'jicate'
-  | 'institution'
-  | 'council'
-  | 'infrastructure'
-  | 'referral_bonus';
+export type { RecipientType, EarningsStatus, EarningsWithPayment, EarningsSummary, RecipientTotalEarnings };
 
-export type EarningsStatus = 'pending' | 'processed' | 'paid';
+export type EarningsFilters = ServiceEarningsFilters;
 
-export interface EarningsFilters {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-  payment_id?: string;
-  recipient_type?: RecipientType;
+export interface CreateEarningInput {
+  payment_id: string;
+  recipient_type: RecipientType;
+  recipient_name: string;
   recipient_id?: string;
   department_id?: string;
+  amount: number;
+  percentage: number;
   status?: EarningsStatus;
-  from_date?: string;
-  to_date?: string;
-  page?: number;
-  limit?: number;
 }
 
-// ============================================
-// SERVICE PLACEHOLDER
-// ============================================
+export interface EarningsStats {
+  total_calculated: number;
+  total_approved: number;
+  total_paid: number;
+  this_month_total: number;
+  by_recipient_type: Record<string, { calculated: number; approved: number; paid: number }>;
+}
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type EarningsService = any;
+export interface DepartmentEarnings {
+  entries: EarningsWithPayment[];
+  total: number;
+  by_status: Record<EarningsStatus, number>;
+}
 
-const earningsService: EarningsService = {
-  getEarnings: async (_filters?: EarningsFilters) => {
-    throw new Error('earningsService.getEarnings not implemented');
-  },
-  getEarningsByRecipient: async (_recipientType: RecipientType, _recipientId: string) => {
-    throw new Error('earningsService.getEarningsByRecipient not implemented');
-  },
-  getEarningsSummary: async () => {
-    throw new Error('earningsService.getEarningsSummary not implemented');
-  },
-  getRecipientTotalEarnings: async (_recipientType: RecipientType, _recipientId: string) => {
-    throw new Error('earningsService.getRecipientTotalEarnings not implemented');
-  },
-  updateEarningsStatus: async (_id: string, _status: EarningsStatus, _paidAt?: string) => {
-    throw new Error('earningsService.updateEarningsStatus not implemented');
-  },
-  bulkUpdateEarningsStatus: async (_ids: string[], _status: EarningsStatus) => {
-    throw new Error('earningsService.bulkUpdateEarningsStatus not implemented');
-  },
-  approvePaymentEarnings: async (_paymentId: string) => {
-    throw new Error('earningsService.approvePaymentEarnings not implemented');
-  },
-  markEarningsAsPaid: async (_ids: string[], _paidAt?: string) => {
-    throw new Error('earningsService.markEarningsAsPaid not implemented');
-  },
-  getDepartmentEarnings: async (_departmentId: string, _fromDate?: string, _toDate?: string) => {
-    throw new Error('earningsService.getDepartmentEarnings not implemented');
-  },
-  getMonthlyEarningsReport: async (_month: number, _year: number) => {
-    throw new Error('earningsService.getMonthlyEarningsReport not implemented');
-  },
-};
+export interface MonthlyEarningsReport {
+  month: string;
+  year: number;
+  by_recipient_type: Record<string, number>;
+  total: number;
+  entries: EarningsWithPayment[];
+}
 
 // ============================================
 // QUERY HOOKS
@@ -109,12 +90,23 @@ export function useEarningsByRecipient(recipientType: RecipientType, recipientId
 }
 
 /**
- * Fetch earnings summary (dashboard data)
+ * Fetch earnings summary (dashboard data grouped by recipient type)
  */
 export function useEarningsSummary() {
   return useQuery({
     queryKey: solutionsHubKeys.earnings.summary(),
     queryFn: () => earningsService.getEarningsSummary(),
+    ...QUERY_CONFIG.DASHBOARD_DATA,
+  });
+}
+
+/**
+ * Fetch earnings statistics (more detailed dashboard metrics)
+ */
+export function useEarningsStats() {
+  return useQuery({
+    queryKey: ['solutions-hub', 'earnings', 'stats'],
+    queryFn: () => earningsService.getEarningsStats(),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -162,6 +154,20 @@ export function useMonthlyEarningsReport(month: number, year: number) {
 // ============================================
 // MUTATION HOOKS
 // ============================================
+
+/**
+ * Create a new earnings entry
+ */
+export function useCreateEarningEntry() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: CreateEarningInput) => earningsService.createEarningEntry(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
+    },
+  });
+}
 
 /**
  * Update earnings status
@@ -228,4 +234,49 @@ export function useMarkEarningsAsPaid() {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
     },
   });
+}
+
+// ============================================
+// UTILITY FUNCTIONS
+// ============================================
+
+/**
+ * Get display name for a recipient type
+ */
+export function getRecipientTypeDisplayName(type: RecipientType): string {
+  const displayNames: Record<RecipientType, string> = {
+    builder: 'Builder',
+    cohort_member: 'Cohort Member',
+    production_learner: 'Production Learner',
+    department: 'Department',
+    jicate: 'JICATE',
+    institution: 'Institution',
+    council: 'Council',
+    infrastructure: 'Infrastructure',
+    referral_bonus: 'Referral Bonus',
+  };
+  return displayNames[type] || type;
+}
+
+/**
+ * Get color for earnings status
+ */
+export function getEarningsStatusColor(status: EarningsStatus): string {
+  const colors: Record<EarningsStatus, string> = {
+    calculated: 'bg-yellow-100 text-yellow-800',
+    approved: 'bg-blue-100 text-blue-800',
+    paid: 'bg-green-100 text-green-800',
+  };
+  return colors[status] || 'bg-gray-100 text-gray-800';
+}
+
+/**
+ * Format earnings amount in INR
+ */
+export function formatEarningsAmount(amount: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(amount);
 }

@@ -1,10 +1,14 @@
-import { Metadata } from 'next';
+'use client';
+
+import Link from 'next/link';
+import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -13,69 +17,38 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import Link from 'next/link';
-import { Plus, Search, Building2, Mail, Phone, ArrowRight } from 'lucide-react';
+import { Plus, Search, Building2, Mail, Phone, ArrowRight, AlertCircle } from 'lucide-react';
+import { useClients, type PartnerStatus, type SourceType } from '@/hooks/solutions/use-clients';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 
-export const metadata: Metadata = {
-  title: 'Clients | Solutions Hub',
-  description: 'Manage clients',
+const partnerConfig: Record<PartnerStatus, { label: string; color: string }> = {
+  standard: { label: 'Standard', color: 'bg-gray-100 text-gray-800' },
+  yi: { label: 'YI Member', color: 'bg-blue-100 text-blue-800' },
+  alumni: { label: 'Alumni', color: 'bg-green-100 text-green-800' },
+  mou: { label: 'MoU Partner', color: 'bg-purple-100 text-purple-800' },
+  referral: { label: 'Referral', color: 'bg-orange-100 text-orange-800' },
+};
+
+const sourceConfig: Record<SourceType, string> = {
+  direct: 'Direct',
+  referral: 'Referral',
+  alumni: 'Alumni Network',
+  placement: 'Placement',
+  clinical: 'Clinical',
+  yi: 'Young Indians',
+  intent: 'Intent Platform',
 };
 
 export default function ClientsPage() {
-  // Placeholder data
-  const clients = [
-    {
-      id: '1',
-      name: 'ABC University',
-      contact_person: 'Dr. John Smith',
-      contact_email: 'john@abc-university.edu',
-      contact_phone: '+91 98765 43210',
-      source_type: 'direct',
-      partner_status: 'yi',
-      solution_count: 3,
-      is_active: true,
-    },
-    {
-      id: '2',
-      name: 'XYZ Corporation',
-      contact_person: 'Ms. Sarah Johnson',
-      contact_email: 'sarah@xyz-corp.com',
-      contact_phone: '+91 98765 43211',
-      source_type: 'referral',
-      partner_status: 'standard',
-      solution_count: 2,
-      is_active: true,
-    },
-    {
-      id: '3',
-      name: 'DEF Institute',
-      contact_person: 'Prof. Kumar',
-      contact_email: 'kumar@def-institute.ac.in',
-      contact_phone: '+91 98765 43212',
-      source_type: 'alumni',
-      partner_status: 'alumni',
-      solution_count: 1,
-      is_active: true,
-    },
-  ];
+  const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebounceValue(searchQuery, 300);
 
-  const partnerConfig: Record<string, { label: string; color: string }> = {
-    standard: { label: 'Standard', color: 'bg-gray-100 text-gray-800' },
-    yi: { label: 'YI Member', color: 'bg-blue-100 text-blue-800' },
-    alumni: { label: 'Alumni', color: 'bg-green-100 text-green-800' },
-    mou: { label: 'MoU Partner', color: 'bg-purple-100 text-purple-800' },
-    referral: { label: 'Referral', color: 'bg-orange-100 text-orange-800' },
-  };
+  const { data: clientsData, isLoading, error } = useClients({
+    search: debouncedSearch || undefined,
+    limit: 50,
+  });
 
-  const sourceConfig: Record<string, string> = {
-    direct: 'Direct',
-    referral: 'Referral',
-    alumni: 'Alumni Network',
-    placement: 'Placement',
-    clinical: 'Clinical',
-    yi: 'Young Indians',
-    intent: 'Intent Platform',
-  };
+  const clients = clientsData?.data || [];
 
   return (
     <ContentLayout title="Clients">
@@ -107,85 +80,179 @@ export default function ClientsPage() {
           <CardContent className="py-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search clients..." className="pl-10" />
+              <Input
+                placeholder="Search clients by name, email, or phone..."
+                className="pl-10"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
             </div>
           </CardContent>
         </Card>
 
-        {/* Table */}
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Partner Status</TableHead>
-                  <TableHead className="text-center">Solutions</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-[80px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {clients.map((client) => {
-                  const partner = partnerConfig[client.partner_status];
-                  return (
-                    <TableRow key={client.id}>
+        {/* Error State */}
+        {error && (
+          <Card>
+            <CardContent className="py-10">
+              <div className="flex flex-col items-center justify-center gap-4 text-center">
+                <AlertCircle className="h-10 w-10 text-destructive" />
+                <div>
+                  <h3 className="font-semibold">Failed to load clients</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {error instanceof Error ? error.message : 'An error occurred'}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Loading State */}
+        {isLoading && (
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Client</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Partner Status</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="w-[80px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <TableRow key={i}>
                       <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-full bg-muted">
-                            <Building2 className="h-4 w-4" />
-                          </div>
-                          <div>
-                            <Link
-                              href={`/solutions/clients/${client.id}`}
-                              className="font-medium hover:underline"
-                            >
-                              {client.name}
-                            </Link>
-                          </div>
-                        </div>
+                        <Skeleton className="h-10 w-40" />
                       </TableCell>
                       <TableCell>
-                        <div className="space-y-1">
-                          <p className="font-medium">{client.contact_person}</p>
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Mail className="h-3 w-3" />
-                            {client.contact_email}
-                          </div>
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Phone className="h-3 w-3" />
-                            {client.contact_phone}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{sourceConfig[client.source_type]}</TableCell>
-                      <TableCell>
-                        <Badge className={partner.color}>{partner.label}</Badge>
-                      </TableCell>
-                      <TableCell className="text-center font-medium">
-                        {client.solution_count}
+                        <Skeleton className="h-10 w-48" />
                       </TableCell>
                       <TableCell>
-                        <Badge variant={client.is_active ? 'default' : 'secondary'}>
-                          {client.is_active ? 'Active' : 'Inactive'}
-                        </Badge>
+                        <Skeleton className="h-6 w-20" />
                       </TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/solutions/clients/${client.id}`}>
-                            <ArrowRight className="h-4 w-4" />
-                          </Link>
-                        </Button>
+                        <Skeleton className="h-6 w-24" />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton className="h-6 w-16" />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton className="h-8 w-8" />
                       </TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Table */}
+        {!isLoading && !error && (
+          <Card>
+            <CardContent className="p-0">
+              {clients.length === 0 ? (
+                <div className="py-10 text-center">
+                  <Building2 className="mx-auto h-10 w-10 text-muted-foreground" />
+                  <h3 className="mt-4 font-semibold">No clients found</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {searchQuery
+                      ? 'Try a different search term'
+                      : 'Get started by adding your first client'}
+                  </p>
+                  {!searchQuery && (
+                    <Button asChild className="mt-4">
+                      <Link href="/solutions/clients/new">
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Client
+                      </Link>
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Client</TableHead>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Partner Status</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="w-[80px]"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {clients.map((client) => {
+                      const partner = partnerConfig[client.partner_status as PartnerStatus] || partnerConfig.standard;
+                      const source = sourceConfig[client.source_type as SourceType] || client.source_type;
+                      return (
+                        <TableRow key={client.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 rounded-full bg-muted">
+                                <Building2 className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <Link
+                                  href={`/solutions/clients/${client.id}`}
+                                  className="font-medium hover:underline"
+                                >
+                                  {client.name}
+                                </Link>
+                                {client.industry && (
+                                  <p className="text-xs text-muted-foreground">{client.industry}</p>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              {client.contact_person && (
+                                <p className="font-medium">{client.contact_person}</p>
+                              )}
+                              {client.contact_email && (
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Mail className="h-3 w-3" />
+                                  {client.contact_email}
+                                </div>
+                              )}
+                              {client.contact_phone && (
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Phone className="h-3 w-3" />
+                                  {client.contact_phone}
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>{source}</TableCell>
+                          <TableCell>
+                            <Badge className={partner.color}>{partner.label}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={client.is_active ? 'default' : 'secondary'}>
+                              {client.is_active ? 'Active' : 'Inactive'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm" asChild>
+                              <Link href={`/solutions/clients/${client.id}`}>
+                                <ArrowRight className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </ContentLayout>
   );

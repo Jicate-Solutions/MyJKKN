@@ -1,12 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Award, CheckCircle, Lock } from 'lucide-react';
+import { Award, CheckCircle, Lock, AlertCircle, ArrowUp } from 'lucide-react';
+import { toast } from 'sonner';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useCohortProfile,
+  useLevelProgress,
+  useRequestLevelUp,
+} from '@/hooks/solutions/use-cohort-portal';
 
 const LEVELS = [
   {
@@ -40,43 +46,30 @@ const LEVELS = [
 ];
 
 export default function LevelProgressPage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [currentLevel, setCurrentLevel] = useState(0);
-  const [completedSessions, setCompletedSessions] = useState(0);
+  const { profile, isLoading: authLoading } = useAuth();
 
-  useEffect(() => {
-    async function fetchData() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  // Get cohort member profile
+  const { data: cohortProfile, isLoading: profileLoading } = useCohortProfile(profile?.id || '');
+  const memberId = cohortProfile?.id;
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  // Get level progress
+  const { data: levelProgress, isLoading: levelLoading } = useLevelProgress(memberId || '');
 
-      const { data: member } = await (supabase as any).from('sh_cohort_members')
-        .select('level')
-        .eq('user_id', user.id)
-        .single();
+  // Level up mutation
+  const levelUpMutation = useRequestLevelUp();
 
-      if (!member) {
-        setIsLoading(false);
-        return;
-      }
+  const isLoading = authLoading || profileLoading || levelLoading;
 
-      setCurrentLevel(member.level || 0);
+  const handleLevelUp = async () => {
+    if (!memberId) return;
 
-      // Count completed sessions
-      const { count } = await (supabase as any).from('sh_cohort_assignments')
-        .select('*', { count: 'exact', head: true })
-        .eq('cohort_member_id', member.id);
-
-      setCompletedSessions(count || 0);
-      setIsLoading(false);
+    try {
+      await levelUpMutation.mutateAsync(memberId);
+      toast.success('Congratulations! You have been promoted to the next level!');
+    } catch (error) {
+      toast.error('Failed to level up. Please try again.');
     }
-
-    fetchData();
-  }, []);
+  };
 
   if (isLoading) {
     return (
@@ -90,6 +83,26 @@ export default function LevelProgressPage() {
       </div>
     );
   }
+
+  if (!cohortProfile || !levelProgress) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-yellow-50 p-6 dark:bg-yellow-900/20">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-yellow-600" />
+            <div>
+              <h2 className="text-lg font-semibold">Cohort Profile Not Found</h2>
+              <p className="text-muted-foreground mt-1">
+                Your cohort member profile has not been set up yet.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const currentLevel = levelProgress.currentLevel;
 
   return (
     <div className="space-y-6">
@@ -105,29 +118,44 @@ export default function LevelProgressPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Award className="h-6 w-6 text-primary" />
-            Current Level: {LEVELS[currentLevel].title}
+            Current Level: {levelProgress.levelTitle}
           </CardTitle>
           <CardDescription>
-            {LEVELS[currentLevel].description}
+            {levelProgress.levelDescription}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <p className="text-sm">
-            Sessions completed: <strong>{completedSessions}</strong>
-          </p>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div>
+              <p className="text-2xl font-bold">{levelProgress.sessionsObserved}</p>
+              <p className="text-sm text-muted-foreground">Observed</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{levelProgress.sessionsCoLed}</p>
+              <p className="text-sm text-muted-foreground">Co-Led</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{levelProgress.sessionsLed}</p>
+              <p className="text-sm text-muted-foreground">Led</p>
+            </div>
+          </div>
+
+          {levelProgress.canLevelUp && (
+            <Button onClick={handleLevelUp} disabled={levelUpMutation.isPending} className="w-full">
+              <ArrowUp className="h-4 w-4 mr-2" />
+              {levelUpMutation.isPending ? 'Promoting...' : `Level Up to ${levelProgress.nextLevelTitle}`}
+            </Button>
+          )}
         </CardContent>
       </Card>
 
       {/* Level Cards */}
       <div className="space-y-4">
-        {LEVELS.map((level, index) => {
+        {LEVELS.map((level) => {
           const isUnlocked = currentLevel >= level.level;
           const isCurrent = currentLevel === level.level;
           const isNext = currentLevel === level.level - 1;
-          const nextLevelSessions = LEVELS[currentLevel + 1]?.sessionsNeeded || 0;
-          const progress = isNext && nextLevelSessions > 0
-            ? Math.min((completedSessions / nextLevelSessions) * 100, 100)
-            : isUnlocked ? 100 : 0;
+          const progress = isCurrent ? levelProgress.progress : isUnlocked ? 100 : 0;
 
           return (
             <Card
@@ -163,7 +191,7 @@ export default function LevelProgressPage() {
                 <p className="text-sm text-muted-foreground mb-2">
                   {level.requirements}
                 </p>
-                {(isCurrent || isNext) && nextLevelSessions > 0 && (
+                {isCurrent && levelProgress.sessionsNeeded > 0 && (
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span>Progress to next level</span>
@@ -171,7 +199,7 @@ export default function LevelProgressPage() {
                     </div>
                     <Progress value={progress} />
                     <p className="text-xs text-muted-foreground">
-                      {completedSessions} / {nextLevelSessions} sessions
+                      {levelProgress.currentSessions} / {levelProgress.sessionsNeeded} sessions
                     </p>
                   </div>
                 )}

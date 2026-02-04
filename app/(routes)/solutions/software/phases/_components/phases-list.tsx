@@ -6,6 +6,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Select,
   SelectContent,
@@ -27,11 +29,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Search, Filter, MoreHorizontal, Users, Calendar } from 'lucide-react';
+import { Search, Filter, MoreHorizontal, Users, Calendar, GitBranch, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
-
-// TODO: Replace with real hooks after service migration
-// import { usePhases } from '@/hooks/solutions/use-phases';
+import { usePhases, type PhaseFilters, PHASE_STATUSES } from '@/hooks/solutions/use-phases';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
+import type { PhaseStatus } from '@/lib/services/solutions/types';
 
 function formatCurrency(amount: number | null): string {
   if (!amount) return '-';
@@ -60,67 +62,39 @@ const statusConfig: Record<string, { label: string; color: string }> = {
 
 export function PhasesList() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const debouncedSearch = useDebounceValue(searchQuery, 300);
 
-  // Placeholder data
-  const phases = [
-    {
-      id: '1',
-      phase_number: 1,
-      title: 'Core Features',
-      solution: { id: '1', solution_code: 'JKKN-SOL-2026-001', title: 'Student Portal' },
-      status: 'prototype_building',
-      estimated_value: 150000,
-      builder_count: 2,
-      due_date: '2026-03-15',
-    },
-    {
-      id: '2',
-      phase_number: 1,
-      title: 'Authentication Module',
-      solution: { id: '2', solution_code: 'JKKN-SOL-2026-002', title: 'HR System' },
-      status: 'client_demo',
-      estimated_value: 75000,
-      builder_count: 1,
-      due_date: '2026-02-28',
-    },
-    {
-      id: '3',
-      phase_number: 2,
-      title: 'Reporting Dashboard',
-      solution: { id: '1', solution_code: 'JKKN-SOL-2026-001', title: 'Student Portal' },
-      status: 'approved',
-      estimated_value: 100000,
-      builder_count: 3,
-      due_date: '2026-04-30',
-    },
-    {
-      id: '4',
-      phase_number: 1,
-      title: 'MVP Development',
-      solution: { id: '3', solution_code: 'JKKN-SOL-2026-005', title: 'Inventory App' },
-      status: 'prospecting',
-      estimated_value: 200000,
-      builder_count: 0,
-      due_date: null,
-    },
-  ];
+  // Build filters for API call
+  const filters: PhaseFilters = {
+    limit: 50,
+  };
 
-  const filteredPhases = phases.filter((phase) => {
-    if (statusFilter !== 'all' && phase.status !== statusFilter) return false;
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return (
-        phase.title.toLowerCase().includes(query) ||
-        phase.solution.solution_code.toLowerCase().includes(query) ||
-        phase.solution.title.toLowerCase().includes(query)
-      );
-    }
-    return true;
-  });
+  if (statusFilter !== 'all') {
+    filters.status = statusFilter as PhaseStatus;
+  }
+
+  if (debouncedSearch) {
+    filters.search = debouncedSearch;
+  }
+
+  // Fetch phases from database
+  const { data: phasesData, isLoading, error } = usePhases(filters);
+
+  const phases = phasesData?.data || [];
 
   return (
     <div className="space-y-4">
+      {/* Error State */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Failed to load phases. Please try refreshing the page.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Filters */}
       <Card>
         <CardContent className="py-4">
@@ -141,11 +115,14 @@ export function PhasesList() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
-                {Object.entries(statusConfig).map(([value, config]) => (
-                  <SelectItem key={value} value={value}>
-                    {config.label}
-                  </SelectItem>
-                ))}
+                {PHASE_STATUSES.map((status) => {
+                  const config = statusConfig[status.value];
+                  return (
+                    <SelectItem key={status.value} value={status.value}>
+                      {config?.label || status.label}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
@@ -155,97 +132,110 @@ export function PhasesList() {
       {/* Table */}
       <Card>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Phase</TableHead>
-                <TableHead>Solution</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-center">Builders</TableHead>
-                <TableHead className="text-right">Value</TableHead>
-                <TableHead>Due Date</TableHead>
-                <TableHead className="w-[50px]"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredPhases.length === 0 ? (
+          {isLoading ? (
+            <div className="p-4 space-y-4">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <Skeleton key={i} className="h-16 w-full" />
+              ))}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    No phases found
-                  </TableCell>
+                  <TableHead>Phase</TableHead>
+                  <TableHead>Solution</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-center">Builders</TableHead>
+                  <TableHead className="text-right">Value</TableHead>
+                  <TableHead>Due Date</TableHead>
+                  <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
-              ) : (
-                filteredPhases.map((phase) => {
-                  const status = statusConfig[phase.status] || statusConfig.prospecting;
-                  return (
-                    <TableRow key={phase.id}>
-                      <TableCell>
-                        <Link
-                          href={`/solutions/software/phases/${phase.id}`}
-                          className="font-medium hover:underline"
-                        >
-                          Phase {phase.phase_number}: {phase.title}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <div>
+              </TableHeader>
+              <TableBody>
+                {phases.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      <GitBranch className="mx-auto h-10 w-10 text-muted-foreground mb-2" />
+                      <p className="text-muted-foreground">
+                        {searchQuery || statusFilter !== 'all'
+                          ? 'No phases match your filters'
+                          : 'No phases found'}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  phases.map((phase) => {
+                    const status = statusConfig[phase.status] || statusConfig.prospecting;
+                    return (
+                      <TableRow key={phase.id}>
+                        <TableCell>
                           <Link
-                            href={`/solutions/${phase.solution.id}`}
-                            className="text-sm hover:underline"
+                            href={`/solutions/software/phases/${phase.id}`}
+                            className="font-medium hover:underline"
                           >
-                            {phase.solution.solution_code}
+                            Phase {phase.phase_number}: {phase.title}
                           </Link>
-                          <p className="text-xs text-muted-foreground">
-                            {phase.solution.title}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={status.color}>{status.label}</Badge>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <Users className="h-3 w-3" />
-                          {phase.builder_count}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatCurrency(phase.estimated_value)}
-                      </TableCell>
-                      <TableCell>
-                        {phase.due_date ? (
-                          <div className="flex items-center gap-1 text-sm">
-                            <Calendar className="h-3 w-3" />
-                            {format(new Date(phase.due_date), 'dd MMM yyyy')}
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <Link
+                              href={`/solutions/${phase.solution_id}`}
+                              className="text-sm hover:underline"
+                            >
+                              {phase.solution?.solution_code || 'N/A'}
+                            </Link>
+                            <p className="text-xs text-muted-foreground">
+                              {phase.solution?.title || 'Unknown Solution'}
+                            </p>
                           </div>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem asChild>
-                              <Link href={`/solutions/software/phases/${phase.id}`}>
-                                View Details
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>Edit Phase</DropdownMenuItem>
-                            <DropdownMenuItem>Manage Builders</DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={status.color}>{status.label}</Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <Users className="h-3 w-3" />
+                            {phase.builder_count || 0}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(phase.estimated_value)}
+                        </TableCell>
+                        <TableCell>
+                          {phase.target_completion ? (
+                            <div className="flex items-center gap-1 text-sm">
+                              <Calendar className="h-3 w-3" />
+                              {format(new Date(phase.target_completion), 'dd MMM yyyy')}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem asChild>
+                                <Link href={`/solutions/software/phases/${phase.id}`}>
+                                  View Details
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>Edit Phase</DropdownMenuItem>
+                              <DropdownMenuItem>Manage Builders</DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>

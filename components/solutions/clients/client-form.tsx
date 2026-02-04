@@ -22,7 +22,22 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
-import type { SHClient, PartnerStatus, SourceType } from '@/types/solutions'
+import type { PartnerStatus, SourceType } from '@/types/solutions'
+
+// Client data interface - accepts both SHClient and service Client types
+interface ClientData {
+  name?: string
+  industry?: string | null
+  contact_person?: string | null
+  contact_phone?: string | null
+  contact_email?: string | null
+  address?: string | null
+  city?: string | null
+  company_size?: string | null
+  source_type?: SourceType | null
+  source_contact_name?: string | null
+  partner_status?: PartnerStatus
+}
 
 // Form validation schema
 const clientFormSchema = z.object({
@@ -42,7 +57,7 @@ const clientFormSchema = z.object({
 type ClientFormValues = z.infer<typeof clientFormSchema>
 
 interface ClientFormProps {
-  client?: SHClient
+  client?: ClientData
   onSubmit: (data: ClientFormValues) => Promise<void>
   isLoading?: boolean
 }

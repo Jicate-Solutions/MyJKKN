@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,8 +12,14 @@ import {
   ArrowRight,
   CheckCircle,
   Clock,
+  AlertCircle,
 } from 'lucide-react';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import {
+  useCurrentClient,
+  useClientDashboardStats,
+  useClientSolutions,
+  useClientDeliverables,
+} from '@/hooks/solutions';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -24,142 +29,38 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
-interface DashboardStats {
-  totalSolutions: number;
-  activeSolutions: number;
-  pendingDeliverables: number;
-  totalPaid: number;
-  totalOutstanding: number;
-  pendingPayments: number;
-}
-
-interface RecentSolution {
-  id: string;
-  title: string;
-  solution_code: string;
-  solution_type: string;
-  status: string;
-  created_at: string;
-}
-
-interface PendingDeliverable {
-  id: string;
-  title: string;
-  status: string;
-  order?: {
-    solution?: {
-      title: string;
-    };
-  };
-}
-
 export default function ClientDashboardPage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [stats, setStats] = useState<DashboardStats>({
-    totalSolutions: 0,
-    activeSolutions: 0,
-    pendingDeliverables: 0,
-    totalPaid: 0,
-    totalOutstanding: 0,
-    pendingPayments: 0,
-  });
-  const [recentSolutions, setRecentSolutions] = useState<RecentSolution[]>([]);
-  const [pendingDeliverables, setPendingDeliverables] = useState<PendingDeliverable[]>([]);
-  const [userName, setUserName] = useState('Client');
+  const { data: client, isLoading: clientLoading, error: clientError } = useCurrentClient();
+  const clientId = client?.id || '';
 
-  useEffect(() => {
-    async function fetchDashboard() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+  const { data: stats, isLoading: statsLoading } = useClientDashboardStats(clientId);
+  const { data: solutions, isLoading: solutionsLoading } = useClientSolutions(clientId);
+  const { data: deliverables, isLoading: deliverablesLoading } = useClientDeliverables(clientId, 'review');
 
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+  const isLoading = clientLoading || statsLoading || solutionsLoading || deliverablesLoading;
+  const recentSolutions = solutions?.slice(0, 3) || [];
+  const pendingDeliverables = deliverables?.slice(0, 5) || [];
+  const userName = client?.name?.split(' ')[0] || 'Client';
 
-      // Get client info
-      const { data: client } = await (supabase as any).from('sh_clients')
-        .select('id, name')
-        .eq('user_id', user.id)
-        .single();
+  // Error state
+  if (clientError) {
+    return (
+      <div className="flex items-center justify-center h-[50vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Error Loading Dashboard</h2>
+            <p className="text-muted-foreground mb-4">
+              {clientError instanceof Error ? clientError.message : 'Failed to load client data'}
+            </p>
+            <Button onClick={() => window.location.reload()}>Retry</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
-      if (!client) {
-        setIsLoading(false);
-        return;
-      }
-
-      setUserName(client.name.split(' ')[0]);
-
-      // Get solutions for this client
-      const { data: solutions } = await (supabase as any).from('sh_solutions')
-        .select('id, title, solution_code, solution_type, status, created_at')
-        .eq('client_id', client.id)
-        .order('created_at', { ascending: false });
-
-      const solutionsList = solutions || [];
-      setRecentSolutions(solutionsList.slice(0, 3));
-
-      // Get solution IDs for further queries
-      const solutionIds = solutionsList.map(s => s.id);
-
-      // Get deliverables pending review (via content orders)
-      let pendingDeliverablesData: PendingDeliverable[] = [];
-      if (solutionIds.length > 0) {
-        const { data: orders } = await (supabase as any).from('sh_content_orders')
-          .select('id, solution:sh_solutions(title)')
-          .in('solution_id', solutionIds);
-
-        if (orders && orders.length > 0) {
-          const orderIds = orders.map(o => o.id);
-          const { data: deliverables } = await (supabase as any).from('sh_content_deliverables')
-            .select('id, title, status, order_id')
-            .in('order_id', orderIds)
-            .eq('status', 'review')
-            .limit(5);
-
-          pendingDeliverablesData = (deliverables || []).map(d => ({
-            ...d,
-            order: orders.find(o => o.id === d.order_id),
-          }));
-        }
-      }
-      setPendingDeliverables(pendingDeliverablesData);
-
-      // Get payments
-      let totalPaid = 0;
-      let totalOutstanding = 0;
-      let pendingPaymentsCount = 0;
-
-      if (solutionIds.length > 0) {
-        const { data: payments } = await (supabase as any).from('sh_payments')
-          .select('amount, status')
-          .in('solution_id', solutionIds);
-
-        (payments || []).forEach(p => {
-          if (p.status === 'received') {
-            totalPaid += p.amount;
-          } else if (['pending', 'invoiced', 'overdue'].includes(p.status)) {
-            totalOutstanding += p.amount;
-            pendingPaymentsCount++;
-          }
-        });
-      }
-
-      setStats({
-        totalSolutions: solutionsList.length,
-        activeSolutions: solutionsList.filter(s => s.status === 'active').length,
-        pendingDeliverables: pendingDeliverablesData.length,
-        totalPaid,
-        totalOutstanding,
-        pendingPayments: pendingPaymentsCount,
-      });
-
-      setIsLoading(false);
-    }
-
-    fetchDashboard();
-  }, []);
-
+  // Loading state
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -172,6 +73,28 @@ export default function ClientDashboardPage() {
             <Skeleton key={i} className="h-32" />
           ))}
         </div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {[...Array(3)].map((_, i) => (
+            <Skeleton key={i} className="h-48" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // No client found
+  if (!client) {
+    return (
+      <div className="flex items-center justify-center h-[50vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <Briefcase className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+            <h2 className="text-lg font-semibold mb-2">No Client Profile Found</h2>
+            <p className="text-muted-foreground">
+              Your account is not linked to a client profile. Please contact support.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -196,9 +119,9 @@ export default function ClientDashboardPage() {
             <Briefcase className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalSolutions}</div>
+            <div className="text-2xl font-bold">{stats?.totalSolutions || 0}</div>
             <p className="text-xs text-muted-foreground">
-              {stats.activeSolutions} active
+              {stats?.activeSolutions || 0} active
             </p>
           </CardContent>
         </Card>
@@ -209,7 +132,7 @@ export default function ClientDashboardPage() {
             <FileCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.pendingDeliverables}</div>
+            <div className="text-2xl font-bold">{stats?.pendingDeliverables || 0}</div>
             <p className="text-xs text-muted-foreground">Deliverables awaiting your approval</p>
           </CardContent>
         </Card>
@@ -221,7 +144,7 @@ export default function ClientDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-emerald-600">
-              {formatCurrency(stats.totalPaid)}
+              {formatCurrency(stats?.totalPaid || 0)}
             </div>
             <p className="text-xs text-muted-foreground">Across all solutions</p>
           </CardContent>
@@ -234,10 +157,10 @@ export default function ClientDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">
-              {formatCurrency(stats.totalOutstanding)}
+              {formatCurrency(stats?.totalOutstanding || 0)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {stats.pendingPayments} pending invoice{stats.pendingPayments !== 1 ? 's' : ''}
+              {stats?.pendingPayments || 0} pending invoice{(stats?.pendingPayments || 0) !== 1 ? 's' : ''}
             </p>
           </CardContent>
         </Card>
@@ -324,7 +247,7 @@ export default function ClientDashboardPage() {
                   <div>
                     <p className="font-medium">{deliverable.title}</p>
                     <p className="text-sm text-muted-foreground">
-                      {(deliverable.order?.solution as any)?.title || 'Solution'}
+                      {deliverable.order?.solution?.title || 'Solution'}
                     </p>
                   </div>
                   <Link href="/portal/client/deliverables">
