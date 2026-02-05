@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ScrollText, Calendar, DollarSign, Upload, FileText, AlertTriangle } from 'lucide-react';
+import { ScrollText, Calendar, DollarSign, Upload, FileText, AlertTriangle, Loader2 } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -30,6 +30,7 @@ function formatCurrency(amount: number | null): string {
 
 export function MouManagement({ solutionId }: MouManagementProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Placeholder - no MoU exists yet
   const mou = null;
@@ -44,16 +45,21 @@ export function MouManagement({ solutionId }: MouManagementProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement with actual mutation
-    console.log('Creating/updating MoU:', {
-      deal_value: dealValue,
-      amc_value: amcValue,
-      signed_date: signedDate,
-      expiry_date: expiryDate,
-      payment_terms: paymentTerms,
-    });
-    toast.success(mou ? 'MoU updated' : 'MoU created');
-    setIsEditing(false);
+    setIsSubmitting(true);
+    try {
+      // TODO: Implement with actual mutation
+      console.log('Creating/updating MoU:', {
+        deal_value: dealValue,
+        amc_value: amcValue,
+        signed_date: signedDate,
+        expiry_date: expiryDate,
+        payment_terms: paymentTerms,
+      });
+      toast.success(mou ? 'MoU updated' : 'MoU created');
+      setIsEditing(false);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (isLoading) {
@@ -171,11 +177,18 @@ export function MouManagement({ solutionId }: MouManagementProps) {
             </div>
 
             <div className="flex gap-4">
-              <Button type="button" variant="outline" onClick={() => setIsEditing(false)}>
+              <Button type="button" variant="outline" onClick={() => setIsEditing(false)} disabled={isSubmitting}>
                 Cancel
               </Button>
-              <Button type="submit">
-                {mou ? 'Update MoU' : 'Create MoU'}
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    {mou ? 'Updating...' : 'Creating...'}
+                  </>
+                ) : (
+                  mou ? 'Update MoU' : 'Create MoU'
+                )}
               </Button>
             </div>
           </form>

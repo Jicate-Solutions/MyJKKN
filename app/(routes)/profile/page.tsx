@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { BeatLoader } from 'react-spinners';
 import {
   Building2,
   Mail,
@@ -36,6 +35,68 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+import { Skeleton } from '@/components/ui/skeleton';
+
+function ProfilePageSkeleton() {
+  return (
+    <ContentLayout title="Profile">
+      <Skeleton className="h-5 w-32 mb-6" />
+      <Card className="mt-6">
+        <CardHeader>
+          <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
+            <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
+              <Skeleton className="h-24 w-24 rounded-full" />
+              <div className="space-y-2">
+                <Skeleton className="h-7 w-48" />
+                <Skeleton className="h-5 w-24" />
+              </div>
+            </div>
+            <Skeleton className="h-10 w-28" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-6">
+            <div>
+              <Skeleton className="h-6 w-40 mb-4" />
+              <div className="grid gap-4 md:grid-cols-2">
+                <Skeleton className="h-5 w-64" />
+                <Skeleton className="h-5 w-48" />
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <Skeleton className="h-6 w-48 mb-4" />
+              <Skeleton className="h-5 w-72" />
+            </div>
+            <Separator />
+            <div>
+              <Skeleton className="h-6 w-44 mb-4" />
+              <div className="grid gap-4 md:grid-cols-2">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-5 w-48" />
+              </div>
+              <Skeleton className="h-5 w-96 mt-6" />
+            </div>
+            <Separator />
+            <div>
+              <Skeleton className="h-6 w-36 mb-4" />
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Skeleton className="h-5 w-28" />
+                  <Skeleton className="h-4 w-40 ml-6" />
+                </div>
+                <div className="space-y-1">
+                  <Skeleton className="h-5 w-24" />
+                  <Skeleton className="h-4 w-40 ml-6" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </ContentLayout>
+  );
+}
 
 export default function ProfilePage() {
   const { profile, isLoading } = useAuth();
@@ -75,13 +136,7 @@ export default function ProfilePage() {
   }, [profile?.institution_id]);
 
   if (isLoading) {
-    return (
-      <ContentLayout title='Profile'>
-        <div className='flex items-center justify-center min-h-[400px]'>
-          <BeatLoader color='#00e902' />
-        </div>
-      </ContentLayout>
-    );
+    return <ProfilePageSkeleton />;
   }
 
   if (!profile) {

@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { MessageSquare, Send, User, Shield, Bot, Users } from 'lucide-react';
+import { MessageSquare, Send, User, Shield, Bot, Users, Loader2 } from 'lucide-react';
 import { useGrievanceComments, useAddGrievanceComment } from '@/hooks/grievance/use-grievance-comments';
 import type { CommentAuthorType } from '@/types/grievance';
 
@@ -211,8 +211,17 @@ export function CommentThread({
               type="submit"
               disabled={!newComment.trim() || addCommentMutation.isPending}
             >
-              <Send className="h-4 w-4 mr-2" />
-              {addCommentMutation.isPending ? 'Sending...' : 'Send Comment'}
+              {addCommentMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  Send Comment
+                </>
+              )}
             </Button>
           </div>
         </form>
