@@ -25291,6 +25291,15 @@ export type Database = {
         Args: { p_institution_id: string; p_phone: string }
         Returns: Json
       }
+      sh_get_builder_id: { Args: never; Returns: string }
+      sh_has_management_access: { Args: never; Returns: boolean }
+      sh_is_admin: { Args: never; Returns: boolean }
+      sh_is_builder: { Args: never; Returns: boolean }
+      sh_is_hod: { Args: never; Returns: boolean }
+      sh_is_jicate_staff: { Args: never; Returns: boolean }
+      sh_is_staff: { Args: never; Returns: boolean }
+      sh_user_department_id: { Args: never; Returns: string }
+      sh_user_institution_id: { Args: never; Returns: string }
       sync_attendance_with_timetable: {
         Args: {
           p_attendance_date: string
@@ -26580,3 +26589,5 @@ export const Constants = {
     },
   },
 } as const
+A new version of Supabase CLI is available: v2.75.0 (currently installed v2.72.7)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
