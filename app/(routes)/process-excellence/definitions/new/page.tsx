@@ -7,15 +7,30 @@
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useCreateProcessDefinition } from '@/hooks/process-excellence';
 import { ProcessDefinitionForm } from '../../_components/process-definition-form';
+import type { CreateProcessDefinitionInput } from '@/lib/validations/process-excellence';
 
 export default function NewProcessDefinitionPage() {
   const router = useRouter();
   const { selectedInstitutionId } = useUserInstitutionAccess();
+  const createDefinition = useCreateProcessDefinition();
 
-  const handleSuccess = () => {
+  const handleSubmit = async (data: CreateProcessDefinitionInput) => {
+    // Transform form input to DTO format for the service
+    await createDefinition.mutateAsync({
+      institution_id: data.institution_id,
+      name: data.name,
+      category: data.category,
+      description: data.description,
+      stages: data.stages,
+      target_cycle_time_hours: data.target_cycle_time_hours,
+      target_value_add_ratio: data.target_value_add_ratio,
+      sla_hours: data.sla_hours,
+      is_active: data.is_active
+    });
     router.push('/process-excellence/definitions');
   };
 
@@ -52,8 +67,8 @@ export default function NewProcessDefinitionPage() {
 
         <ProcessDefinitionForm
           institutionId={selectedInstitutionId}
-          onSuccess={handleSuccess}
-          onCancel={() => router.back()}
+          onSubmit={handleSubmit}
+          isLoading={createDefinition.isPending}
         />
       </div>
     </ContentLayout>

@@ -69,10 +69,10 @@ export default function ClientInvoicesPage() {
     return paymentsList.filter((payment) => {
       if (activeTab === 'all') return true;
       if (activeTab === 'pending') {
-        return payment.status === 'pending' || payment.status === 'invoiced';
+        return payment.status === 'pending' || payment.status === 'processing';
       }
-      if (activeTab === 'paid') return payment.status === 'received';
-      if (activeTab === 'overdue') return payment.status === 'overdue';
+      if (activeTab === 'paid') return payment.status === 'completed';
+      if (activeTab === 'overdue') return payment.status === 'failed';
       return true;
     });
   }, [paymentsList, activeTab]);
@@ -80,10 +80,10 @@ export default function ClientInvoicesPage() {
   const counts = useMemo(() => ({
     all: paymentsList.length,
     pending: paymentsList.filter(
-      (p) => p.status === 'pending' || p.status === 'invoiced'
+      (p) => p.status === 'pending' || p.status === 'processing'
     ).length,
-    paid: paymentsList.filter((p) => p.status === 'received').length,
-    overdue: paymentsList.filter((p) => p.status === 'overdue').length,
+    paid: paymentsList.filter((p) => p.status === 'completed').length,
+    overdue: paymentsList.filter((p) => p.status === 'failed').length,
   }), [paymentsList]);
 
   // Error state
