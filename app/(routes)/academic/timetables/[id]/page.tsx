@@ -214,6 +214,20 @@ export default function TimetableDetailPage({
     fetchTimetableData
   } = useTimetableDetail(timetableId);
 
+  // FIX: 2026-02-05 - Use refs to prevent stale closure issues when saving configuration
+  // This ensures we always read the current state values, not captured closure values
+  const selectedDaysRef = useRef(selectedDays);
+  const selectedDatesRef = useRef(selectedDates);
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    selectedDaysRef.current = selectedDays;
+  }, [selectedDays]);
+
+  useEffect(() => {
+    selectedDatesRef.current = selectedDates;
+  }, [selectedDates]);
+
   // Period selection and persistence
   const {
     selectedPeriods,
@@ -309,12 +323,22 @@ export default function TimetableDetailPage({
 
   // Wrapper for save periods that includes all parameters
   // Updated: 2025-10-27 - Added modal close after successful save
+  // Updated: 2026-02-05 - Use refs to prevent stale closure issues
   const savePeriodSelections = useCallback(async () => {
     if (!timetable) return;
+
+    // FIX: 2026-02-05 - Read current values from refs to avoid stale closure
+    // This ensures removed date ranges are actually saved to the database
+    console.log('[DEBUG] savePeriodSelections called');
+    console.log('[DEBUG] selectedDates state:', selectedDates);
+    console.log('[DEBUG] selectedDatesRef.current:', selectedDatesRef.current);
+    console.log('[DEBUG] selectedDays state:', selectedDays);
+    console.log('[DEBUG] selectedDaysRef.current:', selectedDaysRef.current);
+
     await savePeriods(
       timetable.id,
-      selectedDays,
-      selectedDates,
+      selectedDaysRef.current,
+      selectedDatesRef.current,
       timetableFormat
     );
     setHasUnsavedChanges(false);
@@ -323,11 +347,11 @@ export default function TimetableDetailPage({
   }, [
     timetable,
     savePeriods,
-    selectedDays,
-    selectedDates,
     timetableFormat,
     fetchTimetableData,
-    periodSelectorDialog
+    periodSelectorDialog,
+    selectedDates,
+    selectedDays
   ]);
 
   // ===================================
@@ -1010,11 +1034,20 @@ export default function TimetableDetailPage({
     ]
   );
 
+  // FIX: 2026-02-05 - Fixed date range removal not persisting to database
+  // Issue: When user removed a date range and clicked save, the range reappeared after page reload
+  // Cause: Stale closure - savePeriodSelections captured old selectedDates value
+  // Solution: Use refs (selectedDatesRef) in savePeriodSelections to always read current state
   const removeDateRange = useCallback(
     (rangeMarker: string) => {
+      console.log('[DEBUG] removeDateRange called with:', rangeMarker);
+      console.log('[DEBUG] Current selectedDates:', selectedDates);
+
       const newSelectedDates = selectedDates.filter(
         (d: string) => d !== rangeMarker
       );
+
+      console.log('[DEBUG] New selectedDates after filter:', newSelectedDates);
       setSelectedDates(newSelectedDates);
 
       const parsed = parseRangeMarker(rangeMarker);

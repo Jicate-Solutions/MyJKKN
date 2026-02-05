@@ -196,6 +196,11 @@ export function useTimetablePeriods(
     try {
       setSavingPeriods(true);
 
+      console.log('[DEBUG HOOK] savePeriodSelections received:');
+      console.log('[DEBUG HOOK] selectedDays:', selectedDays);
+      console.log('[DEBUG HOOK] selectedDates:', selectedDates);
+      console.log('[DEBUG HOOK] timetableFormat:', timetableFormat);
+
       // CRITICAL FIX: 2025-11-17 - Database stores full period objects, not just IDs
       // Format periods as full objects with all required fields
       // Use 'id' (modern format) instead of 'period_id' (legacy format) to avoid conversion
@@ -220,9 +225,12 @@ export function useTimetablePeriods(
       // Add format-specific data
       if (timetableFormat === 'batch') {
         updateData.selected_dates = selectedDates;
+        console.log('[DEBUG HOOK] Setting selected_dates in updateData:', selectedDates);
       } else {
         updateData.selected_days = selectedDays;
       }
+
+      console.log('[DEBUG HOOK] Final updateData:', JSON.stringify(updateData, null, 2));
 
       // Update timetable
       await TimetableService.updateTimetable(timetableId, updateData);
