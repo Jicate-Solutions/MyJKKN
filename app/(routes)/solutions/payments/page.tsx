@@ -31,10 +31,10 @@ function formatCurrency(amount: number): string {
 
 const statusConfig: Record<PaymentStatus, { label: string; color: string; icon: React.ElementType }> = {
   pending: { label: 'Pending', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
-  invoiced: { label: 'Invoiced', color: 'bg-blue-100 text-blue-800', icon: DollarSign },
-  received: { label: 'Received', color: 'bg-green-100 text-green-800', icon: CheckCircle2 },
-  overdue: { label: 'Overdue', color: 'bg-red-100 text-red-800', icon: AlertCircle },
-  failed: { label: 'Failed', color: 'bg-orange-100 text-orange-800', icon: AlertCircle },
+  processing: { label: 'Processing', color: 'bg-blue-100 text-blue-800', icon: DollarSign },
+  completed: { label: 'Completed', color: 'bg-green-100 text-green-800', icon: CheckCircle2 },
+  failed: { label: 'Failed', color: 'bg-red-100 text-red-800', icon: AlertCircle },
+  refunded: { label: 'Refunded', color: 'bg-orange-100 text-orange-800', icon: AlertCircle },
 };
 
 const typeLabels: Record<string, string> = {
@@ -57,7 +57,7 @@ export default function PaymentsPage() {
   // Calculate stats from real data
   const totalReceived = stats?.total_received || 0;
   const totalPending = stats?.total_pending || 0;
-  const totalOverdue = payments.filter(p => p.status === 'overdue').reduce((sum, p) => sum + (p.amount || 0), 0);
+  const totalFailed = payments.filter(p => p.status === 'failed').reduce((sum, p) => sum + (p.amount || 0), 0);
 
   return (
     <ContentLayout title="Payments">
@@ -135,7 +135,7 @@ export default function PaymentsPage() {
                 {isLoading ? (
                   <Skeleton className="h-8 w-24" />
                 ) : (
-                  <p className="text-2xl font-bold text-red-600">{formatCurrency(totalOverdue)}</p>
+                  <p className="text-2xl font-bold text-red-600">{formatCurrency(totalFailed)}</p>
                 )}
                 <p className="text-sm text-muted-foreground">Overdue</p>
               </div>

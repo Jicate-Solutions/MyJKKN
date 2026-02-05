@@ -11,43 +11,47 @@
 -- Store money in paisa (₹1 = 100 paisa) as BIGINT for exact integer arithmetic
 -- Example: 10010 + 20020 = 30030 paisa = ₹300.30 (CORRECT!)
 
--- Step 1: Add new columns with BIGINT type (paisa)
+-- Step 1: Drop views that depend on the columns we're changing
+DROP VIEW IF EXISTS billing_copq_summary CASCADE;
+DROP VIEW IF EXISTS billing_copq_yearly_totals CASCADE;
+DROP FUNCTION IF EXISTS get_billing_copq_dashboard(UUID, INTEGER);
+
+-- Step 2: Add new columns with BIGINT type (paisa)
 ALTER TABLE billing_copq_incidents
   ADD COLUMN visible_cost_paisa BIGINT DEFAULT 0,
   ADD COLUMN hidden_cost_estimate_paisa BIGINT DEFAULT 0;
 
--- Step 2: Migrate existing data (convert rupees to paisa)
+-- Step 3: Migrate existing data (convert rupees to paisa)
 -- ₹100.50 → 10050 paisa
 UPDATE billing_copq_incidents
 SET
   visible_cost_paisa = ROUND(visible_cost * 100)::BIGINT,
   hidden_cost_estimate_paisa = ROUND(hidden_cost_estimate * 100)::BIGINT;
 
--- Step 3: Drop old DECIMAL columns
+-- Step 4: Drop old DECIMAL columns
 ALTER TABLE billing_copq_incidents
   DROP COLUMN visible_cost,
   DROP COLUMN hidden_cost_estimate;
 
--- Step 4: Rename new columns to original names
+-- Step 5: Rename new columns to original names
 ALTER TABLE billing_copq_incidents
   RENAME COLUMN visible_cost_paisa TO visible_cost;
 
 ALTER TABLE billing_copq_incidents
   RENAME COLUMN hidden_cost_estimate_paisa TO hidden_cost_estimate;
 
--- Step 5: Add constraints
+-- Step 6: Add constraints
 ALTER TABLE billing_copq_incidents
   ALTER COLUMN visible_cost SET NOT NULL,
   ALTER COLUMN hidden_cost_estimate SET NOT NULL,
   ADD CONSTRAINT visible_cost_positive CHECK (visible_cost >= 0),
   ADD CONSTRAINT hidden_cost_positive CHECK (hidden_cost_estimate >= 0);
 
--- Step 6: Update comments for clarity
+-- Step 7: Update comments for clarity
 COMMENT ON COLUMN billing_copq_incidents.visible_cost IS 'Visible cost in paisa (₹1 = 100 paisa). Use integer arithmetic to prevent precision loss.';
 COMMENT ON COLUMN billing_copq_incidents.hidden_cost_estimate IS 'Hidden cost in paisa (₹1 = 100 paisa). Use integer arithmetic to prevent precision loss.';
 
--- Step 7: Drop and recreate summary view with paisa calculations
-DROP VIEW IF EXISTS billing_copq_summary CASCADE;
+-- Step 8: Recreate summary view with paisa calculations
 CREATE OR REPLACE VIEW billing_copq_summary AS
 SELECT
   institution_id,
@@ -63,8 +67,7 @@ GROUP BY institution_id, DATE_TRUNC('month', incident_date), category;
 
 COMMENT ON VIEW billing_copq_summary IS 'Monthly aggregated COPQ metrics by category. All cost columns are in paisa.';
 
--- Step 8: Drop and recreate yearly totals view with paisa
-DROP VIEW IF EXISTS billing_copq_yearly_totals CASCADE;
+-- Step 9: Recreate yearly totals view with paisa
 CREATE OR REPLACE VIEW billing_copq_yearly_totals AS
 SELECT
   institution_id,
@@ -82,8 +85,7 @@ GROUP BY institution_id, EXTRACT(YEAR FROM incident_date);
 
 COMMENT ON VIEW billing_copq_yearly_totals IS 'Yearly COPQ totals by institution. All cost columns are in paisa.';
 
--- Step 9: Drop and recreate dashboard function with paisa calculations
-DROP FUNCTION IF EXISTS get_billing_copq_dashboard(UUID, INTEGER);
+-- Step 10: Recreate dashboard function with paisa calculations
 CREATE OR REPLACE FUNCTION get_billing_copq_dashboard(
   p_institution_id UUID,
   p_year INTEGER DEFAULT NULL
@@ -169,7 +171,7 @@ $$;
 
 COMMENT ON FUNCTION get_billing_copq_dashboard IS 'Returns COPQ dashboard metrics. All cost values are in paisa (₹1 = 100 paisa).';
 
--- Step 10: Re-grant permissions
+-- Step 11: Re-grant permissions
 GRANT SELECT ON billing_copq_summary TO authenticated;
 GRANT SELECT ON billing_copq_yearly_totals TO authenticated;
 GRANT EXECUTE ON FUNCTION get_billing_copq_dashboard TO authenticated;

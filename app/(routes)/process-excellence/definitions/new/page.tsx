@@ -20,12 +20,21 @@ export default function NewProcessDefinitionPage() {
 
   const handleSubmit = async (data: CreateProcessDefinitionInput) => {
     // Transform form input to DTO format for the service
+    // Ensure stages have all required fields
+    const validatedStages = data.stages.map((stage) => ({
+      name: stage.name || '',
+      expected_duration_hours: stage.expected_duration_hours || 0,
+      is_value_add: stage.is_value_add || false,
+      description: stage.description,
+      order: stage.order
+    }));
+
     await createDefinition.mutateAsync({
       institution_id: data.institution_id,
       name: data.name,
       category: data.category,
       description: data.description,
-      stages: data.stages,
+      stages: validatedStages,
       target_cycle_time_hours: data.target_cycle_time_hours,
       target_value_add_ratio: data.target_value_add_ratio,
       sla_hours: data.sla_hours,

@@ -62,6 +62,66 @@ export type Database = {
           },
         ]
       }
+      admission_ai_insights: {
+        Row: {
+          actions: Json
+          created_at: string
+          data: Json
+          description: string
+          expires_at: string | null
+          id: string
+          insight_type: string
+          institution_id: string
+          is_dismissed: boolean
+          is_read: boolean
+          severity: string
+          title: string
+        }
+        Insert: {
+          actions?: Json
+          created_at?: string
+          data?: Json
+          description: string
+          expires_at?: string | null
+          id?: string
+          insight_type: string
+          institution_id: string
+          is_dismissed?: boolean
+          is_read?: boolean
+          severity?: string
+          title: string
+        }
+        Update: {
+          actions?: Json
+          created_at?: string
+          data?: Json
+          description?: string
+          expires_at?: string | null
+          id?: string
+          insight_type?: string
+          institution_id?: string
+          is_dismissed?: boolean
+          is_read?: boolean
+          severity?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_ai_insights_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_ai_insights_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       admission_applications: {
         Row: {
           academic_year: string
@@ -213,16 +273,851 @@ export type Database = {
           },
         ]
       }
+      admission_assignment_rules: {
+        Row: {
+          action: Json
+          created_at: string
+          criteria: Json
+          description: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          name: string
+          priority: number
+          updated_at: string
+        }
+        Insert: {
+          action?: Json
+          created_at?: string
+          criteria?: Json
+          description?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          name: string
+          priority?: number
+          updated_at?: string
+        }
+        Update: {
+          action?: Json
+          created_at?: string
+          criteria?: Json
+          description?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          name?: string
+          priority?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_assignment_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_assignment_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      admission_campaign_logs: {
+        Row: {
+          action: string
+          completed_at: string | null
+          created_at: string | null
+          created_by: string | null
+          duration_ms: number | null
+          id: string
+          institution_id: string
+          lead_id: string | null
+          log_type: string
+          queue_id: string | null
+          request_data: Json | null
+          response_data: Json | null
+          started_at: string | null
+          step_type: Database["public"]["Enums"]["campaign_step_type"] | null
+          workflow_id: string | null
+        }
+        Insert: {
+          action: string
+          completed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          duration_ms?: number | null
+          id?: string
+          institution_id: string
+          lead_id?: string | null
+          log_type: string
+          queue_id?: string | null
+          request_data?: Json | null
+          response_data?: Json | null
+          started_at?: string | null
+          step_type?: Database["public"]["Enums"]["campaign_step_type"] | null
+          workflow_id?: string | null
+        }
+        Update: {
+          action?: string
+          completed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          duration_ms?: number | null
+          id?: string
+          institution_id?: string
+          lead_id?: string | null
+          log_type?: string
+          queue_id?: string | null
+          request_data?: Json | null
+          response_data?: Json | null
+          started_at?: string | null
+          step_type?: Database["public"]["Enums"]["campaign_step_type"] | null
+          workflow_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_campaign_logs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_logs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_logs_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_logs_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_logs_queue_id_fkey"
+            columns: ["queue_id"]
+            isOneToOne: false
+            referencedRelation: "admission_campaign_queue"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_logs_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "admission_workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admission_campaign_queue: {
+        Row: {
+          application_id: string | null
+          attempts: number | null
+          completed_at: string | null
+          created_at: string | null
+          error_details: Json | null
+          error_message: string | null
+          execute_after: string | null
+          execution_id: string | null
+          id: string
+          institution_id: string
+          last_attempt_at: string | null
+          lead_id: string | null
+          max_attempts: number | null
+          parent_queue_id: string | null
+          priority: number | null
+          scheduled_at: string
+          status: Database["public"]["Enums"]["campaign_step_status"]
+          step_config: Json
+          step_order: number | null
+          step_type: Database["public"]["Enums"]["campaign_step_type"]
+          updated_at: string | null
+          workflow_id: string | null
+        }
+        Insert: {
+          application_id?: string | null
+          attempts?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          error_details?: Json | null
+          error_message?: string | null
+          execute_after?: string | null
+          execution_id?: string | null
+          id?: string
+          institution_id: string
+          last_attempt_at?: string | null
+          lead_id?: string | null
+          max_attempts?: number | null
+          parent_queue_id?: string | null
+          priority?: number | null
+          scheduled_at?: string
+          status?: Database["public"]["Enums"]["campaign_step_status"]
+          step_config?: Json
+          step_order?: number | null
+          step_type: Database["public"]["Enums"]["campaign_step_type"]
+          updated_at?: string | null
+          workflow_id?: string | null
+        }
+        Update: {
+          application_id?: string | null
+          attempts?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          error_details?: Json | null
+          error_message?: string | null
+          execute_after?: string | null
+          execution_id?: string | null
+          id?: string
+          institution_id?: string
+          last_attempt_at?: string | null
+          lead_id?: string | null
+          max_attempts?: number | null
+          parent_queue_id?: string | null
+          priority?: number | null
+          scheduled_at?: string
+          status?: Database["public"]["Enums"]["campaign_step_status"]
+          step_config?: Json
+          step_order?: number | null
+          step_type?: Database["public"]["Enums"]["campaign_step_type"]
+          updated_at?: string | null
+          workflow_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_campaign_queue_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "admission_applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_queue_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "v_application_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_queue_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_queue_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_queue_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_queue_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_queue_parent_queue_id_fkey"
+            columns: ["parent_queue_id"]
+            isOneToOne: false
+            referencedRelation: "admission_campaign_queue"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_campaign_queue_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "admission_workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admission_communication_templates: {
+        Row: {
+          category: string
+          channel: string
+          content: string
+          created_at: string
+          description: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          name: string
+          subject: string | null
+          updated_at: string
+          variables: Json
+        }
+        Insert: {
+          category?: string
+          channel?: string
+          content: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          name: string
+          subject?: string | null
+          updated_at?: string
+          variables?: Json
+        }
+        Update: {
+          category?: string
+          channel?: string
+          content?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          name?: string
+          subject?: string | null
+          updated_at?: string
+          variables?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_communication_templates_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_communication_templates_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      admission_counselors: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          id: string
+          institution_id: string | null
+          name: string
+        }
+        Insert: {
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          institution_id?: string | null
+          name: string
+        }
+        Update: {
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          institution_id?: string | null
+          name?: string
+        }
+        Relationships: []
+      }
+      admission_daily_briefings: {
+        Row: {
+          briefing_date: string
+          content: Json
+          created_at: string
+          id: string
+          institution_id: string
+          is_read: boolean
+          read_at: string | null
+          role: string
+          updated_at: string
+          user_id: string
+          user_tier: string
+        }
+        Insert: {
+          briefing_date: string
+          content?: Json
+          created_at?: string
+          id?: string
+          institution_id: string
+          is_read?: boolean
+          read_at?: string | null
+          role?: string
+          updated_at?: string
+          user_id: string
+          user_tier?: string
+        }
+        Update: {
+          briefing_date?: string
+          content?: Json
+          created_at?: string
+          id?: string
+          institution_id?: string
+          is_read?: boolean
+          read_at?: string | null
+          role?: string
+          updated_at?: string
+          user_id?: string
+          user_tier?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_daily_briefings_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_daily_briefings_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_daily_briefings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_daily_briefings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admission_drip_execution_logs: {
+        Row: {
+          created_at: string | null
+          event_data: Json | null
+          event_type: string
+          id: string
+          schedule_id: string | null
+          sequence_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          event_data?: Json | null
+          event_type: string
+          id?: string
+          schedule_id?: string | null
+          sequence_id: string
+        }
+        Update: {
+          created_at?: string | null
+          event_data?: Json | null
+          event_type?: string
+          id?: string
+          schedule_id?: string | null
+          sequence_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_drip_execution_logs_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "admission_drip_schedule"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_drip_execution_logs_sequence_id_fkey"
+            columns: ["sequence_id"]
+            isOneToOne: false
+            referencedRelation: "admission_drip_sequences"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admission_drip_schedule: {
+        Row: {
+          action_config: Json
+          action_id: string
+          action_type: string
+          conditions: Json | null
+          created_at: string | null
+          delay_days: number | null
+          delay_hours: number | null
+          error_message: string | null
+          executed_at: string | null
+          execution_result: Json | null
+          id: string
+          last_retry_at: string | null
+          retry_count: number | null
+          scheduled_at: string
+          sequence_id: string
+          skip_reason: string | null
+          skipped_at: string | null
+          skipped_by: string | null
+          status: Database["public"]["Enums"]["drip_step_status"]
+          step_index: number
+          updated_at: string | null
+        }
+        Insert: {
+          action_config?: Json
+          action_id: string
+          action_type: string
+          conditions?: Json | null
+          created_at?: string | null
+          delay_days?: number | null
+          delay_hours?: number | null
+          error_message?: string | null
+          executed_at?: string | null
+          execution_result?: Json | null
+          id?: string
+          last_retry_at?: string | null
+          retry_count?: number | null
+          scheduled_at: string
+          sequence_id: string
+          skip_reason?: string | null
+          skipped_at?: string | null
+          skipped_by?: string | null
+          status?: Database["public"]["Enums"]["drip_step_status"]
+          step_index: number
+          updated_at?: string | null
+        }
+        Update: {
+          action_config?: Json
+          action_id?: string
+          action_type?: string
+          conditions?: Json | null
+          created_at?: string | null
+          delay_days?: number | null
+          delay_hours?: number | null
+          error_message?: string | null
+          executed_at?: string | null
+          execution_result?: Json | null
+          id?: string
+          last_retry_at?: string | null
+          retry_count?: number | null
+          scheduled_at?: string
+          sequence_id?: string
+          skip_reason?: string | null
+          skipped_at?: string | null
+          skipped_by?: string | null
+          status?: Database["public"]["Enums"]["drip_step_status"]
+          step_index?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_drip_schedule_sequence_id_fkey"
+            columns: ["sequence_id"]
+            isOneToOne: false
+            referencedRelation: "admission_drip_sequences"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admission_drip_sequences: {
+        Row: {
+          completed_at: string | null
+          context_data: Json | null
+          created_at: string | null
+          created_by: string | null
+          current_step_index: number
+          error_message: string | null
+          id: string
+          institution_id: string
+          lead_id: string
+          max_retries: number | null
+          paused_at: string | null
+          resumed_at: string | null
+          retry_count: number | null
+          started_at: string
+          status: Database["public"]["Enums"]["drip_sequence_status"]
+          total_steps: number
+          updated_at: string | null
+          workflow_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          context_data?: Json | null
+          created_at?: string | null
+          created_by?: string | null
+          current_step_index?: number
+          error_message?: string | null
+          id?: string
+          institution_id: string
+          lead_id: string
+          max_retries?: number | null
+          paused_at?: string | null
+          resumed_at?: string | null
+          retry_count?: number | null
+          started_at?: string
+          status?: Database["public"]["Enums"]["drip_sequence_status"]
+          total_steps: number
+          updated_at?: string | null
+          workflow_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          context_data?: Json | null
+          created_at?: string | null
+          created_by?: string | null
+          current_step_index?: number
+          error_message?: string | null
+          id?: string
+          institution_id?: string
+          lead_id?: string
+          max_retries?: number | null
+          paused_at?: string | null
+          resumed_at?: string | null
+          retry_count?: number | null
+          started_at?: string
+          status?: Database["public"]["Enums"]["drip_sequence_status"]
+          total_steps?: number
+          updated_at?: string | null
+          workflow_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_drip_sequences_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_drip_sequences_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_drip_sequences_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_drip_sequences_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+          {
+            foreignKeyName: "admission_drip_sequences_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "admission_workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admission_lead_activities: {
+        Row: {
+          activity_type: string
+          created_at: string
+          description: string | null
+          id: string
+          institution_id: string
+          lead_id: string
+          metadata: Json
+          performed_by: string | null
+          title: string
+        }
+        Insert: {
+          activity_type: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          institution_id: string
+          lead_id: string
+          metadata?: Json
+          performed_by?: string | null
+          title: string
+        }
+        Update: {
+          activity_type?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          institution_id?: string
+          lead_id?: string
+          metadata?: Json
+          performed_by?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_lead_activities_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_lead_activities_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_lead_activities_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_lead_activities_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+          {
+            foreignKeyName: "admission_lead_activities_performed_by_fkey"
+            columns: ["performed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_lead_activities_performed_by_fkey"
+            columns: ["performed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admission_lead_scores: {
+        Row: {
+          calculated_at: string
+          created_at: string
+          engagement_score: number
+          expires_at: string | null
+          factors: Json
+          id: string
+          institution_id: string
+          lead_id: string
+          quality_score: number
+          recommended_action: string | null
+          score_breakdown: Json
+          score_category: string
+          score_factors: Json
+          scoring_rule_id: string | null
+          total_score: number
+          updated_at: string
+        }
+        Insert: {
+          calculated_at?: string
+          created_at?: string
+          engagement_score?: number
+          expires_at?: string | null
+          factors?: Json
+          id?: string
+          institution_id: string
+          lead_id: string
+          quality_score?: number
+          recommended_action?: string | null
+          score_breakdown?: Json
+          score_category?: string
+          score_factors?: Json
+          scoring_rule_id?: string | null
+          total_score?: number
+          updated_at?: string
+        }
+        Update: {
+          calculated_at?: string
+          created_at?: string
+          engagement_score?: number
+          expires_at?: string | null
+          factors?: Json
+          id?: string
+          institution_id?: string
+          lead_id?: string
+          quality_score?: number
+          recommended_action?: string | null
+          score_breakdown?: Json
+          score_category?: string
+          score_factors?: Json
+          scoring_rule_id?: string | null
+          total_score?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_lead_scores_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_lead_scores_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_lead_scores_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: true
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_lead_scores_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: true
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+          {
+            foreignKeyName: "admission_lead_scores_scoring_rule_id_fkey"
+            columns: ["scoring_rule_id"]
+            isOneToOne: false
+            referencedRelation: "admission_scoring_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admission_leads: {
         Row: {
           assigned_at: string | null
           assigned_counselor_id: string | null
           combined_score: number | null
           conversion_probability: number | null
+          counselor_id: string | null
           created_at: string | null
           created_by: string | null
           dormant_at: string | null
+          email: string | null
           engagement_score: number | null
+          full_name: string | null
+          funnel_stage: string | null
           id: string
           institution_id: string
           interested_programs: string[] | null
@@ -234,7 +1129,7 @@ export type Database = {
           last_activity_at: string | null
           last_contact_at: string | null
           last_message_at: string | null
-          learner_profile_id: string
+          learner_profile_id: string | null
           lost_at: string | null
           lost_reason: string | null
           messages_this_week: number | null
@@ -245,6 +1140,7 @@ export type Database = {
           parent_name: string | null
           parent_opted_in: boolean | null
           parent_phone: string | null
+          phone: string | null
           preferred_campus: string | null
           preferred_channel:
             | Database["public"]["Enums"]["communication_channel_type"]
@@ -253,7 +1149,11 @@ export type Database = {
             | Database["public"]["Enums"]["admission_lead_stage"]
             | null
           quality_score: number | null
+          score: number | null
           score_breakdown: Json | null
+          score_category: string | null
+          score_updated_at: string | null
+          source: string | null
           stage: Database["public"]["Enums"]["admission_lead_stage"] | null
           stage_changed_at: string | null
           tags: string[] | null
@@ -265,10 +1165,14 @@ export type Database = {
           assigned_counselor_id?: string | null
           combined_score?: number | null
           conversion_probability?: number | null
+          counselor_id?: string | null
           created_at?: string | null
           created_by?: string | null
           dormant_at?: string | null
+          email?: string | null
           engagement_score?: number | null
+          full_name?: string | null
+          funnel_stage?: string | null
           id?: string
           institution_id: string
           interested_programs?: string[] | null
@@ -280,7 +1184,7 @@ export type Database = {
           last_activity_at?: string | null
           last_contact_at?: string | null
           last_message_at?: string | null
-          learner_profile_id: string
+          learner_profile_id?: string | null
           lost_at?: string | null
           lost_reason?: string | null
           messages_this_week?: number | null
@@ -291,6 +1195,7 @@ export type Database = {
           parent_name?: string | null
           parent_opted_in?: boolean | null
           parent_phone?: string | null
+          phone?: string | null
           preferred_campus?: string | null
           preferred_channel?:
             | Database["public"]["Enums"]["communication_channel_type"]
@@ -299,7 +1204,11 @@ export type Database = {
             | Database["public"]["Enums"]["admission_lead_stage"]
             | null
           quality_score?: number | null
+          score?: number | null
           score_breakdown?: Json | null
+          score_category?: string | null
+          score_updated_at?: string | null
+          source?: string | null
           stage?: Database["public"]["Enums"]["admission_lead_stage"] | null
           stage_changed_at?: string | null
           tags?: string[] | null
@@ -311,10 +1220,14 @@ export type Database = {
           assigned_counselor_id?: string | null
           combined_score?: number | null
           conversion_probability?: number | null
+          counselor_id?: string | null
           created_at?: string | null
           created_by?: string | null
           dormant_at?: string | null
+          email?: string | null
           engagement_score?: number | null
+          full_name?: string | null
+          funnel_stage?: string | null
           id?: string
           institution_id?: string
           interested_programs?: string[] | null
@@ -326,7 +1239,7 @@ export type Database = {
           last_activity_at?: string | null
           last_contact_at?: string | null
           last_message_at?: string | null
-          learner_profile_id?: string
+          learner_profile_id?: string | null
           lost_at?: string | null
           lost_reason?: string | null
           messages_this_week?: number | null
@@ -337,6 +1250,7 @@ export type Database = {
           parent_name?: string | null
           parent_opted_in?: boolean | null
           parent_phone?: string | null
+          phone?: string | null
           preferred_campus?: string | null
           preferred_channel?:
             | Database["public"]["Enums"]["communication_channel_type"]
@@ -345,7 +1259,11 @@ export type Database = {
             | Database["public"]["Enums"]["admission_lead_stage"]
             | null
           quality_score?: number | null
+          score?: number | null
           score_breakdown?: Json | null
+          score_category?: string | null
+          score_updated_at?: string | null
+          source?: string | null
           stage?: Database["public"]["Enums"]["admission_lead_stage"] | null
           stage_changed_at?: string | null
           tags?: string[] | null
@@ -415,6 +1333,13 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "v_pending_escalations"
             referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "fk_admission_leads_counselor"
+            columns: ["counselor_id"]
+            isOneToOne: false
+            referencedRelation: "admission_counselors"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -537,6 +1462,151 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      admission_scoring_rules: {
+        Row: {
+          category: string
+          created_at: string
+          description: string | null
+          field: string
+          id: string
+          institution_id: string
+          is_active: boolean
+          name: string
+          operator: string
+          points: number
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          description?: string | null
+          field: string
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          name: string
+          operator?: string
+          points?: number
+          updated_at?: string
+          value?: Json
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string | null
+          field?: string
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          name?: string
+          operator?: string
+          points?: number
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_scoring_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_scoring_rules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      admission_sms_logs: {
+        Row: {
+          cost: number | null
+          created_at: string
+          delivered_at: string | null
+          dlt_entity_id: string | null
+          dlt_template_id: string | null
+          error_message: string | null
+          id: string
+          institution_id: string
+          lead_id: string
+          message_content: string
+          phone_number: string
+          provider: Database["public"]["Enums"]["sms_provider"]
+          provider_message_id: string | null
+          segments: number
+          sent_at: string | null
+          status: Database["public"]["Enums"]["sms_delivery_status"]
+          template_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          cost?: number | null
+          created_at?: string
+          delivered_at?: string | null
+          dlt_entity_id?: string | null
+          dlt_template_id?: string | null
+          error_message?: string | null
+          id?: string
+          institution_id: string
+          lead_id: string
+          message_content: string
+          phone_number: string
+          provider?: Database["public"]["Enums"]["sms_provider"]
+          provider_message_id?: string | null
+          segments?: number
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["sms_delivery_status"]
+          template_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cost?: number | null
+          created_at?: string
+          delivered_at?: string | null
+          dlt_entity_id?: string | null
+          dlt_template_id?: string | null
+          error_message?: string | null
+          id?: string
+          institution_id?: string
+          lead_id?: string
+          message_content?: string
+          phone_number?: string
+          provider?: Database["public"]["Enums"]["sms_provider"]
+          provider_message_id?: string | null
+          segments?: number
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["sms_delivery_status"]
+          template_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_sms_logs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_sms_logs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_sms_logs_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "admission_communication_templates"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -677,6 +1747,159 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_stuck_leads"
             referencedColumns: ["lead_id"]
+          },
+        ]
+      }
+      admission_whatsapp_logs: {
+        Row: {
+          campaign_id: string | null
+          created_at: string | null
+          delivered_at: string | null
+          delivery_status: Database["public"]["Enums"]["whatsapp_delivery_status"]
+          error_message: string | null
+          failed_at: string | null
+          id: string
+          institution_id: string
+          lead_id: string
+          message_content: string
+          metadata: Json | null
+          read_at: string | null
+          recipient_phone: string
+          sent_at: string | null
+          template_id: string | null
+          updated_at: string | null
+          whatsapp_message_id: string | null
+          workflow_execution_id: string | null
+        }
+        Insert: {
+          campaign_id?: string | null
+          created_at?: string | null
+          delivered_at?: string | null
+          delivery_status?: Database["public"]["Enums"]["whatsapp_delivery_status"]
+          error_message?: string | null
+          failed_at?: string | null
+          id?: string
+          institution_id: string
+          lead_id: string
+          message_content: string
+          metadata?: Json | null
+          read_at?: string | null
+          recipient_phone: string
+          sent_at?: string | null
+          template_id?: string | null
+          updated_at?: string | null
+          whatsapp_message_id?: string | null
+          workflow_execution_id?: string | null
+        }
+        Update: {
+          campaign_id?: string | null
+          created_at?: string | null
+          delivered_at?: string | null
+          delivery_status?: Database["public"]["Enums"]["whatsapp_delivery_status"]
+          error_message?: string | null
+          failed_at?: string | null
+          id?: string
+          institution_id?: string
+          lead_id?: string
+          message_content?: string
+          metadata?: Json | null
+          read_at?: string | null
+          recipient_phone?: string
+          sent_at?: string | null
+          template_id?: string | null
+          updated_at?: string | null
+          whatsapp_message_id?: string | null
+          workflow_execution_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_whatsapp_logs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_whatsapp_logs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "admission_whatsapp_logs_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_whatsapp_logs_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+          {
+            foreignKeyName: "admission_whatsapp_logs_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "admission_communication_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admission_workflows: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          name: string
+          steps: Json
+          trigger_conditions: Json
+          trigger_type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          name: string
+          steps?: Json
+          trigger_conditions?: Json
+          trigger_type?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          name?: string
+          steps?: Json
+          trigger_conditions?: Json
+          trigger_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_workflows_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_workflows_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
           },
         ]
       }
@@ -1207,7 +2430,7 @@ export type Database = {
           category: string
           created_at: string | null
           description: string
-          hidden_cost_estimate: number | null
+          hidden_cost_estimate: number
           id: string
           incident_date: string
           institution_id: string
@@ -1219,7 +2442,7 @@ export type Database = {
           status: string | null
           time_spent_hours: number | null
           updated_at: string | null
-          visible_cost: number | null
+          visible_cost: number
         }
         Insert: {
           affected_stakeholders?: number | null
@@ -1227,7 +2450,7 @@ export type Database = {
           category: string
           created_at?: string | null
           description: string
-          hidden_cost_estimate?: number | null
+          hidden_cost_estimate?: number
           id?: string
           incident_date?: string
           institution_id: string
@@ -1239,7 +2462,7 @@ export type Database = {
           status?: string | null
           time_spent_hours?: number | null
           updated_at?: string | null
-          visible_cost?: number | null
+          visible_cost?: number
         }
         Update: {
           affected_stakeholders?: number | null
@@ -1247,7 +2470,7 @@ export type Database = {
           category?: string
           created_at?: string | null
           description?: string
-          hidden_cost_estimate?: number | null
+          hidden_cost_estimate?: number
           id?: string
           incident_date?: string
           institution_id?: string
@@ -1259,7 +2482,7 @@ export type Database = {
           status?: string | null
           time_spent_hours?: number | null
           updated_at?: string | null
-          visible_cost?: number | null
+          visible_cost?: number
         }
         Relationships: [
           {
@@ -11725,6 +12948,56 @@ export type Database = {
           },
         ]
       }
+      parent_sessions: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          ip_address: string | null
+          last_activity_at: string
+          parent_id: string
+          revoked: boolean | null
+          revoked_at: string | null
+          revoked_reason: string | null
+          session_token: string
+          user_agent: string | null
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          ip_address?: string | null
+          last_activity_at?: string
+          parent_id: string
+          revoked?: boolean | null
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          session_token: string
+          user_agent?: string | null
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          ip_address?: string | null
+          last_activity_at?: string
+          parent_id?: string
+          revoked?: boolean | null
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          session_token?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parent_sessions_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "parent_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_transaction_items: {
         Row: {
           amount: number
@@ -14549,6 +15822,3414 @@ export type Database = {
           },
         ]
       }
+      sh_accreditation_metrics: {
+        Row: {
+          calculation_method: string | null
+          category: string | null
+          created_at: string
+          data_sources: string[] | null
+          id: string
+          is_active: boolean | null
+          max_score: number | null
+          metric_code: string
+          metric_name: string
+          metric_type: string
+          notes: string | null
+          valid_from: string | null
+          valid_to: string | null
+          verification_requirements: string | null
+          weightage: number | null
+        }
+        Insert: {
+          calculation_method?: string | null
+          category?: string | null
+          created_at?: string
+          data_sources?: string[] | null
+          id?: string
+          is_active?: boolean | null
+          max_score?: number | null
+          metric_code: string
+          metric_name: string
+          metric_type: string
+          notes?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+          verification_requirements?: string | null
+          weightage?: number | null
+        }
+        Update: {
+          calculation_method?: string | null
+          category?: string | null
+          created_at?: string
+          data_sources?: string[] | null
+          id?: string
+          is_active?: boolean | null
+          max_score?: number | null
+          metric_code?: string
+          metric_name?: string
+          metric_type?: string
+          notes?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+          verification_requirements?: string | null
+          weightage?: number | null
+        }
+        Relationships: []
+      }
+      sh_audit_logs: {
+        Row: {
+          action: string
+          changed_fields: string[] | null
+          created_at: string
+          details: Json | null
+          entity_code: string | null
+          entity_id: string | null
+          entity_type: string
+          id: string
+          ip_address: unknown
+          new_values: Json | null
+          old_values: Json | null
+          request_id: string | null
+          session_id: string | null
+          user_agent: string | null
+          user_email: string | null
+          user_id: string | null
+          user_role: string | null
+        }
+        Insert: {
+          action: string
+          changed_fields?: string[] | null
+          created_at?: string
+          details?: Json | null
+          entity_code?: string | null
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          ip_address?: unknown
+          new_values?: Json | null
+          old_values?: Json | null
+          request_id?: string | null
+          session_id?: string | null
+          user_agent?: string | null
+          user_email?: string | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Update: {
+          action?: string
+          changed_fields?: string[] | null
+          created_at?: string
+          details?: Json | null
+          entity_code?: string | null
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          ip_address?: unknown
+          new_values?: Json | null
+          old_values?: Json | null
+          request_id?: string | null
+          session_id?: string | null
+          user_agent?: string | null
+          user_email?: string | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_audit_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_audit_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_bug_reports: {
+        Row: {
+          actual_behavior: string | null
+          assigned_to: string | null
+          browser: string | null
+          bug_code: string | null
+          closed_at: string | null
+          created_at: string
+          description: string | null
+          device: string | null
+          expected_behavior: string | null
+          id: string
+          iteration_id: string
+          phase_id: string | null
+          reported_by: string | null
+          reporter_type: string | null
+          resolution_notes: string | null
+          resolved_at: string | null
+          screenshot_urls: string[] | null
+          severity: Database["public"]["Enums"]["sh_bug_severity"]
+          status: Database["public"]["Enums"]["sh_bug_status"]
+          steps_to_reproduce: string | null
+          title: string
+          video_url: string | null
+        }
+        Insert: {
+          actual_behavior?: string | null
+          assigned_to?: string | null
+          browser?: string | null
+          bug_code?: string | null
+          closed_at?: string | null
+          created_at?: string
+          description?: string | null
+          device?: string | null
+          expected_behavior?: string | null
+          id?: string
+          iteration_id: string
+          phase_id?: string | null
+          reported_by?: string | null
+          reporter_type?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          screenshot_urls?: string[] | null
+          severity?: Database["public"]["Enums"]["sh_bug_severity"]
+          status?: Database["public"]["Enums"]["sh_bug_status"]
+          steps_to_reproduce?: string | null
+          title: string
+          video_url?: string | null
+        }
+        Update: {
+          actual_behavior?: string | null
+          assigned_to?: string | null
+          browser?: string | null
+          bug_code?: string | null
+          closed_at?: string | null
+          created_at?: string
+          description?: string | null
+          device?: string | null
+          expected_behavior?: string | null
+          id?: string
+          iteration_id?: string
+          phase_id?: string | null
+          reported_by?: string | null
+          reporter_type?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          screenshot_urls?: string[] | null
+          severity?: Database["public"]["Enums"]["sh_bug_severity"]
+          status?: Database["public"]["Enums"]["sh_bug_status"]
+          steps_to_reproduce?: string | null
+          title?: string
+          video_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_bug_reports_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "sh_builders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_bug_reports_iteration_id_fkey"
+            columns: ["iteration_id"]
+            isOneToOne: false
+            referencedRelation: "sh_prototype_iterations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_bug_reports_phase_id_fkey"
+            columns: ["phase_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_phases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_bug_reports_reported_by_fkey"
+            columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_bug_reports_reported_by_fkey"
+            columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_builder_assignments: {
+        Row: {
+          actual_hours: number | null
+          approved_at: string | null
+          approved_by: string | null
+          builder_id: string
+          completed_at: string | null
+          created_at: string
+          estimated_hours: number | null
+          feedback: string | null
+          hourly_rate: number | null
+          id: string
+          notes: string | null
+          phase_id: string
+          rating: number | null
+          requested_at: string | null
+          role: string
+          started_at: string | null
+          status: Database["public"]["Enums"]["sh_assignment_status"]
+          total_earnings: number | null
+        }
+        Insert: {
+          actual_hours?: number | null
+          approved_at?: string | null
+          approved_by?: string | null
+          builder_id: string
+          completed_at?: string | null
+          created_at?: string
+          estimated_hours?: number | null
+          feedback?: string | null
+          hourly_rate?: number | null
+          id?: string
+          notes?: string | null
+          phase_id: string
+          rating?: number | null
+          requested_at?: string | null
+          role?: string
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["sh_assignment_status"]
+          total_earnings?: number | null
+        }
+        Update: {
+          actual_hours?: number | null
+          approved_at?: string | null
+          approved_by?: string | null
+          builder_id?: string
+          completed_at?: string | null
+          created_at?: string
+          estimated_hours?: number | null
+          feedback?: string | null
+          hourly_rate?: number | null
+          id?: string
+          notes?: string | null
+          phase_id?: string
+          rating?: number | null
+          requested_at?: string | null
+          role?: string
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["sh_assignment_status"]
+          total_earnings?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_builder_assignments_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_builder_assignments_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_builder_assignments_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "sh_builders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_builder_assignments_phase_id_fkey"
+            columns: ["phase_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_phases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_builder_skills: {
+        Row: {
+          assessed_by: string | null
+          assessed_date: string | null
+          builder_id: string
+          certifications: string[] | null
+          created_at: string
+          id: string
+          notes: string | null
+          proficiency_level: number | null
+          skill_category: string | null
+          skill_name: string
+          years_experience: number | null
+        }
+        Insert: {
+          assessed_by?: string | null
+          assessed_date?: string | null
+          builder_id: string
+          certifications?: string[] | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          proficiency_level?: number | null
+          skill_category?: string | null
+          skill_name: string
+          years_experience?: number | null
+        }
+        Update: {
+          assessed_by?: string | null
+          assessed_date?: string | null
+          builder_id?: string
+          certifications?: string[] | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          proficiency_level?: number | null
+          skill_category?: string | null
+          skill_name?: string
+          years_experience?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_builder_skills_assessed_by_fkey"
+            columns: ["assessed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_builder_skills_assessed_by_fkey"
+            columns: ["assessed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_builder_skills_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "sh_builders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_builders: {
+        Row: {
+          availability_status: string | null
+          average_rating: number | null
+          bio: string | null
+          builder_code: string | null
+          created_at: string
+          department_id: string | null
+          email: string | null
+          github_url: string | null
+          hourly_rate: number | null
+          id: string
+          institution_id: string | null
+          is_active: boolean | null
+          is_internal: boolean | null
+          learner_id: string | null
+          linkedin_url: string | null
+          metadata: Json | null
+          name: string
+          phone: string | null
+          portfolio_url: string | null
+          projects_completed: number | null
+          specialization: string | null
+          staff_id: string | null
+          tags: string[] | null
+          total_earnings: number | null
+          trained_date: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          availability_status?: string | null
+          average_rating?: number | null
+          bio?: string | null
+          builder_code?: string | null
+          created_at?: string
+          department_id?: string | null
+          email?: string | null
+          github_url?: string | null
+          hourly_rate?: number | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          is_internal?: boolean | null
+          learner_id?: string | null
+          linkedin_url?: string | null
+          metadata?: Json | null
+          name: string
+          phone?: string | null
+          portfolio_url?: string | null
+          projects_completed?: number | null
+          specialization?: string | null
+          staff_id?: string | null
+          tags?: string[] | null
+          total_earnings?: number | null
+          trained_date?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          availability_status?: string | null
+          average_rating?: number | null
+          bio?: string | null
+          builder_code?: string | null
+          created_at?: string
+          department_id?: string | null
+          email?: string | null
+          github_url?: string | null
+          hourly_rate?: number | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          is_internal?: boolean | null
+          learner_id?: string | null
+          linkedin_url?: string | null
+          metadata?: Json | null
+          name?: string
+          phone?: string | null
+          portfolio_url?: string | null
+          projects_completed?: number | null
+          specialization?: string | null
+          staff_id?: string | null
+          tags?: string[] | null
+          total_earnings?: number | null
+          trained_date?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_builders_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_builders_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sh_builders_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_builders_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_builders_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_builders_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "sh_builders_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "sh_builders_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_builders_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_builders_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_client_communications: {
+        Row: {
+          attachments: string[] | null
+          client_id: string
+          communication_date: string | null
+          communication_type: Database["public"]["Enums"]["sh_communication_type"]
+          content: string | null
+          created_at: string
+          created_by: string | null
+          direction: Database["public"]["Enums"]["sh_communication_direction"]
+          duration_minutes: number | null
+          external_id: string | null
+          follow_up_date: string | null
+          follow_up_required: boolean | null
+          id: string
+          metadata: Json | null
+          outcome: string | null
+          participants: string[] | null
+          phase_id: string | null
+          solution_id: string | null
+          source: string | null
+          subject: string | null
+          summary: string | null
+          tags: string[] | null
+        }
+        Insert: {
+          attachments?: string[] | null
+          client_id: string
+          communication_date?: string | null
+          communication_type: Database["public"]["Enums"]["sh_communication_type"]
+          content?: string | null
+          created_at?: string
+          created_by?: string | null
+          direction: Database["public"]["Enums"]["sh_communication_direction"]
+          duration_minutes?: number | null
+          external_id?: string | null
+          follow_up_date?: string | null
+          follow_up_required?: boolean | null
+          id?: string
+          metadata?: Json | null
+          outcome?: string | null
+          participants?: string[] | null
+          phase_id?: string | null
+          solution_id?: string | null
+          source?: string | null
+          subject?: string | null
+          summary?: string | null
+          tags?: string[] | null
+        }
+        Update: {
+          attachments?: string[] | null
+          client_id?: string
+          communication_date?: string | null
+          communication_type?: Database["public"]["Enums"]["sh_communication_type"]
+          content?: string | null
+          created_at?: string
+          created_by?: string | null
+          direction?: Database["public"]["Enums"]["sh_communication_direction"]
+          duration_minutes?: number | null
+          external_id?: string | null
+          follow_up_date?: string | null
+          follow_up_required?: boolean | null
+          id?: string
+          metadata?: Json | null
+          outcome?: string | null
+          participants?: string[] | null
+          phase_id?: string | null
+          solution_id?: string | null
+          source?: string | null
+          subject?: string | null
+          summary?: string | null
+          tags?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_client_communications_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "sh_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_client_communications_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_client_communications_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_client_communications_phase_id_fkey"
+            columns: ["phase_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_phases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_client_communications_solution_id_fkey"
+            columns: ["solution_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_client_referrals: {
+        Row: {
+          bonus_amount: number | null
+          bonus_paid: boolean | null
+          bonus_percentage: number | null
+          client_id: string
+          created_at: string
+          executing_dept_id: string | null
+          id: string
+          notes: string | null
+          paid_at: string | null
+          referral_type: string | null
+          referring_dept_id: string | null
+        }
+        Insert: {
+          bonus_amount?: number | null
+          bonus_paid?: boolean | null
+          bonus_percentage?: number | null
+          client_id: string
+          created_at?: string
+          executing_dept_id?: string | null
+          id?: string
+          notes?: string | null
+          paid_at?: string | null
+          referral_type?: string | null
+          referring_dept_id?: string | null
+        }
+        Update: {
+          bonus_amount?: number | null
+          bonus_paid?: boolean | null
+          bonus_percentage?: number | null
+          client_id?: string
+          created_at?: string
+          executing_dept_id?: string | null
+          id?: string
+          notes?: string | null
+          paid_at?: string | null
+          referral_type?: string | null
+          referring_dept_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_client_referrals_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "sh_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_client_referrals_executing_dept_id_fkey"
+            columns: ["executing_dept_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_client_referrals_executing_dept_id_fkey"
+            columns: ["executing_dept_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sh_client_referrals_referring_dept_id_fkey"
+            columns: ["referring_dept_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_client_referrals_referring_dept_id_fkey"
+            columns: ["referring_dept_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+        ]
+      }
+      sh_clients: {
+        Row: {
+          address: string | null
+          city: string | null
+          company_code: string | null
+          company_size: string | null
+          contact_email: string | null
+          contact_person: string | null
+          contact_phone: string | null
+          country: string | null
+          created_at: string
+          created_by: string | null
+          gst_number: string | null
+          id: string
+          industry_sector: string | null
+          intent_agency_id: string | null
+          is_active: boolean | null
+          linkedin_url: string | null
+          logo_url: string | null
+          name: string
+          notes: string | null
+          pan_number: string | null
+          partner_status: Database["public"]["Enums"]["sh_partner_status"]
+          pincode: string | null
+          referral_count: number | null
+          source_department_id: string | null
+          source_type: Database["public"]["Enums"]["sh_source_type"]
+          state: string | null
+          tags: string[] | null
+          updated_at: string
+          website: string | null
+        }
+        Insert: {
+          address?: string | null
+          city?: string | null
+          company_code?: string | null
+          company_size?: string | null
+          contact_email?: string | null
+          contact_person?: string | null
+          contact_phone?: string | null
+          country?: string | null
+          created_at?: string
+          created_by?: string | null
+          gst_number?: string | null
+          id?: string
+          industry_sector?: string | null
+          intent_agency_id?: string | null
+          is_active?: boolean | null
+          linkedin_url?: string | null
+          logo_url?: string | null
+          name: string
+          notes?: string | null
+          pan_number?: string | null
+          partner_status?: Database["public"]["Enums"]["sh_partner_status"]
+          pincode?: string | null
+          referral_count?: number | null
+          source_department_id?: string | null
+          source_type?: Database["public"]["Enums"]["sh_source_type"]
+          state?: string | null
+          tags?: string[] | null
+          updated_at?: string
+          website?: string | null
+        }
+        Update: {
+          address?: string | null
+          city?: string | null
+          company_code?: string | null
+          company_size?: string | null
+          contact_email?: string | null
+          contact_person?: string | null
+          contact_phone?: string | null
+          country?: string | null
+          created_at?: string
+          created_by?: string | null
+          gst_number?: string | null
+          id?: string
+          industry_sector?: string | null
+          intent_agency_id?: string | null
+          is_active?: boolean | null
+          linkedin_url?: string | null
+          logo_url?: string | null
+          name?: string
+          notes?: string | null
+          pan_number?: string | null
+          partner_status?: Database["public"]["Enums"]["sh_partner_status"]
+          pincode?: string | null
+          referral_count?: number | null
+          source_department_id?: string | null
+          source_type?: Database["public"]["Enums"]["sh_source_type"]
+          state?: string | null
+          tags?: string[] | null
+          updated_at?: string
+          website?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_clients_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_clients_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_clients_source_department_id_fkey"
+            columns: ["source_department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_clients_source_department_id_fkey"
+            columns: ["source_department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+        ]
+      }
+      sh_cohort_assignments: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          areas_of_improvement: string[] | null
+          cohort_member_id: string
+          completed_at: string | null
+          created_at: string
+          earnings: number | null
+          feedback_from_participants: string | null
+          hours_worked: number | null
+          id: string
+          mentor_feedback: string | null
+          rating: number | null
+          requested_at: string | null
+          role: string
+          self_reflection: string | null
+          session_id: string
+          status: Database["public"]["Enums"]["sh_assignment_status"] | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          areas_of_improvement?: string[] | null
+          cohort_member_id: string
+          completed_at?: string | null
+          created_at?: string
+          earnings?: number | null
+          feedback_from_participants?: string | null
+          hours_worked?: number | null
+          id?: string
+          mentor_feedback?: string | null
+          rating?: number | null
+          requested_at?: string | null
+          role: string
+          self_reflection?: string | null
+          session_id: string
+          status?: Database["public"]["Enums"]["sh_assignment_status"] | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          areas_of_improvement?: string[] | null
+          cohort_member_id?: string
+          completed_at?: string | null
+          created_at?: string
+          earnings?: number | null
+          feedback_from_participants?: string | null
+          hours_worked?: number | null
+          id?: string
+          mentor_feedback?: string | null
+          rating?: number | null
+          requested_at?: string | null
+          role?: string
+          self_reflection?: string | null
+          session_id?: string
+          status?: Database["public"]["Enums"]["sh_assignment_status"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_cohort_assignments_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_assignments_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_assignments_cohort_member_id_fkey"
+            columns: ["cohort_member_id"]
+            isOneToOne: false
+            referencedRelation: "sh_cohort_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_assignments_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sh_training_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_cohort_members: {
+        Row: {
+          availability_status: string | null
+          average_rating: number | null
+          bio: string | null
+          certifications: string[] | null
+          cohort_code: string | null
+          created_at: string
+          department_id: string | null
+          email: string | null
+          id: string
+          institution_id: string | null
+          is_active: boolean | null
+          learner_id: string | null
+          level: Database["public"]["Enums"]["sh_cohort_level"] | null
+          linkedin_url: string | null
+          metadata: Json | null
+          name: string
+          notes: string | null
+          phone: string | null
+          photo_url: string | null
+          sessions_co_led: number | null
+          sessions_led: number | null
+          sessions_master: number | null
+          sessions_observed: number | null
+          specializations: string[] | null
+          staff_id: string | null
+          tags: string[] | null
+          total_earnings: number | null
+          total_hours_trained: number | null
+          total_participants_trained: number | null
+          track: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          availability_status?: string | null
+          average_rating?: number | null
+          bio?: string | null
+          certifications?: string[] | null
+          cohort_code?: string | null
+          created_at?: string
+          department_id?: string | null
+          email?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          learner_id?: string | null
+          level?: Database["public"]["Enums"]["sh_cohort_level"] | null
+          linkedin_url?: string | null
+          metadata?: Json | null
+          name: string
+          notes?: string | null
+          phone?: string | null
+          photo_url?: string | null
+          sessions_co_led?: number | null
+          sessions_led?: number | null
+          sessions_master?: number | null
+          sessions_observed?: number | null
+          specializations?: string[] | null
+          staff_id?: string | null
+          tags?: string[] | null
+          total_earnings?: number | null
+          total_hours_trained?: number | null
+          total_participants_trained?: number | null
+          track?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          availability_status?: string | null
+          average_rating?: number | null
+          bio?: string | null
+          certifications?: string[] | null
+          cohort_code?: string | null
+          created_at?: string
+          department_id?: string | null
+          email?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          learner_id?: string | null
+          level?: Database["public"]["Enums"]["sh_cohort_level"] | null
+          linkedin_url?: string | null
+          metadata?: Json | null
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          photo_url?: string | null
+          sessions_co_led?: number | null
+          sessions_led?: number | null
+          sessions_master?: number | null
+          sessions_observed?: number | null
+          specializations?: string[] | null
+          staff_id?: string | null
+          tags?: string[] | null
+          total_earnings?: number | null
+          total_hours_trained?: number | null
+          total_participants_trained?: number | null
+          track?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_cohort_members_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_members_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_members_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_members_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_members_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_members_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_members_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_members_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_content_deliverables: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          client_feedback: string | null
+          created_at: string
+          current_revision_notes: string | null
+          deliverable_number: number | null
+          delivered_at: string | null
+          delivery_method: string | null
+          description: string | null
+          duration_seconds: number | null
+          file_format: string | null
+          file_size_kb: number | null
+          file_url: string | null
+          id: string
+          notes: string | null
+          order_id: string
+          preview_url: string | null
+          revision_count: number | null
+          status: Database["public"]["Enums"]["sh_deliverable_status"] | null
+          thumbnail_url: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          client_feedback?: string | null
+          created_at?: string
+          current_revision_notes?: string | null
+          deliverable_number?: number | null
+          delivered_at?: string | null
+          delivery_method?: string | null
+          description?: string | null
+          duration_seconds?: number | null
+          file_format?: string | null
+          file_size_kb?: number | null
+          file_url?: string | null
+          id?: string
+          notes?: string | null
+          order_id: string
+          preview_url?: string | null
+          revision_count?: number | null
+          status?: Database["public"]["Enums"]["sh_deliverable_status"] | null
+          thumbnail_url?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          client_feedback?: string | null
+          created_at?: string
+          current_revision_notes?: string | null
+          deliverable_number?: number | null
+          delivered_at?: string | null
+          delivery_method?: string | null
+          description?: string | null
+          duration_seconds?: number | null
+          file_format?: string | null
+          file_size_kb?: number | null
+          file_url?: string | null
+          id?: string
+          notes?: string | null
+          order_id?: string
+          preview_url?: string | null
+          revision_count?: number | null
+          status?: Database["public"]["Enums"]["sh_deliverable_status"] | null
+          thumbnail_url?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_content_deliverables_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "sh_content_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_content_orders: {
+        Row: {
+          actual_hours: number | null
+          brand_guidelines_url: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          dimensions: string | null
+          division: Database["public"]["Enums"]["sh_content_division"]
+          due_date: string | null
+          duration_minutes: number | null
+          estimated_hours: number | null
+          format: string | null
+          id: string
+          metadata: Json | null
+          notes: string | null
+          order_code: string | null
+          order_type: Database["public"]["Enums"]["sh_content_type"]
+          price: number | null
+          priority: number | null
+          quantity: number | null
+          reference_files: string[] | null
+          requirements: string | null
+          revision_rounds: number | null
+          revisions_used: number | null
+          solution_id: string
+          status: string | null
+          tags: string[] | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          actual_hours?: number | null
+          brand_guidelines_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          dimensions?: string | null
+          division: Database["public"]["Enums"]["sh_content_division"]
+          due_date?: string | null
+          duration_minutes?: number | null
+          estimated_hours?: number | null
+          format?: string | null
+          id?: string
+          metadata?: Json | null
+          notes?: string | null
+          order_code?: string | null
+          order_type: Database["public"]["Enums"]["sh_content_type"]
+          price?: number | null
+          priority?: number | null
+          quantity?: number | null
+          reference_files?: string[] | null
+          requirements?: string | null
+          revision_rounds?: number | null
+          revisions_used?: number | null
+          solution_id: string
+          status?: string | null
+          tags?: string[] | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          actual_hours?: number | null
+          brand_guidelines_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          dimensions?: string | null
+          division?: Database["public"]["Enums"]["sh_content_division"]
+          due_date?: string | null
+          duration_minutes?: number | null
+          estimated_hours?: number | null
+          format?: string | null
+          id?: string
+          metadata?: Json | null
+          notes?: string | null
+          order_code?: string | null
+          order_type?: Database["public"]["Enums"]["sh_content_type"]
+          price?: number | null
+          priority?: number | null
+          quantity?: number | null
+          reference_files?: string[] | null
+          requirements?: string | null
+          revision_rounds?: number | null
+          revisions_used?: number | null
+          solution_id?: string
+          status?: string | null
+          tags?: string[] | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_content_orders_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_content_orders_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_content_orders_solution_id_fkey"
+            columns: ["solution_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_discovery_visits: {
+        Row: {
+          budget_indication: string | null
+          client_attendees: Json | null
+          client_id: string
+          competitor_info: string | null
+          created_at: string
+          created_by: string | null
+          current_systems: string | null
+          decision_makers: string[] | null
+          department_id: string | null
+          document_urls: string[] | null
+          duration_hours: number | null
+          follow_up_date: string | null
+          follow_up_notes: string | null
+          follow_up_required: boolean | null
+          id: string
+          location: string | null
+          notes: string | null
+          observations: string | null
+          opportunities: string | null
+          outcome: string | null
+          pain_points: string | null
+          photos_urls: string[] | null
+          solution_id: string | null
+          timeline_indication: string | null
+          visit_code: string | null
+          visit_date: string
+          visit_time: string | null
+          visit_type: string | null
+          visitors: Json | null
+        }
+        Insert: {
+          budget_indication?: string | null
+          client_attendees?: Json | null
+          client_id: string
+          competitor_info?: string | null
+          created_at?: string
+          created_by?: string | null
+          current_systems?: string | null
+          decision_makers?: string[] | null
+          department_id?: string | null
+          document_urls?: string[] | null
+          duration_hours?: number | null
+          follow_up_date?: string | null
+          follow_up_notes?: string | null
+          follow_up_required?: boolean | null
+          id?: string
+          location?: string | null
+          notes?: string | null
+          observations?: string | null
+          opportunities?: string | null
+          outcome?: string | null
+          pain_points?: string | null
+          photos_urls?: string[] | null
+          solution_id?: string | null
+          timeline_indication?: string | null
+          visit_code?: string | null
+          visit_date: string
+          visit_time?: string | null
+          visit_type?: string | null
+          visitors?: Json | null
+        }
+        Update: {
+          budget_indication?: string | null
+          client_attendees?: Json | null
+          client_id?: string
+          competitor_info?: string | null
+          created_at?: string
+          created_by?: string | null
+          current_systems?: string | null
+          decision_makers?: string[] | null
+          department_id?: string | null
+          document_urls?: string[] | null
+          duration_hours?: number | null
+          follow_up_date?: string | null
+          follow_up_notes?: string | null
+          follow_up_required?: boolean | null
+          id?: string
+          location?: string | null
+          notes?: string | null
+          observations?: string | null
+          opportunities?: string | null
+          outcome?: string | null
+          pain_points?: string | null
+          photos_urls?: string[] | null
+          solution_id?: string | null
+          timeline_indication?: string | null
+          visit_code?: string | null
+          visit_date?: string
+          visit_time?: string | null
+          visit_type?: string | null
+          visitors?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_discovery_visits_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "sh_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_discovery_visits_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_discovery_visits_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_discovery_visits_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_discovery_visits_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sh_discovery_visits_solution_id_fkey"
+            columns: ["solution_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_earnings_ledger: {
+        Row: {
+          amount: number
+          approved_at: string | null
+          approved_by: string | null
+          bank_account: string | null
+          builder_id: string | null
+          cohort_member_id: string | null
+          created_at: string
+          department_id: string | null
+          id: string
+          institution_id: string | null
+          ledger_code: string | null
+          notes: string | null
+          paid_at: string | null
+          payment_id: string
+          payment_reference: string | null
+          percentage: number | null
+          processed_at: string | null
+          production_learner_id: string | null
+          recipient_id: string | null
+          recipient_type: Database["public"]["Enums"]["sh_recipient_type"]
+          status: string | null
+        }
+        Insert: {
+          amount: number
+          approved_at?: string | null
+          approved_by?: string | null
+          bank_account?: string | null
+          builder_id?: string | null
+          cohort_member_id?: string | null
+          created_at?: string
+          department_id?: string | null
+          id?: string
+          institution_id?: string | null
+          ledger_code?: string | null
+          notes?: string | null
+          paid_at?: string | null
+          payment_id: string
+          payment_reference?: string | null
+          percentage?: number | null
+          processed_at?: string | null
+          production_learner_id?: string | null
+          recipient_id?: string | null
+          recipient_type: Database["public"]["Enums"]["sh_recipient_type"]
+          status?: string | null
+        }
+        Update: {
+          amount?: number
+          approved_at?: string | null
+          approved_by?: string | null
+          bank_account?: string | null
+          builder_id?: string | null
+          cohort_member_id?: string | null
+          created_at?: string
+          department_id?: string | null
+          id?: string
+          institution_id?: string | null
+          ledger_code?: string | null
+          notes?: string | null
+          paid_at?: string | null
+          payment_id?: string
+          payment_reference?: string | null
+          percentage?: number | null
+          processed_at?: string | null
+          production_learner_id?: string | null
+          recipient_id?: string | null
+          recipient_type?: Database["public"]["Enums"]["sh_recipient_type"]
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_earnings_ledger_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_earnings_ledger_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_earnings_ledger_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "sh_builders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_earnings_ledger_cohort_member_id_fkey"
+            columns: ["cohort_member_id"]
+            isOneToOne: false
+            referencedRelation: "sh_cohort_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_earnings_ledger_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_earnings_ledger_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sh_earnings_ledger_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_earnings_ledger_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_earnings_ledger_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "sh_payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_earnings_ledger_production_learner_id_fkey"
+            columns: ["production_learner_id"]
+            isOneToOne: false
+            referencedRelation: "sh_production_learners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_implementation_users: {
+        Row: {
+          created_at: string
+          department: string | null
+          feedback: string | null
+          id: string
+          last_login_at: string | null
+          login_count: number | null
+          notes: string | null
+          phase_id: string
+          solution_id: string | null
+          trained_by: string | null
+          trained_date: string | null
+          training_completed: boolean | null
+          updated_at: string
+          usage_status: string | null
+          user_email: string | null
+          user_name: string
+          user_phone: string | null
+          user_role: string | null
+        }
+        Insert: {
+          created_at?: string
+          department?: string | null
+          feedback?: string | null
+          id?: string
+          last_login_at?: string | null
+          login_count?: number | null
+          notes?: string | null
+          phase_id: string
+          solution_id?: string | null
+          trained_by?: string | null
+          trained_date?: string | null
+          training_completed?: boolean | null
+          updated_at?: string
+          usage_status?: string | null
+          user_email?: string | null
+          user_name: string
+          user_phone?: string | null
+          user_role?: string | null
+        }
+        Update: {
+          created_at?: string
+          department?: string | null
+          feedback?: string | null
+          id?: string
+          last_login_at?: string | null
+          login_count?: number | null
+          notes?: string | null
+          phase_id?: string
+          solution_id?: string | null
+          trained_by?: string | null
+          trained_date?: string | null
+          training_completed?: boolean | null
+          updated_at?: string
+          usage_status?: string | null
+          user_email?: string | null
+          user_name?: string
+          user_phone?: string | null
+          user_role?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_implementation_users_phase_id_fkey"
+            columns: ["phase_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_phases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_implementation_users_solution_id_fkey"
+            columns: ["solution_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_implementation_users_trained_by_fkey"
+            columns: ["trained_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_implementation_users_trained_by_fkey"
+            columns: ["trained_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_jicate_sessions: {
+        Row: {
+          action_items: Json | null
+          agenda: string | null
+          attendees: Json | null
+          booked_by_dept_id: string | null
+          booked_by_user_id: string | null
+          client_id: string | null
+          created_at: string
+          duration_minutes: number | null
+          google_meet_url: string | null
+          id: string
+          jicate_facilitator: string | null
+          jicate_facilitator_id: string | null
+          materials_url: string | null
+          metadata: Json | null
+          next_session_date: string | null
+          notes: string | null
+          outcome: Database["public"]["Enums"]["sh_session_outcome"] | null
+          outcome_notes: string | null
+          phase_id: string | null
+          presentation_url: string | null
+          recording_url: string | null
+          session_code: string | null
+          session_date: string
+          session_time: string | null
+          session_type: string | null
+          solution_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          action_items?: Json | null
+          agenda?: string | null
+          attendees?: Json | null
+          booked_by_dept_id?: string | null
+          booked_by_user_id?: string | null
+          client_id?: string | null
+          created_at?: string
+          duration_minutes?: number | null
+          google_meet_url?: string | null
+          id?: string
+          jicate_facilitator?: string | null
+          jicate_facilitator_id?: string | null
+          materials_url?: string | null
+          metadata?: Json | null
+          next_session_date?: string | null
+          notes?: string | null
+          outcome?: Database["public"]["Enums"]["sh_session_outcome"] | null
+          outcome_notes?: string | null
+          phase_id?: string | null
+          presentation_url?: string | null
+          recording_url?: string | null
+          session_code?: string | null
+          session_date: string
+          session_time?: string | null
+          session_type?: string | null
+          solution_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          action_items?: Json | null
+          agenda?: string | null
+          attendees?: Json | null
+          booked_by_dept_id?: string | null
+          booked_by_user_id?: string | null
+          client_id?: string | null
+          created_at?: string
+          duration_minutes?: number | null
+          google_meet_url?: string | null
+          id?: string
+          jicate_facilitator?: string | null
+          jicate_facilitator_id?: string | null
+          materials_url?: string | null
+          metadata?: Json | null
+          next_session_date?: string | null
+          notes?: string | null
+          outcome?: Database["public"]["Enums"]["sh_session_outcome"] | null
+          outcome_notes?: string | null
+          phase_id?: string | null
+          presentation_url?: string | null
+          recording_url?: string | null
+          session_code?: string | null
+          session_date?: string
+          session_time?: string | null
+          session_type?: string | null
+          solution_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_jicate_sessions_booked_by_dept_id_fkey"
+            columns: ["booked_by_dept_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_jicate_sessions_booked_by_dept_id_fkey"
+            columns: ["booked_by_dept_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sh_jicate_sessions_booked_by_user_id_fkey"
+            columns: ["booked_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_jicate_sessions_booked_by_user_id_fkey"
+            columns: ["booked_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_jicate_sessions_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "sh_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_jicate_sessions_jicate_facilitator_id_fkey"
+            columns: ["jicate_facilitator_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_jicate_sessions_jicate_facilitator_id_fkey"
+            columns: ["jicate_facilitator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_jicate_sessions_phase_id_fkey"
+            columns: ["phase_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_phases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_jicate_sessions_solution_id_fkey"
+            columns: ["solution_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_notifications: {
+        Row: {
+          action_label: string | null
+          action_url: string | null
+          category: string | null
+          created_at: string
+          expires_at: string | null
+          id: string
+          is_read: boolean | null
+          message: string | null
+          metadata: Json | null
+          notification_type: string
+          priority: string | null
+          read_at: string | null
+          related_entity_id: string | null
+          related_entity_type: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          action_label?: string | null
+          action_url?: string | null
+          category?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message?: string | null
+          metadata?: Json | null
+          notification_type: string
+          priority?: string | null
+          read_at?: string | null
+          related_entity_id?: string | null
+          related_entity_type?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          action_label?: string | null
+          action_url?: string | null
+          category?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message?: string | null
+          metadata?: Json | null
+          notification_type?: string
+          priority?: string | null
+          read_at?: string | null
+          related_entity_id?: string | null
+          related_entity_type?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_payments: {
+        Row: {
+          amount: number
+          client_id: string | null
+          created_at: string
+          created_by: string | null
+          currency: string | null
+          due_date: string | null
+          gst_amount: number | null
+          id: string
+          invoice_number: string | null
+          invoice_url: string | null
+          metadata: Json | null
+          mou_id: string | null
+          net_amount: number | null
+          notes: string | null
+          order_id: string | null
+          payment_code: string | null
+          payment_date: string | null
+          payment_method: string | null
+          payment_type: Database["public"]["Enums"]["sh_payment_type"]
+          phase_id: string | null
+          program_id: string | null
+          receipt_url: string | null
+          reference_number: string | null
+          solution_id: string | null
+          split_model_id: string | null
+          split_processed: boolean | null
+          split_processed_at: string | null
+          status: Database["public"]["Enums"]["sh_payment_status"]
+          tds_amount: number | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          client_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string | null
+          due_date?: string | null
+          gst_amount?: number | null
+          id?: string
+          invoice_number?: string | null
+          invoice_url?: string | null
+          metadata?: Json | null
+          mou_id?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          order_id?: string | null
+          payment_code?: string | null
+          payment_date?: string | null
+          payment_method?: string | null
+          payment_type: Database["public"]["Enums"]["sh_payment_type"]
+          phase_id?: string | null
+          program_id?: string | null
+          receipt_url?: string | null
+          reference_number?: string | null
+          solution_id?: string | null
+          split_model_id?: string | null
+          split_processed?: boolean | null
+          split_processed_at?: string | null
+          status?: Database["public"]["Enums"]["sh_payment_status"]
+          tds_amount?: number | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          client_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string | null
+          due_date?: string | null
+          gst_amount?: number | null
+          id?: string
+          invoice_number?: string | null
+          invoice_url?: string | null
+          metadata?: Json | null
+          mou_id?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          order_id?: string | null
+          payment_code?: string | null
+          payment_date?: string | null
+          payment_method?: string | null
+          payment_type?: Database["public"]["Enums"]["sh_payment_type"]
+          phase_id?: string | null
+          program_id?: string | null
+          receipt_url?: string | null
+          reference_number?: string | null
+          solution_id?: string | null
+          split_model_id?: string | null
+          split_processed?: boolean | null
+          split_processed_at?: string | null
+          status?: Database["public"]["Enums"]["sh_payment_status"]
+          tds_amount?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_payments_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "sh_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_payments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_payments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_payments_mou_id_fkey"
+            columns: ["mou_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_mous"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "sh_content_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_payments_phase_id_fkey"
+            columns: ["phase_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_phases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_payments_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "sh_training_programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_payments_solution_id_fkey"
+            columns: ["solution_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_payments_split_model_id_fkey"
+            columns: ["split_model_id"]
+            isOneToOne: false
+            referencedRelation: "sh_revenue_split_models"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_phase_deployments: {
+        Row: {
+          created_at: string
+          custom_domain: string | null
+          deployed_at: string | null
+          deployed_by: string | null
+          deployment_number: number | null
+          environment: Database["public"]["Enums"]["sh_deployment_env"]
+          health_check_url: string | null
+          id: string
+          metadata: Json | null
+          monitoring_url: string | null
+          notes: string | null
+          phase_id: string
+          railway_project_id: string | null
+          rollback_at: string | null
+          rollback_reason: string | null
+          ssl_enabled: boolean | null
+          status: string
+          supabase_project_id: string | null
+          vercel_project_id: string | null
+          vercel_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          custom_domain?: string | null
+          deployed_at?: string | null
+          deployed_by?: string | null
+          deployment_number?: number | null
+          environment: Database["public"]["Enums"]["sh_deployment_env"]
+          health_check_url?: string | null
+          id?: string
+          metadata?: Json | null
+          monitoring_url?: string | null
+          notes?: string | null
+          phase_id: string
+          railway_project_id?: string | null
+          rollback_at?: string | null
+          rollback_reason?: string | null
+          ssl_enabled?: boolean | null
+          status?: string
+          supabase_project_id?: string | null
+          vercel_project_id?: string | null
+          vercel_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          custom_domain?: string | null
+          deployed_at?: string | null
+          deployed_by?: string | null
+          deployment_number?: number | null
+          environment?: Database["public"]["Enums"]["sh_deployment_env"]
+          health_check_url?: string | null
+          id?: string
+          metadata?: Json | null
+          monitoring_url?: string | null
+          notes?: string | null
+          phase_id?: string
+          railway_project_id?: string | null
+          rollback_at?: string | null
+          rollback_reason?: string | null
+          ssl_enabled?: boolean | null
+          status?: string
+          supabase_project_id?: string | null
+          vercel_project_id?: string | null
+          vercel_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_phase_deployments_deployed_by_fkey"
+            columns: ["deployed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_phase_deployments_deployed_by_fkey"
+            columns: ["deployed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_phase_deployments_phase_id_fkey"
+            columns: ["phase_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_phases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_production_assignments: {
+        Row: {
+          actual_hours: number | null
+          approved_at: string | null
+          approved_by: string | null
+          completed_at: string | null
+          created_at: string
+          deliverable_id: string
+          earnings: number | null
+          estimated_hours: number | null
+          feedback: string | null
+          id: string
+          learner_id: string
+          notes: string | null
+          quality_rating: number | null
+          requested_at: string | null
+          role: string | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["sh_assignment_status"] | null
+          submitted_at: string | null
+          timeliness_rating: number | null
+        }
+        Insert: {
+          actual_hours?: number | null
+          approved_at?: string | null
+          approved_by?: string | null
+          completed_at?: string | null
+          created_at?: string
+          deliverable_id: string
+          earnings?: number | null
+          estimated_hours?: number | null
+          feedback?: string | null
+          id?: string
+          learner_id: string
+          notes?: string | null
+          quality_rating?: number | null
+          requested_at?: string | null
+          role?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["sh_assignment_status"] | null
+          submitted_at?: string | null
+          timeliness_rating?: number | null
+        }
+        Update: {
+          actual_hours?: number | null
+          approved_at?: string | null
+          approved_by?: string | null
+          completed_at?: string | null
+          created_at?: string
+          deliverable_id?: string
+          earnings?: number | null
+          estimated_hours?: number | null
+          feedback?: string | null
+          id?: string
+          learner_id?: string
+          notes?: string | null
+          quality_rating?: number | null
+          requested_at?: string | null
+          role?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["sh_assignment_status"] | null
+          submitted_at?: string | null
+          timeliness_rating?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_production_assignments_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_production_assignments_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_production_assignments_deliverable_id_fkey"
+            columns: ["deliverable_id"]
+            isOneToOne: false
+            referencedRelation: "sh_content_deliverables"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_production_assignments_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "sh_production_learners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_production_learners: {
+        Row: {
+          availability_status: string | null
+          average_rating: number | null
+          behance_url: string | null
+          bio: string | null
+          created_at: string
+          department_id: string | null
+          division: Database["public"]["Enums"]["sh_content_division"]
+          dribbble_url: string | null
+          email: string | null
+          id: string
+          institution_id: string | null
+          is_active: boolean | null
+          learner_code: string | null
+          learner_id: string | null
+          metadata: Json | null
+          name: string
+          notes: string | null
+          orders_completed: number | null
+          phone: string | null
+          portfolio_url: string | null
+          skill_level: Database["public"]["Enums"]["sh_skill_level"] | null
+          software_tools: string[] | null
+          specializations: string[] | null
+          staff_id: string | null
+          tags: string[] | null
+          total_deliverables: number | null
+          total_earnings: number | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          availability_status?: string | null
+          average_rating?: number | null
+          behance_url?: string | null
+          bio?: string | null
+          created_at?: string
+          department_id?: string | null
+          division: Database["public"]["Enums"]["sh_content_division"]
+          dribbble_url?: string | null
+          email?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          learner_code?: string | null
+          learner_id?: string | null
+          metadata?: Json | null
+          name: string
+          notes?: string | null
+          orders_completed?: number | null
+          phone?: string | null
+          portfolio_url?: string | null
+          skill_level?: Database["public"]["Enums"]["sh_skill_level"] | null
+          software_tools?: string[] | null
+          specializations?: string[] | null
+          staff_id?: string | null
+          tags?: string[] | null
+          total_deliverables?: number | null
+          total_earnings?: number | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          availability_status?: string | null
+          average_rating?: number | null
+          behance_url?: string | null
+          bio?: string | null
+          created_at?: string
+          department_id?: string | null
+          division?: Database["public"]["Enums"]["sh_content_division"]
+          dribbble_url?: string | null
+          email?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          learner_code?: string | null
+          learner_id?: string | null
+          metadata?: Json | null
+          name?: string
+          notes?: string | null
+          orders_completed?: number | null
+          phone?: string | null
+          portfolio_url?: string | null
+          skill_level?: Database["public"]["Enums"]["sh_skill_level"] | null
+          software_tools?: string[] | null
+          specializations?: string[] | null
+          staff_id?: string | null
+          tags?: string[] | null
+          total_deliverables?: number | null
+          total_earnings?: number | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_production_learners_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_production_learners_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sh_production_learners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_production_learners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_production_learners_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_production_learners_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "sh_production_learners_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "sh_production_learners_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_production_learners_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_production_learners_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_prototype_iterations: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          changes_made: string | null
+          changes_requested: string | null
+          client_approved: boolean | null
+          created_at: string
+          created_by: string | null
+          demo_date: string | null
+          demo_video_url: string | null
+          feedback: string | null
+          id: string
+          iteration_number: number
+          notes: string | null
+          phase_id: string
+          prototype_url: string | null
+          screenshots: string[] | null
+          version: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          changes_made?: string | null
+          changes_requested?: string | null
+          client_approved?: boolean | null
+          created_at?: string
+          created_by?: string | null
+          demo_date?: string | null
+          demo_video_url?: string | null
+          feedback?: string | null
+          id?: string
+          iteration_number: number
+          notes?: string | null
+          phase_id: string
+          prototype_url?: string | null
+          screenshots?: string[] | null
+          version?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          changes_made?: string | null
+          changes_requested?: string | null
+          client_approved?: boolean | null
+          created_at?: string
+          created_by?: string | null
+          demo_date?: string | null
+          demo_video_url?: string | null
+          feedback?: string | null
+          id?: string
+          iteration_number?: number
+          notes?: string | null
+          phase_id?: string
+          prototype_url?: string | null
+          screenshots?: string[] | null
+          version?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_prototype_iterations_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_prototype_iterations_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_prototype_iterations_phase_id_fkey"
+            columns: ["phase_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_phases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_publication_contributors: {
+        Row: {
+          author_order: number | null
+          builder_id: string | null
+          cohort_member_id: string | null
+          contribution_description: string | null
+          created_at: string
+          credit_type: string | null
+          external_author_affiliation: string | null
+          external_author_name: string | null
+          id: string
+          is_corresponding: boolean | null
+          learner_id: string | null
+          orcid: string | null
+          publication_id: string
+          staff_id: string | null
+        }
+        Insert: {
+          author_order?: number | null
+          builder_id?: string | null
+          cohort_member_id?: string | null
+          contribution_description?: string | null
+          created_at?: string
+          credit_type?: string | null
+          external_author_affiliation?: string | null
+          external_author_name?: string | null
+          id?: string
+          is_corresponding?: boolean | null
+          learner_id?: string | null
+          orcid?: string | null
+          publication_id: string
+          staff_id?: string | null
+        }
+        Update: {
+          author_order?: number | null
+          builder_id?: string | null
+          cohort_member_id?: string | null
+          contribution_description?: string | null
+          created_at?: string
+          credit_type?: string | null
+          external_author_affiliation?: string | null
+          external_author_name?: string | null
+          id?: string
+          is_corresponding?: boolean | null
+          learner_id?: string | null
+          orcid?: string | null
+          publication_id?: string
+          staff_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_publication_contributors_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "sh_builders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_publication_contributors_cohort_member_id_fkey"
+            columns: ["cohort_member_id"]
+            isOneToOne: false
+            referencedRelation: "sh_cohort_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_publication_contributors_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "sh_production_learners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_publication_contributors_publication_id_fkey"
+            columns: ["publication_id"]
+            isOneToOne: false
+            referencedRelation: "sh_publications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_publication_contributors_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_publications: {
+        Row: {
+          abstract: string | null
+          acceptance_date: string | null
+          authors: string[]
+          citation_count: number | null
+          conference_date: string | null
+          conference_location: string | null
+          conference_name: string | null
+          created_at: string
+          created_by: string | null
+          department_id: string | null
+          doi: string | null
+          h_index_contribution: number | null
+          id: string
+          impact_factor: number | null
+          institution_id: string | null
+          isbn: string | null
+          issn: string | null
+          issue: string | null
+          journal_name: string | null
+          journal_type: Database["public"]["Enums"]["sh_journal_type"] | null
+          keywords: string[] | null
+          metadata: Json | null
+          naac_criterion: string | null
+          nirf_category: string | null
+          notes: string | null
+          page_numbers: string | null
+          paper_type: Database["public"]["Enums"]["sh_paper_type"]
+          pdf_url: string | null
+          peer_reviewed: boolean | null
+          phase_id: string | null
+          publication_code: string | null
+          publication_date: string | null
+          publisher: string | null
+          scopus_indexed: boolean | null
+          solution_id: string | null
+          status: Database["public"]["Enums"]["sh_publication_status"] | null
+          submission_date: string | null
+          title: string
+          ugc_listed: boolean | null
+          updated_at: string
+          url: string | null
+          volume: string | null
+          wos_indexed: boolean | null
+        }
+        Insert: {
+          abstract?: string | null
+          acceptance_date?: string | null
+          authors: string[]
+          citation_count?: number | null
+          conference_date?: string | null
+          conference_location?: string | null
+          conference_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          department_id?: string | null
+          doi?: string | null
+          h_index_contribution?: number | null
+          id?: string
+          impact_factor?: number | null
+          institution_id?: string | null
+          isbn?: string | null
+          issn?: string | null
+          issue?: string | null
+          journal_name?: string | null
+          journal_type?: Database["public"]["Enums"]["sh_journal_type"] | null
+          keywords?: string[] | null
+          metadata?: Json | null
+          naac_criterion?: string | null
+          nirf_category?: string | null
+          notes?: string | null
+          page_numbers?: string | null
+          paper_type: Database["public"]["Enums"]["sh_paper_type"]
+          pdf_url?: string | null
+          peer_reviewed?: boolean | null
+          phase_id?: string | null
+          publication_code?: string | null
+          publication_date?: string | null
+          publisher?: string | null
+          scopus_indexed?: boolean | null
+          solution_id?: string | null
+          status?: Database["public"]["Enums"]["sh_publication_status"] | null
+          submission_date?: string | null
+          title: string
+          ugc_listed?: boolean | null
+          updated_at?: string
+          url?: string | null
+          volume?: string | null
+          wos_indexed?: boolean | null
+        }
+        Update: {
+          abstract?: string | null
+          acceptance_date?: string | null
+          authors?: string[]
+          citation_count?: number | null
+          conference_date?: string | null
+          conference_location?: string | null
+          conference_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          department_id?: string | null
+          doi?: string | null
+          h_index_contribution?: number | null
+          id?: string
+          impact_factor?: number | null
+          institution_id?: string | null
+          isbn?: string | null
+          issn?: string | null
+          issue?: string | null
+          journal_name?: string | null
+          journal_type?: Database["public"]["Enums"]["sh_journal_type"] | null
+          keywords?: string[] | null
+          metadata?: Json | null
+          naac_criterion?: string | null
+          nirf_category?: string | null
+          notes?: string | null
+          page_numbers?: string | null
+          paper_type?: Database["public"]["Enums"]["sh_paper_type"]
+          pdf_url?: string | null
+          peer_reviewed?: boolean | null
+          phase_id?: string | null
+          publication_code?: string | null
+          publication_date?: string | null
+          publisher?: string | null
+          scopus_indexed?: boolean | null
+          solution_id?: string | null
+          status?: Database["public"]["Enums"]["sh_publication_status"] | null
+          submission_date?: string | null
+          title?: string
+          ugc_listed?: boolean | null
+          updated_at?: string
+          url?: string | null
+          volume?: string | null
+          wos_indexed?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_publications_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_publications_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_publications_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_publications_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sh_publications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_publications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_publications_phase_id_fkey"
+            columns: ["phase_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_phases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_publications_solution_id_fkey"
+            columns: ["solution_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_revenue_split_models: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          effective_from: string | null
+          effective_to: string | null
+          id: string
+          is_default: boolean | null
+          name: string
+          solution_type: Database["public"]["Enums"]["sh_solution_type"]
+          split_config: Json
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          is_default?: boolean | null
+          name: string
+          solution_type: Database["public"]["Enums"]["sh_solution_type"]
+          split_config: Json
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          is_default?: boolean | null
+          name?: string
+          solution_type?: Database["public"]["Enums"]["sh_solution_type"]
+          split_config?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_revenue_split_models_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_revenue_split_models_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_solution_mous: {
+        Row: {
+          amc_duration_months: number | null
+          amc_start_date: string | null
+          amc_value: number | null
+          created_at: string
+          created_by: string | null
+          deal_value: number
+          expiry_date: string | null
+          id: string
+          mou_document_url: string | null
+          mou_number: string | null
+          notes: string | null
+          payment_terms: Json | null
+          signatory_client: string | null
+          signatory_jkkn: string | null
+          signed_date: string | null
+          solution_id: string
+          status: Database["public"]["Enums"]["sh_mou_status"] | null
+          terms_and_conditions: string | null
+          updated_at: string
+          witness_1: string | null
+          witness_2: string | null
+        }
+        Insert: {
+          amc_duration_months?: number | null
+          amc_start_date?: string | null
+          amc_value?: number | null
+          created_at?: string
+          created_by?: string | null
+          deal_value: number
+          expiry_date?: string | null
+          id?: string
+          mou_document_url?: string | null
+          mou_number?: string | null
+          notes?: string | null
+          payment_terms?: Json | null
+          signatory_client?: string | null
+          signatory_jkkn?: string | null
+          signed_date?: string | null
+          solution_id: string
+          status?: Database["public"]["Enums"]["sh_mou_status"] | null
+          terms_and_conditions?: string | null
+          updated_at?: string
+          witness_1?: string | null
+          witness_2?: string | null
+        }
+        Update: {
+          amc_duration_months?: number | null
+          amc_start_date?: string | null
+          amc_value?: number | null
+          created_at?: string
+          created_by?: string | null
+          deal_value?: number
+          expiry_date?: string | null
+          id?: string
+          mou_document_url?: string | null
+          mou_number?: string | null
+          notes?: string | null
+          payment_terms?: Json | null
+          signatory_client?: string | null
+          signatory_jkkn?: string | null
+          signed_date?: string | null
+          solution_id?: string
+          status?: Database["public"]["Enums"]["sh_mou_status"] | null
+          terms_and_conditions?: string | null
+          updated_at?: string
+          witness_1?: string | null
+          witness_2?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_solution_mous_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_solution_mous_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_solution_mous_solution_id_fkey"
+            columns: ["solution_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_solution_phases: {
+        Row: {
+          actual_hours: number | null
+          actual_value: number | null
+          completion_date: string | null
+          created_at: string
+          description: string | null
+          due_date: string | null
+          estimated_hours: number | null
+          estimated_value: number | null
+          id: string
+          metadata: Json | null
+          notes: string | null
+          owner_department_id: string | null
+          owner_user_id: string | null
+          phase_code: string | null
+          phase_number: number
+          requirements_doc_url: string | null
+          solution_id: string
+          start_date: string | null
+          status: Database["public"]["Enums"]["sh_phase_status"]
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          actual_hours?: number | null
+          actual_value?: number | null
+          completion_date?: string | null
+          created_at?: string
+          description?: string | null
+          due_date?: string | null
+          estimated_hours?: number | null
+          estimated_value?: number | null
+          id?: string
+          metadata?: Json | null
+          notes?: string | null
+          owner_department_id?: string | null
+          owner_user_id?: string | null
+          phase_code?: string | null
+          phase_number: number
+          requirements_doc_url?: string | null
+          solution_id: string
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["sh_phase_status"]
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          actual_hours?: number | null
+          actual_value?: number | null
+          completion_date?: string | null
+          created_at?: string
+          description?: string | null
+          due_date?: string | null
+          estimated_hours?: number | null
+          estimated_value?: number | null
+          id?: string
+          metadata?: Json | null
+          notes?: string | null
+          owner_department_id?: string | null
+          owner_user_id?: string | null
+          phase_code?: string | null
+          phase_number?: number
+          requirements_doc_url?: string | null
+          solution_id?: string
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["sh_phase_status"]
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_solution_phases_owner_department_id_fkey"
+            columns: ["owner_department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_solution_phases_owner_department_id_fkey"
+            columns: ["owner_department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sh_solution_phases_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_solution_phases_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_solution_phases_solution_id_fkey"
+            columns: ["solution_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_solutions: {
+        Row: {
+          base_price: number | null
+          client_id: string | null
+          completion_date: string | null
+          created_at: string
+          created_by: string | null
+          currency: string | null
+          description: string | null
+          discount_percentage: number | null
+          discount_reason: string | null
+          final_price: number | null
+          id: string
+          institution_id: string | null
+          lead_department_id: string
+          metadata: Json | null
+          notes: string | null
+          priority: number | null
+          solution_code: string
+          solution_type: Database["public"]["Enums"]["sh_solution_type"]
+          start_date: string | null
+          status: Database["public"]["Enums"]["sh_solution_status"]
+          tags: string[] | null
+          target_date: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          base_price?: number | null
+          client_id?: string | null
+          completion_date?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string | null
+          description?: string | null
+          discount_percentage?: number | null
+          discount_reason?: string | null
+          final_price?: number | null
+          id?: string
+          institution_id?: string | null
+          lead_department_id: string
+          metadata?: Json | null
+          notes?: string | null
+          priority?: number | null
+          solution_code: string
+          solution_type: Database["public"]["Enums"]["sh_solution_type"]
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["sh_solution_status"]
+          tags?: string[] | null
+          target_date?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          base_price?: number | null
+          client_id?: string | null
+          completion_date?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string | null
+          description?: string | null
+          discount_percentage?: number | null
+          discount_reason?: string | null
+          final_price?: number | null
+          id?: string
+          institution_id?: string | null
+          lead_department_id?: string
+          metadata?: Json | null
+          notes?: string | null
+          priority?: number | null
+          solution_code?: string
+          solution_type?: Database["public"]["Enums"]["sh_solution_type"]
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["sh_solution_status"]
+          tags?: string[] | null
+          target_date?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_solutions_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "sh_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_solutions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_solutions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_solutions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_solutions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_solutions_lead_department_id_fkey"
+            columns: ["lead_department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_solutions_lead_department_id_fkey"
+            columns: ["lead_department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+        ]
+      }
+      sh_training_programs: {
+        Row: {
+          certification_included: boolean | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          end_date: string | null
+          id: string
+          location_preference: string | null
+          materials_included: boolean | null
+          max_participants: number | null
+          metadata: Json | null
+          notes: string | null
+          objectives: string[] | null
+          participant_count: number | null
+          prerequisites: string[] | null
+          price_per_participant: number | null
+          program_code: string | null
+          program_type: Database["public"]["Enums"]["sh_program_type"]
+          solution_id: string
+          start_date: string | null
+          status: string | null
+          tags: string[] | null
+          title: string
+          total_hours: number | null
+          total_price: number | null
+          total_sessions: number | null
+          track: string | null
+          updated_at: string
+          venue: string | null
+        }
+        Insert: {
+          certification_included?: boolean | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          end_date?: string | null
+          id?: string
+          location_preference?: string | null
+          materials_included?: boolean | null
+          max_participants?: number | null
+          metadata?: Json | null
+          notes?: string | null
+          objectives?: string[] | null
+          participant_count?: number | null
+          prerequisites?: string[] | null
+          price_per_participant?: number | null
+          program_code?: string | null
+          program_type: Database["public"]["Enums"]["sh_program_type"]
+          solution_id: string
+          start_date?: string | null
+          status?: string | null
+          tags?: string[] | null
+          title: string
+          total_hours?: number | null
+          total_price?: number | null
+          total_sessions?: number | null
+          track?: string | null
+          updated_at?: string
+          venue?: string | null
+        }
+        Update: {
+          certification_included?: boolean | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          end_date?: string | null
+          id?: string
+          location_preference?: string | null
+          materials_included?: boolean | null
+          max_participants?: number | null
+          metadata?: Json | null
+          notes?: string | null
+          objectives?: string[] | null
+          participant_count?: number | null
+          prerequisites?: string[] | null
+          price_per_participant?: number | null
+          program_code?: string | null
+          program_type?: Database["public"]["Enums"]["sh_program_type"]
+          solution_id?: string
+          start_date?: string | null
+          status?: string | null
+          tags?: string[] | null
+          title?: string
+          total_hours?: number | null
+          total_price?: number | null
+          total_sessions?: number | null
+          track?: string | null
+          updated_at?: string
+          venue?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_training_programs_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_training_programs_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_training_programs_solution_id_fkey"
+            columns: ["solution_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_training_sessions: {
+        Row: {
+          attendance_count: number | null
+          created_at: string
+          description: string | null
+          duration_minutes: number | null
+          end_time: string | null
+          feedback_form_url: string | null
+          google_calendar_event_id: string | null
+          id: string
+          is_virtual: boolean | null
+          location: string | null
+          materials_url: string | null
+          max_attendance: number | null
+          meeting_url: string | null
+          microsoft_calendar_event_id: string | null
+          notes: string | null
+          program_id: string
+          recording_url: string | null
+          room: string | null
+          session_date: string | null
+          session_number: number
+          start_time: string | null
+          status: Database["public"]["Enums"]["sh_session_status"] | null
+          title: string | null
+          topics: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          attendance_count?: number | null
+          created_at?: string
+          description?: string | null
+          duration_minutes?: number | null
+          end_time?: string | null
+          feedback_form_url?: string | null
+          google_calendar_event_id?: string | null
+          id?: string
+          is_virtual?: boolean | null
+          location?: string | null
+          materials_url?: string | null
+          max_attendance?: number | null
+          meeting_url?: string | null
+          microsoft_calendar_event_id?: string | null
+          notes?: string | null
+          program_id: string
+          recording_url?: string | null
+          room?: string | null
+          session_date?: string | null
+          session_number: number
+          start_time?: string | null
+          status?: Database["public"]["Enums"]["sh_session_status"] | null
+          title?: string | null
+          topics?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          attendance_count?: number | null
+          created_at?: string
+          description?: string | null
+          duration_minutes?: number | null
+          end_time?: string | null
+          feedback_form_url?: string | null
+          google_calendar_event_id?: string | null
+          id?: string
+          is_virtual?: boolean | null
+          location?: string | null
+          materials_url?: string | null
+          max_attendance?: number | null
+          meeting_url?: string | null
+          microsoft_calendar_event_id?: string | null
+          notes?: string | null
+          program_id?: string
+          recording_url?: string | null
+          room?: string | null
+          session_date?: string | null
+          session_number?: number
+          start_time?: string | null
+          status?: Database["public"]["Enums"]["sh_session_status"] | null
+          title?: string | null
+          topics?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_training_sessions_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "sh_training_programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sla_configurations: {
         Row: {
           applies_to: string
@@ -16168,6 +20849,238 @@ export type Database = {
           },
         ]
       }
+      vac_courses: {
+        Row: {
+          code: string
+          created_at: string | null
+          description: string | null
+          duration_hours: number
+          fee: number
+          id: string
+          institution: string
+          is_active: boolean | null
+          name: string
+          track: string | null
+          updated_at: string | null
+          weeks: number
+        }
+        Insert: {
+          code: string
+          created_at?: string | null
+          description?: string | null
+          duration_hours?: number
+          fee?: number
+          id?: string
+          institution: string
+          is_active?: boolean | null
+          name: string
+          track?: string | null
+          updated_at?: string | null
+          weeks?: number
+        }
+        Update: {
+          code?: string
+          created_at?: string | null
+          description?: string | null
+          duration_hours?: number
+          fee?: number
+          id?: string
+          institution?: string
+          is_active?: boolean | null
+          name?: string
+          track?: string | null
+          updated_at?: string | null
+          weeks?: number
+        }
+        Relationships: []
+      }
+      vac_enrollments: {
+        Row: {
+          completed_at: string | null
+          course_id: string
+          created_at: string | null
+          enrolled_at: string | null
+          expires_at: string | null
+          id: string
+          notes: string | null
+          payment_amount: number | null
+          payment_date: string | null
+          payment_reference: string | null
+          payment_status: string | null
+          status: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          course_id: string
+          created_at?: string | null
+          enrolled_at?: string | null
+          expires_at?: string | null
+          id?: string
+          notes?: string | null
+          payment_amount?: number | null
+          payment_date?: string | null
+          payment_reference?: string | null
+          payment_status?: string | null
+          status?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          course_id?: string
+          created_at?: string | null
+          enrolled_at?: string | null
+          expires_at?: string | null
+          id?: string
+          notes?: string | null
+          payment_amount?: number | null
+          payment_date?: string | null
+          payment_reference?: string | null
+          payment_status?: string | null
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vac_enrollments_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "vac_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vac_learner_progress: {
+        Row: {
+          completed_at: string | null
+          course_id: string
+          created_at: string | null
+          id: string
+          lesson_id: string
+          score: number | null
+          status: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          course_id: string
+          created_at?: string | null
+          id?: string
+          lesson_id: string
+          score?: number | null
+          status?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          course_id?: string
+          created_at?: string | null
+          id?: string
+          lesson_id?: string
+          score?: number | null
+          status?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vac_learner_progress_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "vac_courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vac_learner_progress_lesson_id_fkey"
+            columns: ["lesson_id"]
+            isOneToOne: false
+            referencedRelation: "vac_lessons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vac_lessons: {
+        Row: {
+          course_id: string
+          created_at: string | null
+          duration_minutes: number
+          error_troubleshooting: Json | null
+          exercises: Json | null
+          faculty_script: Json | null
+          gemini_prompts: Json | null
+          hour: number
+          id: string
+          interview_questions: Json | null
+          is_published: boolean | null
+          learning_outcomes: Json | null
+          prerequisites: string | null
+          resources: Json | null
+          self_check: Json | null
+          student_content: Json | null
+          title: string
+          toolboxes: string | null
+          updated_at: string | null
+          week: number
+        }
+        Insert: {
+          course_id: string
+          created_at?: string | null
+          duration_minutes?: number
+          error_troubleshooting?: Json | null
+          exercises?: Json | null
+          faculty_script?: Json | null
+          gemini_prompts?: Json | null
+          hour: number
+          id?: string
+          interview_questions?: Json | null
+          is_published?: boolean | null
+          learning_outcomes?: Json | null
+          prerequisites?: string | null
+          resources?: Json | null
+          self_check?: Json | null
+          student_content?: Json | null
+          title: string
+          toolboxes?: string | null
+          updated_at?: string | null
+          week: number
+        }
+        Update: {
+          course_id?: string
+          created_at?: string | null
+          duration_minutes?: number
+          error_troubleshooting?: Json | null
+          exercises?: Json | null
+          faculty_script?: Json | null
+          gemini_prompts?: Json | null
+          hour?: number
+          id?: string
+          interview_questions?: Json | null
+          is_published?: boolean | null
+          learning_outcomes?: Json | null
+          prerequisites?: string | null
+          resources?: Json | null
+          self_check?: Json | null
+          student_content?: Json | null
+          title?: string
+          toolboxes?: string | null
+          updated_at?: string | null
+          week?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vac_lessons_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "vac_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       waste_incidents: {
         Row: {
           corrective_action: string | null
@@ -16973,9 +21886,9 @@ export type Database = {
           incident_count: number | null
           institution_id: string | null
           month: string | null
-          total_copq: number | null
-          total_hidden_cost: number | null
-          total_visible_cost: number | null
+          total_copq_paisa: number | null
+          total_hidden_paisa: number | null
+          total_visible_paisa: number | null
         }
         Relationships: [
           {
@@ -17001,10 +21914,10 @@ export type Database = {
           institution_id: string | null
           open_incidents: number | null
           resolved_incidents: number | null
-          total_copq: number | null
-          total_hidden_cost: number | null
+          total_copq_paisa: number | null
+          total_hidden_paisa: number | null
           total_incidents: number | null
-          total_visible_cost: number | null
+          total_visible_paisa: number | null
           year: number | null
         }
         Relationships: [
@@ -18355,6 +23268,40 @@ export type Database = {
           },
         ]
       }
+      vac_enrollments_with_details: {
+        Row: {
+          completed_at: string | null
+          course_code: string | null
+          course_duration: number | null
+          course_fee: number | null
+          course_id: string | null
+          course_institution: string | null
+          course_name: string | null
+          course_track: string | null
+          created_at: string | null
+          enrolled_at: string | null
+          expires_at: string | null
+          id: string | null
+          payment_amount: number | null
+          payment_date: string | null
+          payment_reference: string | null
+          payment_status: string | null
+          status: string | null
+          updated_at: string | null
+          user_email: string | null
+          user_id: string | null
+          user_name: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vac_enrollments_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "vac_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_active_connections: {
         Row: {
           connected_at: string | null
@@ -19158,9 +24105,11 @@ export type Database = {
           has_profile: boolean
         }[]
       }
+      claim_campaign_step: { Args: { p_queue_id: string }; Returns: boolean }
       cleanup_expired_auth_buckets: { Args: never; Returns: number }
       cleanup_expired_auth_codes: { Args: never; Returns: undefined }
       cleanup_expired_child_app_sessions: { Args: never; Returns: undefined }
+      cleanup_expired_parent_sessions: { Args: never; Returns: undefined }
       cleanup_migrated_staff_profiles: {
         Args: never
         Returns: {
@@ -19185,6 +24134,15 @@ export type Database = {
         Returns: number
       }
       cleanup_whatsapp_message_logs: { Args: never; Returns: number }
+      complete_campaign_step: {
+        Args: {
+          p_error_details?: Json
+          p_error_message?: string
+          p_queue_id: string
+          p_success?: boolean
+        }
+        Returns: undefined
+      }
       complete_workflow_step: {
         Args: {
           p_execution_id: string
@@ -19576,6 +24534,17 @@ export type Database = {
           user_name: string
         }[]
       }
+      get_campaign_queue_stats: {
+        Args: { p_institution_id: string }
+        Returns: {
+          completed_today: number
+          failed_today: number
+          total_completed: number
+          total_failed: number
+          total_pending: number
+          total_running: number
+        }[]
+      }
       get_correct_faculty_by_course: {
         Args: {
           p_attendance_date: string
@@ -19954,6 +24923,40 @@ export type Database = {
         }
       }
       get_parent_dashboard: { Args: { p_parent_id: string }; Returns: Json }
+      get_pending_campaign_steps: {
+        Args: { p_institution_id?: string; p_limit?: number }
+        Returns: {
+          application_id: string
+          attempts: number
+          execute_after: string
+          id: string
+          institution_id: string
+          lead_id: string
+          max_attempts: number
+          priority: number
+          scheduled_at: string
+          step_config: Json
+          step_order: number
+          step_type: Database["public"]["Enums"]["campaign_step_type"]
+          workflow_id: string
+        }[]
+      }
+      get_pending_drip_steps: {
+        Args: { p_limit?: number }
+        Returns: {
+          action_config: Json
+          action_id: string
+          action_type: string
+          conditions: Json
+          context_data: Json
+          institution_id: string
+          lead_id: string
+          schedule_id: string
+          sequence_id: string
+          step_index: number
+          workflow_id: string
+        }[]
+      }
       get_period_course_id: {
         Args: { p_period_id: string; p_timetable_id: string }
         Returns: string
@@ -20087,6 +25090,16 @@ export type Database = {
           staff_plan_id: string
         }[]
       }
+      get_vac_course_enrollment_stats: {
+        Args: { p_course_id: string }
+        Returns: {
+          active_enrollments: number
+          completed_enrollments: number
+          paid_enrollments: number
+          total_enrollments: number
+          total_revenue: number
+        }[]
+      }
       grant_full_scholarship_access: {
         Args: { target_role_key: string }
         Returns: undefined
@@ -20141,6 +25154,10 @@ export type Database = {
           leave_name: string
           leave_type_name: string
         }[]
+      }
+      is_enrolled_in_vac_course: {
+        Args: { p_course_id: string; p_user_id: string }
+        Returns: boolean
       }
       is_profile_complete: { Args: { profile_id: string }; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
@@ -20198,6 +25215,10 @@ export type Database = {
           synced_count: number
           updated_count: number
         }[]
+      }
+      mark_drip_step_executed: {
+        Args: { p_error?: string; p_result?: Json; p_schedule_id: string }
+        Returns: undefined
       }
       mark_overdue_bills: { Args: never; Returns: number }
       okr_actual_progress: { Args: { user_id_param: string }; Returns: number }
@@ -20461,6 +25482,24 @@ export type Database = {
       }
     }
     Enums: {
+      admission_insight_action:
+        | "contact_lead"
+        | "schedule_followup"
+        | "send_campaign"
+        | "assign_counselor"
+        | "review_leads"
+        | "update_strategy"
+        | "view_report"
+        | "no_action"
+      admission_insight_priority: "critical" | "high" | "medium" | "low"
+      admission_insight_type:
+        | "follow_up_reminder"
+        | "conversion_opportunity"
+        | "engagement_alert"
+        | "trend_insight"
+        | "anomaly_detection"
+        | "recommendation"
+        | "performance_insight"
       admission_lead_stage:
         | "new"
         | "contacted"
@@ -20519,6 +25558,23 @@ export type Database = {
       auth_method: "sso" | "separate_login" | "none"
       authentication_method: "SSO" | "Separate Login" | "No Authentication"
       campaign_status: "draft" | "active" | "paused" | "completed" | "archived"
+      campaign_step_status:
+        | "pending"
+        | "running"
+        | "completed"
+        | "failed"
+        | "skipped"
+        | "cancelled"
+      campaign_step_type:
+        | "send_sms"
+        | "send_email"
+        | "send_whatsapp"
+        | "update_stage"
+        | "assign_counselor"
+        | "add_tag"
+        | "wait"
+        | "wait_hours"
+        | "wait_days"
       category_status: "active" | "inactive" | "archived"
       commission_transaction_type: "earned" | "paid" | "clawback" | "adjustment"
       commission_type: "percentage" | "flat"
@@ -20551,6 +25607,19 @@ export type Database = {
         | "verified"
         | "rejected"
         | "reupload_requested"
+      drip_sequence_status:
+        | "active"
+        | "paused"
+        | "completed"
+        | "cancelled"
+        | "failed"
+      drip_step_status:
+        | "pending"
+        | "scheduled"
+        | "executing"
+        | "completed"
+        | "skipped"
+        | "failed"
       escalation_status: "triggered" | "acknowledged" | "resolved" | "expired"
       exam_status:
         | "scheduled"
@@ -20670,6 +25739,144 @@ export type Database = {
         | "special"
         | "government"
       sensitivity_level: "public" | "restricted" | "confidential"
+      sh_assignment_status:
+        | "requested"
+        | "approved"
+        | "active"
+        | "completed"
+        | "withdrawn"
+      sh_bug_severity: "low" | "medium" | "high" | "critical"
+      sh_bug_status: "open" | "in_progress" | "resolved" | "closed" | "wont_fix"
+      sh_cohort_level: "observer" | "co_lead" | "lead" | "master"
+      sh_communication_direction: "inbound" | "outbound"
+      sh_communication_type: "email" | "call" | "meeting" | "whatsapp" | "other"
+      sh_content_division:
+        | "video"
+        | "design"
+        | "writing"
+        | "animation"
+        | "social"
+        | "other"
+      sh_content_type:
+        | "video"
+        | "graphic"
+        | "document"
+        | "presentation"
+        | "animation"
+        | "social_media"
+        | "other"
+      sh_deliverable_status:
+        | "pending"
+        | "in_progress"
+        | "review"
+        | "revision"
+        | "approved"
+        | "delivered"
+      sh_deployment_env: "development" | "staging" | "production"
+      sh_journal_type: "scopus" | "wos" | "ugc" | "other"
+      sh_mou_status:
+        | "draft"
+        | "pending_signatures"
+        | "active"
+        | "expired"
+        | "terminated"
+      sh_paper_type:
+        | "journal"
+        | "conference"
+        | "patent"
+        | "book_chapter"
+        | "case_study"
+      sh_partner_status: "standard" | "yi" | "alumni" | "mou" | "referral"
+      sh_payment_status:
+        | "pending"
+        | "processing"
+        | "completed"
+        | "failed"
+        | "refunded"
+      sh_payment_type:
+        | "advance"
+        | "milestone"
+        | "completion"
+        | "amc"
+        | "mou_signing"
+        | "deployment"
+        | "acceptance"
+      sh_phase_status:
+        | "prospecting"
+        | "discovery"
+        | "prd_writing"
+        | "prototype_building"
+        | "client_demo"
+        | "revisions"
+        | "approved"
+        | "deploying"
+        | "training"
+        | "live"
+        | "in_amc"
+        | "completed"
+        | "on_hold"
+        | "cancelled"
+      sh_program_type:
+        | "workshop"
+        | "bootcamp"
+        | "certification"
+        | "custom"
+        | "faculty_development"
+        | "corporate"
+        | "academic"
+      sh_publication_status:
+        | "draft"
+        | "submitted"
+        | "under_review"
+        | "accepted"
+        | "published"
+        | "rejected"
+      sh_recipient_type:
+        | "builder"
+        | "cohort_member"
+        | "production_learner"
+        | "department"
+        | "jicate"
+        | "institution"
+        | "council"
+        | "infrastructure"
+        | "referral_bonus"
+      sh_session_outcome:
+        | "successful"
+        | "needs_followup"
+        | "escalated"
+        | "cancelled"
+      sh_session_status:
+        | "scheduled"
+        | "in_progress"
+        | "completed"
+        | "cancelled"
+        | "rescheduled"
+      sh_skill_level: "beginner" | "intermediate" | "advanced" | "expert"
+      sh_solution_status:
+        | "active"
+        | "on_hold"
+        | "completed"
+        | "cancelled"
+        | "in_amc"
+      sh_solution_type: "software" | "training" | "content"
+      sh_source_type:
+        | "placement"
+        | "alumni"
+        | "clinical"
+        | "referral"
+        | "direct"
+        | "yi"
+        | "intent"
+      sms_delivery_status:
+        | "pending"
+        | "queued"
+        | "sent"
+        | "delivered"
+        | "failed"
+        | "undelivered"
+        | "rejected"
+      sms_provider: "msg91" | "twilio"
       source_type:
         | "organic"
         | "paid"
@@ -20706,6 +25913,12 @@ export type Database = {
         | "guest"
         | "staff"
         | "driver"
+      whatsapp_delivery_status:
+        | "pending"
+        | "sent"
+        | "delivered"
+        | "read"
+        | "failed"
       workflow_status:
         | "running"
         | "completed"
@@ -20857,6 +26070,26 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      admission_insight_action: [
+        "contact_lead",
+        "schedule_followup",
+        "send_campaign",
+        "assign_counselor",
+        "review_leads",
+        "update_strategy",
+        "view_report",
+        "no_action",
+      ],
+      admission_insight_priority: ["critical", "high", "medium", "low"],
+      admission_insight_type: [
+        "follow_up_reminder",
+        "conversion_opportunity",
+        "engagement_alert",
+        "trend_insight",
+        "anomaly_detection",
+        "recommendation",
+        "performance_insight",
+      ],
       admission_lead_stage: [
         "new",
         "contacted",
@@ -20920,6 +26153,25 @@ export const Constants = {
       auth_method: ["sso", "separate_login", "none"],
       authentication_method: ["SSO", "Separate Login", "No Authentication"],
       campaign_status: ["draft", "active", "paused", "completed", "archived"],
+      campaign_step_status: [
+        "pending",
+        "running",
+        "completed",
+        "failed",
+        "skipped",
+        "cancelled",
+      ],
+      campaign_step_type: [
+        "send_sms",
+        "send_email",
+        "send_whatsapp",
+        "update_stage",
+        "assign_counselor",
+        "add_tag",
+        "wait",
+        "wait_hours",
+        "wait_days",
+      ],
       category_status: ["active", "inactive", "archived"],
       commission_transaction_type: ["earned", "paid", "clawback", "adjustment"],
       commission_type: ["percentage", "flat"],
@@ -20948,6 +26200,21 @@ export const Constants = {
         "verified",
         "rejected",
         "reupload_requested",
+      ],
+      drip_sequence_status: [
+        "active",
+        "paused",
+        "completed",
+        "cancelled",
+        "failed",
+      ],
+      drip_step_status: [
+        "pending",
+        "scheduled",
+        "executing",
+        "completed",
+        "skipped",
+        "failed",
       ],
       escalation_status: ["triggered", "acknowledged", "resolved", "expired"],
       exam_status: [
@@ -21082,6 +26349,161 @@ export const Constants = {
         "government",
       ],
       sensitivity_level: ["public", "restricted", "confidential"],
+      sh_assignment_status: [
+        "requested",
+        "approved",
+        "active",
+        "completed",
+        "withdrawn",
+      ],
+      sh_bug_severity: ["low", "medium", "high", "critical"],
+      sh_bug_status: ["open", "in_progress", "resolved", "closed", "wont_fix"],
+      sh_cohort_level: ["observer", "co_lead", "lead", "master"],
+      sh_communication_direction: ["inbound", "outbound"],
+      sh_communication_type: ["email", "call", "meeting", "whatsapp", "other"],
+      sh_content_division: [
+        "video",
+        "design",
+        "writing",
+        "animation",
+        "social",
+        "other",
+      ],
+      sh_content_type: [
+        "video",
+        "graphic",
+        "document",
+        "presentation",
+        "animation",
+        "social_media",
+        "other",
+      ],
+      sh_deliverable_status: [
+        "pending",
+        "in_progress",
+        "review",
+        "revision",
+        "approved",
+        "delivered",
+      ],
+      sh_deployment_env: ["development", "staging", "production"],
+      sh_journal_type: ["scopus", "wos", "ugc", "other"],
+      sh_mou_status: [
+        "draft",
+        "pending_signatures",
+        "active",
+        "expired",
+        "terminated",
+      ],
+      sh_paper_type: [
+        "journal",
+        "conference",
+        "patent",
+        "book_chapter",
+        "case_study",
+      ],
+      sh_partner_status: ["standard", "yi", "alumni", "mou", "referral"],
+      sh_payment_status: [
+        "pending",
+        "processing",
+        "completed",
+        "failed",
+        "refunded",
+      ],
+      sh_payment_type: [
+        "advance",
+        "milestone",
+        "completion",
+        "amc",
+        "mou_signing",
+        "deployment",
+        "acceptance",
+      ],
+      sh_phase_status: [
+        "prospecting",
+        "discovery",
+        "prd_writing",
+        "prototype_building",
+        "client_demo",
+        "revisions",
+        "approved",
+        "deploying",
+        "training",
+        "live",
+        "in_amc",
+        "completed",
+        "on_hold",
+        "cancelled",
+      ],
+      sh_program_type: [
+        "workshop",
+        "bootcamp",
+        "certification",
+        "custom",
+        "faculty_development",
+        "corporate",
+        "academic",
+      ],
+      sh_publication_status: [
+        "draft",
+        "submitted",
+        "under_review",
+        "accepted",
+        "published",
+        "rejected",
+      ],
+      sh_recipient_type: [
+        "builder",
+        "cohort_member",
+        "production_learner",
+        "department",
+        "jicate",
+        "institution",
+        "council",
+        "infrastructure",
+        "referral_bonus",
+      ],
+      sh_session_outcome: [
+        "successful",
+        "needs_followup",
+        "escalated",
+        "cancelled",
+      ],
+      sh_session_status: [
+        "scheduled",
+        "in_progress",
+        "completed",
+        "cancelled",
+        "rescheduled",
+      ],
+      sh_skill_level: ["beginner", "intermediate", "advanced", "expert"],
+      sh_solution_status: [
+        "active",
+        "on_hold",
+        "completed",
+        "cancelled",
+        "in_amc",
+      ],
+      sh_solution_type: ["software", "training", "content"],
+      sh_source_type: [
+        "placement",
+        "alumni",
+        "clinical",
+        "referral",
+        "direct",
+        "yi",
+        "intent",
+      ],
+      sms_delivery_status: [
+        "pending",
+        "queued",
+        "sent",
+        "delivered",
+        "failed",
+        "undelivered",
+        "rejected",
+      ],
+      sms_provider: ["msg91", "twilio"],
       source_type: [
         "organic",
         "paid",
@@ -21121,6 +26543,13 @@ export const Constants = {
         "guest",
         "staff",
         "driver",
+      ],
+      whatsapp_delivery_status: [
+        "pending",
+        "sent",
+        "delivered",
+        "read",
+        "failed",
       ],
       workflow_status: [
         "running",

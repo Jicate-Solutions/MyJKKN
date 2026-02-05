@@ -1,0 +1,142 @@
+# Mobile Responsiveness - Files Requiring Fixes
+# Generated: 2026-02-05
+
+# ============================================================================
+# 🔴 PRIORITY 0 - CRITICAL (Must fix before deployment)
+# ============================================================================
+
+## Fixed Width Modals (4 files)
+app/(routes)/grievance/layout.tsx                                    # w-[600px] modal
+app/(routes)/okr/department/page.tsx                                 # w-[600px] container
+app/(routes)/okr/manage/page.tsx                                     # w-[400px] dialog
+app/(routes)/billing/copq/_components/copq-dashboard.tsx             # w-[300px] cards
+
+## Tables Without Overflow (1+ files)
+app/(routes)/billing/_components/invoice-details-server.tsx          # No overflow-x-auto
+
+## Fixed Width Filters - F001 Stakeholder NPS (8 files)
+app/(routes)/stakeholder-nps/responses/page.tsx                      # w-[250px], w-[300px]
+app/(routes)/stakeholder-nps/surveys/page.tsx                        # w-[200px], w-[250px]
+app/(routes)/stakeholder-nps/analytics/page.tsx                      # w-[180px], w-[200px]
+app/(routes)/stakeholder-nps/feedback/page.tsx                       # w-[200px]
+app/(routes)/stakeholder-nps/_components/survey-filters.tsx          # w-[140px], w-[180px]
+app/(routes)/stakeholder-nps/_components/survey-list.tsx             # w-[50px]
+app/(routes)/stakeholder-nps/_components/response-filters.tsx        # w-[200px]
+
+## Fixed Width Filters - F002 Process Excellence (5 files)
+app/(routes)/process-excellence/definitions/page.tsx                 # w-[180px]
+app/(routes)/process-excellence/instances/page.tsx                   # w-[150px], w-[200px]
+app/(routes)/process-excellence/waste/page.tsx                       # w-[150px], w-[180px]
+app/(routes)/process-excellence/metrics/page.tsx                     # w-[200px]
+app/(routes)/process-excellence/audits/page.tsx                      # w-[150px]
+
+## Fixed Width Filters - F004 Grievance (5 files)
+app/(routes)/grievance/_components/tickets-filters.tsx               # w-[130px], w-[150px], w-[200px]
+app/(routes)/grievance/_components/tickets-table.tsx                 # w-[50px]-[300px] range
+app/(routes)/grievance/_components/ticket-detail.tsx                 # w-[200px]
+app/(routes)/grievance/_components/ticket-list.tsx                   # w-[140px], w-[160px]
+app/(routes)/grievance/analytics/grievance-analytics-client.tsx      # w-[180px]
+app/(routes)/grievance/compliance/page.tsx                           # w-[140px]
+
+# ============================================================================
+# ⚠️ PRIORITY 1 - HIGH (Fix within 1 week)
+# ============================================================================
+
+## Fixed Width Filters - F006 OKR (8 files)
+app/(routes)/okr/department/page.tsx                                 # w-[100px], w-[150px], w-[200px]
+app/(routes)/okr/team/page.tsx                                       # w-[100px]-[250px] range
+app/(routes)/okr/_components/metric-picker.tsx                       # w-[150px], w-[500px]
+app/(routes)/okr/manage/page.tsx                                     # w-[100px]-[400px] range
+app/(routes)/okr/analytics/page.tsx                                  # w-[200px]
+
+## Fixed Width Filters - F007 Billing COPQ (10 files)
+app/(routes)/billing/copq/page.tsx                                   # w-[120px], w-[250px]
+app/(routes)/billing/copq/_components/copq-trend-chart.tsx           # w-[60px]
+app/(routes)/billing/_components/billing-schedule-filters.tsx        # w-[140px], w-[180px], w-[200px]
+app/(routes)/billing/_components/student-bill-form.tsx               # w-[200px]
+app/(routes)/billing/_components/row-actions.tsx                     # w-[200px]
+app/(routes)/billing/invoices/_components/invoices-pagination-client.tsx  # w-[70px]
+app/(routes)/billing/receipts/_components/receipts-pagination-client.tsx  # w-[70px]
+app/(routes)/billing/refunds/_components/refunds-pagination-client.tsx    # w-[70px]
+app/(routes)/billing/categories/_components/item-category-list.tsx   # w-[100px]
+app/(routes)/billing/schedule/[id]/page.tsx                          # w-[500px]
+
+## Fixed Width Filters - F003 Parent Portal (1 file)
+app/(routes)/parent-portal/communication/communication-client.tsx    # w-[120px], w-[150px]
+
+## Touch Targets - All Modules
+# Search for: w-\[50px\] and add min-w-[44px] min-h-[44px]
+
+# ============================================================================
+# 📘 PRIORITY 2 - MEDIUM (Fix within 2 weeks)
+# ============================================================================
+
+## Missing Responsive Breakpoints
+app/(routes)/parent-portal/page.tsx                                  # Add sm:/md:/lg: classes
+app/(routes)/grievance/**/*.tsx                                      # Add md:/lg: classes
+
+## Chart Components (Test at 375px)
+app/(routes)/stakeholder-nps/_components/nps-trend-chart.tsx
+app/(routes)/process-excellence/_components/timwood-breakdown.tsx
+app/(routes)/maturity-assessment/_components/maturity-radar.tsx
+app/(routes)/okr/abcd/_components/abcd-matrix.tsx
+app/(routes)/billing/copq/_components/copq-iceberg.tsx
+
+# ============================================================================
+# 🔍 FILES TO AUDIT (Check for tables without overflow)
+# ============================================================================
+
+# Run this command to find potential issues:
+# find app/(routes)/{stakeholder-nps,process-excellence,parent-portal,grievance,maturity-assessment,okr,billing} -name "*.tsx" -exec grep -l "<Table" {} \; | while read f; do grep -q "overflow-x-auto" "$f" || echo "$f"; done
+
+app/(routes)/stakeholder-nps/_components/*table*.tsx
+app/(routes)/process-excellence/_components/*table*.tsx
+app/(routes)/grievance/_components/*table*.tsx
+app/(routes)/okr/_components/*table*.tsx
+app/(routes)/billing/_components/*table*.tsx
+
+# ============================================================================
+# 📊 STATISTICS
+# ============================================================================
+
+# Total files requiring fixes:
+#   P0 Critical: ~25 files
+#   P1 High: ~30 files
+#   P2 Medium: ~10 files
+#   Total: ~65 files
+
+# Estimated fix time per priority:
+#   P0: 8-12 hours (1-2 days)
+#   P1: 8-10 hours (1-2 days)
+#   P2: 4-6 hours (1 day)
+#   Total: 20-28 hours (4-5 days)
+
+# ============================================================================
+# 🚀 BATCH FIX COMMANDS
+# ============================================================================
+
+# Fix all w-[600px] modals
+find app/(routes) -name "*.tsx" -exec sed -i '' 's/className="w-\[600px\]"/className="w-full max-w-[calc(100vw-2rem)] sm:max-w-md lg:max-w-lg"/g' {} +
+
+# Fix all w-[400px] dialogs
+find app/(routes) -name "*.tsx" -exec sed -i '' 's/className="w-\[400px\]"/className="w-full max-w-sm sm:max-w-md"/g' {} +
+
+# Fix filter widths in *-filters.tsx files
+find app/(routes) -name "*-filters.tsx" -exec sed -i '' 's/<Select className="w-\[\([0-9]*\)px\]"/<Select className="w-full sm:w-[\1px]"/g' {} +
+
+# Add overflow to tables (requires manual verification)
+# Grep for tables without overflow-x-auto and review each file
+
+# ============================================================================
+# 📝 NOTES
+# ============================================================================
+
+# 1. Always test changes in mobile viewport (375px) before committing
+# 2. Use Chrome DevTools Device Mode for testing
+# 3. Check touch target sizes with browser inspector
+# 4. Verify no horizontal scroll at any breakpoint
+# 5. Test all interactive elements (dropdowns, modals, tables)
+
+# ============================================================================
+# END OF FILE
+# ============================================================================

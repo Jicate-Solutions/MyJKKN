@@ -436,8 +436,8 @@ export class PaymentsService extends BaseService {
 
     if (error) throw new Error(`Failed to create payment: ${error.message}`);
 
-    // Auto-calculate splits if payment is received
-    if (input.status === 'received') {
+    // Auto-calculate splits if payment is completed
+    if (input.status === 'completed') {
       await this.calculateAndDistributeSplits(data.id);
     }
 
@@ -465,10 +465,10 @@ export class PaymentsService extends BaseService {
 
     if (error) throw new Error(`Failed to update payment: ${error.message}`);
 
-    // Auto-calculate splits when status changes to 'received'
+    // Auto-calculate splits when status changes to 'completed'
     if (
-      input.status === 'received' &&
-      currentPayment?.status !== 'received' &&
+      input.status === 'completed' &&
+      currentPayment?.status !== 'completed' &&
       !currentPayment?.split_calculated
     ) {
       await this.calculateAndDistributeSplits(id);
@@ -509,8 +509,8 @@ export class PaymentsService extends BaseService {
       total_payments: result.data.length,
       total_amount: result.data.reduce((sum, p) => sum + Number(p.amount), 0),
       pending_count: result.data.filter((p) => p.status === 'pending').length,
-      received_count: result.data.filter((p) => p.status === 'received').length,
-      overdue_count: result.data.filter((p) => p.status === 'overdue').length,
+      received_count: result.data.filter((p) => p.status === 'completed').length,
+      overdue_count: result.data.filter((p) => p.status === 'failed').length,
       payments: result.data,
     };
   }
@@ -539,10 +539,10 @@ export class PaymentsService extends BaseService {
       this_month_pending: 0,
       by_status: {
         pending: 0,
-        invoiced: 0,
-        received: 0,
-        overdue: 0,
+        processing: 0,
+        completed: 0,
         failed: 0,
+        refunded: 0,
       } as Record<PaymentStatus, number>,
     };
 
@@ -553,10 +553,10 @@ export class PaymentsService extends BaseService {
 
       stats.by_status[payment.status as PaymentStatus] += amount;
 
-      if (payment.status === 'received') {
+      if (payment.status === 'completed') {
         stats.total_received += amount;
         if (isThisMonth) stats.this_month_received += amount;
-      } else if (payment.status === 'pending' || payment.status === 'invoiced') {
+      } else if (payment.status === 'pending' || payment.status === 'processing') {
         stats.total_pending += amount;
         if (isThisMonth) stats.this_month_pending += amount;
       }
@@ -690,8 +690,8 @@ export class PaymentsService extends BaseService {
       return { success: false, splits: [], error: 'Splits already calculated' };
     }
 
-    if (payment.status !== 'received') {
-      return { success: false, splits: [], error: 'Payment must be received' };
+    if (payment.status !== 'completed') {
+      return { success: false, splits: [], error: 'Payment must be completed' };
     }
 
     // Determine split type
@@ -779,7 +779,7 @@ export class PaymentsService extends BaseService {
   }
 
   /**
-   * Process all unprocessed received payments
+   * Process all unprocessed completed payments
    */
   static async processAllPendingSplits(): Promise<{
     processed: number;
@@ -788,7 +788,7 @@ export class PaymentsService extends BaseService {
   }> {
     const { data: payments, error } = await (this.supabase as any).from('sh_payments')
       .select('id')
-      .eq('status', 'received')
+      .eq('status', 'completed')
       .eq('split_calculated', false);
 
     if (error) {

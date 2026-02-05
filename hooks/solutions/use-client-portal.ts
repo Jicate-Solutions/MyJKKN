@@ -176,9 +176,9 @@ export function useClientDashboardStats(clientId: string) {
           .in('solution_id', solutionIds);
 
         (payments || []).forEach((p: Payment) => {
-          if (p.status === 'received') {
+          if (p.status === 'completed') {
             totalPaid += p.amount;
-          } else if (['pending', 'invoiced', 'overdue'].includes(p.status)) {
+          } else if (['pending', 'processing'].includes(p.status)) {
             totalOutstanding += p.amount;
             pendingPayments++;
           }
@@ -463,9 +463,9 @@ export function useClientPaymentSummary(clientId: string) {
 
       (payments || []).forEach((p: Payment) => {
         total += p.amount;
-        if (p.status === 'received') {
+        if (p.status === 'completed') {
           paid += p.amount;
-        } else if (p.status === 'overdue') {
+        } else if (p.status === 'failed') {
           overdue += p.amount;
         } else {
           pending += p.amount;
