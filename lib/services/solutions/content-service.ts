@@ -319,11 +319,15 @@ export class ContentService extends BaseService {
       } as Record<ContentOrderType, number>,
     };
 
+    // Valid enum values for safe counting
+    const validDivisions: ContentDivision[] = ['video', 'design', 'writing', 'animation', 'social', 'other'];
+    const validOrderTypes: ContentOrderType[] = ['video', 'graphic', 'document', 'presentation', 'animation', 'social_media', 'other'];
+
     data?.forEach((order) => {
-      if (order.division) {
+      if (order.division && validDivisions.includes(order.division as ContentDivision)) {
         stats.byDivision[order.division as ContentDivision]++;
       }
-      if (order.order_type) {
+      if (order.order_type && validOrderTypes.includes(order.order_type as ContentOrderType)) {
         stats.byType[order.order_type as ContentOrderType]++;
       }
     });
@@ -378,21 +382,26 @@ export class ContentService extends BaseService {
     if (error) throw new Error(`Failed to fetch deliverables: ${error.message}`);
 
     // Filter by assigned learner if specified (post-query)
+    // NOTE: This is a workaround - ideally this filter should be in the query
     let result = data || [];
+    let filteredTotal = count || 0;
+
     if (filters?.assigned_learner_id) {
       result = result.filter((d) =>
         d.assignments?.some((a: { learner_id: string }) => a.learner_id === filters.assigned_learner_id)
       );
+      // When post-filtering, we can only report the filtered count for this page
+      // The total becomes inaccurate - this is a known limitation of post-query filtering
+      filteredTotal = result.length;
     }
 
-    const total = count || 0;
     return {
       data: result as ContentDeliverableWithDetails[],
       metadata: {
-        total,
+        total: filteredTotal,
         page,
         limit,
-        totalPages: total > 0 ? Math.ceil(total / limit) : 0,
+        totalPages: filteredTotal > 0 ? Math.ceil(filteredTotal / limit) : 0,
       },
     };
   }
@@ -599,12 +608,16 @@ export class ContentService extends BaseService {
         revision: 0,
         approved: 0,
         delivered: 0,
+        rejected: 0,
       } as Record<DeliverableStatus, number>,
       flaggedForMD: 0,
     };
 
+    // Valid status values for safe counting
+    const validStatuses: DeliverableStatus[] = ['pending', 'in_progress', 'review', 'revision', 'approved', 'delivered', 'rejected'];
+
     data?.forEach((deliverable) => {
-      if (deliverable.status) {
+      if (deliverable.status && validStatuses.includes(deliverable.status as DeliverableStatus)) {
         stats.byStatus[deliverable.status as DeliverableStatus]++;
       }
       if (shouldFlagToMD(deliverable.revision_count)) {

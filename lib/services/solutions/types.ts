@@ -60,7 +60,7 @@ export type ContentOrderType = 'video' | 'graphic' | 'document' | 'presentation'
 
 export type SkillLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert';
 
-export type DeliverableStatus = 'pending' | 'in_progress' | 'review' | 'revision' | 'approved' | 'delivered';
+export type DeliverableStatus = 'pending' | 'in_progress' | 'review' | 'revision' | 'approved' | 'delivered' | 'rejected';
 
 export type ProgramType =
   | 'workshop'

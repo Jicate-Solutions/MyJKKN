@@ -4122,6 +4122,21 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON FUNCTION sh_user_institution_id IS
 'Returns the institution_id of the current authenticated user.';
 
+-- Check if user is a staff member
+CREATE OR REPLACE FUNCTION public.sh_is_staff()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM profiles
+        WHERE id = auth.uid()
+        AND role IN ('staff', 'faculty', 'teaching_staff', 'non_teaching_staff')
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION sh_is_staff IS
+'Checks if current user is a staff member (any staff-related role).';
+
 -- Check if user is a builder
 CREATE OR REPLACE FUNCTION public.sh_is_builder()
 RETURNS BOOLEAN AS $$

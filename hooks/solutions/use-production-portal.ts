@@ -13,6 +13,7 @@ import {
   productionService,
   contentService,
   type ContentDivision,
+  type ProductionLearner,
   type ProductionLearnerFilters,
   type CreateProductionLearnerInput,
   type UpdateProductionLearnerInput,
@@ -158,13 +159,14 @@ export function useAvailableWork(
         return productionService.getAvailableDeliverablesForDivision(division);
       }
       // If no division specified, get available work across all divisions
+      // ContentDivision: 'video' | 'design' | 'writing' | 'animation' | 'social' | 'other'
       return Promise.all([
         productionService.getAvailableDeliverablesForDivision('video'),
-        productionService.getAvailableDeliverablesForDivision('graphics'),
-        productionService.getAvailableDeliverablesForDivision('content'),
-        productionService.getAvailableDeliverablesForDivision('education'),
-        productionService.getAvailableDeliverablesForDivision('translation'),
-        productionService.getAvailableDeliverablesForDivision('research'),
+        productionService.getAvailableDeliverablesForDivision('design'),
+        productionService.getAvailableDeliverablesForDivision('writing'),
+        productionService.getAvailableDeliverablesForDivision('animation'),
+        productionService.getAvailableDeliverablesForDivision('social'),
+        productionService.getAvailableDeliverablesForDivision('other'),
       ]).then((results) => results.flat());
     },
     enabled: !!learnerId,
@@ -375,10 +377,12 @@ export function useUpdateProductionLearner() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateProductionLearnerInput }) =>
       productionService.updateLearner(id, input),
-    onSuccess: (data: { id?: string }) => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
-      if (data?.id) {
-        queryClient.setQueryData(solutionsHubKeys.productionLearners.detail(data.id), data);
+      // data is ProductionLearner from updateLearner - id is always present
+      const learner = data as ProductionLearner | null;
+      if (learner?.id) {
+        queryClient.setQueryData(solutionsHubKeys.productionLearners.detail(learner.id), learner);
       }
     },
   });

@@ -2,7 +2,7 @@
 
 > **What:** AI-Agentic ERP platform for JKKN Institutions
 > **Philosophy:** "Humans as Principals, AI as Agents"
-> **Source of Truth:** [JKKN Institutions Process Map](/Users/omm/Vaults/JKKNKB/JICATE-Solutions/JKKN-Institutions-Process-Map.md)
+> **Source of Truth:** See `JKKN-Institutions-Process-Map.md` in JKKNKB vault
 
 ---
 
@@ -28,6 +28,8 @@ MyJKKN is the software implementation of JKKN's institutional processes. It serv
 
 ## Module → Process Map Reference
 
+### Core Modules
+
 | MyJKKN Module | Process Map Section | What It Implements |
 |---------------|--------------------|--------------------|
 | `/admission` | Section 8.2 (Admissions) | Lead to enrollment pipeline |
@@ -36,11 +38,43 @@ MyJKKN is the software implementation of JKKN's institutional processes. It serv
 | `/staff` | Section 9 (Cross-Institution) | Faculty management, allocations |
 | `/billing` | Section 8.2 (Finance) | Fees, invoices, receipts, refunds |
 | `/grievance` | Section 3.2 (Learners Council) | Issue tracking, resolution workflows |
+
+### Strategic & Quality Modules
+
+| MyJKKN Module | Process Map Section | What It Implements |
+|---------------|--------------------|--------------------|
 | `/okr` | Section 10 (JKKN100) | Objectives, key results, institutional goals |
 | `/process-excellence` | Section 10 (Quality Framework) | TQM, audits, continuous improvement |
+| `/maturity-assessment` | Section 10 (JKKN100) | Capability maturity evaluation |
+| `/stakeholder-nps` | Section 10.3 (Feedback Ecosystem) | Stakeholder satisfaction tracking |
+
+### Solutions & Innovation Modules
+
+| MyJKKN Module | Process Map Section | What It Implements |
+|---------------|--------------------|--------------------|
 | `/solutions` | Section 4 (AI Production House) | JKKN Solution Studio offerings |
-| `/portal` | Section 3 (Learners Council) | Learner self-service |
+| `/consultant-portal` | Section 7 (NIF) | External consultant access |
+| `/industry` | Section 7.2 (Bioconvergence) | Industry partnership management |
+| `/talent` | Section 4.3 (AI Production House) | Learner talent marketplace |
+
+### Portal & Self-Service Modules
+
+| MyJKKN Module | Process Map Section | What It Implements |
+|---------------|--------------------|--------------------|
+| `/portal/client` | Section 3 (Learners Council) | Learner self-service portal |
 | `/parent-portal` | Section 8.4 (Integration) | Parent visibility into learner progress |
+| `/application-hub` | Section 8.2 (Applications) | Centralized application management |
+
+### Support Modules
+
+| MyJKKN Module | Purpose |
+|---------------|---------|
+| `/competency-catalog` | Skills and competency framework |
+| `/vac` | Value-Added Courses management |
+| `/audit-trail` | System activity logging |
+| `/notifications` | Communication center |
+| `/users` | User management |
+| `/organizations` | Institution hierarchy management |
 
 ---
 
@@ -76,9 +110,12 @@ MyJKKN is the software implementation of JKKN's institutional processes. It serv
 
 ## Related Documentation
 
-- **Technical Setup:** See `CLAUDE.md` in project root
-- **Institutional Context:** [JKKN Process Map](file:///Users/omm/Vaults/JKKNKB/JICATE-Solutions/JKKN-Institutions-Process-Map.md)
-- **Module-Specific:** See `docs/modules/` for individual module documentation
+| Document | Location |
+|----------|----------|
+| **Technical Setup** | `CLAUDE.md` (project root) |
+| **Institutional Context** | `~/Vaults/JKKNKB/JICATE-Solutions/JKKN-Institutions-Process-Map.md` |
+| **TQM Specs** | `docs/MyJKKN-TQM-Specs/` |
+| **Security Audit** | `docs/security/` |
 
 ---
 
