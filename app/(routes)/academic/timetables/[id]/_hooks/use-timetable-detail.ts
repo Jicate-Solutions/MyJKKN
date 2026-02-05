@@ -159,23 +159,35 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
       // Update selected days/dates based on format
       if (timetableData.timetable_format === 'batch') {
         // Batch mode: Load selected dates
-        if (preserveUnsavedDates && currentSelectedDates.length > 0) {
+        // FIX: 2026-02-05 - Preserve unsaved dates even if empty (user may have deleted all ranges)
+        if (preserveUnsavedDates) {
+          // When preserving unsaved dates, use current state (even if empty)
+          // This allows users to delete all date ranges
+          console.log('[DEBUG FETCH] Preserving unsaved dates:', currentSelectedDates);
           setSelectedDates(currentSelectedDates);
         } else if (
           timetableData.selected_dates &&
-          Array.isArray(timetableData.selected_dates) &&
-          timetableData.selected_dates.length > 0 // Fixed: 2025-12-04 - Check length to trigger auto-recovery
+          Array.isArray(timetableData.selected_dates)
         ) {
+          // Use database value (even if empty - user may have intentionally cleared all dates)
+          console.log('[DEBUG FETCH] Using database selected_dates:', timetableData.selected_dates);
           setSelectedDates(timetableData.selected_dates);
-        } else {
-          // AUTO-RECOVERY: Extract dates from timetable_data keys when selected_dates is empty
-          // Fixed: 2025-12-04 - This fixes batch mode showing "No dates selected" when data exists
+        } else if (timetableData.selected_dates === null || timetableData.selected_dates === undefined) {
+          // AUTO-RECOVERY: Only recover if selected_dates is null/undefined (not just empty array)
+          // This distinguishes between "no data" (null) and "intentionally empty" ([])
+          // Fixed: 2026-02-05 - Don't auto-recover if selected_dates is explicitly set to []
+          console.log('[DEBUG FETCH] selected_dates is null/undefined, attempting auto-recovery');
           const recoveredDates = recoverDatesFromTimetableData(timetableData.timetable_data);
           if (recoveredDates.length > 0) {
+            console.log('[DEBUG FETCH] Auto-recovered dates:', recoveredDates);
             setSelectedDates(recoveredDates);
           } else {
             setSelectedDates([]);
           }
+        } else {
+          // Fallback: empty array
+          console.log('[DEBUG FETCH] Fallback: setting empty array');
+          setSelectedDates([]);
         }
       } else {
         // Regular mode: Load selected days
