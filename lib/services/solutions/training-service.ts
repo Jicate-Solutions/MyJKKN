@@ -108,13 +108,13 @@ export interface UpdateTrainingSessionInput {
 const TRAINING_SELF_CLAIM_THRESHOLD = 200000; // 2 Lakh
 
 export const PROGRAM_TYPE_LABELS: Record<ProgramType, string> = {
-  assessment: 'Assessment',
-  phase1_champion: 'Phase 1 - Champion Training',
-  phase2_implementation: 'Phase 2 - Implementation',
-  phase3_training: 'Phase 3 - Training',
   workshop: 'Workshop',
-  full_journey: 'Full AI Journey',
-  custom: 'Custom Program',
+  bootcamp: 'Bootcamp',
+  certification: 'Certification',
+  custom: 'Custom',
+  faculty_development: 'Faculty Development',
+  corporate: 'Corporate',
+  academic: 'Academic',
 };
 
 export const TRACK_LABELS: Record<CohortTrack, string> = {

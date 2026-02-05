@@ -179,7 +179,7 @@ export function useAllAvailableWork() {
   return useQuery({
     queryKey: solutionsHubKeys.productionPortal.allAvailableWork(),
     queryFn: async () => {
-      const divisions: ContentDivision[] = ['video', 'graphics', 'content', 'education', 'translation', 'research'];
+      const divisions: ContentDivision[] = ['video', 'design', 'writing', 'animation', 'social', 'other'];
       const results = await Promise.all(
         divisions.map((div) => productionService.getAvailableDeliverablesForDivision(div))
       );

@@ -91,7 +91,8 @@ export interface NIRFMetrics {
   RP: {
     totalPublications: number;
     scopusPublications: number;
-    ugcCarePublications: number;
+    wosPublications: number;
+    ugcPublications: number;
     consultancyProjects: number;
     score: number;
     maxScore: number;
@@ -347,15 +348,16 @@ export class PublicationsService extends BaseService {
     const stats: PublicationStats = {
       total: data?.length || 0,
       byPaperType: {
-        problem: 0,
-        design: 0,
-        technical: 0,
-        data: 0,
-        impact: 0,
+        journal: 0,
+        conference: 0,
+        patent: 0,
+        book_chapter: 0,
+        case_study: 0,
       },
       byJournalType: {
         scopus: 0,
-        ugc_care: 0,
+        wos: 0,
+        ugc: 0,
         other: 0,
       },
       byStatus: {
@@ -419,7 +421,8 @@ export class PublicationsService extends BaseService {
     const rpScore = Math.min(
       100,
       pubStats.byJournalType.scopus * 10 +
-        pubStats.byJournalType.ugc_care * 5 +
+        pubStats.byJournalType.wos * 8 +
+        pubStats.byJournalType.ugc * 5 +
         pubStats.byJournalType.other * 2 +
         consultancyProjects * 3
     );
@@ -428,7 +431,8 @@ export class PublicationsService extends BaseService {
       RP: {
         totalPublications: pubStats.total,
         scopusPublications: pubStats.byJournalType.scopus,
-        ugcCarePublications: pubStats.byJournalType.ugc_care,
+        wosPublications: pubStats.byJournalType.wos,
+        ugcPublications: pubStats.byJournalType.ugc,
         consultancyProjects,
         score: rpScore,
         maxScore: 100,

@@ -251,24 +251,25 @@ export function useNAACCriteria() {
 // ============================================
 
 export const PAPER_TYPE_LABELS: Record<PaperType, string> = {
-  problem: 'Problem Statement',
-  design: 'Design Paper',
-  technical: 'Technical Paper',
-  data: 'Data Paper',
-  impact: 'Impact Study',
+  journal: 'Journal',
+  conference: 'Conference',
+  patent: 'Patent',
+  book_chapter: 'Book Chapter',
+  case_study: 'Case Study',
 };
 
 export const PAPER_TYPE_CONFIG: Record<PaperType, { label: string; color: string }> = {
-  problem: { label: 'Problem Statement', color: 'bg-red-100 text-red-800' },
-  design: { label: 'Design Paper', color: 'bg-blue-100 text-blue-800' },
-  technical: { label: 'Technical Paper', color: 'bg-green-100 text-green-800' },
-  data: { label: 'Data Paper', color: 'bg-purple-100 text-purple-800' },
-  impact: { label: 'Impact Study', color: 'bg-orange-100 text-orange-800' },
+  journal: { label: 'Journal', color: 'bg-blue-100 text-blue-800' },
+  conference: { label: 'Conference', color: 'bg-green-100 text-green-800' },
+  patent: { label: 'Patent', color: 'bg-purple-100 text-purple-800' },
+  book_chapter: { label: 'Book Chapter', color: 'bg-orange-100 text-orange-800' },
+  case_study: { label: 'Case Study', color: 'bg-red-100 text-red-800' },
 };
 
 export const JOURNAL_TYPE_LABELS: Record<JournalType, string> = {
   scopus: 'Scopus',
-  ugc_care: 'UGC-CARE',
+  wos: 'Web of Science',
+  ugc: 'UGC',
   other: 'Other',
 };
 

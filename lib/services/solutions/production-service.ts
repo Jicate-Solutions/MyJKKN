@@ -244,11 +244,11 @@ export class ProductionService extends BaseService {
       total: data?.length || 0,
       byDivision: {
         video: 0,
-        graphics: 0,
-        content: 0,
-        education: 0,
-        translation: 0,
-        research: 0,
+        design: 0,
+        writing: 0,
+        animation: 0,
+        social: 0,
+        other: 0,
       } as Record<ContentDivision, number>,
       bySkillLevel: {
         beginner: 0,
