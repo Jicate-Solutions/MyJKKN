@@ -329,12 +329,6 @@ export default function TimetableDetailPage({
 
     // FIX: 2026-02-05 - Read current values from refs to avoid stale closure
     // This ensures removed date ranges are actually saved to the database
-    console.log('[DEBUG] savePeriodSelections called');
-    console.log('[DEBUG] selectedDates state:', selectedDates);
-    console.log('[DEBUG] selectedDatesRef.current:', selectedDatesRef.current);
-    console.log('[DEBUG] selectedDays state:', selectedDays);
-    console.log('[DEBUG] selectedDaysRef.current:', selectedDaysRef.current);
-
     await savePeriods(
       timetable.id,
       selectedDaysRef.current,
@@ -349,9 +343,7 @@ export default function TimetableDetailPage({
     savePeriods,
     timetableFormat,
     fetchTimetableData,
-    periodSelectorDialog,
-    selectedDates,
-    selectedDays
+    periodSelectorDialog
   ]);
 
   // ===================================
@@ -1040,14 +1032,9 @@ export default function TimetableDetailPage({
   // Solution: Use refs (selectedDatesRef) in savePeriodSelections to always read current state
   const removeDateRange = useCallback(
     (rangeMarker: string) => {
-      console.log('[DEBUG] removeDateRange called with:', rangeMarker);
-      console.log('[DEBUG] Current selectedDates:', selectedDates);
-
       const newSelectedDates = selectedDates.filter(
         (d: string) => d !== rangeMarker
       );
-
-      console.log('[DEBUG] New selectedDates after filter:', newSelectedDates);
       setSelectedDates(newSelectedDates);
 
       const parsed = parseRangeMarker(rangeMarker);

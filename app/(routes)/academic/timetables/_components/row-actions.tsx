@@ -3,7 +3,9 @@
 import { Row } from '@tanstack/react-table';
 import Link from 'next/link';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { MoreHorizontal, Edit, Trash2, Eye, Copy } from 'lucide-react';
+import { revalidateTimetables } from '../_actions/revalidate-timetables';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -36,6 +38,7 @@ export function DataTableRowActions<TData>({
   row
 }: DataTableRowActionsProps<TData>) {
   const timetable = row.original as Timetable;
+  const router = useRouter();
   const { toast } = useToast();
   const { canAccess, isSuperAdmin } = usePermissions();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -104,13 +107,23 @@ export function DataTableRowActions<TData>({
 
     setIsDeleting(true);
     try {
+      // Delete the timetable from database
       await TimetableService.deleteTimetable(timetable.id);
+
+      // FIX: 2026-02-05 - Properly invalidate Next.js cache using server action
+      // This ensures deleted timetables don't appear in the list anymore
+      await revalidateTimetables();
+
       toast({
         title: 'Timetable deleted',
         description: `Timetable "${timetable.timetable_name}" has been deleted successfully.`
       });
-      // Refresh the page to update the data table
-      window.location.reload();
+
+      setDeleteDialogOpen(false);
+      setIsDeleting(false);
+
+      // Refresh the router to update the UI with fresh data
+      router.refresh();
     } catch (error) {
       logger.error('academic/timetables', 'Error deleting timetable', error);
 
@@ -125,7 +138,7 @@ export function DataTableRowActions<TData>({
           : 'Failed to delete timetable. Please try again.',
         variant: 'destructive'
       });
-    } finally {
+
       setIsDeleting(false);
       setDeleteDialogOpen(false);
     }
