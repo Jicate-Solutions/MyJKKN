@@ -55,12 +55,13 @@ export default function ClientInvoicesPage() {
   const [activeTab, setActiveTab] = useState('all');
 
   const { data: client, isLoading: clientLoading, error: clientError } = useCurrentClient();
-  const clientId = client?.id || '';
+  const clientId = client?.id;
 
-  const { data: payments, isLoading: paymentsLoading } = useClientPayments(clientId);
-  const { data: summary, isLoading: summaryLoading } = useClientPaymentSummary(clientId);
+  const { data: payments, isLoading: paymentsLoading } = useClientPayments(clientId ?? '');
+  const { data: summary, isLoading: summaryLoading } = useClientPaymentSummary(clientId ?? '');
 
-  const isLoading = clientLoading || paymentsLoading || summaryLoading;
+  // Only consider other queries loading if we have a client
+  const isLoading = clientLoading || (!!clientId && (paymentsLoading || summaryLoading));
   const paymentsList = useMemo(() => payments || [], [payments]);
 
   // Filter payments by tab

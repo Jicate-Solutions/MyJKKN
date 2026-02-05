@@ -18,7 +18,6 @@ export default function SubmitWorkPage({ params }: { params: Promise<{ id: strin
   const { id: deliverableId } = use(params);
   const router = useRouter();
   const [fileUrl, setFileUrl] = useState('');
-  const [submissionNotes, setSubmissionNotes] = useState('');
 
   const { profile, isLoading: authLoading } = useAuth();
 
@@ -205,17 +204,6 @@ export default function SubmitWorkPage({ params }: { params: Promise<{ id: strin
               <p className="text-xs text-muted-foreground">
                 Share a link to your file (ensure sharing permissions are set)
               </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes (Optional)</Label>
-              <Textarea
-                id="notes"
-                placeholder="Any notes about your submission..."
-                value={submissionNotes}
-                onChange={(e) => setSubmissionNotes(e.target.value)}
-                rows={3}
-              />
             </div>
 
             <div className="flex gap-4">

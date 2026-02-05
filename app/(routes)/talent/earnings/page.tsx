@@ -45,7 +45,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { useAuth } from '@/hooks/use-auth-provider';
+import { useAuth } from '@/hooks/use-auth';
 import {
   useUnifiedEarnings,
   useEarningsSummary,

@@ -88,7 +88,7 @@ export function usePayment(id: string) {
  */
 export function usePaymentsBySolution(solutionId: string) {
   return useQuery({
-    queryKey: ['solutions-hub', 'payments', 'solution', solutionId],
+    queryKey: [...solutionsHubKeys.payments.all, 'solution', solutionId],
     queryFn: () => paymentsService.getPaymentsBySolution(solutionId),
     enabled: !!solutionId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
@@ -118,12 +118,15 @@ export function useMonthlyBatch(month: number, year: number) {
   });
 }
 
+// Query key for revenue split models (used by multiple hooks)
+const revenueSplitModelsKey = [...solutionsHubKeys.payments.all, 'split-models'] as const;
+
 /**
  * Fetch all revenue split models
  */
 export function useRevenueSplitModels() {
   return useQuery({
-    queryKey: ['solutions-hub', 'revenue-split-models'],
+    queryKey: revenueSplitModelsKey,
     queryFn: () => paymentsService.getAllSplitModels(),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -251,8 +254,10 @@ export function useUpdateSplitModel() {
     }) => paymentsService.updateSplitModel(id, splitConfig),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ['solutions-hub', 'revenue-split-models'],
+        queryKey: revenueSplitModelsKey,
       });
+      // Also invalidate earnings since split models affect calculations
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
     },
   });
 }

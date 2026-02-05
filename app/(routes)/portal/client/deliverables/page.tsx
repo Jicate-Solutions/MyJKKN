@@ -53,14 +53,15 @@ export default function ClientDeliverablesPage() {
   const [revisionNotes, setRevisionNotes] = useState('');
 
   const { data: client, isLoading: clientLoading, error: clientError } = useCurrentClient();
-  const clientId = client?.id || '';
+  const clientId = client?.id;
 
-  const { data: deliverables, isLoading: deliverablesLoading, refetch } = useClientDeliverables(clientId);
+  const { data: deliverables, isLoading: deliverablesLoading, refetch } = useClientDeliverables(clientId ?? '');
 
   const approveMutation = useApproveClientDeliverable();
   const revisionMutation = useRequestClientDeliverableRevision();
 
-  const isLoading = clientLoading || deliverablesLoading;
+  // Only consider deliverables loading if we have a client
+  const isLoading = clientLoading || (!!clientId && deliverablesLoading);
   const actionLoading = approveMutation.isPending || revisionMutation.isPending;
   const deliverablesList = useMemo(() => deliverables || [], [deliverables]);
 
@@ -156,6 +157,23 @@ export default function ClientDeliverablesPage() {
             <Skeleton key={i} className="h-40" />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  // No client found state
+  if (!client) {
+    return (
+      <div className="flex items-center justify-center h-[50vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <FileCheck className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+            <h2 className="text-lg font-semibold mb-2">No Client Profile Found</h2>
+            <p className="text-muted-foreground">
+              Your account is not linked to a client profile. Please contact support.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }

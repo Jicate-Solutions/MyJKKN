@@ -41,11 +41,10 @@ function formatDateTime(dateStr: string | null): string {
   });
 }
 
-type CohortRole = 'observer' | 'support' | 'co_lead' | 'lead';
+type CohortRole = 'observer' | 'co_lead' | 'lead';
 
 const ROLE_LABELS: Record<CohortRole, string> = {
   observer: 'Observer - Watch and learn',
-  support: 'Support - Assist the lead',
   co_lead: 'Co-Lead - Lead with supervision',
   lead: 'Lead - Full session leadership',
 };
@@ -76,7 +75,7 @@ export default function AvailableSessionsPage() {
   const isLoading = authLoading || profileLoading || sessionsLoading;
 
   const getEligibleRoles = (level: number): CohortRole[] => {
-    const roles: CohortRole[] = ['observer', 'support'];
+    const roles: CohortRole[] = ['observer'];
     if (level >= 1) roles.push('co_lead');
     if (level >= 2) roles.push('lead');
     return roles;

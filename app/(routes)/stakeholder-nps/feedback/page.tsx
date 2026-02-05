@@ -1,11 +1,13 @@
-import { Metadata } from 'next';
-import { redirect } from 'next/navigation';
+'use client';
+
+import { useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { getEnhancedUserProfile } from '@/lib/supabase/server';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   MessageSquare,
   ThumbsUp,
@@ -15,84 +17,65 @@ import {
   Download
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useQuery } from '@tanstack/react-query';
+import { NPSService } from '@/lib/services/stakeholder-nps/nps-service';
+import type { NPSResponse, NPSSegment } from '@/types/stakeholder-nps';
 
-export const metadata: Metadata = {
-  title: 'Feedback | Stakeholder NPS',
-  description: 'View detailed feedback from NPS surveys',
-};
+export default function StakeholderFeedbackPage() {
+  const { selectedInstitutionId: institutionId } = useUserInstitutionAccess();
+  const [selectedSurveyId, setSelectedSurveyId] = useState<string | null>(null);
+  const [selectedSegment, setSelectedSegment] = useState<NPSSegment | 'all'>('all');
 
-export default async function StakeholderFeedbackPage() {
-  const { profile } = await getEnhancedUserProfile();
+  // Fetch available surveys
+  const { data: surveysData, isLoading: surveysLoading } = useQuery({
+    queryKey: ['nps-surveys', institutionId],
+    queryFn: () => NPSService.getSurveys({
+      institution_id: institutionId!,
+      status: ['active', 'closed'],
+      limit: 100
+    }),
+    enabled: !!institutionId,
+    staleTime: 1000 * 60 * 5
+  });
 
-  if (!profile?.institution_id) {
-    redirect('/');
+  // Fetch responses for selected survey
+  const { data: responsesData, isLoading: responsesLoading } = useQuery({
+    queryKey: ['nps-responses', selectedSurveyId],
+    queryFn: () => NPSService.getResponses({
+      survey_id: selectedSurveyId!,
+      has_feedback: true,
+      limit: 100
+    }),
+    enabled: !!selectedSurveyId,
+    staleTime: 1000 * 60 * 2
+  });
+
+  const surveys = surveysData?.data || [];
+  const responses = responsesData?.data || [];
+
+  // Filter responses by segment
+  const filteredResponses = useMemo(() => {
+    if (selectedSegment === 'all') return responses;
+    return responses.filter(r => r.sentiment === selectedSegment);
+  }, [responses, selectedSegment]);
+
+  // Calculate stats
+  const stats = useMemo(() => {
+    const total = responses.length;
+    const promoters = responses.filter(r => r.sentiment === 'promoter').length;
+    const passives = responses.filter(r => r.sentiment === 'passive').length;
+    const detractors = responses.filter(r => r.sentiment === 'detractor').length;
+
+    return { total, promoters, passives, detractors };
+  }, [responses]);
+
+  // Auto-select first survey if none selected
+  if (surveys.length > 0 && !selectedSurveyId && !surveysLoading) {
+    setSelectedSurveyId(surveys[0].id);
   }
 
-  // Placeholder feedback data
-  const feedbackItems = [
-    {
-      id: '1',
-      survey: 'Student Satisfaction Survey',
-      respondent: 'Anonymous',
-      segment: 'Students',
-      score: 9,
-      category: 'promoter',
-      feedback: 'The new online portal is excellent! Makes everything so much easier.',
-      date: '2026-02-04',
-    },
-    {
-      id: '2',
-      survey: 'Parent Feedback Survey',
-      respondent: 'Anonymous',
-      segment: 'Parents',
-      score: 7,
-      category: 'passive',
-      feedback: 'Communication has improved but would like more frequent updates on academics.',
-      date: '2026-02-03',
-    },
-    {
-      id: '3',
-      survey: 'Faculty Engagement Survey',
-      respondent: 'Dr. Kumar',
-      segment: 'Faculty',
-      score: 4,
-      category: 'detractor',
-      feedback: 'Workload has increased significantly without adequate support.',
-      date: '2026-02-02',
-    },
-    {
-      id: '4',
-      survey: 'Student Satisfaction Survey',
-      respondent: 'Anonymous',
-      segment: 'Students',
-      score: 10,
-      category: 'promoter',
-      feedback: 'Best institution! The faculty and facilities are top-notch.',
-      date: '2026-02-01',
-    },
-    {
-      id: '5',
-      survey: 'Alumni Survey',
-      respondent: 'Rajesh M.',
-      segment: 'Alumni',
-      score: 8,
-      category: 'passive',
-      feedback: 'Good memories. Would love more alumni engagement programs.',
-      date: '2026-01-30',
-    },
-    {
-      id: '6',
-      survey: 'Industry Partner Survey',
-      respondent: 'XYZ Corp HR',
-      segment: 'Industry',
-      score: 9,
-      category: 'promoter',
-      feedback: 'Students are well-prepared. Placement support is excellent.',
-      date: '2026-01-28',
-    },
-  ];
-
-  const getCategoryIcon = (category: string) => {
+  const getCategoryIcon = (category: NPSSegment) => {
     switch (category) {
       case 'promoter':
         return <ThumbsUp className="h-4 w-4 text-green-500" />;
@@ -103,7 +86,7 @@ export default async function StakeholderFeedbackPage() {
     }
   };
 
-  const getCategoryBadge = (category: string) => {
+  const getCategoryBadge = (category: NPSSegment) => {
     switch (category) {
       case 'promoter':
         return <Badge className="bg-green-100 text-green-700">Promoter</Badge>;
@@ -112,6 +95,26 @@ export default async function StakeholderFeedbackPage() {
       default:
         return <Badge className="bg-yellow-100 text-yellow-700">Passive</Badge>;
     }
+  };
+
+  const getScoreColor = (score: number) => {
+    if (score >= 9) return 'text-green-600';
+    if (score >= 7) return 'text-yellow-600';
+    return 'text-red-600';
+  };
+
+  const getStakeholderTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      student: 'Students',
+      learner: 'Learners',
+      parent: 'Parents',
+      staff: 'Staff',
+      alumni: 'Alumni',
+      industry: 'Industry Partners',
+      employer: 'Employers',
+      community: 'Community'
+    };
+    return labels[type] || type;
   };
 
   return (
@@ -133,108 +136,200 @@ export default async function StakeholderFeedbackPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline">
+            <Button variant="outline" disabled>
               <Filter className="mr-2 h-4 w-4" />
               Filter
             </Button>
-            <Button variant="outline">
+            <Button variant="outline" disabled>
               <Download className="mr-2 h-4 w-4" />
               Export
             </Button>
           </div>
         </div>
 
-        {/* Summary Stats */}
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Responses</CardTitle>
-              <MessageSquare className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{feedbackItems.length}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Promoters</CardTitle>
-              <ThumbsUp className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">
-                {feedbackItems.filter(f => f.category === 'promoter').length}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Passives</CardTitle>
-              <Meh className="h-4 w-4 text-yellow-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-yellow-600">
-                {feedbackItems.filter(f => f.category === 'passive').length}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Detractors</CardTitle>
-              <ThumbsDown className="h-4 w-4 text-red-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600">
-                {feedbackItems.filter(f => f.category === 'detractor').length}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Feedback List */}
+        {/* Survey Selection */}
         <Card>
           <CardHeader>
-            <CardTitle>All Feedback</CardTitle>
-            <CardDescription>View feedback comments from survey responses</CardDescription>
+            <CardTitle>Select Survey</CardTitle>
+            <CardDescription>Choose a survey to view its feedback responses</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {feedbackItems.map((item) => (
-                <div key={item.id} className="p-4 rounded-lg border">
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        {getCategoryIcon(item.category)}
-                        <span className="font-medium">{item.survey}</span>
-                        <Badge variant="outline">{item.segment}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {item.respondent} • {format(new Date(item.date), 'dd MMM yyyy')}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="text-center">
-                        <span className={`text-2xl font-bold ${
-                          item.score >= 9 ? 'text-green-600' :
-                          item.score >= 7 ? 'text-yellow-600' : 'text-red-600'
-                        }`}>
-                          {item.score}
-                        </span>
-                        <span className="text-xs text-muted-foreground">/10</span>
-                      </div>
-                      {getCategoryBadge(item.category)}
-                    </div>
-                  </div>
-                  <div className="mt-3 p-3 rounded bg-muted">
-                    <p className="text-sm">{item.feedback}</p>
-                  </div>
-                </div>
-              ))}
+            <div className="flex gap-4">
+              {surveysLoading ? (
+                <Skeleton className="h-10 w-full" />
+              ) : surveys.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No surveys available</p>
+              ) : (
+                <>
+                  <Select value={selectedSurveyId || undefined} onValueChange={setSelectedSurveyId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select a survey" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {surveys.map((survey) => (
+                        <SelectItem key={survey.id} value={survey.id}>
+                          {survey.title} ({survey.response_count} responses)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={selectedSegment} onValueChange={(v) => setSelectedSegment(v as NPSSegment | 'all')}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Feedback</SelectItem>
+                      <SelectItem value="promoter">Promoters</SelectItem>
+                      <SelectItem value="passive">Passives</SelectItem>
+                      <SelectItem value="detractor">Detractors</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>
+
+        {/* Summary Stats */}
+        {selectedSurveyId && (
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Responses</CardTitle>
+                <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                {responsesLoading ? (
+                  <Skeleton className="h-8 w-16" />
+                ) : (
+                  <div className="text-2xl font-bold">{stats.total}</div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Promoters</CardTitle>
+                <ThumbsUp className="h-4 w-4 text-green-500" />
+              </CardHeader>
+              <CardContent>
+                {responsesLoading ? (
+                  <Skeleton className="h-8 w-16" />
+                ) : (
+                  <div className="text-2xl font-bold text-green-600">{stats.promoters}</div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Passives</CardTitle>
+                <Meh className="h-4 w-4 text-yellow-500" />
+              </CardHeader>
+              <CardContent>
+                {responsesLoading ? (
+                  <Skeleton className="h-8 w-16" />
+                ) : (
+                  <div className="text-2xl font-bold text-yellow-600">{stats.passives}</div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Detractors</CardTitle>
+                <ThumbsDown className="h-4 w-4 text-red-500" />
+              </CardHeader>
+              <CardContent>
+                {responsesLoading ? (
+                  <Skeleton className="h-8 w-16" />
+                ) : (
+                  <div className="text-2xl font-bold text-red-600">{stats.detractors}</div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Feedback List */}
+        {selectedSurveyId && (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {selectedSegment === 'all' ? 'All Feedback' : `${selectedSegment.charAt(0).toUpperCase() + selectedSegment.slice(1)} Feedback`}
+              </CardTitle>
+              <CardDescription>
+                {filteredResponses.length} feedback comment{filteredResponses.length !== 1 ? 's' : ''}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {responsesLoading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="p-4 rounded-lg border">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Skeleton className="h-5 w-48" />
+                          <Skeleton className="h-8 w-20" />
+                        </div>
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-20 w-full" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : filteredResponses.length === 0 ? (
+                <div className="text-center py-12">
+                  <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">No Feedback Available</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedSegment === 'all'
+                      ? 'No responses with feedback have been submitted yet.'
+                      : `No ${selectedSegment} feedback available for this survey.`}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredResponses.map((response: NPSResponse) => (
+                    <div key={response.id} className="p-4 rounded-lg border">
+                      <div className="flex items-start justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            {getCategoryIcon(response.sentiment)}
+                            <span className="font-medium">
+                              {response.stakeholder_name || 'Anonymous'}
+                            </span>
+                            <Badge variant="outline">
+                              {getStakeholderTypeLabel(response.stakeholder_type)}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {response.stakeholder_email || 'No email'} • {format(new Date(response.created_at), 'dd MMM yyyy')}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="text-center">
+                            <span className={`text-2xl font-bold ${getScoreColor(response.score)}`}>
+                              {response.score}
+                            </span>
+                            <span className="text-xs text-muted-foreground">/10</span>
+                          </div>
+                          {getCategoryBadge(response.sentiment)}
+                        </div>
+                      </div>
+                      {response.feedback && (
+                        <div className="mt-3 p-3 rounded bg-muted">
+                          <p className="text-sm">{response.feedback}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </ContentLayout>
   );

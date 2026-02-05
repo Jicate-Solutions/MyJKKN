@@ -35,18 +35,19 @@ export default function ClientCommunicationsPage() {
   const [newMessage, setNewMessage] = useState({
     subject: '',
     message: '',
-    solution_id: '',
+    solution_id: 'general', // Use 'general' instead of empty string for Select compatibility
   });
 
   const { data: client, isLoading: clientLoading, error: clientError } = useCurrentClient();
-  const clientId = client?.id || '';
+  const clientId = client?.id;
 
-  const { data: solutions, isLoading: solutionsLoading } = useClientSolutions(clientId);
-  const { data: messages, isLoading: messagesLoading, refetch } = useClientCommunicationsQuery(clientId);
+  const { data: solutions, isLoading: solutionsLoading } = useClientSolutions(clientId ?? '');
+  const { data: messages, isLoading: messagesLoading, refetch } = useClientCommunicationsQuery(clientId ?? '');
 
   const sendMessageMutation = useSendClientMessage();
 
-  const isLoading = clientLoading || solutionsLoading || messagesLoading;
+  // Only consider other queries loading if we have a client
+  const isLoading = clientLoading || (!!clientId && (solutionsLoading || messagesLoading));
   const isSubmitting = sendMessageMutation.isPending;
   const solutionsList = solutions || [];
   const messagesList = messages || [];
@@ -66,16 +67,16 @@ export default function ClientCommunicationsPage() {
 
     try {
       await sendMessageMutation.mutateAsync({
-        clientId,
+        clientId: clientId!,
         subject: newMessage.subject,
         message: newMessage.message,
-        solutionId: newMessage.solution_id || undefined,
+        solutionId: newMessage.solution_id === 'general' ? undefined : newMessage.solution_id,
       });
       toast.success('Message sent successfully. Our team will respond shortly.');
       setNewMessage({
         subject: '',
         message: '',
-        solution_id: '',
+        solution_id: 'general',
       });
       refetch();
     } catch (error) {
@@ -117,6 +118,23 @@ export default function ClientCommunicationsPage() {
     );
   }
 
+  // No client found state
+  if (!client) {
+    return (
+      <div className="flex items-center justify-center h-[50vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+            <h2 className="text-lg font-semibold mb-2">No Client Profile Found</h2>
+            <p className="text-muted-foreground">
+              Your account is not linked to a client profile. Please contact support.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -153,7 +171,7 @@ export default function ClientCommunicationsPage() {
                     <SelectValue placeholder="Select a solution" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">General Inquiry</SelectItem>
+                    <SelectItem value="general">General Inquiry</SelectItem>
                     {solutionsList.map((solution) => (
                       <SelectItem key={solution.id} value={solution.id}>
                         {solution.title} ({solution.solution_code})

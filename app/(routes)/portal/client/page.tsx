@@ -31,13 +31,14 @@ function formatCurrency(amount: number): string {
 
 export default function ClientDashboardPage() {
   const { data: client, isLoading: clientLoading, error: clientError } = useCurrentClient();
-  const clientId = client?.id || '';
+  const clientId = client?.id;
 
-  const { data: stats, isLoading: statsLoading } = useClientDashboardStats(clientId);
-  const { data: solutions, isLoading: solutionsLoading } = useClientSolutions(clientId);
-  const { data: deliverables, isLoading: deliverablesLoading } = useClientDeliverables(clientId, 'review');
+  const { data: stats, isLoading: statsLoading } = useClientDashboardStats(clientId ?? '');
+  const { data: solutions, isLoading: solutionsLoading } = useClientSolutions(clientId ?? '');
+  const { data: deliverables, isLoading: deliverablesLoading } = useClientDeliverables(clientId ?? '', 'review');
 
-  const isLoading = clientLoading || statsLoading || solutionsLoading || deliverablesLoading;
+  // Only consider other queries loading if we have a client
+  const isLoading = clientLoading || (!!clientId && (statsLoading || solutionsLoading || deliverablesLoading));
   const recentSolutions = solutions?.slice(0, 3) || [];
   const pendingDeliverables = deliverables?.slice(0, 5) || [];
   const userName = client?.name?.split(' ')[0] || 'Client';

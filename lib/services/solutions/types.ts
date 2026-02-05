@@ -31,7 +31,7 @@ export type PartnerStatus = 'standard' | 'yi' | 'alumni' | 'mou' | 'referral';
 
 export type PaymentType = 'advance' | 'milestone' | 'completion' | 'amc' | 'mou_signing' | 'deployment' | 'acceptance';
 
-export type PaymentStatus = 'pending' | 'invoiced' | 'received' | 'overdue' | 'failed';
+export type PaymentStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'refunded';
 
 export type RecipientType =
   | 'builder'
@@ -54,22 +54,22 @@ export type CohortTrack = 'track_a' | 'track_b' | 'both';
 
 export type SessionStatus = 'scheduled' | 'completed' | 'cancelled' | 'rescheduled';
 
-export type ContentDivision = 'video' | 'graphics' | 'content' | 'education' | 'translation' | 'research';
+export type ContentDivision = 'video' | 'design' | 'writing' | 'animation' | 'social' | 'other';
 
-export type ContentOrderType = 'video' | 'social_media' | 'presentation' | 'writing' | 'branding' | 'podcast' | 'package';
+export type ContentOrderType = 'video' | 'graphic' | 'document' | 'presentation' | 'animation' | 'social_media' | 'other';
 
 export type SkillLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert';
 
-export type DeliverableStatus = 'pending' | 'in_progress' | 'review' | 'revision' | 'approved' | 'rejected';
+export type DeliverableStatus = 'pending' | 'in_progress' | 'review' | 'revision' | 'approved' | 'delivered';
 
 export type ProgramType =
-  | 'assessment'
-  | 'phase1_champion'
-  | 'phase2_implementation'
-  | 'phase3_training'
   | 'workshop'
-  | 'full_journey'
-  | 'custom';
+  | 'bootcamp'
+  | 'certification'
+  | 'custom'
+  | 'faculty_development'
+  | 'corporate'
+  | 'academic';
 
 export type LocationPreference = 'on_site' | 'remote' | 'hybrid';
 
@@ -77,9 +77,9 @@ export type CommunicationType = 'call' | 'email' | 'whatsapp' | 'meeting' | 'not
 
 export type CommunicationDirection = 'inbound' | 'outbound';
 
-export type PaperType = 'problem' | 'design' | 'technical' | 'data' | 'impact';
+export type PaperType = 'journal' | 'conference' | 'patent' | 'book_chapter' | 'case_study';
 
-export type JournalType = 'scopus' | 'ugc_care' | 'other';
+export type JournalType = 'scopus' | 'wos' | 'ugc' | 'other';
 
 export type PublicationStatus =
   | 'identified'
