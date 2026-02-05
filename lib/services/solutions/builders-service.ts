@@ -145,7 +145,16 @@ export class BuildersService extends BaseService {
 
     const { data, count, error } = await query;
 
-    if (error) throw new Error(`Failed to fetch builders: ${error.message}`);
+    if (error) {
+      console.error('[buildersService] Query error:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+        fullError: error
+      });
+      throw new Error(`Failed to fetch builders: ${error.message}`);
+    }
 
     // Filter by skill if needed (post-query filter)
     let result = data || [];
