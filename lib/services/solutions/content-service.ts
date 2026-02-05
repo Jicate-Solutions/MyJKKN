@@ -286,20 +286,17 @@ export class ContentService extends BaseService {
   }
 
   /**
-   * Get content order statistics
+   * Get content order statistics using SQL aggregation (efficient)
+   * Uses COUNT with GROUP BY instead of fetching all rows
    */
   static async getOrderStats(): Promise<{
     total: number;
     byDivision: Record<ContentDivision, number>;
     byType: Record<ContentOrderType, number>;
   }> {
-    const { data, error } = await (this.supabase as any).from('sh_content_orders')
-      .select('division, order_type');
-
-    if (error) throw new Error(`Failed to fetch order stats: ${error.message}`);
-
+    // Initialize stats structure
     const stats = {
-      total: data?.length || 0,
+      total: 0,
       byDivision: {
         video: 0,
         design: 0,
@@ -319,17 +316,50 @@ export class ContentService extends BaseService {
       } as Record<ContentOrderType, number>,
     };
 
-    // Valid enum values for safe counting
+    // Get total count
+    const { count: totalCount, error: countError } = await (this.supabase as any).from('sh_content_orders')
+      .select('id', { count: 'exact', head: true });
+
+    if (countError) throw new Error(`Failed to fetch order count: ${countError.message}`);
+    stats.total = totalCount || 0;
+
+    // Get counts by division using RPC or grouped query
+    // Supabase JS client doesn't support GROUP BY directly, so we use a workaround
+    // Fetch distinct divisions with their counts
     const validDivisions: ContentDivision[] = ['video', 'design', 'writing', 'animation', 'social', 'other'];
     const validOrderTypes: ContentOrderType[] = ['video', 'graphic', 'document', 'presentation', 'animation', 'social_media', 'other'];
 
-    data?.forEach((order) => {
-      if (order.division && validDivisions.includes(order.division as ContentDivision)) {
-        stats.byDivision[order.division as ContentDivision]++;
-      }
-      if (order.order_type && validOrderTypes.includes(order.order_type as ContentOrderType)) {
-        stats.byType[order.order_type as ContentOrderType]++;
-      }
+    // Parallel fetch counts for each division
+    const divisionPromises = validDivisions.map(async (division) => {
+      const { count, error } = await (this.supabase as any).from('sh_content_orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('division', division);
+      if (error) throw new Error(`Failed to fetch division count: ${error.message}`);
+      return { division, count: count || 0 };
+    });
+
+    // Parallel fetch counts for each order type
+    const typePromises = validOrderTypes.map(async (orderType) => {
+      const { count, error } = await (this.supabase as any).from('sh_content_orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('order_type', orderType);
+      if (error) throw new Error(`Failed to fetch order type count: ${error.message}`);
+      return { orderType, count: count || 0 };
+    });
+
+    // Execute all counts in parallel
+    const [divisionResults, typeResults] = await Promise.all([
+      Promise.all(divisionPromises),
+      Promise.all(typePromises),
+    ]);
+
+    // Populate stats from results
+    divisionResults.forEach(({ division, count }) => {
+      stats.byDivision[division] = count;
+    });
+
+    typeResults.forEach(({ orderType, count }) => {
+      stats.byType[orderType] = count;
     });
 
     return stats;

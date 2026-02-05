@@ -35,17 +35,12 @@ export type {
 
 /**
  * Get production learner by user ID (for logged-in user)
- * Note: This requires a custom query since getLearnerById expects learner ID, not user ID
+ * Uses direct query by user_id for efficiency (instead of fetching all learners)
  */
 export function useLearnerByUserId(userId: string | undefined) {
   return useQuery({
     queryKey: solutionsHubKeys.productionPortal.learner(userId || ''),
-    queryFn: async () => {
-      // Get all learners and filter by user_id
-      const result = await productionService.getLearners({ status: 'active' });
-      const learner = result.data.find((l) => l.user_id === userId);
-      return learner || null;
-    },
+    queryFn: () => productionService.getLearnerByUserId(userId!),
     enabled: !!userId,
     ...QUERY_CONFIG.USER_SESSION_DATA,
   });

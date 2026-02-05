@@ -168,6 +168,32 @@ export class ProductionService extends BaseService {
   }
 
   /**
+   * Get a single learner by user ID (efficient direct query)
+   * Use this instead of fetching all learners and filtering
+   */
+  static async getLearnerByUserId(userId: string): Promise<ProductionLearnerWithAssignments | null> {
+    const { data, error } = await (this.supabase as any).from('sh_production_learners')
+      .select(
+        `
+        *,
+        assignments:sh_production_assignments(
+          *,
+          deliverable:sh_content_deliverables(*)
+        )
+      `
+      )
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null; // No learner found for this user
+      throw new Error(`Failed to fetch production learner by user ID: ${error.message}`);
+    }
+
+    return data as ProductionLearnerWithAssignments;
+  }
+
+  /**
    * Get learners by division
    */
   static async getLearnersByDivision(
@@ -475,6 +501,7 @@ export class ProductionService extends BaseService {
 export const productionService = {
   getLearners: ProductionService.getLearners.bind(ProductionService),
   getLearnerById: ProductionService.getLearnerById.bind(ProductionService),
+  getLearnerByUserId: ProductionService.getLearnerByUserId.bind(ProductionService),
   getLearnersByDivision: ProductionService.getLearnersByDivision.bind(ProductionService),
   createLearner: ProductionService.createLearner.bind(ProductionService),
   updateLearner: ProductionService.updateLearner.bind(ProductionService),
