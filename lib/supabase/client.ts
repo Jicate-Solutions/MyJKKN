@@ -1,4 +1,3 @@
-import { createBrowserClient } from '@supabase/ssr';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database.types';
 
@@ -13,8 +12,9 @@ let adminInstance: SupabaseClient<Database>;
 
 export function createClientSupabaseClient(): TypedSupabaseClient {
   if (!clientInstance) {
-    // Type assertion needed: createBrowserClient returns a compatible but slightly different type
-    clientInstance = createBrowserClient<Database>(
+    // Use createClient instead of createBrowserClient to ensure localStorage is used
+    // createBrowserClient from @supabase/ssr uses cookies which client-side code can't access
+    clientInstance = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -35,7 +35,7 @@ export function createClientSupabaseClient(): TypedSupabaseClient {
           }
         }
       }
-    ) as unknown as SupabaseClient<Database>;
+    );
   }
   return clientInstance as TypedSupabaseClient;
 }
