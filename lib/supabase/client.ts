@@ -22,7 +22,8 @@ export function createClientSupabaseClient(): TypedSupabaseClient {
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: true,
-          // Increase session refresh threshold to prevent frequent auth checks
+          storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+          storageKey: `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0]}-auth-token`,
           flowType: 'pkce'
         },
         db: {
