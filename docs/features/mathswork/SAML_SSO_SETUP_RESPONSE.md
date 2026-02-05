@@ -43,7 +43,7 @@ You can fetch our IdP metadata directly from the URL above, or use the attached 
 
 | Field | Value |
 |-------|-------|
-| **IdP Entity ID** | `https://jkkn.ai/saml/metadata` |
+| **IdP Entity ID** | `https://jkkn.ai/api/saml/metadata` |
 | **IdP Binding** | HTTP-POST |
 | **IdP Login URL** | `https://jkkn.ai/api/saml/sso` |
 | **IdP Public Certificate** | See attached `myjkkn-saml-public.pem` |

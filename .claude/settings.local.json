@@ -213,7 +213,8 @@
       "Bash(npm test:*)",
       "Bash(npm run:*)",
       "Bash(timeout /t 2 /nobreak)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(openssl x509:*)"
     ],
     "deny": [],
     "ask": []
