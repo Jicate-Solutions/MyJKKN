@@ -39,7 +39,10 @@ export interface BaseListResponse<T> {
  * Extend this class to get automatic pagination, timeouts, and validation
  */
 export abstract class BaseService {
-  protected static supabase: any = createClientSupabaseClient();
+  // Use getter to always get fresh Supabase instance with current auth state
+  protected static get supabase(): any {
+    return createClientSupabaseClient();
+  }
 
   /**
    * Execute a list query with automatic pagination validation and timeout
