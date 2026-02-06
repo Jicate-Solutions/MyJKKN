@@ -444,9 +444,9 @@ function AdmissionLeadsPageContent() {
                                 onClick={() => {
                                   togglePriority.mutate({
                                     leadId: lead.id,
-                                    isPriority: lead.priority !== 'warm'
+                                    isPriority: !lead.is_priority
                                   });
-                                  toast.success(lead.priority === 'warm' ? 'Priority removed' : 'Marked as warm');
+                                  toast.success(lead.is_priority ? 'Priority removed' : 'Marked as warm');
                                 }}
                               >
                                 <Star className="h-4 w-4 mr-2" />
