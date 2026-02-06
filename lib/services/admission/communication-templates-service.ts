@@ -133,7 +133,7 @@ export class CommunicationTemplatesService {
       .order('name', { ascending: true });
 
     if (type) {
-      query = query.eq('type', type);
+      query = query.eq('channel', type);
     }
 
     const { data, error } = await query;
