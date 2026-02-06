@@ -254,7 +254,7 @@ export function useClientSolution(solutionId: string, clientId: string) {
       if (solution.solution_type === 'software') {
         const { data: phases } = await (supabase as any)
           .from('sh_software_phases')
-          .select('id, phase_number, title, description, status, production_url')
+          .select('id, phase_number, title, description, status')
           .eq('solution_id', solutionId)
           .order('phase_number');
         result.phases = phases || [];
