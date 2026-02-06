@@ -182,16 +182,21 @@ export interface COPQIcebergData {
   visible_costs: Array<{
     category: COPQCategory;
     label: string;
+    /** Amount in rupees. Converted from paisa by service layer. */
     amount: number;
     percentage: number;
   }>;
   hidden_costs: Array<{
     category: COPQCategory;
     label: string;
+    /** Amount in rupees. Converted from paisa by service layer. */
     amount: number;
     percentage: number;
   }>;
+  /** Total visible costs in rupees. */
   total_visible: number;
+  /** Total hidden costs in rupees. */
   total_hidden: number;
-  ratio: number; // hidden/visible ratio
+  /** hidden/visible ratio */
+  ratio: number;
 }
