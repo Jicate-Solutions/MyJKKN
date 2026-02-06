@@ -136,7 +136,7 @@ export function FinksRadarChart({
     const aiProofKeys: (keyof FinksDimensions)[] = [
       'human_dimension',
       'caring',
-      'learning_how_to_learn'
+      'learning_to_learn'
     ];
     const values = aiProofKeys.map(key => currentDimensions[key]);
     return Math.round(values.reduce((sum, val) => sum + val, 0) / values.length);
