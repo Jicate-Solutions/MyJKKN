@@ -37,7 +37,7 @@ export const competencyKeys = {
  * Get competencies with filters and pagination
  */
 export function useCompetencies(
-  filters: CompetencyFilters = {}
+  filters: Partial<CompetencyFilters> = {}
 ): UseQueryResult<CompetencyListResponse<Competency>, Error> {
   const { profile, isLoading: authLoading } = useAuth();
 
