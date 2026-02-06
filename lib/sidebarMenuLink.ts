@@ -2066,6 +2066,10 @@ export function GetRoleBasedPages(
         if (menu.href.includes('/learners/my-')) {
           return false;
         }
+        // Hide talent portals (personal workspaces requiring individual enrollment)
+        if (menu.href.startsWith('/talent/')) {
+          return false;
+        }
         return true;
       })
     })).filter((group) => group.menus.length > 0);
