@@ -453,7 +453,9 @@ export class AIInsightsService {
   }
 
   /**
-   * Analyze today's scheduled followups
+   * Analyze leads needing follow-up today
+   * NOTE: next_followup_at column does not exist in DB.
+   * Instead, we identify leads not contacted in 3+ days that are in active stages.
    */
   private static analyzeTodayFollowups(
     leads: AdmissionLead[],
@@ -463,11 +465,17 @@ export class AIInsightsService {
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+    const threeDaysAgo = new Date(today);
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
     const todayFollowups = leads.filter(lead => {
-      if (!lead.next_followup_at) return false;
-      const followupDate = new Date(lead.next_followup_at);
-      return followupDate >= today && followupDate < tomorrow;
+      if (lead.funnel_stage === 'lost' || lead.funnel_stage === 'enrolled') return false;
+      // Leads not contacted in 3+ days need follow-up
+      const lastContact = lead.last_contact_at
+        ? new Date(lead.last_contact_at)
+        : null;
+      if (!lastContact) return true; // Never contacted = needs follow-up
+      return lastContact < threeDaysAgo;
     });
 
     if (todayFollowups.length === 0) return null;
@@ -476,15 +484,15 @@ export class AIInsightsService {
       institution_id: institutionId,
       type: 'follow_up_reminder',
       priority: 'high',
-      title: `${todayFollowups.length} follow-ups scheduled for today`,
-      description: `Stay on track with today's scheduled follow-ups to maintain engagement momentum.`,
+      title: `${todayFollowups.length} leads need follow-up`,
+      description: `These leads haven't been contacted in 3+ days. Follow up to maintain engagement momentum.`,
       action_type: 'contact_lead',
       action_data: { lead_count: todayFollowups.length },
-      action_url: '/admission/leads?has_followup_today=true',
+      action_url: '/admission/leads?sort_by=last_contact_at&sort_order=asc',
       related_lead_ids: todayFollowups.map(l => l.id),
       related_counselor_ids: [],
       metric_value: todayFollowups.length,
-      metric_label: 'Today\'s follow-ups',
+      metric_label: 'Leads needing follow-up',
       is_dismissed: false,
       expires_at: tomorrow.toISOString(),
       metadata: {},
