@@ -93,7 +93,7 @@ const DIMENSIONS: DimensionConfig[] = [
     placeholder: 'AI has no moral compass - CRITICAL'
   },
   {
-    key: 'learning_how_to_learn',
+    key: 'learning_to_learn',
     label: 'Learning How to Learn',
     shortLabel: 'Meta-Learning',
     description: 'Becoming self-directed learner; learning to ask/answer questions',
