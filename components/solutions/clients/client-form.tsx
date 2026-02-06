@@ -27,7 +27,7 @@ import type { PartnerStatus, SourceType } from '@/types/solutions'
 // Client data interface - accepts both SHClient and service Client types
 interface ClientData {
   name?: string
-  industry?: string | null
+  industry_sector?: string | null
   contact_person?: string | null
   contact_phone?: string | null
   contact_email?: string | null
