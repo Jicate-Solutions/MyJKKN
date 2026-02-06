@@ -40,9 +40,7 @@ export interface PaymentFilters extends ServicePaymentFilters {
   search?: string;
 }
 
-export interface CreatePaymentInput extends Omit<ServiceCreatePaymentInput, 'recorded_by'> {
-  recorded_by?: string;
-}
+export interface CreatePaymentInput extends ServiceCreatePaymentInput {}
 
 export type UpdatePaymentInput = ServiceUpdatePaymentInput;
 
