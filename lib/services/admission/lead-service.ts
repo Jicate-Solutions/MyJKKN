@@ -312,9 +312,10 @@ export class LeadService {
       updated_at: new Date().toISOString()
     };
 
-    // Set last_contacted_at if moving from new to contacted
+    // Set last_contact_at if moving from new to contacted
+    // Note: production DB uses last_contact_at, migration uses last_contacted_at
     if (newStage === 'contacted' && current?.funnel_stage === 'new') {
-      updateData.last_contacted_at = new Date().toISOString();
+      updateData.last_contact_at = new Date().toISOString();
     }
 
     const { data, error } = await (this.supabase as any).from('admission_leads')
