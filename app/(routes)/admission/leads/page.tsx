@@ -450,7 +450,7 @@ function AdmissionLeadsPageContent() {
                                 }}
                               >
                                 <Star className="h-4 w-4 mr-2" />
-                                {lead.priority === 'warm' ? 'Remove Warm Status' : 'Mark as Warm'}
+                                {lead.is_priority ? 'Remove Warm Status' : 'Mark as Warm'}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
