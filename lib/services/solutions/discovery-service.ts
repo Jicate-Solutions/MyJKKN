@@ -50,13 +50,13 @@ export interface CreateDiscoveryVisitInput {
 
 export interface UpdateDiscoveryVisitInput {
   solution_id?: string;
-  resulted_phase_id?: string;
   visit_date?: string;
   visitors?: Array<{ name: string; role?: string }>;
   observations?: string;
-  pain_points?: string[];
+  pain_points?: string;
   photos_urls?: string[];
-  next_steps?: string;
+  follow_up_notes?: string;
+  follow_up_required?: boolean;
 }
 
 export interface CreateCommunicationInput {
