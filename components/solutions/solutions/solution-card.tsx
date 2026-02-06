@@ -79,9 +79,9 @@ export function SolutionCard({ solution }: SolutionCardProps) {
             )}
           </div>
 
-          {solution.partner_discount_applied && solution.partner_discount_applied > 0 && (
+          {solution.discount_percentage && solution.discount_percentage > 0 && (
             <Badge variant="secondary" className="text-xs">
-              {Math.round(solution.partner_discount_applied * 100)}% Partner Discount
+              {solution.discount_percentage}% Discount
             </Badge>
           )}
         </CardContent>
