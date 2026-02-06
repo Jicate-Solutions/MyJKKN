@@ -121,9 +121,9 @@ export function ProgramCard({ program }: ProgramCardProps) {
               <span className="text-sm font-medium">
                 {formatCurrency(program.solution.final_price)}
               </span>
-              {program.solution.partner_discount_applied && program.solution.partner_discount_applied > 0 && (
+              {program.solution.discount_percentage && program.solution.discount_percentage > 0 && (
                 <Badge variant="secondary" className="text-xs">
-                  {Math.round(program.solution.partner_discount_applied * 100)}% Partner Discount
+                  {program.solution.discount_percentage}% Discount
                 </Badge>
               )}
             </div>
