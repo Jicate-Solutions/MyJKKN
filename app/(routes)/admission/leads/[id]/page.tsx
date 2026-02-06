@@ -460,18 +460,18 @@ function LeadDetailPageContent() {
 
             <div className="flex items-center gap-2">
               <Button
-                variant={lead.priority === 'hot' ? 'default' : 'outline'}
+                variant={lead.is_hot_lead ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => toggleHotLead.mutate(
-                  { leadId, isHot: lead.priority !== 'hot' },
+                  { leadId, isHot: !lead.is_hot_lead },
                   {
-                    onSuccess: () => toast.success(lead.priority === 'hot' ? 'Removed from hot leads' : 'Marked as hot lead'),
+                    onSuccess: () => toast.success(lead.is_hot_lead ? 'Removed from hot leads' : 'Marked as hot lead'),
                     onError: () => toast.error('Failed to update hot lead status')
                   }
                 )}
               >
                 <Flame className="h-4 w-4 mr-1" />
-                {lead.priority === 'hot' ? 'Hot' : 'Mark Hot'}
+                {lead.is_hot_lead ? 'Hot' : 'Mark Hot'}
               </Button>
               <Button
                 variant={(lead.priority === 'hot' || lead.priority === 'warm') ? 'default' : 'outline'}
