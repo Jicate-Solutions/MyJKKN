@@ -255,12 +255,25 @@ function LeadDetailPageContent() {
 
   const [newTag, setNewTag] = useState('');
   const [showTagDialog, setShowTagDialog] = useState(false);
+  const [showActivityDialog, setShowActivityDialog] = useState(false);
+  const [showFollowupDialog, setShowFollowupDialog] = useState(false);
+  const [showCreateAppDialog, setShowCreateAppDialog] = useState(false);
+
+  // Activity form state
+  const [activityType, setActivityType] = useState<string>('note');
+  const [activitySubject, setActivitySubject] = useState('');
+  const [activityDescription, setActivityDescription] = useState('');
+  const [activityOutcome, setActivityOutcome] = useState('');
+
+  // Follow-up form state
+  const [followupDate, setFollowupDate] = useState('');
+  const [followupNotes, setFollowupNotes] = useState('');
 
   const { lead, isLoading: leadLoading, refetch } = useAdmissionLead(leadId);
   const { timeline, isLoading: timelineLoading } = useEnhancedTimeline(leadId);
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
 
-  const { updateStage, toggleHotLead, togglePriority, addTag, removeTag } = useLeadMutations();
+  const { updateStage, toggleHotLead, togglePriority, addTag, removeTag, scheduleFollowup } = useLeadMutations();
   const { createActivity } = useActivityMutations(leadId);
 
   const isLoading = leadLoading;
