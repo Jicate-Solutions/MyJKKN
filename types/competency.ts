@@ -343,7 +343,6 @@ export interface ProgramCompetencyCoverage {
   gaps: Array<{
     competency_id: string;
     competency_name: string;
-    competency_type: CompetencyType;
     required_level: string;
     course_coverage: number;
   }>;
