@@ -117,10 +117,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Check if user account is active
       if (profile && profile.is_active === false) {
         // Sign out inactive user and redirect to unauthorized page
-        await supabase.auth.signOut();
+        try {
+          await supabase.auth.signOut();
+        } catch (signOutError) {
+          console.error('[AuthProvider] Error signing out inactive user:', signOutError);
+          // Continue with cleanup even if sign out fails
+        }
+
         setUser(null);
         profileCache.current = null;
-        router.push('/unauthorized?reason=inactive');
+
+        try {
+          router.push('/unauthorized?reason=inactive');
+        } catch (routerError) {
+          console.error('[AuthProvider] Error routing to unauthorized:', routerError);
+          // Fallback to direct navigation if router fails
+          if (typeof window !== 'undefined') {
+            window.location.href = '/unauthorized?reason=inactive';
+          }
+        }
+
         toast.error(
           'Your account has been deactivated. Please contact your administrator.'
         );
