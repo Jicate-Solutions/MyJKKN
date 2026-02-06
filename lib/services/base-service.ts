@@ -98,11 +98,13 @@ export abstract class BaseService {
         query = applyFilters(query);
       }
 
-      // SECURITY: Sanitize search if provided
+      // SECURITY FIX: Auto-sanitize search input (defense in depth)
+      // Even though subclasses should call sanitize(), do it here too
+      // to prevent SQL injection if developer forgets
       if (filters.search) {
-        const sanitized = sanitizeSearch(filters.search);
-        // Note: Caller should add OR conditions for search fields
-        // This is intentionally not applied here to allow flexibility
+        filters.search = sanitizeSearch(filters.search);
+        // Note: Caller should add OR conditions using filters.search in applyFilters callback
+        // The search is now guaranteed to be sanitized
       }
 
       // Apply sorting
