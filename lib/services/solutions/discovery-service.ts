@@ -198,14 +198,14 @@ export class DiscoveryService extends BaseService {
       .insert({
         client_id: input.client_id,
         solution_id: input.solution_id || null,
-        resulted_phase_id: input.resulted_phase_id || null,
         department_id: input.department_id,
         visit_date: input.visit_date,
         visitors: input.visitors || [],
         observations: input.observations,
-        pain_points: input.pain_points || [],
+        pain_points: input.pain_points || null,
         photos_urls: input.photos_urls || [],
-        next_steps: input.next_steps || null,
+        follow_up_notes: input.follow_up_notes || null,
+        follow_up_required: input.follow_up_required || false,
         created_by: input.created_by,
       })
       .select()
