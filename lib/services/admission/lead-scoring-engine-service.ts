@@ -551,7 +551,8 @@ export class LeadScoringEngineService {
     if (lead.email) completeness += 20;
     if (lead.phone) completeness += 20;
     if (lead.interested_programs?.length) completeness += 20;
-    if (lead.address || lead.city) completeness += 20;
+    // FIX: address/city do not exist in DB → use preferred_campus instead
+    if (lead.preferred_campus) completeness += 20;
     qualityData['Application Completeness'] = completeness;
 
     return qualityData;
