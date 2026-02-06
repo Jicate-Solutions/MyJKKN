@@ -171,16 +171,32 @@ export class LeadService {
     // Get current user for created_by
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
+    // Only include columns that exist in admission_leads table
+    const insertData: any = {
+      institution_id: leadData.institution_id,
+      full_name: leadData.full_name?.trim(),
+      email: leadData.email || null,
+      phone: leadData.phone?.trim(),
+      source: leadData.source,
+      funnel_stage: 'new' as FunnelStage,
+      is_hot_lead: false,
+      is_priority: false,
+      score: 0,
+      tags: leadData.tags || [],
+      created_by: user?.id || null,
+      is_active: true
+    };
+
+    // Add optional columns that exist in the table
+    if (leadData.counselor_id) insertData.counselor_id = leadData.counselor_id;
+    if ((leadData as any).preferred_channel) insertData.preferred_channel = (leadData as any).preferred_channel;
+    if ((leadData as any).interested_programs) insertData.interested_programs = (leadData as any).interested_programs;
+    if ((leadData as any).parent_name) insertData.parent_name = (leadData as any).parent_name;
+    if ((leadData as any).parent_phone) insertData.parent_phone = (leadData as any).parent_phone;
+    if ((leadData as any).parent_email) insertData.parent_email = (leadData as any).parent_email;
+
     const { data, error } = await (this.supabase as any).from('admission_leads')
-      .insert({
-        ...leadData,
-        funnel_stage: 'new' as FunnelStage,
-        is_hot_lead: false,
-        is_priority: false,
-        score: 0,
-        tags: leadData.tags || [],
-        created_by: user?.id || null
-      })
+      .insert(insertData)
       .select('*')
       .single();
 
