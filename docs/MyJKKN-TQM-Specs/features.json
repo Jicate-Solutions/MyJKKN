@@ -1,8 +1,417 @@
 {
   "project": "MyJKKN TQM Excellence Implementation",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "created": "2026-02-01",
+  "updated": "2026-02-06",
   "source": "Young Edupreneurs Meet Goa 2026 - TQM International Session",
+  "admission_crm_phase1": {
+    "name": "Admission CRM Phase 1: Module Verification & Repair",
+    "status": "in_progress",
+    "completed": 3,
+    "total": 30,
+    "critical_context": {
+      "schema_mismatch_pattern": "All services may reference non-existent columns. Every service must be audited against actual DB schema.",
+      "actual_db_columns": "id, learner_profile_id, institution_id, engagement_score, quality_score, combined_score, score_breakdown, conversion_probability, stage, stage_changed_at, previous_stage, assigned_counselor_id, assigned_at, ownership_mode, last_activity_at, last_contact_at, total_messages_sent, messages_this_week, last_message_at, preferred_channel, tags, is_hot_lead, is_priority, parent_name, parent_phone, parent_email, parent_opted_in, interested_programs, preferred_campus, is_active, is_dormant, dormant_at, is_lost, lost_reason, lost_at, created_at, updated_at, created_by, funnel_stage, full_name, email, phone, source, counselor_id, score, score_category, score_updated_at",
+      "column_mapping": {
+        "priority_enum": "DOES NOT EXIST -> use is_hot_lead (bool) + is_priority (bool)",
+        "next_followup_at": "DOES NOT EXIST -> use last_contact_at",
+        "is_duplicate": "DOES NOT EXIST",
+        "program_interest": "DOES NOT EXIST -> use interested_programs",
+        "duplicate_of": "DOES NOT EXIST"
+      },
+      "staging_db": "hhprjbgknupaplivtoib",
+      "institution_id": "a1111111-1111-1111-1111-111111111111",
+      "test_user": "test-superadmin@jkkn.local / SuperAdmin@123"
+    },
+    "items": [
+      {
+        "id": "P1-001",
+        "test": "Dashboard loads with real data",
+        "route": "/admission/dashboard",
+        "priority": "P0",
+        "status": "fixed",
+        "service_file": "lib/services/admission/lead-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to /admission/dashboard", "expected": "Page loads without errors"},
+          {"step": 2, "action": "Check KPI cards", "expected": "Total Active Leads shows actual count (not 0)"},
+          {"step": 3, "action": "Check Hot Leads card", "expected": "Shows count of is_hot_lead=true leads"},
+          {"step": 4, "action": "Check funnel visualization", "expected": "Bar widths match actual stage distribution"},
+          {"step": 5, "action": "Check console", "expected": "No errors in browser console"}
+        ]
+      },
+      {
+        "id": "P1-002",
+        "test": "Create a new lead",
+        "route": "/admission/leads/new",
+        "priority": "P0",
+        "status": "in_progress",
+        "service_file": "lib/services/admission/lead-service.ts",
+        "page_file": "app/(routes)/admission/leads/new/page.tsx",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to /admission/leads/new", "expected": "Form renders with all fields"},
+          {"step": 2, "action": "Fill required fields: name, phone, source", "expected": "No validation errors"},
+          {"step": 3, "action": "Click Create Lead", "expected": "Toast shows success, redirect to lead detail"},
+          {"step": 4, "action": "Verify lead in DB", "expected": "Record exists in admission_leads with correct data"},
+          {"step": 5, "action": "Check stage_history", "expected": "Initial stage entry logged in admission_lead_stage_history"}
+        ]
+      },
+      {
+        "id": "P1-003",
+        "test": "View lead list with filters",
+        "route": "/admission/leads",
+        "priority": "P0",
+        "status": "fixed",
+        "service_file": "lib/services/admission/lead-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to /admission/leads", "expected": "Lead list loads with data"},
+          {"step": 2, "action": "Test search by name", "expected": "Filters leads by full_name match"},
+          {"step": 3, "action": "Test stage filter", "expected": "Shows only leads in selected funnel_stage"},
+          {"step": 4, "action": "Test hot lead filter", "expected": "Shows only is_hot_lead=true leads"},
+          {"step": 5, "action": "Test pagination", "expected": "Pages through results correctly"}
+        ]
+      },
+      {
+        "id": "P1-004",
+        "test": "View lead detail",
+        "route": "/admission/leads/[id]",
+        "priority": "P0",
+        "status": "pending",
+        "service_file": "lib/services/admission/lead-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Click on a lead from list", "expected": "Lead detail page loads"},
+          {"step": 2, "action": "Verify lead fields display", "expected": "Name, phone, email, source, stage shown correctly"},
+          {"step": 3, "action": "Check activity timeline", "expected": "Activities display in chronological order"},
+          {"step": 4, "action": "Check stage history", "expected": "Stage changes displayed with timestamps"},
+          {"step": 5, "action": "Check console", "expected": "No errors in browser console"}
+        ]
+      },
+      {
+        "id": "P1-005",
+        "test": "Update lead stage",
+        "route": "/admission/leads/[id]",
+        "priority": "P0",
+        "status": "pending",
+        "service_file": "lib/services/admission/lead-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Open lead detail", "expected": "Current stage displayed"},
+          {"step": 2, "action": "Change stage to 'contacted'", "expected": "Stage updates, UI reflects change"},
+          {"step": 3, "action": "Verify DB", "expected": "funnel_stage updated, stage_changed_at set"},
+          {"step": 4, "action": "Check stage_history", "expected": "New row in admission_lead_stage_history"},
+          {"step": 5, "action": "Verify previous_stage", "expected": "previous_stage column updated correctly"}
+        ]
+      },
+      {
+        "id": "P1-006",
+        "test": "Assign counselor to lead",
+        "route": "/admission/leads/[id]",
+        "priority": "P0",
+        "status": "pending",
+        "service_file": "lib/services/admission/lead-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Open lead detail", "expected": "Counselor assignment section visible"},
+          {"step": 2, "action": "Select a counselor from dropdown", "expected": "Counselor assigned"},
+          {"step": 3, "action": "Verify DB", "expected": "counselor_id set on lead, assigned_at set"},
+          {"step": 4, "action": "Check counselor record", "expected": "current_leads count increments"},
+          {"step": 5, "action": "Activity logged", "expected": "Assignment activity in timeline"}
+        ]
+      },
+      {
+        "id": "P1-007",
+        "test": "Log activity on lead",
+        "route": "/admission/leads/[id]",
+        "priority": "P0",
+        "status": "pending",
+        "service_file": "lib/services/admission/activity-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Open lead detail", "expected": "Activity log section visible"},
+          {"step": 2, "action": "Add a call activity", "expected": "Activity form accepts input"},
+          {"step": 3, "action": "Submit activity", "expected": "Toast success, activity appears in timeline"},
+          {"step": 4, "action": "Verify DB", "expected": "Row in admission_lead_activities"},
+          {"step": 5, "action": "Check last_activity_at", "expected": "Updated on the lead record"}
+        ]
+      },
+      {
+        "id": "P1-008",
+        "test": "Schedule follow-up",
+        "route": "/admission/leads/[id]",
+        "priority": "P0",
+        "status": "pending",
+        "notes": "DB has last_contact_at not next_followup_at - may need schema change or use last_contact_at",
+        "test_steps": [
+          {"step": 1, "action": "Open lead detail", "expected": "Follow-up scheduling visible"},
+          {"step": 2, "action": "Set follow-up date", "expected": "Date picker works"},
+          {"step": 3, "action": "Save follow-up", "expected": "Toast success"},
+          {"step": 4, "action": "Verify DB", "expected": "last_contact_at or next_followup column updated"},
+          {"step": 5, "action": "Dashboard check", "expected": "Lead appears in follow-ups section"}
+        ]
+      },
+      {
+        "id": "P1-009",
+        "test": "Mark lead as hot/priority",
+        "route": "/admission/leads",
+        "priority": "P0",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Open leads list", "expected": "Hot/priority toggle icons visible"},
+          {"step": 2, "action": "Click hot toggle", "expected": "is_hot_lead flips to true"},
+          {"step": 3, "action": "Click priority toggle", "expected": "is_priority flips to true"},
+          {"step": 4, "action": "Verify DB", "expected": "Boolean values updated correctly"},
+          {"step": 5, "action": "Filter by hot", "expected": "Only hot leads shown"}
+        ]
+      },
+      {
+        "id": "P1-010",
+        "test": "Create application from lead",
+        "route": "/admission/applications",
+        "priority": "P0",
+        "status": "pending",
+        "service_file": "lib/services/admission/admission-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to applications", "expected": "Application list loads"},
+          {"step": 2, "action": "Create new application", "expected": "Form renders"},
+          {"step": 3, "action": "Link to existing lead", "expected": "Lead selector works"},
+          {"step": 4, "action": "Submit application", "expected": "APP-number generated, saved to DB"},
+          {"step": 5, "action": "Verify lead stage", "expected": "Lead stage advances to application_started"}
+        ]
+      },
+      {
+        "id": "P1-011",
+        "test": "Funnel visualization accuracy",
+        "route": "/admission/dashboard",
+        "priority": "P1",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Check funnel bar widths", "expected": "Proportional to actual stage counts"},
+          {"step": 2, "action": "Cross-verify with DB", "expected": "Numbers match SQL count by funnel_stage"}
+        ]
+      },
+      {
+        "id": "P1-012",
+        "test": "Lead scoring calculates",
+        "route": "/admission/leads/[id]",
+        "priority": "P1",
+        "status": "pending",
+        "service_file": "lib/services/admission/scoring-rules-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "View lead with scoring data", "expected": "Score displayed"},
+          {"step": 2, "action": "Verify score computation", "expected": "engagement + quality score logic correct"},
+          {"step": 3, "action": "Check score_category", "expected": "hot/warm/cold based on thresholds"}
+        ]
+      },
+      {
+        "id": "P1-013",
+        "test": "Counselor list loads",
+        "route": "/admission/counselors",
+        "priority": "P1",
+        "status": "pending",
+        "service_file": "lib/services/admission/consultant-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to counselors page", "expected": "List of counselors loads"},
+          {"step": 2, "action": "Check lead counts", "expected": "Each counselor shows their assigned lead count"},
+          {"step": 3, "action": "Check console", "expected": "No errors"}
+        ]
+      },
+      {
+        "id": "P1-014",
+        "test": "Analytics dashboard",
+        "route": "/admission/analytics",
+        "priority": "P1",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to analytics", "expected": "Page loads without crash"},
+          {"step": 2, "action": "Check charts render", "expected": "Charts display with data or empty state"},
+          {"step": 3, "action": "Check console", "expected": "No errors"}
+        ]
+      },
+      {
+        "id": "P1-015",
+        "test": "Communication templates list",
+        "route": "/admission/templates",
+        "priority": "P1",
+        "status": "pending",
+        "service_file": "lib/services/admission/communication-templates-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to templates", "expected": "Template list loads from DB"},
+          {"step": 2, "action": "Verify template data", "expected": "SMS, email, WhatsApp templates shown"},
+          {"step": 3, "action": "Create new template", "expected": "Form works, saves to DB"}
+        ]
+      },
+      {
+        "id": "P1-016",
+        "test": "Interview scheduling",
+        "route": "/admission/interviews",
+        "priority": "P1",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to interviews", "expected": "Page loads"},
+          {"step": 2, "action": "Create interview", "expected": "Linked to application"},
+          {"step": 3, "action": "Check console", "expected": "No errors"}
+        ]
+      },
+      {
+        "id": "P1-017",
+        "test": "Offer letter generation",
+        "route": "/admission/offer-letter",
+        "priority": "P1",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to offer letters", "expected": "Page loads"},
+          {"step": 2, "action": "Create offer", "expected": "OFR-number generated"},
+          {"step": 3, "action": "Check DB", "expected": "Record in admission_offer_letters"}
+        ]
+      },
+      {
+        "id": "P1-018",
+        "test": "Seat confirmation flow",
+        "route": "/admission/seat-confirmation",
+        "priority": "P1",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to seat confirmations", "expected": "Page loads"},
+          {"step": 2, "action": "Create confirmation", "expected": "CNF-number generated"},
+          {"step": 3, "action": "Check DB", "expected": "Record in admission_seat_confirmations"}
+        ]
+      },
+      {
+        "id": "P1-019",
+        "test": "Document upload & verification",
+        "route": "/admission/documents",
+        "priority": "P1",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to documents", "expected": "Page loads"},
+          {"step": 2, "action": "Upload document", "expected": "File uploads successfully"},
+          {"step": 3, "action": "Change verification status", "expected": "Status updates in DB"}
+        ]
+      },
+      {
+        "id": "P1-020",
+        "test": "GD-PI session management",
+        "route": "/admission/gd-pi",
+        "priority": "P1",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to GD-PI", "expected": "Page loads"},
+          {"step": 2, "action": "Create session", "expected": "Session created with participants"},
+          {"step": 3, "action": "Check console", "expected": "No errors"}
+        ]
+      },
+      {
+        "id": "P1-021",
+        "test": "Scoring rules CRUD",
+        "route": "/admission/scoring-rules",
+        "priority": "P2",
+        "status": "pending",
+        "service_file": "lib/services/admission/scoring-rules-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to scoring rules", "expected": "Rules list loads"},
+          {"step": 2, "action": "Create rule", "expected": "Rule saved"},
+          {"step": 3, "action": "Edit rule", "expected": "Changes saved"},
+          {"step": 4, "action": "Delete rule", "expected": "Rule removed"}
+        ]
+      },
+      {
+        "id": "P1-022",
+        "test": "Assignment rules CRUD",
+        "route": "/admission/assignment-rules",
+        "priority": "P2",
+        "status": "pending",
+        "service_file": "lib/services/admission/assignment-rules-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to assignment rules", "expected": "Rules list loads"},
+          {"step": 2, "action": "Create rule", "expected": "Rule saved"},
+          {"step": 3, "action": "Edit rule", "expected": "Changes saved"}
+        ]
+      },
+      {
+        "id": "P1-023",
+        "test": "Workflow builder",
+        "route": "/admission/workflows",
+        "priority": "P2",
+        "status": "pending",
+        "service_file": "lib/services/admission/workflows-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to workflows", "expected": "Page loads"},
+          {"step": 2, "action": "Create workflow", "expected": "Workflow saved with triggers and actions"},
+          {"step": 3, "action": "Check console", "expected": "No errors"}
+        ]
+      },
+      {
+        "id": "P1-024",
+        "test": "Campaign monitoring",
+        "route": "/admission/campaigns/monitoring",
+        "priority": "P2",
+        "status": "pending",
+        "service_file": "lib/services/admission/campaign-monitoring-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to campaign monitoring", "expected": "Page loads"},
+          {"step": 2, "action": "Check stats display", "expected": "Campaign stats render"}
+        ]
+      },
+      {
+        "id": "P1-025",
+        "test": "AI insights generation",
+        "route": "/admission/insights",
+        "priority": "P2",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to insights", "expected": "Page loads or shows API key needed"}
+        ]
+      },
+      {
+        "id": "P1-026",
+        "test": "Daily briefing",
+        "route": "/admission/briefing",
+        "priority": "P2",
+        "status": "pending",
+        "service_file": "lib/services/admission/daily-briefing-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to briefing", "expected": "Briefing content loads for user role"}
+        ]
+      },
+      {
+        "id": "P1-027",
+        "test": "Consultant management",
+        "route": "/admission/consultants",
+        "priority": "P2",
+        "status": "pending",
+        "service_file": "lib/services/admission/consultant-service.ts",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to consultants", "expected": "CRUD operations work"}
+        ]
+      },
+      {
+        "id": "P1-028",
+        "test": "Publisher management",
+        "route": "/admission/publishers",
+        "priority": "P2",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to publishers", "expected": "Publisher list loads"}
+        ]
+      },
+      {
+        "id": "P1-029",
+        "test": "Deduplication detection",
+        "route": "/admission/deduplication",
+        "priority": "P2",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to deduplication", "expected": "Duplicate matches display"}
+        ]
+      },
+      {
+        "id": "P1-030",
+        "test": "Phone validation",
+        "route": "/admission/phone-validation",
+        "priority": "P2",
+        "status": "pending",
+        "test_steps": [
+          {"step": 1, "action": "Navigate to phone validation", "expected": "Validation runs on phone numbers"}
+        ]
+      }
+    ]
+  },
   "features": [
     {
       "id": "F001",
