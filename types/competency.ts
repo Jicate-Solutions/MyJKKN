@@ -222,9 +222,12 @@ export interface CompetencyStats {
   total_competencies: number;
   by_type: Record<CompetencyType, number>;
   active_count: number;
+  inactive_count: number;
   programs_mapped: number;
   courses_mapped: number;
   average_ai_resistance: number;
+  avg_finks_dimensions: FinksDimensions;
+  by_dominant_finks_dimension: Record<keyof FinksDimensions, number>;
 }
 
 export interface LearnerCompetencyProgress {
@@ -234,3 +237,53 @@ export interface LearnerCompetencyProgress {
   verified_count: number;
   industry_readiness_score: number;
 }
+
+// ============================================================================
+// RESPONSE / UTILITY TYPES
+// ============================================================================
+
+/** Paginated list response */
+export interface CompetencyListResponse<T> {
+  data: T[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+/** Competency picker option for forms */
+export interface CompetencyPickerOption {
+  id: string;
+  competency_code: string;
+  competency_name: string;
+  competency_type: CompetencyType;
+  industry_tags: string[];
+}
+
+/** Bulk import competency row */
+export interface BulkImportCompetencyRow {
+  competency_code: string;
+  competency_name: string;
+  competency_type: CompetencyType;
+  description?: string;
+  industry_tags?: string;
+}
+
+/** Bulk import result */
+export interface BulkImportResult {
+  total: number;
+  success: number;
+  failed: number;
+  errors: {
+    row: number;
+    code: string;
+    message: string;
+  }[];
+}
+
+// Backward-compatible alias
+export type Competency = CompetencyCatalog;
+export type CreateCompetencyDTO = CreateCompetencyInput;
+export type UpdateCompetencyDTO = UpdateCompetencyInput;
