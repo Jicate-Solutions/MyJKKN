@@ -86,7 +86,6 @@ export function NewSolutionForm() {
     const basePriceStr = formData.get('base_price') as string;
     const startDate = formData.get('start_date') as string;
     const targetDate = formData.get('target_date') as string;
-    const problemStatement = formData.get('problem_statement') as string;
     const description = formData.get('description') as string;
 
     if (!title || !selectedClientId || !selectedDepartmentId) {
@@ -101,9 +100,8 @@ export function NewSolutionForm() {
         client_id: selectedClientId,
         lead_department_id: selectedDepartmentId,
         base_price: basePriceStr ? parseFloat(basePriceStr) : undefined,
-        started_date: startDate || undefined,
-        target_completion: targetDate || undefined,
-        problem_statement: problemStatement || undefined,
+        start_date: startDate || undefined,
+        target_date: targetDate || undefined,
         description: description || undefined,
         created_by: profile?.id || 'system',
       });
