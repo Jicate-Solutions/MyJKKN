@@ -214,9 +214,12 @@ export interface CreateLeadInput {
 export interface UpdateLeadInput extends Partial<CreateLeadInput> {
   id: string;
   funnel_stage?: FunnelStage;
-  priority?: LeadPriority;
+  // FIX: priority enum does not exist → use is_hot_lead + is_priority booleans
+  is_hot_lead?: boolean;
+  is_priority?: boolean;
   counselor_id?: string | null;
-  next_followup_at?: string | null;
+  // FIX: next_followup_at does not exist in DB - removed
+  last_contact_at?: string | null;
 }
 
 export interface LeadFilters {
