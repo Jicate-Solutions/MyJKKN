@@ -384,7 +384,6 @@ export function useLeadMutations() {
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to create lead');
-      throw error;
     }
   });
 
