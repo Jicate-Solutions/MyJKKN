@@ -37,14 +37,14 @@ export interface CommunicationFilters extends PaginationParams {
 export interface CreateDiscoveryVisitInput {
   client_id: string;
   solution_id?: string;
-  resulted_phase_id?: string;
   department_id: string;
   visit_date: string;
   visitors?: Array<{ name: string; role?: string }>;
   observations: string;
-  pain_points?: string[];
+  pain_points?: string;
   photos_urls?: string[];
-  next_steps?: string;
+  follow_up_notes?: string;
+  follow_up_required?: boolean;
   created_by: string;
 }
 
