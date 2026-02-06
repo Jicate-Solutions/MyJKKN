@@ -11,10 +11,12 @@ let adminInstance: SupabaseClient<Database>;
 export function createClientSupabaseClient(): TypedSupabaseClient {
   // Let @supabase/ssr v0.6.1 handle cookies internally with its built-in
   // browser cookie adapter. No custom cookie handlers needed.
+  // The createBrowserClient<Database> return type is compatible with
+  // SupabaseClient<Database> - both implement the same interface.
   return createBrowserClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  ) as unknown as TypedSupabaseClient;
+  ) as TypedSupabaseClient;
 }
 
 export function createAdminClient() {
