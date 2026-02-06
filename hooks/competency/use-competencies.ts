@@ -42,8 +42,8 @@ export function useCompetencies(
   const { profile, isLoading: authLoading } = useAuth();
 
   const queryKey = useMemo(() => {
-    const stableFilters: CompetencyFilters = {
-      institution_id: filters.institution_id,
+    const stableFilters = {
+      institution_id: filters.institution_id || '',
       competency_type: filters.competency_type,
       is_active: filters.is_active,
       search: filters.search,
