@@ -416,13 +416,16 @@ export interface SHEarningsLedger {
   payment_id: string
   recipient_type: RecipientType
   recipient_id: string | null
-  recipient_name: string | null
+  builder_id: string | null
+  cohort_member_id: string | null
+  production_learner_id: string | null
+  department_id: string | null
+  institution_id: string | null
   amount: number
   percentage: number | null
   status: EarningsStatus
   paid_at: string | null
   created_at: string
-  updated_at: string
   payment?: SHPaymentWithDetails
 }
 
