@@ -92,7 +92,7 @@ export class CohortService extends BaseService {
       .select(
         `
         *,
-        department:departments(id, name, code)
+        department:departments(id, department_name, department_code)
       `,
         { count: 'exact' }
       )
@@ -149,7 +149,7 @@ export class CohortService extends BaseService {
       .select(
         `
         *,
-        department:departments(id, name, code),
+        department:departments(id, department_name, department_code),
         assignments:sh_cohort_assignments(*)
       `
       )
@@ -172,7 +172,7 @@ export class CohortService extends BaseService {
       .select(
         `
         *,
-        department:departments(id, name, code)
+        department:departments(id, department_name, department_code)
       `
       )
       .eq('user_id', userId)
