@@ -354,7 +354,7 @@ export function FinksDimensionSummary({
                 >
                   {config.isAiProof && <Sparkles className="h-3 w-3" />}
                   {showLabels && `${config.shortLabel}: `}
-                  {value}/100
+                  {value}/10
                 </Badge>
               </TooltipTrigger>
               <TooltipContent>
