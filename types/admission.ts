@@ -226,13 +226,18 @@ export interface LeadFilters {
   search?: string;
   institution_id?: string;
   funnel_stage?: FunnelStage | FunnelStage[];
+  // FIX: priority enum does not exist in DB, but kept as filter concept
+  // Service layer maps this to is_hot_lead/is_priority booleans
   priority?: LeadPriority | LeadPriority[];
   source?: LeadSource | LeadSource[];
   counselor_id?: string;
-  program_interest?: string;
+  // FIX: program_interest does not exist → use interested_programs
+  interested_programs?: string;
   date_from?: string;
   date_to?: string;
-  is_duplicate?: boolean;
+  // FIX: is_duplicate does not exist in DB - removed
+  is_hot_lead?: boolean;
+  is_priority?: boolean;
   page?: number;
   limit?: number;
   sort_by?: string;
