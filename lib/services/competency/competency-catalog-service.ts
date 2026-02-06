@@ -467,19 +467,21 @@ export class CompetencyCatalogService {
           technical: 0,
           behavioral: 0,
           domain: 0,
-          soft_skill: 0
+          soft_skill: 0,
+          metacognitive: 0
         },
-        mapped_to_programs: programMappedCount || 0,
-        mapped_to_courses: courseMappedCount || 0,
+        programs_mapped: programMappedCount || 0,
+        courses_mapped: courseMappedCount || 0,
         active_count: 0,
         inactive_count: 0,
+        average_ai_resistance: 0,
         avg_finks_dimensions: {
           foundational_knowledge: 0,
           application: 0,
           integration: 0,
           human_dimension: 0,
           caring: 0,
-          learning_how_to_learn: 0
+          learning_to_learn: 0
         },
         by_dominant_finks_dimension: {
           foundational_knowledge: 0,
@@ -487,7 +489,7 @@ export class CompetencyCatalogService {
           integration: 0,
           human_dimension: 0,
           caring: 0,
-          learning_how_to_learn: 0
+          learning_to_learn: 0
         }
       };
 
