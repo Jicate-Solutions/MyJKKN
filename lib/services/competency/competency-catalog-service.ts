@@ -201,7 +201,7 @@ export class CompetencyCatalogService {
       'integration',
       'human_dimension',
       'caring',
-      'learning_how_to_learn'
+      'learning_to_learn'
     ];
 
     for (const [key, value] of Object.entries(dimensions)) {
@@ -448,7 +448,7 @@ export class CompetencyCatalogService {
         integration: 0,
         human_dimension: 0,
         caring: 0,
-        learning_how_to_learn: 0
+        learning_to_learn: 0
       };
 
       const dimensionCounts: Record<keyof typeof dimensionTotals, number> = {
@@ -457,7 +457,7 @@ export class CompetencyCatalogService {
         integration: 0,
         human_dimension: 0,
         caring: 0,
-        learning_how_to_learn: 0
+        learning_to_learn: 0
       };
 
       // Calculate stats
@@ -641,7 +641,7 @@ export class CompetencyCatalogService {
           integration: 25,
           human_dimension: 10,
           caring: 8,
-          learning_how_to_learn: 7
+          learning_to_learn: 7
         }
       });
     });
