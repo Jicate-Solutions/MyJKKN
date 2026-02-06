@@ -3018,10 +3018,11 @@ $$;
 -- Get user merged permissions (Multi-role support)
 -- Created: 2025-12-27 - Returns merged permissions from all assigned roles
 -- Updated: 2026-02-06 - Fixed null handling: use ->> with COALESCE for null-safe boolean extraction
+-- Updated: 2026-02-06 - Changed to SECURITY DEFINER to bypass RLS (user_roles table has RLS that blocks reads for non-admin users)
 CREATE OR REPLACE FUNCTION public.get_user_merged_permissions(p_user_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 AS $$
 DECLARE
     merged_permissions jsonb := '{}'::jsonb;
