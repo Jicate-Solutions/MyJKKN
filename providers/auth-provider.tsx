@@ -8,7 +8,8 @@ import {
   useState,
   ReactNode,
   useCallback,
-  useRef
+  useRef,
+  useMemo
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { Profile } from '@/types/auth';
