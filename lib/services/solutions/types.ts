@@ -154,17 +154,22 @@ export interface Solution extends BaseEntity {
   client_id: string;
   solution_type: SolutionType;
   title: string;
-  problem_statement?: string;
   description?: string;
   lead_department_id: string;
+  institution_id?: string;
   status: SolutionStatus;
   base_price?: number;
-  partner_discount_applied?: number;
-  hod_discount?: number;
   final_price?: number;
-  started_date?: string;
-  target_completion?: string;
-  completed_date?: string;
+  discount_percentage?: number;
+  discount_reason?: string;
+  currency?: string;
+  start_date?: string;
+  target_date?: string;
+  completion_date?: string;
+  priority?: number;
+  tags?: string[];
+  notes?: string;
+  metadata?: Record<string, unknown>;
   created_by?: string;
 }
 
