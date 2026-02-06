@@ -173,7 +173,7 @@ export interface UpdateCompetencyInput {
 }
 
 export interface CompetencyFilters {
-  institution_id: string;
+  institution_id?: string;
   search?: string;
   competency_type?: CompetencyType | CompetencyType[];
   is_active?: boolean;
