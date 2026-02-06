@@ -613,11 +613,12 @@ export class InsightActionsService {
         created_by: context.user_id,
       });
 
-    // Also update the lead's next follow-up date
+    // FIX: next_followup_date does not exist in DB → update last_contact_at instead
+    // The follow-up is tracked via the activity record above, not a lead column
     await this.supabase
       .from('admission_leads')
       .update({
-        next_followup_date: params.followup_date,
+        last_contact_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', leadId);
