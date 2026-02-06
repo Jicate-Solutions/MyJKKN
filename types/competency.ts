@@ -302,7 +302,9 @@ export type CreateCompetencyCourseMappingDTO = CreateCourseMappingInput;
 export interface CompetencyProgramMappingFilters {
   competency_id?: string;
   program_id?: string;
+  required_level?: string;
   is_mandatory?: boolean;
+  semester_expected?: number;
   page?: number;
   limit?: number;
 }
