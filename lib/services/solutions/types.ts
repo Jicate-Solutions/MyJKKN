@@ -176,18 +176,22 @@ export interface Solution extends BaseEntity {
 export interface SolutionPhase extends BaseEntity {
   solution_id: string;
   phase_number: number;
+  phase_code?: string;
   title: string;
   description?: string;
   status: PhaseStatus;
   owner_department_id?: string;
-  prd_url?: string;
-  prototype_url?: string;
-  production_url?: string;
+  owner_user_id?: string;
   estimated_value?: number;
-  started_date?: string;
-  target_completion?: string;
-  completed_date?: string;
-  created_by?: string;
+  actual_value?: number;
+  estimated_hours?: number;
+  actual_hours?: number;
+  start_date?: string;
+  due_date?: string;
+  completion_date?: string;
+  requirements_doc_url?: string;
+  notes?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface SolutionMou extends BaseEntity {
