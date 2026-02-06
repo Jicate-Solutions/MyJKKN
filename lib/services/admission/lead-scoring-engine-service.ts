@@ -370,13 +370,15 @@ export class LeadScoringEngineService {
       throw new Error('Failed to fetch leads with scores');
     }
 
+    // FIX: priority column does not exist → derive from is_hot_lead/is_priority booleans
     return (data || []).map((item: {
       id: string;
       full_name: string;
       email: string | null;
       phone: string;
       funnel_stage: string;
-      priority: string;
+      is_hot_lead: boolean;
+      is_priority: boolean;
       admission_lead_scores?: LeadScore[];
     }) => ({
       lead: {
@@ -385,7 +387,8 @@ export class LeadScoringEngineService {
         email: item.email,
         phone: item.phone,
         funnel_stage: item.funnel_stage,
-        priority: item.priority,
+        // Derive virtual priority from boolean flags for backward compat
+        priority: item.is_hot_lead ? 'hot' : item.is_priority ? 'warm' : 'cold',
       },
       score: item.admission_lead_scores?.[0] || null,
     }));
