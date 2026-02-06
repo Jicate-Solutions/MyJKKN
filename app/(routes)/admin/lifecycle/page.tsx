@@ -29,6 +29,7 @@ import toast from 'react-hot-toast';
 import { useLifecycleDashboard } from '@/hooks/analytics/use-lifecycle-dashboard';
 import { useModuleBreakdown } from '@/hooks/analytics/use-module-breakdown';
 import { useInstitutionComparison } from '@/hooks/analytics/use-institution-comparison';
+import { useUserStats } from '@/hooks/analytics/use-user-stats';
 
 import { LifecycleHero } from './_components/lifecycle-hero';
 import { LifecycleFilters } from './_components/lifecycle-filters';
@@ -38,6 +39,7 @@ import { ModuleUsageTab } from './_components/module-usage-tab';
 import { DrillDownBreadcrumb } from './_components/drill-down-breadcrumb';
 import { InstitutionComparisonTab } from './_components/institution-comparison-tab';
 import { ReportsTab } from './_components/reports-tab';
+import { UserStatsTab } from './_components/user-stats-tab';
 
 export default function LifecycleAnalyticsPage() {
   const queryClient = useQueryClient();
@@ -54,7 +56,14 @@ export default function LifecycleAnalyticsPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [selectedPresetDays, setSelectedPresetDays] = useState(7);
   const [institutionId, setInstitutionId] = useState<string | undefined>();
+  const [departmentId, setDepartmentId] = useState<string | undefined>();
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
+
+  // Reset department when institution changes
+  const handleInstitutionChange = (id: string | undefined) => {
+    setInstitutionId(id);
+    setDepartmentId(undefined);
+  };
 
   // Initialize lastUpdated on client
   useEffect(() => {
@@ -68,9 +77,9 @@ export default function LifecycleAnalyticsPage() {
     }
   }, [authLoading, profile, isSuperAdmin]);
 
-  // Date range
+  // Date range (inclusive: "Today"=1 means just today, "Last 7 days"=7 means 7 calendar days)
   const dateTo = new Date().toISOString().split('T')[0];
-  const dateFrom = subDays(new Date(), selectedPresetDays)
+  const dateFrom = subDays(new Date(), selectedPresetDays - 1)
     .toISOString()
     .split('T')[0];
 
@@ -87,6 +96,7 @@ export default function LifecycleAnalyticsPage() {
     dateFrom,
     dateTo,
     institutionId,
+    departmentId,
     enabled: hasAccess && !authLoading && !permissionsLoading,
   });
 
@@ -116,6 +126,19 @@ export default function LifecycleAnalyticsPage() {
         activeTab === 'comparison',
     });
 
+  // Fetch user stats (lazy-loaded on user stats tab)
+  const { data: userStats, isLoading: userStatsLoading } = useUserStats({
+    dateFrom,
+    dateTo,
+    institutionId,
+    departmentId,
+    enabled:
+      hasAccess &&
+      !authLoading &&
+      !permissionsLoading &&
+      activeTab === 'users',
+  });
+
   // Tab change handler
   const handleTabChange = (value: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -131,6 +154,7 @@ export default function LifecycleAnalyticsPage() {
       await queryClient.invalidateQueries({ queryKey: ['lifecycle-modules'] });
       await queryClient.invalidateQueries({ queryKey: ['institution-comparison'] });
       await queryClient.invalidateQueries({ queryKey: ['health-scores'] });
+      await queryClient.invalidateQueries({ queryKey: ['user-stats'] });
       await refetch();
       setLastUpdated(new Date());
       toast.success('Dashboard refreshed');
@@ -202,9 +226,9 @@ export default function LifecycleAnalyticsPage() {
           >
             <Filter className="h-3.5 w-3.5" />
             Filters
-            {institutionId && (
+            {(institutionId || departmentId) && (
               <Badge variant="secondary" className="ml-1 text-xs">
-                1
+                {(institutionId ? 1 : 0) + (departmentId ? 1 : 0)}
               </Badge>
             )}
           </Button>
@@ -213,7 +237,9 @@ export default function LifecycleAnalyticsPage() {
         {showFilters && (
           <LifecycleFilters
             institutionId={institutionId}
-            onInstitutionChange={setInstitutionId}
+            onInstitutionChange={handleInstitutionChange}
+            departmentId={departmentId}
+            onDepartmentChange={setDepartmentId}
             isSuperAdmin={isSuperAdmin}
             onClose={() => setShowFilters(false)}
           />
@@ -236,6 +262,7 @@ export default function LifecycleAnalyticsPage() {
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="modules">Module Usage</TabsTrigger>
+            <TabsTrigger value="users">User Stats</TabsTrigger>
             {isSuperAdmin && (
               <TabsTrigger value="comparison">Institutions</TabsTrigger>
             )}
@@ -265,6 +292,13 @@ export default function LifecycleAnalyticsPage() {
               }
               loading={selectedModule ? moduleDetailLoading : isLoading}
               onModuleDrillDown={(module) => setSelectedModule(module)}
+            />
+          </TabsContent>
+
+          <TabsContent value="users" className="mt-4">
+            <UserStatsTab
+              data={userStats}
+              loading={userStatsLoading}
             />
           </TabsContent>
 

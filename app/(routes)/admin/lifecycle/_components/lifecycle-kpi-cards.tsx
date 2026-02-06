@@ -69,11 +69,21 @@ export function LifecycleKPICards({ kpis, loading }: LifecycleKPICardsProps) {
       ? 'today'
       : `last ${kpis.period_days} days`;
 
+  // For "Today" period, show "in today" instead of redundant "in last 24h"
+  const usersSubtitle =
+    kpis.period_days === 1
+      ? `${kpis.active_users_period} in ${periodLabel}`
+      : `${kpis.active_users_24h} in last 24h`;
+  const actionsSubtitle =
+    kpis.period_days === 1
+      ? `${kpis.total_actions_period.toLocaleString()} in ${periodLabel}`
+      : `${kpis.total_actions_24h.toLocaleString()} in last 24h`;
+
   const cards = [
     {
       title: 'Active Users',
       value: kpis.active_users_period,
-      subtitle: `${kpis.active_users_24h} in last 24h`,
+      subtitle: usersSubtitle,
       icon: Users,
       trend: kpis.trends.active_users_change,
       color: 'text-blue-600',
@@ -82,7 +92,7 @@ export function LifecycleKPICards({ kpis, loading }: LifecycleKPICardsProps) {
     {
       title: 'Total Actions',
       value: kpis.total_actions_period.toLocaleString(),
-      subtitle: `${kpis.total_actions_24h.toLocaleString()} in last 24h`,
+      subtitle: actionsSubtitle,
       icon: Activity,
       trend: kpis.trends.actions_change,
       color: 'text-green-600',

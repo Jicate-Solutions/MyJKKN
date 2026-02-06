@@ -11,10 +11,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { X, Loader2 } from 'lucide-react';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useDepartments } from '@/hooks/organization/use-departments';
 
 interface LifecycleFiltersProps {
   institutionId?: string;
   onInstitutionChange: (id: string | undefined) => void;
+  departmentId?: string;
+  onDepartmentChange: (id: string | undefined) => void;
   isSuperAdmin: boolean;
   onClose: () => void;
 }
@@ -22,6 +25,8 @@ interface LifecycleFiltersProps {
 export function LifecycleFilters({
   institutionId,
   onInstitutionChange,
+  departmentId,
+  onDepartmentChange,
   isSuperAdmin,
   onClose,
 }: LifecycleFiltersProps) {
@@ -29,6 +34,13 @@ export function LifecycleFilters({
     isActive: true,
     autoFetch: true,
   });
+
+  const { data: deptData, isLoading: deptLoading } = useDepartments({
+    institution_id: institutionId,
+    isActive: true,
+  });
+
+  const departments = deptData?.data || [];
 
   return (
     <Card>
@@ -64,6 +76,37 @@ export function LifecycleFilters({
                   {institutions.map((inst) => (
                     <SelectItem key={inst.id} value={inst.id}>
                       {inst.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {institutionId && (
+            <div className="w-[220px]">
+              <Select
+                value={departmentId || 'all'}
+                onValueChange={(v) =>
+                  onDepartmentChange(v === 'all' ? undefined : v)
+                }
+                disabled={deptLoading}
+              >
+                <SelectTrigger>
+                  {deptLoading ? (
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading...
+                    </span>
+                  ) : (
+                    <SelectValue placeholder="All Departments" />
+                  )}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Departments</SelectItem>
+                  {departments.map((dept: any) => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      {dept.department_name}
                     </SelectItem>
                   ))}
                 </SelectContent>
