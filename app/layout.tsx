@@ -171,12 +171,14 @@ export default function RootLayout({
           disableTransitionOnChange
           storageKey='theme-preference'
         >
-          <AuthProvider>
-            <PWAProvider>
-              <PushNotificationProvider>{children}</PushNotificationProvider>
-              <SpeedInsights />
-            </PWAProvider>
-          </AuthProvider>
+          <Suspense>
+            <AuthProvider>
+              <PWAProvider>
+                <PushNotificationProvider>{children}</PushNotificationProvider>
+                <SpeedInsights />
+              </PWAProvider>
+            </AuthProvider>
+          </Suspense>
         </ThemeProvider>
         <Script
           src='https://accounts.google.com/gsi/client'
