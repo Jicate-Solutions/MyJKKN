@@ -35,6 +35,17 @@ interface COPQSummaryViewRow {
   avg_time_spent: number;
 }
 
+/**
+ * Interface for monthly trend data from database function
+ * All cost fields are in paisa (BIGINT)
+ */
+interface COPQMonthlyTrendRow {
+  month: string;
+  copq_paisa: number;
+  visible_paisa: number;
+  hidden_paisa: number;
+}
+
 export class BillingCOPQService {
   private static supabase: any = createClientSupabaseClient();
 
