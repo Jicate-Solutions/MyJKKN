@@ -136,7 +136,7 @@ function AdmissionTemplatesPageContent() {
   // Form state
   const [formData, setFormData] = useState<Partial<CreateTemplateInput>>({
     name: '',
-    type: 'email',
+    channel: 'email',
     subject: '',
     content: '',
     is_active: true
