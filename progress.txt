@@ -3,7 +3,7 @@
 ## Current Session: 2026-02-06
 
 ### Working On
-- Phase 1.2: Competency Catalog Module - fixing build errors
+- Phase 1.2: Competency Catalog Module - BUILD PASSING, needs browser test
 
 ### Completed This Session
 - Phase 1.1: OKR Restrictions - verified DONE (all changes already in place from previous sessions)
@@ -14,10 +14,11 @@
 - Created SPECS.md with full requirements for all 4 phases
 - Created features.json with test_steps for each feature
 - Fixed build error: added counselor_id to CreateLeadInput in types/admission.ts
+- Fixed ALL build errors in competency module (type mismatches between services and types)
+- npm run build passes cleanly - all 4 competency routes compiled
 
 ### Blocked
-- Build error: TYPE_BADGES in [id]/page.tsx missing 'metacognitive' key - needs fix before browser testing
-- Supabase CLI push failed (network timeout) - used MCP apply_migration instead (worked)
+- Nothing currently blocked
 
 ### Decisions Made
 - Phase 1.1 is complete: All deprecation, UI filtering, sidebar cleanup already done in previous sessions
@@ -25,13 +26,12 @@
 - Database migration applied via Supabase MCP (not CLI) due to network timeout
 - Sidebar placement: "Competency & Outcomes" group before "OKR & Performance"
 - Used swarm (8 parallel agents) to build competency module simultaneously
+- Fixed type mismatches by aligning types/competency.ts with service implementations
 
 ### Next Session Should
-1. Fix build error in competency-catalog/[id]/page.tsx (add metacognitive to TYPE_BADGES)
-2. Fix LEVEL_COLORS mismatch (ProficiencyLevel vs ContributionLevel) in detail page
-3. Run npm run build - get clean pass
-4. Browser test the Competency Catalog module end-to-end
-5. Start Phase 1.5 (existing module modifications) if build passes
+1. Browser test the Competency Catalog module end-to-end
+2. Start Phase 1.5 (existing module modifications) if browser test passes
+3. Push to remote and verify Vercel deployment
 
 ---
 
