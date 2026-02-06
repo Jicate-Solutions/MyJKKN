@@ -111,10 +111,9 @@ export function EditSolutionForm({ solutionId }: EditSolutionFormProps) {
           status,
           base_price: basePrice ? parseFloat(basePrice) : undefined,
           final_price: finalPrice ? parseFloat(finalPrice) : undefined,
-          started_date: startDate || undefined,
-          target_completion: targetDate || undefined,
-          problem_statement: problemStatement || undefined,
-          description: description || undefined,
+          start_date: startDate || undefined,
+          target_date: targetDate || undefined,
+          description: description || problemStatement || undefined,
         },
       });
 
