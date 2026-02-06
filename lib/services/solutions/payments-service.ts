@@ -798,7 +798,7 @@ export class PaymentsService extends BaseService {
     const { data: payments, error } = await (this.supabase as any).from('sh_payments')
       .select('id')
       .eq('status', 'completed')
-      .eq('split_calculated', false);
+      .eq('split_processed', false);
 
     if (error) {
       return { processed: 0, failed: 0, errors: [error.message] };
