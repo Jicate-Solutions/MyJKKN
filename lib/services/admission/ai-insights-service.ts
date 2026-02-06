@@ -501,17 +501,25 @@ export class AIInsightsService {
 
   /**
    * Analyze overdue followups
+   * NOTE: next_followup_at column does not exist in DB.
+   * Instead, we identify leads not contacted in 7+ days that are in active stages.
    */
   private static analyzeOverdueFollowups(
     leads: AdmissionLead[],
     institutionId: string
   ): Omit<AIInsight, 'id' | 'created_at' | 'updated_at'> | null {
     const now = new Date();
+    const sevenDaysAgo = new Date(now);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     const overdueFollowups = leads.filter(lead => {
-      if (!lead.next_followup_at) return false;
       if (lead.funnel_stage === 'lost' || lead.funnel_stage === 'enrolled') return false;
-      return new Date(lead.next_followup_at) < now;
+      const lastContact = lead.last_contact_at
+        ? new Date(lead.last_contact_at)
+        : null;
+      // Leads never contacted or not contacted in 7+ days are overdue
+      if (!lastContact) return true;
+      return lastContact < sevenDaysAgo;
     });
 
     if (overdueFollowups.length === 0) return null;
@@ -521,10 +529,10 @@ export class AIInsightsService {
       type: 'engagement_alert',
       priority: overdueFollowups.length > 10 ? 'critical' : 'high',
       title: `${overdueFollowups.length} overdue follow-ups`,
-      description: `These leads have missed their scheduled follow-up dates. Prompt action needed to re-engage.`,
+      description: `These leads haven't been contacted in over 7 days. Prompt action needed to re-engage.`,
       action_type: 'schedule_followup',
       action_data: { lead_count: overdueFollowups.length },
-      action_url: '/admission/leads?followup_overdue=true',
+      action_url: '/admission/leads?sort_by=last_contact_at&sort_order=asc',
       related_lead_ids: overdueFollowups.slice(0, 20).map(l => l.id),
       related_counselor_ids: [],
       metric_value: overdueFollowups.length,
