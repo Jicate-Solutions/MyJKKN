@@ -396,7 +396,7 @@ export function QuickPersonalizer({
     .replace(/\{\{full_name\}\}/g, lead.full_name)
     .replace(/\{\{email\}\}/g, lead.email || '')
     .replace(/\{\{phone\}\}/g, lead.phone)
-    .replace(/\{\{program\}\}/g, lead.program_interest || 'your program')
+    .replace(/\{\{program\}\}/g, lead.interested_programs?.join(', ') || 'your program')
     .replace(/\{\{counselor_name\}\}/g, counselorName || 'your counselor')
     .replace(/\{\{institution_name\}\}/g, institutionName || 'our institution');
 
