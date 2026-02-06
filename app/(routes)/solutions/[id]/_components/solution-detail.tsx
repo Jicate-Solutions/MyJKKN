@@ -365,8 +365,8 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
                       <Calendar className="h-3 w-3" /> Target
                     </p>
                     <p className="text-sm">
-                      {solution.target_completion
-                        ? format(new Date(solution.target_completion), 'PPP')
+                      {solution.target_date
+                        ? format(new Date(solution.target_date), 'PPP')
                         : 'Not set'}
                     </p>
                   </div>
