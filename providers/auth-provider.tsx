@@ -71,6 +71,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       now - lastFetchTime.current < PROFILE_CACHE_TIME
     ) {
       console.log('[AuthProvider] Using cached profile');
+
+      // CRITICAL: Even with cached data, ALWAYS verify is_active status
+      // This prevents deactivated users from accessing the system during cache window
+      if (profileCache.current.is_active === false) {
+        console.warn('[AuthProvider] Cached user is inactive, signing out');
+        try {
+          await supabase.auth.signOut();
+          setUser(null);
+          profileCache.current = null;
+          router.push('/unauthorized?reason=inactive');
+          toast.error(
+            'Your account has been deactivated. Please contact your administrator.'
+          );
+        } catch (error) {
+          console.error('[AuthProvider] Error signing out inactive user:', error);
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
+
       setUser(profileCache.current);
       setLoading(false);
       return;
