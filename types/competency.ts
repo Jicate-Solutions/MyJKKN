@@ -288,7 +288,67 @@ export interface BulkImportResult {
   }[];
 }
 
-// Backward-compatible alias
+// Backward-compatible aliases
 export type Competency = CompetencyCatalog;
 export type CreateCompetencyDTO = CreateCompetencyInput;
 export type UpdateCompetencyDTO = UpdateCompetencyInput;
+
+// Mapping aliases (used by hooks)
+export type CompetencyCourseMapping = CourseCompetencyMapping;
+export type CreateCompetencyProgramMappingDTO = CreateProgramMappingInput;
+export type CreateCompetencyCourseMappingDTO = CreateCourseMappingInput;
+
+// Filter types for mappings
+export interface CompetencyProgramMappingFilters {
+  competency_id?: string;
+  program_id?: string;
+  is_mandatory?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface CompetencyCourseMappingFilters {
+  competency_id?: string;
+  course_id?: string;
+  contribution_level?: ContributionLevel;
+  page?: number;
+  limit?: number;
+}
+
+// Update DTOs for mappings
+export interface UpdateCompetencyProgramMappingDTO {
+  id: string;
+  required_level?: ProficiencyLevel;
+  weight_percentage?: number;
+  semester_expected?: string;
+  is_mandatory?: boolean;
+}
+
+export interface UpdateCompetencyCourseMappingDTO {
+  id: string;
+  contribution_level?: ContributionLevel;
+  learning_hours?: number;
+  finks_assessment_methods?: FinksAssessmentMethods;
+}
+
+// Coverage/Contribution analytics
+export interface ProgramCompetencyCoverage {
+  program_id: string;
+  program_name: string;
+  total_competencies: number;
+  mandatory_count: number;
+  coverage_percentage: number;
+  by_type: Record<CompetencyType, number>;
+}
+
+export interface CourseCompetencyContribution {
+  course_id: string;
+  course_name: string;
+  competencies: {
+    competency_id: string;
+    competency_name: string;
+    contribution_level: ContributionLevel;
+    learning_hours: number;
+  }[];
+  total_learning_hours: number;
+}
