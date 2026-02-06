@@ -284,11 +284,11 @@ export function FinksRadarChart({
                       </p>
                       <div className="space-y-1">
                         <p className="text-primary font-semibold">
-                          Current: {data.current}/100
+                          Current: {data.current}/10
                         </p>
                         {data.previous !== undefined && (
                           <p className="text-muted-foreground">
-                            Previous: {data.previous}/100
+                            Previous: {data.previous}/10
                             {data.current > data.previous && (
                               <span className="text-emerald-600 ml-1">
                                 ↑ +{data.current - data.previous}
@@ -303,7 +303,7 @@ export function FinksRadarChart({
                         )}
                         {data.target !== undefined && (
                           <p className="text-muted-foreground">
-                            Target: {data.target}/100
+                            Target: {data.target}/10
                           </p>
                         )}
                       </div>
