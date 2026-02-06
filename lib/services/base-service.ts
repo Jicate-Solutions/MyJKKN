@@ -34,14 +34,19 @@ export interface BaseListResponse<T> {
   metadata: PaginationMetadata;
 }
 
+// Module-level Supabase client singleton
+// @supabase/ssr internally manages singleton (isSingleton: true by default)
+// and handles auth state changes automatically via cookies
+const supabase = createClientSupabaseClient();
+
 /**
  * Base service class with performance-optimized query patterns
  * Extend this class to get automatic pagination, timeouts, and validation
  */
 export abstract class BaseService {
-  // Use getter to always get fresh Supabase instance with current auth state
+  // Use module-level singleton for consistent auth state
   protected static get supabase(): any {
-    return createClientSupabaseClient();
+    return supabase;
   }
 
   /**
