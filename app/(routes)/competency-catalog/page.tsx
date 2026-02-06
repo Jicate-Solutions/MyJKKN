@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Plus, Award, TrendingUp, BookOpen, Shield } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
