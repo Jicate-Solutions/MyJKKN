@@ -54,7 +54,6 @@ export function EditSolutionForm({ solutionId }: EditSolutionFormProps) {
   const [finalPrice, setFinalPrice] = useState('');
   const [startDate, setStartDate] = useState('');
   const [targetDate, setTargetDate] = useState('');
-  const [problemStatement, setProblemStatement] = useState('');
   const [description, setDescription] = useState('');
 
   // Fetch solution data
