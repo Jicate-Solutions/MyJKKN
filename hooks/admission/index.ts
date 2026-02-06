@@ -403,8 +403,8 @@ export function useLeadMutations() {
   });
 
   const scheduleFollowup = useMutation({
-    mutationFn: async ({ leadId, followupDate }: { leadId: string; followupDate: string }) => {
-      return LeadService.scheduleFollowup(leadId, followupDate);
+    mutationFn: async ({ leadId, followupDate, notes }: { leadId: string; followupDate: string; notes?: string }) => {
+      return LeadService.scheduleFollowup(leadId, followupDate, notes);
     },
     onSuccess: () => {
       toast.success('Followup scheduled');
