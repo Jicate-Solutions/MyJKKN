@@ -266,9 +266,9 @@ export default function ClientProjectDetailPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {phase.production_url && (
+                    {phase.requirements_doc_url && (
                       <a
-                        href={phase.production_url}
+                        href={phase.requirements_doc_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-primary hover:underline text-sm flex items-center gap-1"
