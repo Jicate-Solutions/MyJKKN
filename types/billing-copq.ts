@@ -99,7 +99,9 @@ export interface CreateCOPQIncidentDto {
   incident_date: string;
   category: COPQCategory;
   description: string;
+  /** Visible cost in rupees. Service layer converts to paisa before DB insert. */
   visible_cost: number;
+  /** Hidden cost estimate in rupees. Service layer converts to paisa before DB insert. */
   hidden_cost_estimate: number;
   time_spent_hours?: number | null;
   affected_stakeholders?: number;
