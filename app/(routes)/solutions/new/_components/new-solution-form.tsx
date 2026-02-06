@@ -269,21 +269,11 @@ export function NewSolutionForm() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="problem_statement">Problem Statement</Label>
-            <Textarea
-              id="problem_statement"
-              name="problem_statement"
-              placeholder="Describe the problem this solution addresses..."
-              rows={3}
-            />
-          </div>
-
-          <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
             <Textarea
               id="description"
               name="description"
-              placeholder="Detailed description of the solution..."
+              placeholder="Describe the problem and the solution approach..."
               rows={4}
             />
           </div>
