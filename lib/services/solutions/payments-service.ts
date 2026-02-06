@@ -450,15 +450,25 @@ export class PaymentsService extends BaseService {
   static async updatePayment(id: string, input: UpdatePaymentInput): Promise<Payment> {
     // Get current payment status
     const { data: currentPayment } = await (this.supabase as any).from('sh_payments')
-      .select('status, split_calculated')
+      .select('status, split_processed')
       .eq('id', id)
       .single();
 
+    // Map input fields to actual DB columns
+    const updateData: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (input.amount !== undefined) updateData.amount = input.amount;
+    if (input.payment_type !== undefined) updateData.payment_type = input.payment_type;
+    if (input.payment_method !== undefined) updateData.payment_method = input.payment_method;
+    if (input.reference_number !== undefined) updateData.reference_number = input.reference_number;
+    if (input.due_date !== undefined) updateData.due_date = input.due_date;
+    if (input.paid_at !== undefined) updateData.payment_date = input.paid_at;
+    if (input.status !== undefined) updateData.status = input.status;
+    if (input.notes !== undefined) updateData.notes = input.notes;
+
     const { data, error } = await (this.supabase as any).from('sh_payments')
-      .update({
-        ...input,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
@@ -469,7 +479,7 @@ export class PaymentsService extends BaseService {
     if (
       input.status === 'completed' &&
       currentPayment?.status !== 'completed' &&
-      !currentPayment?.split_calculated
+      !currentPayment?.split_processed
     ) {
       await this.calculateAndDistributeSplits(id);
     }
