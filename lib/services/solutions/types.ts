@@ -136,9 +136,9 @@ export interface Client extends BaseEntity {
 
 export interface ClientReferral extends BaseEntity {
   client_id: string;
-  referring_department_id?: string;
-  executing_department_id?: string;
-  first_phase_id?: string;
+  referring_dept_id?: string;
+  executing_dept_id?: string;
+  referral_type?: string;
   bonus_percentage: number;
   bonus_amount?: number;
   bonus_paid: boolean;
