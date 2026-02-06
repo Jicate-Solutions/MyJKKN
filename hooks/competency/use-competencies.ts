@@ -129,7 +129,7 @@ export function useCompetencyStats(
           integration: 0,
           human_dimension: 0,
           caring: 0,
-          learning_how_to_learn: 0
+          learning_to_learn: 0
         },
         by_dominant_finks_dimension: {
           foundational_knowledge: 0,
@@ -137,7 +137,7 @@ export function useCompetencyStats(
           integration: 0,
           human_dimension: 0,
           caring: 0,
-          learning_how_to_learn: 0
+          learning_to_learn: 0
         },
         mapped_to_programs: 0,
         mapped_to_courses: 0,
