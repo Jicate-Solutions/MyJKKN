@@ -214,7 +214,7 @@ export function useClientSolutions(clientId: string) {
       const supabase = createClient();
       const { data, error } = await (supabase as any)
         .from('sh_solutions')
-        .select('id, title, solution_code, solution_type, status, problem_statement, description, started_date, target_completion, created_at')
+        .select('id, title, solution_code, solution_type, status, description, start_date, target_date, created_at')
         .eq('client_id', clientId)
         .order('created_at', { ascending: false });
 
