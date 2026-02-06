@@ -83,7 +83,8 @@ const TYPE_BADGES: Record<CompetencyType, { label: string; color: string }> = {
   technical: { label: 'Technical', color: 'bg-blue-100 text-blue-800' },
   behavioral: { label: 'Behavioral', color: 'bg-purple-100 text-purple-800' },
   domain: { label: 'Domain', color: 'bg-amber-100 text-amber-800' },
-  soft_skill: { label: 'Soft Skill', color: 'bg-emerald-100 text-emerald-800' }
+  soft_skill: { label: 'Soft Skill', color: 'bg-emerald-100 text-emerald-800' },
+  metacognitive: { label: 'Metacognitive', color: 'bg-pink-100 text-pink-800' }
 };
 
 // ============================================================================
