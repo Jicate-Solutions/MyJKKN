@@ -696,7 +696,7 @@ export class PaymentsService extends BaseService {
       return { success: false, splits: [], error: 'Payment not found' };
     }
 
-    if (payment.split_calculated) {
+    if (payment.split_processed) {
       return { success: false, splits: [], error: 'Splits already calculated' };
     }
 
