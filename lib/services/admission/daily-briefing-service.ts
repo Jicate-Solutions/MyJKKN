@@ -628,11 +628,12 @@ export class DailyBriefingService {
     topPerformers.sort((a, b) => b.conversions - a.conversions);
 
     // Get escalations (leads marked as needing attention or stuck)
+    // FIX: priority column does not exist → use is_hot_lead boolean instead
     const { data: escalations } = await (this.supabase as any)
       .from('admission_leads')
       .select('id')
       .eq('institution_id', institutionId)
-      .eq('priority', 'hot')
+      .eq('is_hot_lead', true)
       .lt('updated_at', new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()); // Not updated in 3 days
 
     return {
