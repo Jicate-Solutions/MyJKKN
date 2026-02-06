@@ -168,27 +168,38 @@ export class LifecycleDashboardService {
     const { data: dailyData } = await query;
     const rows = dailyData || [];
 
-    // Calculate current period KPIs
+    // Calculate the number of days in the selected period
+    const periodDays = Math.max(
+      1,
+      Math.ceil(
+        (new Date(dateTo).getTime() - new Date(dateFrom).getTime()) /
+          (24 * 60 * 60 * 1000)
+      )
+    );
+
+    // Calculate reference dates for 24h and 7d subsets
     const now = new Date();
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-    // Active users and actions in last 24h (from today's row)
+    // 24h subset
     const todayRows = rows.filter((r: any) => r.metric_date >= oneDayAgo);
-    const activeUsers24h = new Set(todayRows.map((r: any) => r.module)).size > 0
-      ? todayRows.reduce((sum: number, r: any) => sum + (r.unique_users || 0), 0)
-      : 0;
+    const activeUsers24h = todayRows.reduce((sum: number, r: any) => sum + (r.unique_users || 0), 0);
     const totalActions24h = todayRows.reduce((sum: number, r: any) => sum + (r.event_count || 0), 0);
 
-    // Active users and actions in last 7d
+    // 7d subset
     const weekRows = rows.filter((r: any) => r.metric_date >= sevenDaysAgo);
     const activeUsers7d = weekRows.reduce((sum: number, r: any) => sum + (r.unique_users || 0), 0);
     const totalActions7d = weekRows.reduce((sum: number, r: any) => sum + (r.event_count || 0), 0);
 
-    // Modules used in period
+    // Full selected period totals (ALL rows already filtered by dateFrom/dateTo)
+    const activeUsersPeriod = rows.reduce((sum: number, r: any) => sum + (r.unique_users || 0), 0);
+    const totalActionsPeriod = rows.reduce((sum: number, r: any) => sum + (r.event_count || 0), 0);
+
+    // Modules used in the selected period
     const modulesUsed = new Set(rows.map((r: any) => r.module)).size;
 
-    // Calculate trends (compare first half vs second half of the period)
+    // Calculate trends (compare first half vs second half of the selected period)
     const midDate = new Date(
       (new Date(dateFrom).getTime() + new Date(dateTo).getTime()) / 2
     ).toISOString().split('T')[0];
@@ -207,10 +218,13 @@ export class LifecycleDashboardService {
     return {
       active_users_24h: activeUsers24h,
       active_users_7d: activeUsers7d,
+      active_users_period: activeUsersPeriod,
       total_actions_24h: totalActions24h,
       total_actions_7d: totalActions7d,
+      total_actions_period: totalActionsPeriod,
       modules_used: modulesUsed,
       total_modules: TOTAL_MODULES,
+      period_days: periodDays,
       health_score: null,
       health_grade: null,
       trends: {
@@ -340,12 +354,12 @@ export class LifecycleDashboardService {
       byModule.set(key, existing);
     }
 
-    // Convert to array and compute sparklines (last 7 days)
+    // Convert to array and compute sparklines for the selected date range
     const result: ModuleBreakdown[] = [];
-    const last7Days = this.getLast7Days(dateTo);
+    const trendDates = this.getDateRange(dateFrom, dateTo);
 
     for (const [module, agg] of byModule) {
-      const trend = last7Days.map((d) => agg.daily_scores.get(d) || 0);
+      const trend = trendDates.map((d) => agg.daily_scores.get(d) || 0);
 
       result.push({
         module,
@@ -539,13 +553,28 @@ export class LifecycleDashboardService {
     return alerts;
   }
 
-  private static getLast7Days(endDate: string): string[] {
+  private static getDateRange(startDate: string, endDate: string): string[] {
     const dates: string[] = [];
+    const start = new Date(startDate);
     const end = new Date(endDate);
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(end.getTime() - i * 24 * 60 * 60 * 1000);
+    const totalDays = Math.ceil(
+      (end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)
+    ) + 1;
+
+    // For large ranges, sample dates to keep sparkline reasonable (max ~30 points)
+    const step = totalDays > 30 ? Math.ceil(totalDays / 30) : 1;
+
+    for (let i = 0; i < totalDays; i += step) {
+      const d = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
       dates.push(d.toISOString().split('T')[0]);
     }
+
+    // Always include the end date
+    const endStr = end.toISOString().split('T')[0];
+    if (dates[dates.length - 1] !== endStr) {
+      dates.push(endStr);
+    }
+
     return dates;
   }
 }

@@ -64,11 +64,16 @@ export function LifecycleKPICards({ kpis, loading }: LifecycleKPICardsProps) {
     );
   }
 
+  const periodLabel =
+    kpis.period_days === 1
+      ? 'today'
+      : `last ${kpis.period_days} days`;
+
   const cards = [
     {
       title: 'Active Users',
-      value: kpis.active_users_24h,
-      subtitle: `${kpis.active_users_7d} in last 7 days`,
+      value: kpis.active_users_period,
+      subtitle: `${kpis.active_users_24h} in last 24h`,
       icon: Users,
       trend: kpis.trends.active_users_change,
       color: 'text-blue-600',
@@ -76,8 +81,8 @@ export function LifecycleKPICards({ kpis, loading }: LifecycleKPICardsProps) {
     },
     {
       title: 'Total Actions',
-      value: kpis.total_actions_24h,
-      subtitle: `${kpis.total_actions_7d.toLocaleString()} in last 7 days`,
+      value: kpis.total_actions_period.toLocaleString(),
+      subtitle: `${kpis.total_actions_24h.toLocaleString()} in last 24h`,
       icon: Activity,
       trend: kpis.trends.actions_change,
       color: 'text-green-600',
@@ -86,7 +91,7 @@ export function LifecycleKPICards({ kpis, loading }: LifecycleKPICardsProps) {
     {
       title: 'Modules Used',
       value: `${kpis.modules_used}/${kpis.total_modules}`,
-      subtitle: `${Math.round((kpis.modules_used / kpis.total_modules) * 100)}% adoption`,
+      subtitle: `${Math.round((kpis.modules_used / kpis.total_modules) * 100)}% adoption in ${periodLabel}`,
       icon: Layers,
       trend: kpis.trends.modules_change,
       color: 'text-purple-600',
