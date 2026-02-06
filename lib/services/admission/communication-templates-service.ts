@@ -201,9 +201,11 @@ export class CommunicationTemplatesService {
     };
 
     if (input.name !== undefined) updateData.name = input.name;
-    if (input.type !== undefined) updateData.type = input.type;
+    if (input.channel !== undefined) updateData.channel = input.channel;
     if (input.subject !== undefined) updateData.subject = input.subject;
     if (input.content !== undefined) updateData.content = input.content;
+    if (input.description !== undefined) updateData.description = input.description;
+    if (input.category !== undefined) updateData.category = input.category;
     if (input.variables !== undefined) updateData.variables = input.variables;
     if (input.is_active !== undefined) updateData.is_active = input.is_active;
 
