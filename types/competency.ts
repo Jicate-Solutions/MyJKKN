@@ -238,9 +238,18 @@ export interface CompetencyStats {
 export interface LearnerCompetencyProgress {
   learner_id: string;
   total_competencies: number;
-  by_level: Record<ProficiencyLevel, number>;
+  mastered_count: number;
+  in_progress_count: number;
+  not_started_count: number;
   verified_count: number;
-  industry_readiness_score: number;
+  overall_progress_percentage: number;
+  by_level: Record<ProficiencyLevel, number>;
+  by_type: {
+    technical: number;
+    behavioral: number;
+    domain: number;
+    soft_skill: number;
+  };
 }
 
 // ============================================================================
