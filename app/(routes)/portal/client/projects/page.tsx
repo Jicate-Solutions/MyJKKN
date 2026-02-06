@@ -55,7 +55,7 @@ export default function ClientProjectsPage() {
         return (
           solution.title.toLowerCase().includes(searchLower) ||
           solution.solution_code.toLowerCase().includes(searchLower) ||
-          solution.problem_statement?.toLowerCase().includes(searchLower)
+          solution.description?.toLowerCase().includes(searchLower)
         );
       }
 
