@@ -248,7 +248,7 @@ export class LeadService {
   static async updateLead(id: string, leadData: Partial<UpdateLeadInput>): Promise<AdmissionLead> {
     // Get current lead for history logging
     const { data: current } = await (this.supabase as any).from('admission_leads')
-      .select('funnel_stage, priority, counselor_id')
+      .select('funnel_stage, is_hot_lead, is_priority, counselor_id')
       .eq('id', id)
       .single();
 
