@@ -117,7 +117,7 @@ export class BuildersService extends BaseService {
       .select(
         `
         *,
-        department:departments(id, department_name, department_code),
+        department:departments(id, name:department_name, code:department_code),
         skills:sh_builder_skills(*)
       `,
         { count: 'exact' }
@@ -186,7 +186,7 @@ export class BuildersService extends BaseService {
       .select(
         `
         *,
-        department:departments(id, department_name, department_code),
+        department:departments(id, name:department_name, code:department_code),
         skills:sh_builder_skills(*)
       `
       )
@@ -235,7 +235,7 @@ export class BuildersService extends BaseService {
       .select(
         `
         *,
-        department:departments(id, department_name, department_code),
+        department:departments(id, name:department_name, code:department_code),
         skills:sh_builder_skills(*)
       `
       )
@@ -547,7 +547,7 @@ export class BuildersService extends BaseService {
       .select(
         `
         *,
-        department:departments(id, department_name, department_code),
+        department:departments(id, name:department_name, code:department_code),
         skills:sh_builder_skills(*)
       `
       )
