@@ -199,7 +199,7 @@ function AdmissionTemplatesPageContent() {
   const resetForm = () => {
     setFormData({
       name: '',
-      type: 'email',
+      channel: 'email',
       subject: '',
       content: '',
       is_active: true
@@ -216,7 +216,7 @@ function AdmissionTemplatesPageContent() {
       await createTemplate.mutateAsync({
         institution_id: selectedInstitutionId,
         name: formData.name || '',
-        type: formData.type || 'email',
+        channel: formData.channel || 'email',
         subject: formData.subject,
         content: formData.content || '',
         is_active: formData.is_active ?? true
