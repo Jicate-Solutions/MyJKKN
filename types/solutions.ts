@@ -126,17 +126,23 @@ export interface SHSolution {
   solution_code: string
   solution_type: SolutionType
   title: string
-  problem_statement: string | null
+  description: string | null
   client_id: string
-  department_id: string | null
-  quoted_price: number | null
-  partner_discount_applied: number | null
+  lead_department_id: string | null
+  institution_id: string | null
+  base_price: number | null
+  discount_percentage: number | null
+  discount_reason: string | null
   final_price: number | null
   status: SolutionStatus
-  mou_status: MouStatus | null
-  mou_signed_date: string | null
-  mou_expiry_date: string | null
-  mou_document_url: string | null
+  start_date: string | null
+  target_date: string | null
+  completion_date: string | null
+  currency: string | null
+  priority: number | null
+  tags: string[] | null
+  notes: string | null
+  metadata: Record<string, unknown> | null
   created_by: string | null
   created_at: string
   updated_at: string
