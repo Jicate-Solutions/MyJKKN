@@ -454,7 +454,7 @@ export class BillingCOPQService {
       if (error) throw error;
 
       // Map view column names (paisa) to TypeScript interface (rupees)
-      return (data || []).map((row: any) => ({
+      return (data || []).map((row: COPQSummaryViewRow) => ({
         institution_id: row.institution_id,
         month: row.month,
         category: row.category,
