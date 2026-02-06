@@ -111,7 +111,7 @@ export function EditSolutionForm({ solutionId }: EditSolutionFormProps) {
           final_price: finalPrice ? parseFloat(finalPrice) : undefined,
           start_date: startDate || undefined,
           target_date: targetDate || undefined,
-          description: description || problemStatement || undefined,
+          description: description || undefined,
         },
       });
 
