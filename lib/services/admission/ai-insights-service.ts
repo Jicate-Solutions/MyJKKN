@@ -2,7 +2,7 @@
 // AI Insights Service - CRM-focused actionable insights
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { AdmissionLead, FunnelStage, LeadPriority } from '@/types/admission';
+import type { AdmissionLead, FunnelStage } from '@/types/admission';
 
 // ============================================================================
 // TYPES
