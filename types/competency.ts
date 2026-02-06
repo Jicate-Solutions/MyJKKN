@@ -406,7 +406,7 @@ export interface RecordCompetencyAssessmentDTO {
 
 export interface VerifyLearnerCompetencyDTO {
   learner_competency_id: string;
-  verified_by: string;
+  verified: boolean;
 }
 
 export interface LearnerCompetencyDashboard {
