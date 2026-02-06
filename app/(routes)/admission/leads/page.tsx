@@ -432,9 +432,9 @@ function AdmissionLeadsPageContent() {
                                 onClick={() => {
                                   toggleHotLead.mutate({
                                     leadId: lead.id,
-                                    isHot: lead.priority !== 'hot'
+                                    isHot: !lead.is_hot_lead
                                   });
-                                  toast.success(lead.priority === 'hot' ? 'Hot status removed' : 'Marked as hot lead');
+                                  toast.success(lead.is_hot_lead ? 'Hot status removed' : 'Marked as hot lead');
                                 }}
                               >
                                 <Flame className="h-4 w-4 mr-2" />
