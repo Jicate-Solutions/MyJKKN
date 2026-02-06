@@ -709,8 +709,8 @@ function LeadDetailPageContent() {
                         <div>
                           <dt className="text-sm text-muted-foreground">Last Activity</dt>
                           <dd className="font-medium">
-                            {lead.last_contacted_at
-                              ? new Date(lead.last_contacted_at).toLocaleString()
+                            {lead.last_contact_at
+                              ? new Date(lead.last_contact_at).toLocaleString()
                               : '-'}
                           </dd>
                         </div>
