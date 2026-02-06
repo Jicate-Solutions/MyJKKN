@@ -157,7 +157,8 @@ export class DripExecutorService {
     // Get lead data for context
     const { data: lead, error: leadError } = await this.supabase
       .from('admission_leads')
-      .select('id, full_name, email, phone, funnel_stage, program_interest, counselor_id')
+      // FIX: program_interest does not exist in DB → use interested_programs
+      .select('id, full_name, email, phone, funnel_stage, interested_programs, counselor_id')
       .eq('id', input.lead_id)
       .single();
 
@@ -175,7 +176,8 @@ export class DripExecutorService {
         email: lead.email,
         phone: lead.phone,
         funnel_stage: lead.funnel_stage,
-        program_interest: lead.program_interest,
+        // FIX: program_interest does not exist in DB → use interested_programs
+        interested_programs: lead.interested_programs,
         counselor_id: lead.counselor_id,
       },
       workflow_snapshot: {
