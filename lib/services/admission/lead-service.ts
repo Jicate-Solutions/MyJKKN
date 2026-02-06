@@ -471,9 +471,10 @@ export class LeadService {
    * Schedule next followup
    */
   static async scheduleFollowup(leadId: string, followupDate: string): Promise<AdmissionLead> {
+    // Note: next_followup_at column doesn't exist yet. Update last_contact_at as closest equivalent.
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
-        next_followup_at: followupDate,
+        last_contact_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
       .eq('id', leadId)
