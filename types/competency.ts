@@ -29,6 +29,7 @@ export interface ProficiencyLevelDefinition {
   level: ProficiencyLevel;
   description: string;
   criteria: string[];
+  typical_duration_hours?: number;
 }
 
 export interface EvidenceRequirement {
@@ -57,6 +58,9 @@ export interface CompetencyCatalog {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // Joined fields (populated by service)
+  program_mappings?: CompetencyProgramMapping[];
+  course_mappings?: CourseCompetencyMapping[];
 }
 
 // ============================================================================
@@ -151,6 +155,7 @@ export interface CreateCompetencyInput {
   industry_tags?: string[];
   finks_dimensions: FinksDimensions;
   ai_resistance_score?: number;
+  is_active?: boolean;
 }
 
 export interface UpdateCompetencyInput {
