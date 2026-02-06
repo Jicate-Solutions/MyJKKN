@@ -438,7 +438,7 @@ function AdmissionLeadsPageContent() {
                                 }}
                               >
                                 <Flame className="h-4 w-4 mr-2" />
-                                {lead.priority === 'hot' ? 'Remove Hot Status' : 'Mark as Hot'}
+                                {lead.is_hot_lead ? 'Remove Hot Status' : 'Mark as Hot'}
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => {
