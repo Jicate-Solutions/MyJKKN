@@ -194,12 +194,20 @@ export class ClientsService extends BaseService {
    * Update an existing client
    */
   static async updateClient(id: string, input: UpdateClientInput): Promise<Client> {
-    const updateData: Record<string, unknown> = { ...input };
-
-    // Recalculate partner discount if partner_status is being updated
-    if (input.partner_status) {
-      updateData.partner_discount = calculatePartnerDiscount(input.partner_status);
-    }
+    // Map input fields to actual DB columns
+    const updateData: Record<string, unknown> = {};
+    if (input.name !== undefined) updateData.name = input.name;
+    if (input.industry !== undefined) updateData.industry_sector = input.industry;
+    if (input.contact_person !== undefined) updateData.contact_person = input.contact_person;
+    if (input.contact_email !== undefined) updateData.contact_email = input.contact_email;
+    if (input.contact_phone !== undefined) updateData.contact_phone = input.contact_phone;
+    if (input.address !== undefined) updateData.address = input.address;
+    if (input.city !== undefined) updateData.city = input.city;
+    if (input.company_size !== undefined) updateData.company_size = input.company_size;
+    if (input.source_type !== undefined) updateData.source_type = input.source_type;
+    if (input.source_department_id !== undefined) updateData.source_department_id = input.source_department_id;
+    if (input.partner_status !== undefined) updateData.partner_status = input.partner_status;
+    if (input.is_active !== undefined) updateData.is_active = input.is_active;
 
     const { data, error } = await (this.supabase as any).from('sh_clients')
       .update({
