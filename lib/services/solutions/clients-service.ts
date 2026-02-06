@@ -338,7 +338,7 @@ export class ClientsService extends BaseService {
    * Get partner discount percentage
    */
   static getPartnerDiscountPercent(client: Client): number {
-    return client.partner_discount * 100;
+    return calculatePartnerDiscount(client.partner_status) * 100;
   }
 
   // ============================================
