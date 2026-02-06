@@ -176,15 +176,22 @@ export class StaffService {
       if (!userData.user) throw new Error('No authenticated user');
 
       // Get the current staff data before update
-      const { data: currentStaff, error: fetchError } = await this.supabase
+      let currentStaff: any = null;
+      const { data: fetchedStaff, error: fetchError } = await this.supabase
         .from('staff')
         .select('institution_email, institution_id')
         .eq('id', id)
         .single();
 
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        // RLS may block the read — try via API route
+        console.warn('[staff-service] Direct fetch for pre-update data failed, will use API fallback');
+      } else {
+        currentStaff = fetchedStaff;
+      }
 
-      const { data: staff, error } = await (this.supabase
+      // First attempt: Try with regular authenticated client
+      let { data: staff, error } = await (this.supabase
         .from('staff') as any)
         .update({
           ...data,
@@ -195,15 +202,46 @@ export class StaffService {
         .select()
         .single();
 
+      // If we get a RLS/PGRST116 error, fall back to API route
+      if (
+        error &&
+        (error.code === '42501' ||
+          error.code === 'PGRST116' ||
+          error.message?.includes('row-level security') ||
+          error.message?.includes('0 rows'))
+      ) {
+        console.log('[staff-service] RLS error on update, attempting API route...');
+
+        try {
+          const response = await fetch(`/api/staff/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'API route update failed');
+          }
+
+          staff = await response.json();
+          error = null;
+        } catch (apiError) {
+          console.error('[staff-service] API route update also failed:', apiError);
+          // Re-throw the original error if API also fails
+        }
+      }
+
       if (error) throw error;
 
       // If institution_id was updated and staff has an institution_email, update the profile
-      if (data.institution_id && (currentStaff as any).institution_email) {
+      const institutionEmail = currentStaff?.institution_email || staff?.institution_email;
+      if (data.institution_id && institutionEmail) {
         try {
           const { error: profileUpdateError } = await (this.supabase
             .from('profiles') as any)
             .update({ institution_id: data.institution_id })
-            .eq('email', (currentStaff as any).institution_email);
+            .eq('email', institutionEmail);
 
           if (profileUpdateError) {
             console.warn(
@@ -215,7 +253,7 @@ export class StaffService {
             );
           } else {
             console.log(
-              `Updated institution_id in profile for ${(currentStaff as any).institution_email}`
+              `Updated institution_id in profile for ${institutionEmail}`
             );
           }
         } catch (profileError) {
@@ -374,10 +412,12 @@ export class StaffService {
     }
   }
 
-  // Enhanced method with automatic institution filtering for HOD users
+  // Enhanced method with automatic institution filtering for HOD/faculty users
   static async getStaffWithRoleBasedFiltering(
     filters: StaffFilters = {},
     userProfile?: {
+      id?: string;
+      email?: string;
       role: string;
       department_id?: string;
       institution_id?: string;
@@ -385,11 +425,24 @@ export class StaffService {
     }
   ): Promise<StaffListResponse> {
     try {
+      // Super admins see all staff
+      if (userProfile?.is_super_admin) {
+        return await this.getStaff(filters);
+      }
+
+      // Faculty users can only view their own staff record
+      if (userProfile?.role === 'faculty' && userProfile.email) {
+        console.log(
+          '[staff-service] Applied faculty self-only filter for:',
+          userProfile.email
+        );
+        return await this.getStaffForFacultyUser(filters, userProfile.email);
+      }
+
       // If user is HOD and has an institution, automatically filter by their institution
       if (
         userProfile?.role === 'hod' &&
-        userProfile.institution_id &&
-        !userProfile.is_super_admin
+        userProfile.institution_id
       ) {
         filters.institution_id = userProfile.institution_id;
         console.log(
@@ -408,6 +461,61 @@ export class StaffService {
       return await this.getStaff(filters);
     } catch (error) {
       console.error('Error fetching staff with role-based filtering:', error);
+      throw error;
+    }
+  }
+
+  // Faculty users see only their own staff record matched by institution_email
+  private static async getStaffForFacultyUser(
+    filters: StaffFilters,
+    userEmail: string
+  ): Promise<StaffListResponse> {
+    try {
+      const startTime = performance.now();
+
+      let query = (this.supabase as any).from('staff').select(
+        `
+          *,
+          category:employment_categories(
+            id,
+            category_name
+          ),
+          institution:institutions(
+            id,
+            name,
+            counselling_code
+          ),
+          department:departments(
+            id,
+            department_name
+          )
+        `,
+        { count: 'exact' }
+      );
+
+      // Filter to only the faculty user's own record
+      query = query.eq('institution_email', userEmail);
+
+      const { data: staff, error, count } = await query;
+
+      if (error) throw error;
+
+      const endTime = performance.now();
+      console.log(
+        `[staff-service] Faculty self-query completed in ${(endTime - startTime).toFixed(2)}ms | Found ${staff?.length || 0} record(s)`
+      );
+
+      return {
+        data: staff || [],
+        metadata: {
+          total: count || 0,
+          page: 1,
+          limit: filters.limit || 10,
+          totalPages: 1
+        }
+      };
+    } catch (error) {
+      console.error('[staff-service] Error in faculty self-query:', error);
       throw error;
     }
   }

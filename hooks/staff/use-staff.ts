@@ -70,8 +70,10 @@ export function useStaff(
 
   const queryFn = useCallback(async () => {
     try {
-      // Use role-based filtering for better performance, especially for HOD users
+      // Use role-based filtering for better performance, especially for HOD/faculty users
       return await StaffService.getStaffWithRoleBasedFiltering(filters, {
+        id: profile?.id || '',
+        email: profile?.email || '',
         role: profile?.role || '',
         department_id: profile?.department_id || undefined,
         institution_id: profile?.institution_id || undefined,
