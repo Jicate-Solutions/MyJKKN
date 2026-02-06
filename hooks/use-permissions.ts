@@ -89,15 +89,26 @@ export function usePermissions(
         };
       }
 
-      // Try multi-role approach first (fetches merged permissions from all roles)
+      // Try multi-role approach first (fetches roles with permissions via SECURITY DEFINER)
       try {
         const roles = await UserRolesService.getUserRoles(userProfile.id);
 
         if (roles && roles.length > 0) {
-          // Get merged permissions (Union/OR logic)
-          const mergedPermissions = await UserRolesService.getMergedPermissions(
-            userProfile.id
-          );
+          // Merge permissions client-side from the already-fetched role data
+          // This avoids the separate getMergedPermissions RPC which uses
+          // SECURITY INVOKER and can fail due to RLS restrictions
+          const mergedPermissions: Record<string, boolean> = {};
+          for (const role of roles) {
+            const rolePerms = role.permissions || {};
+            for (const [key, value] of Object.entries(rolePerms)) {
+              // Union (OR) logic: if ANY role grants permission, user has it
+              if (value === true) {
+                mergedPermissions[key] = true;
+              } else if (mergedPermissions[key] !== true) {
+                mergedPermissions[key] = value as boolean;
+              }
+            }
+          }
 
           return {
             permissions: mergedPermissions,
