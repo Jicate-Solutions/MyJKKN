@@ -243,6 +243,14 @@ function AdmissionDashboardPageContent() {
   const { summary, isLoading: summaryLoading, refetch } = useDashboardSummary(institutionId || '');
   const { funnel, isLoading: funnelLoading } = useFunnelSummary(institutionId || '');
 
+  // DEBUG: Temporary logging to trace dashboard data
+  if (typeof window !== 'undefined') {
+    console.log('[DEBUG Dashboard] institutionId:', institutionId);
+    console.log('[DEBUG Dashboard] summary:', JSON.stringify(summary));
+    console.log('[DEBUG Dashboard] funnel:', JSON.stringify(funnel));
+    console.log('[DEBUG Dashboard] summaryLoading:', summaryLoading, 'funnelLoading:', funnelLoading);
+  }
+
   const isLoading = accessLoading || summaryLoading || funnelLoading;
 
   const handleRefresh = async () => {
