@@ -2,6 +2,11 @@
 // Service layer for Billing COPQ operations
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  safeRupeesToPaisa,
+  safePaisaToRupees,
+  isValidPaisa
+} from '@/lib/utils/currency';
 import type {
   BillingCOPQIncident,
   COPQFilters,
@@ -14,6 +19,21 @@ import type {
   UpdateCOPQIncidentDto
 } from '@/types/billing-copq';
 import { COPQ_CATEGORY_LABELS } from '@/types/billing-copq';
+
+/**
+ * Interface for database view row (billing_copq_summary)
+ * All cost fields are in paisa (BIGINT)
+ */
+interface COPQSummaryViewRow {
+  institution_id: string;
+  month: string;
+  category: COPQCategory;
+  incident_count: number;
+  total_visible_paisa: number;
+  total_hidden_paisa: number;
+  total_copq_paisa: number;
+  avg_time_spent: number;
+}
 
 export class BillingCOPQService {
   private static supabase: any = createClientSupabaseClient();
