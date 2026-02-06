@@ -89,9 +89,12 @@ export class ActivityService {
   }
 
   /**
-   * Create a new activity
+   * Create a new activity and update last_activity_at on the lead
    */
   static async createActivity(input: CreateActivityInput): Promise<LeadActivity> {
+    // Get current user for created_by
+    const { data: { user } } = await this.supabase.auth.getUser();
+
     const { data, error } = await this.supabase
       .from('admission_lead_activities')
       .insert({
@@ -102,6 +105,7 @@ export class ActivityService {
         outcome: input.outcome || null,
         scheduled_at: input.scheduled_at || null,
         completed_at: input.completed_at || null,
+        created_by: user?.id || null,
       })
       .select()
       .single();
@@ -109,6 +113,22 @@ export class ActivityService {
     if (error) {
       console.error('[admission/activities] Failed to create activity:', error);
       throw new Error('Failed to create activity');
+    }
+
+    // Update last_activity_at on the lead (best-effort, don't throw if this fails)
+    const now = new Date().toISOString();
+    const { error: leadError } = await this.supabase
+      .from('admission_leads')
+      .update({
+        last_activity_at: now,
+        last_contact_at: now,
+        updated_at: now
+      })
+      .eq('id', input.lead_id);
+
+    if (leadError) {
+      console.warn('[admission/activities] Could not update last_activity_at on lead:', leadError.message);
+      // Don't throw - the activity was created successfully
     }
 
     return data;
