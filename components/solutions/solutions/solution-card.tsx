@@ -50,9 +50,9 @@ export function SolutionCard({ solution }: SolutionCardProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {solution.problem_statement && (
+          {solution.description && (
             <p className="text-sm text-muted-foreground line-clamp-2">
-              {solution.problem_statement}
+              {solution.description}
             </p>
           )}
 
