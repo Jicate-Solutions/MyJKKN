@@ -88,7 +88,6 @@ export function EditSolutionForm({ solutionId }: EditSolutionFormProps) {
       setFinalPrice(solution.final_price?.toString() || '');
       setStartDate(solution.start_date || '');
       setTargetDate(solution.target_date || '');
-      setProblemStatement(solution.description || '');
       setDescription(solution.description || '');
     }
   }, [solution]);
