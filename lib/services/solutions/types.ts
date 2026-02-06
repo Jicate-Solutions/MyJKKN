@@ -582,9 +582,7 @@ export interface CreateClientInput {
   company_size?: string;
   source_type?: SourceType;
   source_department_id?: string;
-  source_contact_name?: string;
   partner_status?: PartnerStatus;
-  partner_since?: string;
 }
 
 export interface CreateSolutionInput {
