@@ -4,7 +4,9 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // Types
-export type TemplateType = 'sms' | 'email' | 'whatsapp';
+export type TemplateChannel = 'sms' | 'email' | 'whatsapp';
+// Backward-compatible alias
+export type TemplateType = TemplateChannel;
 
 export interface TemplateVariable {
   name: string;
@@ -16,40 +18,46 @@ export interface CommunicationTemplate {
   id: string;
   institution_id: string;
   name: string;
-  type: TemplateType;
+  // DB column is 'channel', not 'type'
+  channel: TemplateChannel;
   subject: string | null;
   content: string;
+  description: string | null;
+  category: string | null;
   variables: TemplateVariable[];
   is_active: boolean;
   created_at: string;
   updated_at: string;
   // Virtual fields for display
-  category?: string;
   usage_count?: number;
 }
 
 export interface CreateTemplateInput {
   institution_id: string;
   name: string;
-  type: TemplateType;
+  channel: TemplateChannel;
   subject?: string;
   content: string;
+  description?: string;
+  category?: string;
   variables?: TemplateVariable[];
   is_active?: boolean;
 }
 
 export interface UpdateTemplateInput {
   name?: string;
-  type?: TemplateType;
+  channel?: TemplateChannel;
   subject?: string;
   content?: string;
+  description?: string;
+  category?: string;
   variables?: TemplateVariable[];
   is_active?: boolean;
 }
 
 export interface TemplateFilters {
   institutionId: string;
-  type?: TemplateType;
+  channel?: TemplateChannel;
   isActive?: boolean;
   search?: string;
 }
