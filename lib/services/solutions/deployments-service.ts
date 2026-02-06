@@ -328,15 +328,7 @@ export class DeploymentsService extends BaseService {
 
     if (error) throw new Error(`Failed to rollback deployment: ${error.message}`);
 
-    // Update phase URL if production
-    if (environment === 'production' && (target.custom_domain || target.vercel_url)) {
-      await (this.supabase as any).from('sh_solution_phases')
-        .update({
-          production_url: target.custom_domain || target.vercel_url,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', phaseId);
-    }
+    // No need to update phase URL - deployment info is in sh_phase_deployments
 
     return data as PhaseDeployment;
   }
