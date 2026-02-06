@@ -88,7 +88,7 @@ export class ClientsService extends BaseService {
     }
 
     if (filters?.industry) {
-      query = query.eq('industry', filters.industry);
+      query = query.eq('industry_sector', filters.industry);
     }
 
     if (filters?.source_type) {
