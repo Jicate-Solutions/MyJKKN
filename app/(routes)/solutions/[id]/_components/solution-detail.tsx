@@ -176,8 +176,7 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
         solution_id: solutionId,
         title: phaseTitle,
         description: phaseDescription || undefined,
-        created_by: 'system',
-      });
+      } as any);
       toast.success('Phase created');
       setPhaseTitle('');
       setPhaseDescription('');
