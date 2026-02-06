@@ -509,7 +509,7 @@ export class LeadService {
    */
   static async getFunnelSummary(institutionId: string): Promise<any> {
     const { data, error } = await (this.supabase as any).from('admission_leads')
-      .select('funnel_stage, priority')
+      .select('funnel_stage, is_hot_lead, is_priority')
       .eq('institution_id', institutionId);
 
     if (error) {
@@ -544,10 +544,10 @@ export class LeadService {
       if (byStage[lead.funnel_stage as FunnelStage] !== undefined) {
         byStage[lead.funnel_stage as FunnelStage]++;
       }
-      if (lead.priority === 'hot') {
+      if (lead.is_hot_lead) {
         hotLeads++;
         priorityLeads++;
-      } else if (lead.priority === 'warm') {
+      } else if (lead.is_priority) {
         priorityLeads++;
       }
     });
