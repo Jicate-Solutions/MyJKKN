@@ -390,7 +390,7 @@ export default function CompetencyDetailPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             {mapping.contribution_level && (
-                              <Badge className={LEVEL_COLORS[mapping.contribution_level]}>
+                              <Badge className={CONTRIBUTION_COLORS[mapping.contribution_level] || 'bg-slate-100 text-slate-700'}>
                                 {mapping.contribution_level}
                               </Badge>
                             )}
