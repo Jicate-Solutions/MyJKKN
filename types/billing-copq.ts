@@ -140,8 +140,11 @@ export interface COPQSummary {
   month: string;
   category: COPQCategory;
   incident_count: number;
+  /** Total visible cost in rupees. Converted from paisa by service layer. */
   total_visible_cost: number;
+  /** Total hidden cost in rupees. Converted from paisa by service layer. */
   total_hidden_cost: number;
+  /** Total COPQ (visible + hidden) in rupees. Converted from paisa by service layer. */
   total_copq: number;
   avg_time_spent: number;
 }
