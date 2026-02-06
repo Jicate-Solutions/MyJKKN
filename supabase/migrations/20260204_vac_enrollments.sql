@@ -42,6 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_vac_enrollments_enrolled_at ON vac_enrollments(en
 -- ============================================
 -- Trigger for updated_at
 -- ============================================
+DROP TRIGGER IF EXISTS update_vac_enrollments_updated_at ON vac_enrollments;
 CREATE TRIGGER update_vac_enrollments_updated_at
   BEFORE UPDATE ON vac_enrollments
   FOR EACH ROW
@@ -53,6 +54,12 @@ CREATE TRIGGER update_vac_enrollments_updated_at
 
 -- Enable RLS
 ALTER TABLE vac_enrollments ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "vac_enrollments_select_own" ON vac_enrollments;
+DROP POLICY IF EXISTS "vac_enrollments_insert_own" ON vac_enrollments;
+DROP POLICY IF EXISTS "vac_enrollments_update_own" ON vac_enrollments;
+DROP POLICY IF EXISTS "vac_enrollments_all_authenticated" ON vac_enrollments;
 
 -- Users can view their own enrollments
 CREATE POLICY "vac_enrollments_select_own"
