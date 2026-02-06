@@ -2037,6 +2037,10 @@ export class ConsultantService {
     const supabase = createClientSupabaseClient();
 
     // Create lead in admission_leads table
+    // FIX: Removed columns that don't exist in admission_leads:
+    // alternate_phone, program_interest, preferred_batch, city, state,
+    // source_detail, notes, priority (enum)
+    // Used correct column names: interested_programs, is_hot_lead, is_priority
     const { data: lead, error: leadError } = await (supabase as any)
       .from('admission_leads')
       .insert({
@@ -2044,17 +2048,15 @@ export class ConsultantService {
         full_name: input.full_name,
         phone: input.phone,
         email: input.email,
-        alternate_phone: input.alternate_phone,
-        program_interest: input.program_interest,
-        preferred_batch: input.preferred_batch,
-        city: input.city,
-        state: input.state,
+        // FIX: program_interest → interested_programs (array)
+        interested_programs: input.program_interest ? [input.program_interest] : [],
         source: 'referral',
-        source_detail: `Consultant: ${input.consultant_id}`,
-        notes: input.notes,
         funnel_stage: 'new',
-        priority: 'warm',
+        // FIX: priority enum doesn't exist → use is_hot_lead + is_priority booleans
+        is_hot_lead: false,
+        is_priority: true,
         score: 50,
+        is_active: true,
       } as any)
       .select()
       .single();
