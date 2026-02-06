@@ -67,7 +67,7 @@ export function useCompetencies(
   const queryFn = useCallback(async () => {
     try {
       console.log('[useCompetencies] Fetching with filters:', filters);
-      const result = await CompetencyCatalogService.getCompetencies(filters);
+      const result = await CompetencyCatalogService.getCompetencies(filters as CompetencyFilters);
       console.log('[useCompetencies] Fetch success:', result?.data?.length || 0, 'items');
       return result;
     } catch (error) {
