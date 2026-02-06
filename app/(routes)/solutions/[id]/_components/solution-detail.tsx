@@ -448,11 +448,6 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
                       {solution.discount_reason && ` (${solution.discount_reason})`}
                     </Badge>
                   )}
-                  {solution.hod_discount && solution.hod_discount > 0 && (
-                    <Badge variant="outline" className="mt-2 ml-1 text-blue-600">
-                      {solution.hod_discount}% HoD Discount
-                    </Badge>
-                  )}
                 </div>
               </CardContent>
             </Card>
