@@ -717,6 +717,8 @@ export class InsightActionsService {
     context: ActionContext
   ): Promise<{ filename: string; url: string; mimeType: string }> {
     // Fetch lead data
+    // FIX: program_interested → interested_programs, priority → is_hot_lead/is_priority,
+    // next_followup_date does not exist → use last_contact_at
     const { data: leads, error } = await this.supabase
       .from('admission_leads')
       .select(`
@@ -726,11 +728,12 @@ export class InsightActionsService {
         phone,
         funnel_stage,
         source,
-        program_interested,
+        interested_programs,
         score,
-        priority,
+        is_hot_lead,
+        is_priority,
         created_at,
-        next_followup_date
+        last_contact_at
       `)
       .in('id', leadIds);
 
@@ -742,7 +745,7 @@ export class InsightActionsService {
     const format = params.export_format || 'csv';
     const columns = params.columns || [
       'full_name', 'email', 'phone', 'funnel_stage',
-      'source', 'program_interested', 'score', 'priority'
+      'source', 'interested_programs', 'score', 'is_hot_lead'
     ];
 
     const header = columns.join(',');
