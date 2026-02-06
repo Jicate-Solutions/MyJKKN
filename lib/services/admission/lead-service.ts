@@ -322,11 +322,25 @@ export class LeadService {
   // ============================================================================
 
   /**
-   * Update lead priority (hot/warm/cold)
+   * Update lead priority (hot/warm/cold) - maps to is_hot_lead/is_priority booleans
    */
   static async updatePriority(leadId: string, priority: LeadPriority): Promise<AdmissionLead> {
+    const updateData: any = {
+      updated_at: new Date().toISOString()
+    };
+    if (priority === 'hot') {
+      updateData.is_hot_lead = true;
+      updateData.is_priority = true;
+    } else if (priority === 'warm') {
+      updateData.is_hot_lead = false;
+      updateData.is_priority = true;
+    } else {
+      updateData.is_hot_lead = false;
+      updateData.is_priority = false;
+    }
+
     const { data, error } = await (this.supabase as any).from('admission_leads')
-      .update({ priority, updated_at: new Date().toISOString() })
+      .update(updateData)
       .eq('id', leadId)
       .select(`
         *,
