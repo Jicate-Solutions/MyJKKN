@@ -150,16 +150,23 @@ export interface COPQSummary {
 }
 
 export interface COPQDashboard {
+  /** Total COPQ year-to-date in rupees. Converted from paisa by service layer. */
   total_copq_ytd: number;
   visible_vs_hidden: {
+    /** Visible cost total in rupees. */
     visible: number;
+    /** Hidden cost total in rupees. */
     hidden: number;
   };
+  /** COPQ by category in rupees. */
   by_category: Partial<Record<COPQCategory, number>>;
   trend: Array<{
     month: string;
+    /** Total COPQ for this month in rupees. */
     copq: number;
+    /** Visible cost for this month in rupees. */
     visible: number;
+    /** Hidden cost for this month in rupees. */
     hidden: number;
   }>;
   top_incidents: BillingCOPQIncident[];
