@@ -427,13 +427,13 @@ function LeadDetailPageContent() {
                 <div className="flex items-center gap-3">
                   <h1 className="text-2xl font-bold">{(lead as any).full_name || 'Unknown'}</h1>
                   <div className="flex gap-1">
-                    {lead.priority === 'hot' && (
+                    {lead.is_hot_lead && (
                       <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
                         <Flame className="h-3 w-3 mr-1" />
                         Hot
                       </Badge>
                     )}
-                    {(lead.priority === 'hot' || lead.priority === 'warm') && (
+                    {(lead.is_hot_lead || lead.is_priority) && (
                       <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
                         <Star className="h-3 w-3 mr-1 fill-current" />
                         Priority
