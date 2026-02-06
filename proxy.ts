@@ -120,10 +120,21 @@ export async function proxy(request: NextRequest) {
             return cookie?.value ?? '';
           },
           async set(name: string, value: string, options: CookieOptions) {
-            res.cookies.set({ name, value });
+            // SECURITY: Pass through all cookie options including httpOnly, secure, sameSite
+            // This ensures auth tokens are protected from XSS attacks
+            res.cookies.set({
+              name,
+              value,
+              ...options,
+              // Ensure secure defaults for auth cookies
+              httpOnly: options.httpOnly ?? true,
+              secure: options.secure ?? process.env.NODE_ENV === 'production',
+              sameSite: options.sameSite ?? 'lax'
+            });
           },
           async remove(name: string, options: CookieOptions) {
-            res.cookies.delete(name);
+            // Pass through path and other options for proper cookie removal
+            res.cookies.delete({ name, ...options });
           }
         }
       }
