@@ -89,7 +89,7 @@ const DIMENSION_CONFIG = [
     color: '#f43f5e' // rose-500
   },
   {
-    key: 'learning_how_to_learn' as keyof FinksDimensions,
+    key: 'learning_to_learn' as keyof FinksDimensions,
     label: 'Learning How to Learn',
     shortLabel: 'Meta-Learn',
     isAiProof: true,
