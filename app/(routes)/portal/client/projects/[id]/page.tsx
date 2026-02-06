@@ -207,16 +207,16 @@ export default function ClientProjectDetailPage() {
           <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
             <div className="flex items-center gap-1">
               <Calendar className="h-4 w-4" />
-              {solution.started_date
-                ? `Started ${format(new Date(solution.started_date), 'MMM d, yyyy')}`
+              {solution.start_date
+                ? `Started ${format(new Date(solution.start_date), 'MMM d, yyyy')}`
                 : solution.created_at
                   ? `Created ${formatDistanceToNow(new Date(solution.created_at), { addSuffix: true })}`
                   : 'No start date'}
             </div>
-            {solution.target_completion && (
+            {solution.target_date && (
               <div className="flex items-center gap-1">
                 <Clock className="h-4 w-4" />
-                Target: {format(new Date(solution.target_completion), 'MMM d, yyyy')}
+                Target: {format(new Date(solution.target_date), 'MMM d, yyyy')}
               </div>
             )}
           </div>
