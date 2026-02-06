@@ -424,11 +424,11 @@ export class PaymentsService extends BaseService {
         payment_method: input.payment_method,
         reference_number: input.reference_number,
         due_date: input.due_date,
-        paid_at: input.paid_at,
+        payment_date: input.paid_at || null,
         status: input.status || 'pending',
         split_model_id: splitModelId,
-        split_calculated: false,
-        recorded_by: input.recorded_by,
+        split_processed: false,
+        created_by: input.recorded_by || null,
         notes: input.notes,
       })
       .select()
