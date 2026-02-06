@@ -394,7 +394,7 @@ export function CompetencyForm({
           <CardHeader>
             <CardTitle>Fink&apos;s Taxonomy - Significant Learning Dimensions</CardTitle>
             <CardDescription>
-              Measure what makes this competency uniquely human in the AI era (0-100 scale)
+              Measure what makes this competency uniquely human in the AI era (0-10 scale)
             </CardDescription>
           </CardHeader>
           <CardContent>
