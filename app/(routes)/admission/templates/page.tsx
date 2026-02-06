@@ -376,7 +376,7 @@ function AdmissionTemplatesPageContent() {
                       <div className="flex items-center justify-between">
                         <Label htmlFor="content">Message Content *</Label>
                         <span className="text-xs text-muted-foreground">
-                          {formData.type === 'sms' && formData.content
+                          {formData.channel === 'sms' && formData.content
                             ? `${formData.content.length}/160 characters`
                             : ''}
                         </span>
