@@ -246,12 +246,10 @@ export class DiscoveryService extends BaseService {
    */
   static async linkVisitToResult(
     visitId: string,
-    solutionId: string,
-    phaseId?: string
+    solutionId: string
   ): Promise<DiscoveryVisit> {
     return this.updateDiscoveryVisit(visitId, {
       solution_id: solutionId,
-      resulted_phase_id: phaseId || undefined,
     });
   }
 
