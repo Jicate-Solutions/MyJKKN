@@ -142,7 +142,7 @@ export class LeadService {
     }
 
     return {
-      data: (data || []) as AdmissionLead[],
+      data: (data || []).map((row: any) => this.normalizeLead(row)),
       metadata: {
         total: count || 0,
         page,
