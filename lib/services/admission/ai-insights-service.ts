@@ -269,11 +269,11 @@ export class AIInsightsService {
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
     const hotLeadsNoContact = leads.filter(lead => {
-      if (lead.priority !== 'hot') return false;
+      if (!lead.is_hot_lead) return false;
       if (lead.funnel_stage === 'lost' || lead.funnel_stage === 'enrolled') return false;
 
-      const lastContact = lead.last_contacted_at
-        ? new Date(lead.last_contacted_at)
+      const lastContact = lead.last_contact_at
+        ? new Date(lead.last_contact_at)
         : new Date(lead.created_at);
 
       return lastContact < threeDaysAgo;
@@ -289,7 +289,7 @@ export class AIInsightsService {
       description: `These hot leads haven't been contacted in over 3 days. Immediate follow-up recommended to prevent losing potential conversions.`,
       action_type: 'contact_lead',
       action_data: { lead_count: hotLeadsNoContact.length },
-      action_url: '/admission/leads?priority=hot&sort_by=last_contacted_at&sort_order=asc',
+      action_url: '/admission/leads?is_hot_lead=true&sort_by=last_contact_at&sort_order=asc',
       related_lead_ids: hotLeadsNoContact.map(l => l.id),
       related_counselor_ids: [],
       metric_value: hotLeadsNoContact.length,
@@ -299,8 +299,8 @@ export class AIInsightsService {
       metadata: {
         average_days_since_contact: Math.round(
           hotLeadsNoContact.reduce((sum, lead) => {
-            const lastContact = lead.last_contacted_at
-              ? new Date(lead.last_contacted_at)
+            const lastContact = lead.last_contact_at
+              ? new Date(lead.last_contact_at)
               : new Date(lead.created_at);
             return sum + (Date.now() - lastContact.getTime()) / (1000 * 60 * 60 * 24);
           }, 0) / hotLeadsNoContact.length
