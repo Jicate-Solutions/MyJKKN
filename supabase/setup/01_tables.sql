@@ -1291,12 +1291,15 @@ CREATE TABLE IF NOT EXISTS public.migration_log (
 );
 
 -- Custom Roles
+-- Updated: 2026-02-06 - Added role_key, is_system_role columns; made institution_id nullable for system roles
 CREATE TABLE IF NOT EXISTS public.custom_roles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL,
+    institution_id UUID,
+    role_key VARCHAR(50) NOT NULL UNIQUE,
     role_name VARCHAR(50) NOT NULL,
     description TEXT,
-    permissions JSONB NOT NULL,
+    permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_system_role BOOLEAN DEFAULT false,
     is_active BOOLEAN DEFAULT true,
     created_by UUID,
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -1517,6 +1520,153 @@ CREATE INDEX IF NOT EXISTS idx_maintenance_schedules_active ON resource_maintena
 
 -- Enable RLS
 ALTER TABLE user_app_favorites ENABLE ROW LEVEL SECURITY;
+
+-- =====================================================
+-- LIFECYCLE ANALYTICS TABLES
+-- Updated: 2026-02-06 - Added usage_events, module_usage_daily,
+--   institution_health_scores, feature_usage_summary, usage_events_archive
+-- =====================================================
+
+-- usage_events: Lightweight event table for tracking all platform actions
+-- Partitioned by month for fast time-range queries
+CREATE TABLE IF NOT EXISTS public.usage_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    session_id TEXT,
+    event_type TEXT NOT NULL,           -- page_visit, view, create, update, delete, export, login, logout
+    module TEXT NOT NULL,                -- matches MODULE_NAMES: 'academic/timetables', 'billing/invoices'
+    feature TEXT,                        -- sub-feature: 'mark_attendance', 'generate_invoice'
+    resource_type TEXT,
+    weight INTEGER NOT NULL DEFAULT 1,  -- page_visit=1, view=2, crud=5, export=3
+    institution_id UUID,
+    department_id UUID,
+    role TEXT,                           -- user's role at time of action
+    request_method TEXT,
+    source TEXT NOT NULL DEFAULT 'middleware',  -- 'middleware', 'explicit', 'backfill'
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Indexes for usage_events
+CREATE INDEX IF NOT EXISTS idx_usage_events_institution_created
+    ON usage_events(institution_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_module_created
+    ON usage_events(module, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_user_created
+    ON usage_events(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_event_type
+    ON usage_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_usage_events_source
+    ON usage_events(source);
+
+-- Enable RLS
+ALTER TABLE usage_events ENABLE ROW LEVEL SECURITY;
+
+
+-- module_usage_daily: Pre-aggregated daily rollup consumed by dashboard
+CREATE TABLE IF NOT EXISTS public.module_usage_daily (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    metric_date DATE NOT NULL,
+    institution_id UUID NOT NULL,
+    module TEXT NOT NULL,
+    event_count INTEGER DEFAULT 0,
+    unique_users INTEGER DEFAULT 0,
+    weighted_score BIGINT DEFAULT 0,
+    by_role JSONB DEFAULT '{}',         -- {"student": 120, "faculty": 45, "admin": 12}
+    by_event_type JSONB DEFAULT '{}',   -- {"view": 100, "create": 30, "export": 5}
+    UNIQUE(metric_date, institution_id, module)
+);
+
+-- Indexes for module_usage_daily
+CREATE INDEX IF NOT EXISTS idx_module_usage_daily_date
+    ON module_usage_daily(metric_date DESC);
+CREATE INDEX IF NOT EXISTS idx_module_usage_daily_institution
+    ON module_usage_daily(institution_id, metric_date DESC);
+CREATE INDEX IF NOT EXISTS idx_module_usage_daily_module
+    ON module_usage_daily(module, metric_date DESC);
+
+-- Enable RLS
+ALTER TABLE module_usage_daily ENABLE ROW LEVEL SECURITY;
+
+
+-- institution_health_scores: Composite health scores computed daily
+CREATE TABLE IF NOT EXISTS public.institution_health_scores (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    score_date DATE NOT NULL,
+    institution_id UUID NOT NULL,
+    active_user_pct NUMERIC(5,2),       -- % users logged in last 7d
+    module_breadth_score NUMERIC(5,2),  -- % of modules accessed
+    action_depth_score NUMERIC(5,2),    -- weighted actions per active user
+    consistency_score NUMERIC(5,2),     -- inverse of daily active user variance
+    feature_maturity_score NUMERIC(5,2),-- CRUD ratio vs total actions
+    health_score NUMERIC(5,2),          -- composite (0-100)
+    health_grade TEXT,                   -- A/B/C/D/F
+    metadata JSONB DEFAULT '{}',
+    UNIQUE(score_date, institution_id)
+);
+
+-- Indexes for institution_health_scores
+CREATE INDEX IF NOT EXISTS idx_health_scores_institution
+    ON institution_health_scores(institution_id, score_date DESC);
+CREATE INDEX IF NOT EXISTS idx_health_scores_date
+    ON institution_health_scores(score_date DESC);
+CREATE INDEX IF NOT EXISTS idx_health_scores_grade
+    ON institution_health_scores(health_grade);
+
+-- Enable RLS
+ALTER TABLE institution_health_scores ENABLE ROW LEVEL SECURITY;
+
+
+-- feature_usage_summary: Sub-feature level aggregation (Phase 3)
+CREATE TABLE IF NOT EXISTS public.feature_usage_summary (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    summary_date DATE NOT NULL,
+    institution_id UUID NOT NULL,
+    module TEXT NOT NULL,
+    feature TEXT NOT NULL,
+    usage_count INTEGER DEFAULT 0,
+    unique_users INTEGER DEFAULT 0,
+    UNIQUE(summary_date, institution_id, module, feature)
+);
+
+-- Indexes for feature_usage_summary
+CREATE INDEX IF NOT EXISTS idx_feature_usage_summary_date
+    ON feature_usage_summary(summary_date DESC);
+CREATE INDEX IF NOT EXISTS idx_feature_usage_summary_module
+    ON feature_usage_summary(module, summary_date DESC);
+
+-- Enable RLS
+ALTER TABLE feature_usage_summary ENABLE ROW LEVEL SECURITY;
+
+
+-- usage_events_archive: Archive table for old events (Phase 3)
+CREATE TABLE IF NOT EXISTS public.usage_events_archive (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    session_id TEXT,
+    event_type TEXT NOT NULL,
+    module TEXT NOT NULL,
+    feature TEXT,
+    resource_type TEXT,
+    weight INTEGER NOT NULL DEFAULT 1,
+    institution_id UUID,
+    department_id UUID,
+    role TEXT,
+    request_method TEXT,
+    source TEXT NOT NULL DEFAULT 'middleware',
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL,
+    archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage_events_archive_created
+    ON usage_events_archive(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_archive_institution
+    ON usage_events_archive(institution_id, created_at DESC);
+
+-- Enable RLS
+ALTER TABLE usage_events_archive ENABLE ROW LEVEL SECURITY;
+
 
 -- =====================================================
 -- END OF TABLE DEFINITIONS

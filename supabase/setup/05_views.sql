@@ -350,6 +350,31 @@ WHERE lifecycle_status IN ('active', 'inactive', 'exited', 'graduated')
   AND migration_source IN ('student', 'merged');
 
 -- ================================================================================
+-- SECTION 5: LIFECYCLE ANALYTICS MATERIALIZED VIEW
+-- Updated: 2026-02-06
+-- ================================================================================
+
+-- mv_lifecycle_dashboard: Refreshed every 5 minutes via pg_cron
+-- Dashboard reads from this view, not raw usage_events table
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_lifecycle_dashboard AS
+SELECT
+    institution_id,
+    module,
+    COUNT(*) AS event_count_24h,
+    COUNT(DISTINCT user_id) AS unique_users_24h,
+    SUM(weight) AS weighted_score_24h,
+    COUNT(*) FILTER (WHERE event_type IN ('create', 'update', 'delete')) AS crud_count_24h,
+    COUNT(*) FILTER (WHERE event_type = 'export') AS export_count_24h,
+    jsonb_object_agg(DISTINCT role, true) FILTER (WHERE role IS NOT NULL) AS active_roles
+FROM usage_events
+WHERE created_at >= NOW() - INTERVAL '24 hours'
+GROUP BY institution_id, module;
+
+-- Index on the materialized view for fast lookups
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_lifecycle_dashboard_inst_module
+    ON mv_lifecycle_dashboard(institution_id, module);
+
+-- ================================================================================
 -- End of Views File
--- Total Views: 9 (7 original + 2 compatibility views)
+-- Total Views: 10 (7 original + 2 compatibility views + 1 lifecycle materialized view)
 -- ================================================================================

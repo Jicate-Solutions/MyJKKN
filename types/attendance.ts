@@ -306,6 +306,10 @@ export interface AttendancePeriodOption {
   institution_id?: string;
   department_id?: string;
   semester_id?: string;
+
+  // Updated: 2026-02-06 - Added for dual-mode period system (practical periods support)
+  period_mode?: 'standard' | 'practical';
+  practical_config?: any; // PracticalConfig from academics.ts - available courses/batches for runtime selection
 }
 
 // =====================================================

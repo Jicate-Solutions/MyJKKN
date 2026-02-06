@@ -253,16 +253,10 @@ export function usePermissions(
         return true;
       }
 
-      // CRITICAL FIX: Don't block access while permissions are loading for non-students
-      // This prevents the race condition that causes unauthorized redirects
+      // Block access for ALL users while permissions are loading
+      // This prevents content flash for unauthorized pages
       if (isLoading) {
-        // For students, we need to be more restrictive during loading
-        if (isStudent) {
-          return false;
-        }
-        // For staff/admin users, allow temporary access during loading to prevent redirects
-        // The actual permissions will be checked once loading completes
-        return true;
+        return false;
       }
 
       const permKey = `${module}.${action}`;
@@ -339,7 +333,7 @@ export function usePermissions(
 
     // Generic permission check (legacy support) - using enhanced permissions
     can: (permission: string) =>
-      isSuperAdmin ? true : enhancedPermissions[permission] || false,
+      isLoading ? false : isSuperAdmin ? true : enhancedPermissions[permission] || false,
     // New module-based permission checks
     canAccess,
     canPerformAll,

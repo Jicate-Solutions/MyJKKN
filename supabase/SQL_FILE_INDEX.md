@@ -51,7 +51,7 @@ When updating any SQL file:
 
 ## 📊 Current Database Objects
 
-### Tables (60 total in database - Updated 2025-01-19)
+### Tables (65 total in database - Updated 2026-02-06)
 
 | Module          | Tables                                                                                                                                                                                                                  | Count | Status                      |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | --------------------------- |
@@ -71,6 +71,7 @@ When updating any SQL file:
 | Dashboard       | dashboard_configurations, dashboard_widgets, dashboard_widget_types                                                                                                                                                     | 3     | ✅                          |
 | Dashboard System | user_dashboard_preferences, dashboard_widgets                                                                                                                                                           | 2     | ✅ Personalized role-based widgets |
 | **Engagement Analytics** | **user_sessions, daily_engagement_metrics, student_engagement_scores, mv_engagement_overview (materialized view)** | **4** | **✅ Complete - Advanced student engagement tracking** |
+| **Lifecycle Analytics** | **usage_events, module_usage_daily, institution_health_scores, feature_usage_summary, usage_events_archive, mv_lifecycle_dashboard (materialized view)** | **6** | **✅ NEW - Cross-institution usage tracking and health scoring** |
 | Child App Auth  | ~~child_app_analytics, child_app_auth_codes_bucket, child_app_unified_sessions~~ (REMOVED 2025-01-20)                                                                                                     | 0     | ❌ Dropped - moved to auth server                          |
 | LTI Integration | lti_tools, lti_launches, lti_grades                                                                                                                                                                                         | 3     | ✅ Complete - MATLAB integration |
 | Other           | applications (with parent auth + LTI), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth + LTI  |
@@ -186,6 +187,58 @@ When updating any SQL file:
 ```
 
 ## 📝 Change Log
+
+### 2026-02-06: Lifecycle Analytics System
+
+- **Files Updated**:
+  - `setup/01_tables.sql` - Added 5 tables: usage_events, module_usage_daily, institution_health_scores, feature_usage_summary, usage_events_archive
+  - `setup/02_functions.sql` - Added 7 functions: compute_module_usage_daily, refresh_lifecycle_dashboard_view, compute_institution_health_scores, backfill_usage_events, archive_old_usage_events, ensure_usage_events_partitions, compute_feature_usage_summary
+  - `setup/03_policies.sql` - Added 12 RLS policies for all lifecycle analytics tables
+  - `setup/05_views.sql` - Added mv_lifecycle_dashboard materialized view
+
+  **Purpose**: Cross-institution lifecycle analytics dashboard with module-level usage tracking, health scoring, and report generation
+
+  **Tables Created**:
+  - `usage_events` - Raw event tracking (page visits, CRUD actions, exports)
+  - `module_usage_daily` - Pre-aggregated daily rollup by institution/module
+  - `institution_health_scores` - Composite health scores (Phase 2)
+  - `feature_usage_summary` - Sub-feature level aggregation (Phase 3)
+  - `usage_events_archive` - Archive for old events (Phase 3)
+
+  **Views Created**:
+  - `mv_lifecycle_dashboard` - Materialized view refreshed every 5 min for dashboard
+
+  **Functions Created**:
+  - `compute_module_usage_daily(target_date)` - Daily rollup from usage_events
+  - `refresh_lifecycle_dashboard_view()` - MV refresh (every 5 min via pg_cron)
+  - `compute_institution_health_scores(target_date)` - Health score calculation
+  - `backfill_usage_events()` - One-time backfill from user_sessions
+  - `archive_old_usage_events(months_to_keep)` - Monthly maintenance
+  - `ensure_usage_events_partitions()` - Auto-create monthly partitions (Phase 3)
+  - `compute_feature_usage_summary(target_date)` - Feature-level daily aggregation (Phase 3)
+
+  **Application Layer (Phase 1)**:
+  - Types: `types/usage-analytics.ts`
+  - Service: `lib/services/analytics/usage-tracking-service.ts`
+  - Service: `lib/services/analytics/lifecycle-dashboard-service.ts`
+  - Middleware: `lib/middleware/usage-tracking-middleware.ts`
+  - Middleware: `lib/middleware/url-module-mapper.ts`
+  - Hooks: `hooks/analytics/use-lifecycle-dashboard.ts`, `use-module-breakdown.ts`
+  - API: `app/api/analytics/usage/dashboard|modules|events|trends/route.ts`
+  - UI: `app/(routes)/admin/lifecycle/page.tsx` + 6 components
+  - Sidebar: Added "Lifecycle Analytics" to Administration group
+
+  **Application Layer (Phase 2)**:
+  - Service: `lib/services/analytics/health-score-service.ts`
+  - Service: `lib/services/analytics/usage-report-service.ts`
+  - Hooks: `hooks/analytics/use-health-scores.ts`, `use-institution-comparison.ts`, `use-lifecycle-reports.ts`
+  - API: `app/api/analytics/usage/health-scores/route.ts`, `health-scores/[id]/route.ts`, `comparison/route.ts`, `reports/generate/route.ts`
+  - UI: `institution-comparison-tab.tsx`, `reports-tab.tsx` (added to lifecycle dashboard)
+
+  **Application Layer (Phase 3)**:
+  - Live health score in KPI card with progress bar + color coding
+  - Dormant institution alerts in Overview tab
+  - Archive strategy: `ensure_usage_events_partitions()` + `compute_feature_usage_summary()`
 
 ### 2026-01-30: Personalized Dashboard System
 

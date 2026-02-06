@@ -94,6 +94,7 @@ export interface ProfileUpdate {
 // Custom role interface
 export interface CustomRole {
   id: string;
+  institution_id: string | null;
   role_key: string;
   role_name: string;
   description: string | null;
@@ -126,6 +127,7 @@ export interface CustomRoleCreate {
   description?: string | null;
   permissions?: Record<string, boolean>;
   is_system_role?: boolean;
+  institution_id?: string | null;
 }
 
 // Custom role update interface

@@ -154,7 +154,20 @@ export default function AttendancePage() {
   // Updated: 2025-10-09 - Handle period selection
   // For semester-level timetables: mark all sections together (no modal)
   // For section-level timetables: proceed directly to mark page
+  // Updated: 2026-02-06 - Added practical period support (navigate without requiring sectionId)
   const handlePeriodSelection = async (period: AttendancePeriodOption) => {
+    // Updated: 2026-02-06 - Practical periods use batches, not sections
+    // Navigate directly to mark page where batch/course selection happens at runtime
+    if (period.period_mode === 'practical') {
+      // For practical periods, try to get section_id from batch config or search context
+      const sectionId = searchContext.section_id ||
+        period.sections?.[0]?.id ||
+        period.section_ids?.[0] ||
+        undefined;
+      navigateToMarkAttendance(period, sectionId);
+      return;
+    }
+
     // Check if this is a multi-section slot from a semester-level timetable
     const isMultiSection =
       (period.sections && period.sections.length > 1) ||

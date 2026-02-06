@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Profile } from '@/types/auth';
 import { UserService } from '@/lib/services/users/user-service';
@@ -19,27 +19,37 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit } from 'lucide-react';
 import { UserDetails } from './_components/user-details';
 
-interface UserDetailsPageProps {
-  params: Promise<{ id: string }>;
-}
+// Normalize dynamic route param to a single string
+const getUserId = (value: string | string[] | undefined) =>
+  Array.isArray(value) ? value[0] : value;
 
-// Validate user ID - reject DRP placeholders and non-UUID values
+const isPlaceholderId = (id: string | undefined): boolean =>
+  !!id && (id.includes('%drp:') || id.includes('%%drp:'));
+
+// Validate user ID - reject placeholders and non-UUID values
 const isValidUserId = (id: string | undefined): boolean => {
   if (!id) return false;
-  if (id.includes('%drp:') || id.includes('%%drp:')) return false;
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const uuidPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   return uuidPattern.test(id);
 };
 
-export default function UserDetailsPage({ params }: UserDetailsPageProps) {
+export default function UserDetailsPage() {
   const router = useRouter();
-  const { id } = use(params);
+  const params = useParams();
+  const id = getUserId(params.id);
   const [user, setUser] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchUser = async () => {
+      if (!id || isPlaceholderId(id)) {
+        setIsLoading(true);
+        setError(null);
+        return;
+      }
+
       if (!isValidUserId(id)) {
         setError('Invalid user ID. Please go back and try again.');
         setIsLoading(false);
@@ -48,6 +58,7 @@ export default function UserDetailsPage({ params }: UserDetailsPageProps) {
 
       try {
         setIsLoading(true);
+        setError(null);
         const response = await UserService.getUserById(id);
         setUser(response);
       } catch (err) {

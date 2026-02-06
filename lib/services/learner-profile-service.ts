@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { trackUsage } from '@/lib/utils/track-usage';
 import type {
   LearnerProfile,
   CreateLearnerProfileDto,
@@ -550,6 +551,7 @@ export class LearnerProfileService {
       throw error;
     }
 
+    trackUsage({ module: 'learners', feature: 'create_learner_profile', eventType: 'create' });
     return data;
   }
 
@@ -795,6 +797,7 @@ export class LearnerProfileService {
       college_email: enrollment.college_email,
     });
 
+    trackUsage({ module: 'learners', feature: 'enroll_learner', eventType: 'update' });
     return profile;
   }
 
@@ -802,10 +805,12 @@ export class LearnerProfileService {
    * Graduate learner (active → graduated)
    */
   static async graduateLearner(id: string): Promise<LearnerProfile> {
-    return this.updateLifecycleStatus(id, {
+    const result = await this.updateLifecycleStatus(id, {
       new_status: 'graduated',
       reason: 'Successfully completed program',
     });
+    trackUsage({ module: 'learners', feature: 'graduate_learner', eventType: 'update' });
+    return result;
   }
 
   // ============================================
@@ -1001,6 +1006,7 @@ export class LearnerProfileService {
       }
     }
 
+    trackUsage({ module: 'learners', feature: 'bulk_promote_learners', eventType: 'update', metadata: { total: learnerIds.length, success: success.length, failed: failed.length } });
     return { success, failed };
   }
 

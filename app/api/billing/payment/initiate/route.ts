@@ -6,9 +6,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PaymentGatewayService } from '@/lib/services/billing/payment-gateway-service';
 import { createClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { withUsageTracking } from '@/lib/middleware/usage-tracking-middleware';
 import type { CreatePaymentSessionDto } from '@/types/payment-gateway';
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     // Step 1: Verify authentication
     const supabase = await createClient();
@@ -124,3 +125,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withUsageTracking(handlePOST);

@@ -9,6 +9,7 @@ import type {
   BulkOperationResult
 } from '@/types/billing-schedule';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { trackUsage } from '@/lib/utils/track-usage';
 
 export class BillingReceiptService {
   private static supabase = createClientSupabaseClient();
@@ -162,6 +163,7 @@ export class BillingReceiptService {
         }
       }
 
+      trackUsage({ module: 'billing/receipts', feature: 'create_receipt', eventType: 'create' });
       return receipt;
     } catch (error) {
       logger.error('billing/receipts', 'Error creating receipt', error);

@@ -7,7 +7,7 @@ import {
   SYSTEM_ROLES
 } from '@/types/auth';
 import { toast } from 'react-hot-toast';
-import { DEFAULT_ROLE_PERMISSIONS } from '@/lib/constants/permissions';
+import { DEFAULT_ROLE_PERMISSIONS, PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 
 // Database types for custom_roles table
 type CustomRoleRow = Database['public']['Tables']['custom_roles']['Row'];
@@ -23,6 +23,7 @@ export class RoleService {
   private static toCustomRole(row: CustomRoleRow): CustomRole {
     return {
       id: row.id,
+      institution_id: (row as any).institution_id ?? null,
       role_key: row.role_key,
       role_name: row.role_name,
       description: row.description,
@@ -32,6 +33,20 @@ export class RoleService {
       updated_at: row.updated_at ?? new Date().toISOString(),
       created_by: row.created_by
     };
+  }
+
+  /**
+   * Build a permissions object with all known permission keys set to true.
+   * Derives keys from PERMISSION_CATEGORIES constant.
+   */
+  private static getAllPermissionsEnabled(): Record<string, boolean> {
+    const allPermissions: Record<string, boolean> = {};
+    for (const category of PERMISSION_CATEGORIES) {
+      for (const perm of category.permissions) {
+        allPermissions[perm.key] = true;
+      }
+    }
+    return allPermissions;
   }
 
   /**
@@ -51,19 +66,7 @@ export class RoleService {
 
       // If role doesn't exist, create it with all permissions
       if (!existingSuperAdmin) {
-        // Get all permission keys from permission categories
-        const allPermissions: Record<string, boolean> = {};
-
-        // Set all permissions to true
-        const { data: permissions } = await (this.supabase as any)
-          .from('permissions')
-          .select('permission_key');
-
-        if (permissions) {
-          permissions.forEach((perm: any) => {
-            allPermissions[perm.permission_key] = true;
-          });
-        }
+        const allPermissions = this.getAllPermissionsEnabled();
 
         // Create super_admin role
         const insertData: CustomRoleInsert = {
@@ -86,24 +89,12 @@ export class RoleService {
       // If role exists but doesn't have permissions set correctly, update them
       else if (existingSuperAdmin) {
         const currentPermissions = (existingSuperAdmin as any).permissions as Record<string, boolean> | null;
-        
+
         if (
           !currentPermissions ||
           Object.values(currentPermissions).some((p) => p === false)
         ) {
-          // Get all permission keys
-          const allPermissions: Record<string, boolean> = {};
-
-          // Set all permissions to true
-          const { data: permissions } = await (this.supabase as any)
-            .from('permissions')
-            .select('permission_key');
-
-          if (permissions) {
-            permissions.forEach((perm: any) => {
-              allPermissions[perm.permission_key] = true;
-            });
-          }
+          const allPermissions = this.getAllPermissionsEnabled();
 
           // Update super_admin role permissions
           const updateData: CustomRoleDbUpdate = {
@@ -178,8 +169,9 @@ export class RoleService {
         role_name: role.role_name,
         description: role.description ?? null,
         permissions: (role.permissions || DEFAULT_ROLE_PERMISSIONS) as any,
-        is_system_role: role.is_system_role ?? false
-      };
+        is_system_role: role.is_system_role ?? false,
+        institution_id: role.institution_id ?? null
+      } as any;
 
       const { data, error } = await (this.supabase as any)
         .from('custom_roles')
@@ -542,7 +534,8 @@ export class RoleService {
   }
 
   /**
-   * Check if a user has specific action permission for a module
+   * Check if a user has specific action permission for a module.
+   * Uses merged permissions from all assigned roles (multi-role support).
    */
   static async checkActionPermission(
     userId: string,
@@ -550,10 +543,10 @@ export class RoleService {
     action: string
   ): Promise<boolean> {
     try {
-      // Get user's role
+      // Check if user is super admin by profile flag
       const { data: profile, error: profileError } = await (this.supabase as any)
         .from('profiles')
-        .select('role')
+        .select('role, is_super_admin')
         .eq('id', userId)
         .single();
 
@@ -561,21 +554,23 @@ export class RoleService {
         console.error('[RoleService] Error fetching profile:', profileError);
         throw profileError;
       }
-      
-      if (!profile || !(profile as any).role) return false;
 
-      // Get role permissions
-      const role = await this.getRoleByKey((profile as any).role);
-      if (!role) return false;
+      if (!profile) return false;
 
-      // Check for super admin (has all permissions)
-      if (role.role_key === SYSTEM_ROLES.SUPER_ADMIN) return true;
+      // Check for super admin (by flag or role key)
+      if (
+        (profile as any).is_super_admin === true ||
+        (profile as any).role === SYSTEM_ROLES.SUPER_ADMIN
+      ) {
+        return true;
+      }
 
-      const permissions = role.permissions || {};
+      // Get merged permissions from all assigned roles
+      const { UserRolesService } = await import('@/lib/services/users/user-roles-service');
+      const mergedPermissions = await UserRolesService.getMergedPermissions(userId);
+
       const permissionKey = `${module}.${action}`;
-
-      // Check for specific permission
-      return !!permissions[permissionKey];
+      return !!mergedPermissions[permissionKey];
     } catch (error) {
       console.error('[RoleService] Error checking permission:', error);
       return false;
