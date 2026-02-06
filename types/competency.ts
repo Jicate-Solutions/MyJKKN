@@ -411,11 +411,20 @@ export interface VerifyLearnerCompetencyDTO {
 
 export interface LearnerCompetencyDashboard {
   learner_id: string;
-  total_competencies: number;
-  by_level: Record<ProficiencyLevel, number>;
-  verified_count: number;
-  recent_assessments: LearnerAssessment[];
-  industry_readiness_score: number;
+  progress: LearnerCompetencyProgress;
+  recent_achievements: Array<{
+    competency_id: string;
+    competency_name: string;
+    level_achieved: string;
+    achieved_at: string;
+  }>;
+  recommended_next: Array<{
+    competency_id: string;
+    competency_name: string;
+    current_level: string | null;
+    target_level: string;
+    program_required: boolean;
+  }>;
 }
 
 export interface CompetencyGapAnalysis {
