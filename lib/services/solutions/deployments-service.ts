@@ -257,11 +257,10 @@ export class DeploymentsService extends BaseService {
 
     if (error) throw new Error(`Failed to create deployment: ${error.message}`);
 
-    // Update phase with production URL if this is a production deployment
-    if (input.environment === 'production' && (input.custom_domain || input.vercel_url)) {
+    // Update phase status to 'live' if this is a production deployment
+    if (input.environment === 'production') {
       await (this.supabase as any).from('sh_solution_phases')
         .update({
-          production_url: input.custom_domain || input.vercel_url,
           status: 'live',
           updated_at: new Date().toISOString(),
         })
