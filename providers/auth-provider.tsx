@@ -14,8 +14,7 @@ import { useRouter } from 'next/navigation';
 import { Profile } from '@/types/auth';
 import { AuthService } from '@/lib/auth/auth-service';
 import { toast } from 'react-hot-toast';
-import { createBrowserClient } from '@supabase/ssr';
-import { Database } from '@/types/supabase';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface AuthContextType {
   user: Profile | null;
