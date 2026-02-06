@@ -120,19 +120,15 @@ export function VisitCard({
         </div>
 
         {/* Pain Points */}
-        {visit.pain_points && visit.pain_points.length > 0 && (
-          <div className="space-y-2">
+        {visit.pain_points && (
+          <div className="space-y-1">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-destructive" />
               <p className="text-sm font-medium">Pain Points</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {visit.pain_points.map((point, index) => (
-                <Badge key={index} variant="destructive" className="text-xs">
-                  {point}
-                </Badge>
-              ))}
-            </div>
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+              {visit.pain_points}
+            </p>
           </div>
         )}
 
