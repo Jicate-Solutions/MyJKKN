@@ -26,14 +26,13 @@ export interface CreateSolutionInput {
   solution_type: 'software' | 'training' | 'content';
   title: string;
   description?: string;
-  problem_statement?: string;
   client_id: string;
   lead_department_id: string;
   base_price?: number;
-  hod_discount?: number;
+  discount_percentage?: number;
   final_price?: number;
-  started_date?: string;
-  target_completion?: string;
+  start_date?: string;
+  target_date?: string;
   notes?: string;
   created_by: string;
 }
@@ -41,15 +40,14 @@ export interface CreateSolutionInput {
 export interface UpdateSolutionInput {
   title?: string;
   description?: string;
-  problem_statement?: string;
   status?: string;
   lead_department_id?: string;
   base_price?: number;
-  hod_discount?: number;
+  discount_percentage?: number;
   final_price?: number;
-  started_date?: string;
-  target_completion?: string;
-  completed_date?: string;
+  start_date?: string;
+  target_date?: string;
+  completion_date?: string;
   notes?: string;
 }
 
