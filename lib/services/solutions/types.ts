@@ -626,8 +626,8 @@ export interface CreatePaymentInput {
   payment_method?: string;
   reference_number?: string;
   due_date?: string;
-  paid_at?: string;
+  payment_date?: string;
   status?: PaymentStatus;
   notes?: string;
-  recorded_by: string;
+  created_by: string;
 }
