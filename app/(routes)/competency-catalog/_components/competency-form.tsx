@@ -171,6 +171,7 @@ export function CompetencyForm({
 
     if (isEditing) {
       const updateData: UpdateCompetencyDTO = {
+        id: competency!.id,
         competency_code: data.competency_code,
         competency_name: data.competency_name,
         competency_type: data.competency_type,
