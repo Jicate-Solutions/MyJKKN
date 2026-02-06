@@ -357,8 +357,8 @@ export class ClientsService extends BaseService {
     const { data, error } = await (this.supabase as any).from('sh_client_referrals')
       .insert({
         client_id: input.client_id,
-        referring_department_id: input.referring_department_id,
-        executing_department_id: input.executing_department_id,
+        referring_dept_id: input.referring_department_id,
+        executing_dept_id: input.executing_department_id,
         bonus_percentage: input.bonus_percentage || 5,
         bonus_paid: false,
       })
