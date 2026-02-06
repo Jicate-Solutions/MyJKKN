@@ -242,7 +242,7 @@ export class SolutionsService extends BaseService {
     const solutionCode = await this.generateSolutionCode();
 
     // Validate discount (0-10%)
-    const discountPct = Math.min(Math.max(input.hod_discount || 0, 0), 10);
+    const discountPct = Math.min(Math.max(input.discount_percentage || 0, 0), 10);
 
     // Calculate final price if base price is provided
     let finalPrice = input.base_price;
@@ -263,14 +263,14 @@ export class SolutionsService extends BaseService {
         client_id: input.client_id,
         solution_type: input.solution_type,
         title: input.title,
-        description: input.description || input.problem_statement,
+        description: input.description,
         lead_department_id: input.lead_department_id,
         base_price: input.base_price,
         discount_percentage: totalDiscountPct > 0 ? totalDiscountPct : null,
         discount_reason: partnerDiscount > 0 ? `Partner ${partnerDiscount * 100}%` + (discountPct > 0 ? ` + HOD ${discountPct}%` : '') : (discountPct > 0 ? `HOD ${discountPct}%` : null),
         final_price: finalPrice,
-        start_date: input.started_date || null,
-        target_date: input.target_completion || null,
+        start_date: input.start_date || null,
+        target_date: input.target_date || null,
         created_by: input.created_by,
         status: 'active' as SolutionStatus,
       })
