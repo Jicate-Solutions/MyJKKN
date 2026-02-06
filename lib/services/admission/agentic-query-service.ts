@@ -82,16 +82,23 @@ const CRM_SCHEMA = {
         email: 'Email address',
         phone: 'Phone number',
         funnel_stage: 'Pipeline stage: new, contacted, qualified, application_started, application_submitted, documents_pending, documents_verified, interview_scheduled, interview_completed, offer_sent, offer_accepted, token_paid, enrolled, lost',
-        priority: 'Lead priority: hot, warm, cold',
+        // FIX: priority enum does not exist → use is_hot_lead and is_priority booleans
+        is_hot_lead: 'Boolean flag for hot leads',
+        is_priority: 'Boolean flag for priority leads',
         source: 'Lead source: website, walk_in, referral, social_media, newspaper, education_fair, agent, publisher, google_ads, facebook_ads, other',
-        program_interest: 'Interested program',
+        // FIX: program_interest does not exist → use interested_programs (text array)
+        interested_programs: 'Array of interested program names',
         counselor_id: 'Assigned counselor UUID',
         score: 'Lead score (0-100)',
+        score_category: 'Score category label',
         created_at: 'Timestamp',
         updated_at: 'Timestamp',
-        next_followup_at: 'Next followup date',
-        last_contacted_at: 'Last contact date',
+        // FIX: next_followup_at does not exist; last_contacted_at → last_contact_at
+        last_contact_at: 'Last contact date',
+        last_activity_at: 'Last activity date',
         tags: 'Array of tags',
+        preferred_campus: 'Preferred campus location',
+        preferred_channel: 'Preferred communication channel',
       },
     },
     admission_counselors: {
