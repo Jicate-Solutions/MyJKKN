@@ -331,7 +331,7 @@ export class PhasesService extends BaseService {
 
     // Set completion date if status is completed
     if (status === 'completed') {
-      updateData.completed_date = new Date().toISOString().split('T')[0];
+      updateData.completion_date = new Date().toISOString().split('T')[0];
     }
 
     const { data, error } = await (this.supabase as any).from('sh_solution_phases')
