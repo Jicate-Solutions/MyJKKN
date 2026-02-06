@@ -10,7 +10,7 @@ import {
   type UpdateTemplateInput,
   type TemplateFilters,
   type TemplateStats,
-  type TemplateType,
+  type TemplateChannel,
 } from '@/lib/services/admission/communication-templates-service';
 
 // Query keys
@@ -18,7 +18,7 @@ export const communicationTemplatesKeys = {
   all: ['communication-templates'] as const,
   lists: () => [...communicationTemplatesKeys.all, 'list'] as const,
   list: (filters: TemplateFilters) => [...communicationTemplatesKeys.lists(), filters] as const,
-  active: (institutionId: string, type?: TemplateType) =>
+  active: (institutionId: string, type?: TemplateChannel) =>
     [...communicationTemplatesKeys.all, 'active', institutionId, type] as const,
   details: () => [...communicationTemplatesKeys.all, 'detail'] as const,
   detail: (id: string) => [...communicationTemplatesKeys.details(), id] as const,
@@ -48,7 +48,7 @@ export function useCommunicationTemplates(filters: TemplateFilters) {
 /**
  * Hook to fetch active templates (for use in workflows/campaigns)
  */
-export function useActiveTemplates(institutionId?: string, type?: TemplateType) {
+export function useActiveTemplates(institutionId?: string, type?: TemplateChannel) {
   const query = useQuery({
     queryKey: communicationTemplatesKeys.active(institutionId || '', type),
     queryFn: () => CommunicationTemplatesService.getActiveTemplates(institutionId!, type),
