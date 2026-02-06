@@ -440,9 +440,12 @@ export interface Payment extends BaseEntity {
 export interface EarningsLedger extends BaseEntity {
   payment_id: string;
   recipient_type: RecipientType;
-  recipient_name: string;
   recipient_id?: string;
+  builder_id?: string;
+  cohort_member_id?: string;
+  production_learner_id?: string;
   department_id?: string;
+  institution_id?: string;
   amount: number;
   percentage: number;
   status: EarningsStatus;
