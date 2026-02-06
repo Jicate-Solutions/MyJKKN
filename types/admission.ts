@@ -126,42 +126,62 @@ export interface AdmissionLead {
   country: string | null;
 
   // Academic details
-  program_interest: string | null;
-  preferred_batch: string | null;
-  previous_qualification: string | null;
-  percentage: number | null;
-  board: string | null;
-  passing_year: number | null;
+  // FIX: program_interest does not exist in DB → use interested_programs (text array)
+  interested_programs: string[] | null;
+  preferred_campus: string | null;
 
   // Source & Attribution
   source: LeadSource;
-  source_detail: string | null;
-  utm_source: string | null;
-  utm_medium: string | null;
-  utm_campaign: string | null;
-  utm_content: string | null;
-  utm_term: string | null;
-  referrer_id: string | null;
-  publisher_id: string | null;
 
   // Status & Scoring
   funnel_stage: FunnelStage;
-  priority: LeadPriority;
+  // FIX: priority enum does not exist in DB → use is_hot_lead + is_priority booleans
+  is_hot_lead: boolean;
+  is_priority: boolean;
   score: number;
+  score_category: string | null;
+  score_updated_at: string | null;
   engagement_score: number | null;
   quality_score: number | null;
+  combined_score: number | null;
+  score_breakdown: Record<string, unknown> | null;
+  conversion_probability: number | null;
 
   // Assignment
   counselor_id: string | null;
   assigned_at: string | null;
-  last_contacted_at: string | null;
-  next_followup_at: string | null;
+  assigned_counselor_id: string | null;
+  ownership_mode: string | null;
+  // FIX: last_contacted_at does not exist → correct column is last_contact_at
+  last_contact_at: string | null;
+  // FIX: next_followup_at does not exist in DB - removed
+  last_activity_at: string | null;
+
+  // Communication
+  preferred_channel: string | null;
+  total_messages_sent: number | null;
+  messages_this_week: number | null;
+  last_message_at: string | null;
+
+  // Parent/Guardian
+  parent_name: string | null;
+  parent_phone: string | null;
+  parent_email: string | null;
+  parent_opted_in: boolean | null;
 
   // Metadata
-  notes: string | null;
+  learner_profile_id: string | null;
   tags: string[];
-  is_duplicate: boolean;
-  duplicate_of: string | null;
+  // FIX: is_duplicate and duplicate_of do not exist in DB - removed
+  is_active: boolean;
+  is_dormant: boolean | null;
+  dormant_at: string | null;
+  is_lost: boolean | null;
+  lost_reason: string | null;
+  lost_at: string | null;
+  stage: string | null;
+  stage_changed_at: string | null;
+  previous_stage: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
