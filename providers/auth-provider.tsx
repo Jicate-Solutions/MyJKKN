@@ -195,8 +195,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         window.google.accounts.id.disableAutoSelect();
       }
 
-      router.push('/auth/login');
+      try {
+        router.push('/auth/login');
+      } catch (routerError) {
+        console.error('[AuthProvider] Error routing after sign out:', routerError);
+        // Fallback to direct navigation if router fails
+        if (typeof window !== 'undefined') {
+          window.location.href = '/auth/login';
+        }
+      }
     } catch (error) {
+      console.error('[AuthProvider] Sign out error:', error);
       toast.error('Error signing out');
     }
   };
