@@ -141,7 +141,7 @@ export function FinksDimensionInput({
 
   const handleInputChange = (key: keyof FinksDimensions, inputValue: string) => {
     const numValue = parseInt(inputValue);
-    if (!isNaN(numValue) && numValue >= 0 && numValue <= 100) {
+    if (!isNaN(numValue) && numValue >= 0 && numValue <= 10) {
       onChange({
         ...value,
         [key]: numValue
