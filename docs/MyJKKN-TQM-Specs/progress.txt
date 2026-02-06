@@ -334,23 +334,54 @@ id, learner_profile_id, institution_id, engagement_score, quality_score, combine
 | types/competency.ts | Fixed 4 pre-existing type mismatches |
 | hooks/competency/use-competencies.ts | Fixed learning_how_to_learn → learning_to_learn |
 
-### Items Completed (10/30)
+### P0 Items (1-10): ALL FIXED
 | # | Test | Status | Notes |
 |---|------|--------|-------|
-| 1 | Dashboard loads with real data | FIXED | Schema mismatch in getDashboardSummary/getFunnelSummary |
-| 2 | Create a new lead | FIXED | Service simplified, form payload corrected |
-| 3 | View lead list with filters | FIXED | Priority filter uses is_hot_lead/is_priority |
-| 4 | View lead detail | FIXED | All property references updated to match DB |
-| 5 | Update lead stage | FIXED | updateStage uses correct columns, normalizeLead applied |
-| 6 | Assign counselor | FIXED | assignCounselor uses correct columns |
-| 7 | Log activity | FIXED | createActivity sets created_by, updates lead timestamps |
-| 8 | Schedule follow-up | FIXED | Creates activity of type 'task' with scheduled_at |
-| 9 | Hot/Priority toggle | FIXED | normalizeLead computes priority from booleans |
-| 10 | Create application from lead | FIXED | ApplicationService created, hooks connected |
+| 1 | Dashboard loads with real data | ✅ FIXED | Schema mismatch in getDashboardSummary/getFunnelSummary |
+| 2 | Create a new lead | ✅ FIXED | Service simplified, form payload corrected |
+| 3 | View lead list with filters | ✅ FIXED | Priority filter uses is_hot_lead/is_priority |
+| 4 | View lead detail | ✅ FIXED | All property references updated to match DB |
+| 5 | Update lead stage | ✅ FIXED | updateStage uses correct columns, normalizeLead applied |
+| 6 | Assign counselor | ✅ FIXED | assignCounselor uses correct columns |
+| 7 | Log activity | ✅ FIXED | createActivity sets created_by, updates lead timestamps |
+| 8 | Schedule follow-up | ✅ FIXED | Creates activity of type 'task' with scheduled_at |
+| 9 | Hot/Priority toggle | ✅ FIXED | normalizeLead computes priority from booleans |
+| 10 | Create application from lead | ✅ FIXED | ApplicationService created, hooks connected |
 
-### Items Remaining (20/30)
-P1: #11-#20 (analytics, counselors, templates, interviews, documents, scoring, scholarships, offers, status, feedback)
-P2: #21-#30 (scoring CRUD, assignment rules, workflows, campaigns, AI insights, briefing, consultants, publishers, dedup, phone validation)
+### P1 Items (11-20): AUDITED — No schema mismatches found
+| # | Test | Status | Notes |
+|---|------|--------|-------|
+| 11 | Funnel visualization accuracy | ✅ VERIFIED | Real data from LeadService.getFunnelSummary, priority:'hot' mapped correctly |
+| 12 | Lead scoring calculates | ✅ VERIFIED | score_breakdown used, ScoringRulesService has real implementation |
+| 13 | Counselor list loads | ✅ VERIFIED | Real ConsultantService, no schema issues |
+| 14 | Analytics dashboard | ⚠️ EMPTY STATE | useFunnelAnalyticsDashboard + useCounselorPerformance are TODO stubs (returns empty) |
+| 15 | Communication templates | ✅ VERIFIED | Real CommunicationTemplatesService, all 4 query functions wired |
+| 16 | Interview scheduling | ⚠️ MOCK UI | Hardcoded sample data, no DB integration yet |
+| 17 | Offer letter generation | ⚠️ MOCK UI | Hardcoded sample data, no DB integration yet |
+| 18 | Seat confirmation flow | ⚠️ MOCK UI | Hardcoded sample data, no DB integration yet |
+| 19 | Document upload & verification | ⚠️ MOCK UI | Hardcoded sample data, no DB integration yet |
+| 20 | GD-PI session management | ⚠️ MOCK UI | Hardcoded sample data, no DB integration yet |
+
+### P2 Items (21-30): AUDITED — No schema mismatches found
+| # | Test | Status | Notes |
+|---|------|--------|-------|
+| 21 | Scoring rules CRUD | ✅ VERIFIED | Real ScoringRulesService, 664-line page, 8 hooks |
+| 22 | Assignment rules CRUD | ✅ VERIFIED | Real hooks, 684-line page, 13 hooks, .priority is for rules table |
+| 23 | Workflow builder | ✅ VERIFIED | Real WorkflowsService, 818-line page, 17 hooks |
+| 24 | Campaign monitoring | ✅ VERIFIED | Real CampaignMonitoringService, 170-line page |
+| 25 | AI insights generation | ✅ VERIFIED | Real AIInsightsService (fixed in P0), .priority is for insights table |
+| 26 | Daily briefing | ✅ VERIFIED | Real DailyBriefingService, .priority is for briefing actions |
+| 27 | Consultant management | ✅ VERIFIED | Real ConsultantService, some TODO stubs for payouts/rewards |
+| 28 | Publisher management | ✅ VERIFIED | Real hooks, 571-line page |
+| 29 | Deduplication detection | ✅ VERIFIED | 651-line page, some state-based mock initialization |
+| 30 | Phone validation | ✅ VERIFIED | 521-line page, some state-based mock initialization |
+
+### Key Findings from P1/P2 Audit
+1. **Dashboard priority:'hot' filter** - NOT a bug. LeadService.getLeads maps priority→is_hot_lead correctly (line 94)
+2. **5 mock-only pages** (#16-#20): interviews, offer-letter, seat-confirmation, documents, gd-pi — frontend shells with sample data, no DB wiring
+3. **2 TODO stub hooks**: useFunnelAnalyticsDashboard and useCounselorPerformance return empty arrays (analytics page shows empty state)
+4. **All .priority references in P2 pages** are for their own tables (assignment_rules, insights, briefing) — NOT admission_leads
+5. **Zero schema mismatches remain** across all 44 admission page files and all 17 service files
 
 ### Schema Audit Status: COMPLETE
 All 17 admission service files audited. Zero remaining references to non-existent columns (priority enum, next_followup_at, program_interest, last_contacted_at, is_duplicate, duplicate_of).
