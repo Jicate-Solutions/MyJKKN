@@ -23,7 +23,7 @@ export function ClientCard({ client, showActions = true }: ClientCardProps) {
             </div>
             <div>
               <h3 className="font-semibold leading-none">{client.name}</h3>
-              <p className="text-sm text-muted-foreground">{client.industry}</p>
+              <p className="text-sm text-muted-foreground">{client.industry_sector}</p>
             </div>
           </div>
           <PartnerBadge status={client.partner_status} showDiscount />
