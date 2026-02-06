@@ -183,7 +183,10 @@ export class AIResponseService {
       full_name: input.lead.full_name,
       email: input.lead.email || '',
       phone: input.lead.phone,
-      program: input.lead.program_interest || 'your program of interest',
+      // FIX: program_interest does not exist in DB → use interested_programs (array)
+      program: (input.lead.interested_programs && input.lead.interested_programs.length > 0)
+        ? input.lead.interested_programs.join(', ')
+        : 'your program of interest',
 
       // Counselor & Institution
       counselor_name: input.counselorName || 'your counselor',
@@ -191,7 +194,8 @@ export class AIResponseService {
 
       // Stage-specific
       funnel_stage: this.formatStageName(input.lead.funnel_stage),
-      priority: input.lead.priority,
+      // FIX: priority enum does not exist in DB → derive from is_hot_lead/is_priority booleans
+      priority: input.lead.is_hot_lead ? 'hot' : input.lead.is_priority ? 'warm' : 'cold',
 
       // Custom variables
       ...input.customVariables
