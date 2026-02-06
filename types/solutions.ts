@@ -396,10 +396,11 @@ export interface SHPayment {
   payment_method: string | null
   reference_number: string | null
   due_date: string | null
-  paid_at: string | null
+  payment_date: string | null
   status: PaymentStatus
+  split_processed: boolean
   notes: string | null
-  recorded_by: string | null
+  created_by: string | null
   created_at: string
   updated_at: string
 }
