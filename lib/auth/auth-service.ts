@@ -63,9 +63,19 @@ export class AuthService {
         // Continue with logout even if activity logging fails
       }
 
-      // Clear any user-related data from local storage
+      // SECURITY FIX: Only clear auth-specific localStorage keys
+      // Don't use localStorage.clear() as it removes ALL data including user preferences
       if (typeof window !== 'undefined') {
-        localStorage.clear();
+        const authKeys = [
+          'supabase.auth.token',
+          'sb-access-token',
+          'sb-refresh-token',
+          'user-session',
+          'auth-state'
+        ];
+        authKeys.forEach((key) => {
+          localStorage.removeItem(key);
+        });
       }
 
       const { error } = await supabase.auth.signOut();
