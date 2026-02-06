@@ -108,7 +108,7 @@ export class BuilderPortalService {
       .from('sh_builders')
       .select(`
         *,
-        department:departments(id, department_name, department_code),
+        department:departments(id, name:department_name, code:department_code),
         skills:sh_builder_skills(*)
       `)
       .eq('user_id', userId)
@@ -131,7 +131,7 @@ export class BuilderPortalService {
       .from('sh_builders')
       .select(`
         *,
-        department:departments(id, department_name, department_code),
+        department:departments(id, name:department_name, code:department_code),
         skills:sh_builder_skills(*)
       `)
       .eq('id', builderId)
