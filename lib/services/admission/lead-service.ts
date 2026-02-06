@@ -400,7 +400,7 @@ export class LeadService {
       throw new Error(`Failed to update priority: ${error.message}`);
     }
 
-    return data as AdmissionLead;
+    return this.normalizeLead(data);
   }
 
   /**
@@ -446,7 +446,7 @@ export class LeadService {
       throw new Error(`Failed to add tag: ${error.message}`);
     }
 
-    return data as AdmissionLead;
+    return this.normalizeLead(data);
   }
 
   /**
@@ -478,7 +478,7 @@ export class LeadService {
       throw new Error(`Failed to remove tag: ${error.message}`);
     }
 
-    return data as AdmissionLead;
+    return this.normalizeLead(data);
   }
 
   // ============================================================================
@@ -507,7 +507,7 @@ export class LeadService {
       throw new Error(`Failed to assign counselor: ${error.message}`);
     }
 
-    return data as AdmissionLead;
+    return this.normalizeLead(data);
   }
 
   // ============================================================================
@@ -536,7 +536,7 @@ export class LeadService {
       throw new Error(`Failed to schedule followup: ${error.message}`);
     }
 
-    return data as AdmissionLead;
+    return this.normalizeLead(data);
   }
 
   // ============================================================================
