@@ -272,14 +272,14 @@ export class ClientsService extends BaseService {
    */
   static async getClientIndustries(): Promise<string[]> {
     const { data, error } = await (this.supabase as any).from('sh_clients')
-      .select('industry')
-      .not('industry', 'is', null);
+      .select('industry_sector')
+      .not('industry_sector', 'is', null);
 
     if (error) throw new Error(`Failed to fetch industries: ${error.message}`);
 
     const industriesSet = new Set<string>();
-    data?.forEach((c) => {
-      if (c.industry) industriesSet.add(c.industry);
+    data?.forEach((c: { industry_sector: string }) => {
+      if (c.industry_sector) industriesSet.add(c.industry_sector);
     });
     return Array.from(industriesSet).sort();
   }
