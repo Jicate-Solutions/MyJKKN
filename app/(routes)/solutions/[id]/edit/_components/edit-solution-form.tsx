@@ -87,9 +87,9 @@ export function EditSolutionForm({ solutionId }: EditSolutionFormProps) {
       setStatus((solution.status as SolutionStatus) || 'active');
       setBasePrice(solution.base_price?.toString() || '');
       setFinalPrice(solution.final_price?.toString() || '');
-      setStartDate(solution.started_date || '');
-      setTargetDate(solution.target_completion || '');
-      setProblemStatement(solution.problem_statement || '');
+      setStartDate(solution.start_date || '');
+      setTargetDate(solution.target_date || '');
+      setProblemStatement(solution.description || '');
       setDescription(solution.description || '');
     }
   }, [solution]);
