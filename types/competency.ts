@@ -313,6 +313,7 @@ export interface CompetencyCourseMappingFilters {
   competency_id?: string;
   course_id?: string;
   contribution_level?: ContributionLevel;
+  assessment_method?: string;
   page?: number;
   limit?: number;
 }
