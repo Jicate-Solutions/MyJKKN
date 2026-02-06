@@ -258,9 +258,11 @@ export class CommunicationTemplatesService {
     return this.createTemplate({
       institution_id: original.institution_id,
       name: `${original.name} (Copy)`,
-      type: original.type,
+      channel: original.channel,
       subject: original.subject || undefined,
       content: original.content,
+      description: original.description || undefined,
+      category: original.category || undefined,
       variables: original.variables,
       is_active: false, // Start duplicates as inactive
     });
