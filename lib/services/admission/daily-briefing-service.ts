@@ -424,11 +424,12 @@ export class DailyBriefingService {
     institutionId: string,
     role: BriefingRole
   ): Promise<BriefingHotLead[]> {
+    // FIX: priority column does not exist → use is_hot_lead boolean instead
     let query = (this.supabase as any)
       .from('admission_leads')
-      .select('id, full_name, phone, score, priority, funnel_stage')
+      .select('id, full_name, phone, score, is_hot_lead, funnel_stage')
       .eq('institution_id', institutionId)
-      .eq('priority', 'hot')
+      .eq('is_hot_lead', true)
       .not('funnel_stage', 'in', '(enrolled,lost)')
       .order('score', { ascending: false })
       .limit(5);
