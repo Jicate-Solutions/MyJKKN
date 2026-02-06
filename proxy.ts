@@ -291,9 +291,8 @@ export async function proxy(request: NextRequest) {
         new URL('/auth/login?reason=disabled', request.url)
       );
 
-      // Clear all auth cookies
-      disabledResponse.cookies.delete('sb-access-token');
-      disabledResponse.cookies.delete('sb-refresh-token');
+      // SECURITY FIX: Use helper to properly clear auth cookies
+      clearAuthCookies(disabledResponse);
 
       // Also sign out from Supabase
       await supabase.auth.signOut();
