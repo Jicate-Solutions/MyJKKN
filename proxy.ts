@@ -7,6 +7,25 @@ import { routeMatcher } from './lib/auth/route-matcher';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
 
+// SECURITY: Helper to properly clear auth cookies with all necessary flags
+// This prevents cookies from persisting on subdomains or over insecure connections
+function clearAuthCookies(response: NextResponse) {
+  const cookieNames = ['sb-access-token', 'sb-refresh-token'];
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  cookieNames.forEach((name) => {
+    response.cookies.set({
+      name,
+      value: '',
+      maxAge: 0,
+      path: '/',
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax'
+    });
+  });
+}
+
 // Define public paths - optimized with Set for O(1) lookup
 const PUBLIC_PATHS_SET = new Set([
   '/', // Allow root path to avoid ERR_FAILED issues
