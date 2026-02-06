@@ -89,49 +89,26 @@ export function PhaseCard({ phase, showSolution = false }: PhaseCardProps) {
             </div>
           )}
 
-          {phase.target_completion && (
+          {phase.due_date && (
             <div className="flex items-center gap-1">
               <Calendar className="h-4 w-4" />
-              <span>{format(new Date(phase.target_completion), 'dd MMM yyyy')}</span>
+              <span>{format(new Date(phase.due_date), 'dd MMM yyyy')}</span>
             </div>
           )}
         </div>
 
         {/* URLs */}
         <div className="flex flex-wrap gap-2">
-          {phase.prd_url && (
+          {phase.requirements_doc_url && (
             <a
-              href={phase.prd_url}
+              href={phase.requirements_doc_url}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
             >
               <FileText className="h-3 w-3" />
-              PRD
+              Requirements
               <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
-          {phase.prototype_url && (
-            <a
-              href={phase.prototype_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-            >
-              <GitBranch className="h-3 w-3" />
-              Prototype
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
-          {phase.production_url && (
-            <a
-              href={phase.production_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-green-600 hover:underline"
-            >
-              <ExternalLink className="h-3 w-3" />
-              Production
             </a>
           )}
         </div>
