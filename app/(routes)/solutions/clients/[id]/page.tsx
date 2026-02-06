@@ -174,8 +174,8 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
                 )}
               </div>
               <h1 className="text-2xl font-bold">{client.name}</h1>
-              {client.industry && (
-                <p className="text-sm text-muted-foreground">{client.industry}</p>
+              {client.industry_sector && (
+                <p className="text-sm text-muted-foreground">{client.industry_sector}</p>
               )}
             </div>
           </div>
