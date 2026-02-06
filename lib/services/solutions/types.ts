@@ -605,9 +605,8 @@ export interface CreatePhaseInput {
   description?: string;
   owner_department_id: string;
   estimated_value?: number;
-  started_date?: string;
-  target_completion?: string;
-  created_by: string;
+  start_date?: string;
+  due_date?: string;
 }
 
 export interface CreateBuilderInput {
