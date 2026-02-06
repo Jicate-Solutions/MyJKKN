@@ -32,6 +32,36 @@ export class LeadService {
     return `LEAD-${year}-${random}`;
   }
 
+  /**
+   * Normalize a lead row from the DB to ensure `priority` field is computed
+   * from is_hot_lead / is_priority booleans if the DB doesn't have a priority enum column.
+   * Also normalizes `last_contacted_at` from possible `last_contact_at`.
+   */
+  private static normalizeLead(row: any): AdmissionLead {
+    if (!row) return row;
+
+    // Compute priority from boolean flags if not already set as an enum
+    if (!row.priority || typeof row.priority !== 'string') {
+      if (row.is_hot_lead) {
+        row.priority = 'hot';
+      } else if (row.is_priority) {
+        row.priority = 'warm';
+      } else {
+        row.priority = 'cold';
+      }
+    }
+
+    // Normalize last_contacted_at from either column name variant
+    if (!row.last_contacted_at && row.last_contact_at) {
+      row.last_contacted_at = row.last_contact_at;
+    }
+    if (!row.last_contacted_at && row.last_activity_at) {
+      row.last_contacted_at = row.last_activity_at;
+    }
+
+    return row as AdmissionLead;
+  }
+
   // ============================================================================
   // LEAD CRUD METHODS
   // ============================================================================
