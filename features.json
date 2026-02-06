@@ -1,0 +1,290 @@
+{
+  "project": "MyJKKN Workshop Alignment Transformation",
+  "created": "2026-02-06",
+  "total_phases": 4,
+  "features": [
+    {
+      "id": "P1.1",
+      "name": "OKR Module Restrictions",
+      "phase": "1.1 - Foundation",
+      "status": "DONE",
+      "description": "Restrict OKR to Organization + Institution + Department levels. Deprecate learner-specific OKR tables.",
+      "database_changes": [
+        "Migration: 20260201000001_deprecate_learner_okr_tables.sql",
+        "Tables deprecated: learner_core_okrs, learner_okr_assignments, learner_elective_okrs",
+        "Insert blocked via RLS policies"
+      ],
+      "files_changed": [
+        "types/okr.ts (OKRLevelAllowed, OKRTierAllowed)",
+        "lib/services/okr/okr-learner-service.ts (deprecated)",
+        "hooks/okr/use-learner-okrs.ts (deprecated)",
+        "app/(routes)/okr/elective/ (deprecation notices)",
+        "app/(routes)/okr/page.tsx (filters out individual)",
+        "app/(routes)/okr/objectives/create/page.tsx (active tiers/levels only)"
+      ],
+      "test_steps": [
+        "Navigate to /okr - verify dashboard shows only org/institution/department OKRs",
+        "Click 'Create Objective' - verify only tier_1 and tier_2 available",
+        "Verify level dropdown shows only organization, institution, department",
+        "Navigate to /okr/elective/any-id - verify deprecation notice shown",
+        "Verify sidebar has no elective/learner OKR menu items",
+        "Create an institution-level OKR - verify it saves and appears in list"
+      ]
+    },
+    {
+      "id": "P1.2",
+      "name": "Competency Catalog Module",
+      "phase": "1.2 - Foundation",
+      "status": "BUILD_FIX_NEEDED",
+      "description": "New module for defining skill taxonomy using Fink's Taxonomy. Includes catalog CRUD, program mapping, course mapping, and learner tracking.",
+      "database_changes": [
+        "Migration: 20260206000001_create_competency_tables.sql (APPLIED to staging)",
+        "Tables created: competency_catalog, competency_program_mapping, course_competency_mapping, learner_competencies",
+        "RLS enabled, indexes created, updated_at triggers added"
+      ],
+      "files_created": [
+        "types/competency.ts",
+        "lib/services/competency/competency-catalog-service.ts",
+        "lib/services/competency/competency-mapping-service.ts",
+        "lib/services/competency/learner-competency-service.ts",
+        "lib/services/competency/index.ts",
+        "hooks/competency/use-competencies.ts",
+        "hooks/competency/use-competency-mappings.ts",
+        "hooks/competency/use-learner-competencies.ts",
+        "hooks/competency/index.ts",
+        "app/(routes)/competency-catalog/page.tsx",
+        "app/(routes)/competency-catalog/new/page.tsx",
+        "app/(routes)/competency-catalog/[id]/page.tsx",
+        "app/(routes)/competency-catalog/[id]/edit/page.tsx",
+        "app/(routes)/competency-catalog/_components/competency-form.tsx",
+        "app/(routes)/competency-catalog/_components/competency-table.tsx",
+        "app/(routes)/competency-catalog/_components/finks-radar-chart.tsx",
+        "app/(routes)/competency-catalog/_components/finks-dimension-input.tsx",
+        "app/(routes)/competency-catalog/_components/proficiency-level-builder.tsx",
+        "app/(routes)/competency-catalog/_components/index.ts",
+        "lib/sidebarMenuLink.ts (updated - added Competency & Outcomes group)"
+      ],
+      "known_issues": [
+        "Build error: TYPE_BADGES in [id]/page.tsx missing 'metacognitive' key (CompetencyType mismatch)",
+        "Detail page: LEVEL_COLORS uses ProficiencyLevel keys for ContributionLevel badges (wrong mapping)"
+      ],
+      "test_steps": [
+        "Fix build errors and verify npm run build passes",
+        "Navigate to /competency-catalog - verify list page loads",
+        "Verify sidebar shows 'Competency & Outcomes' group with 'Competency Catalog' item",
+        "Click 'Create Competency' - verify form loads with all sections",
+        "Fill form: code=TECH-001, name=Python Programming, type=technical",
+        "Set Fink's dimensions (6 sliders), AI resistance score, industry tags",
+        "Set proficiency levels with descriptions and criteria",
+        "Submit form - verify redirect to list and new entry appears",
+        "Click on created competency - verify detail page with all tabs",
+        "Verify Fink's radar chart renders correctly",
+        "Click Edit - verify form pre-filled with existing data",
+        "Update name and save - verify changes reflected",
+        "Test Archive/Deactivate function",
+        "Verify program mappings tab (empty initially)",
+        "Verify course mappings tab (empty initially)"
+      ]
+    },
+    {
+      "id": "P1.5.1",
+      "name": "Course Enhancements",
+      "phase": "1.5 - Existing Module Modifications",
+      "status": "PENDING",
+      "description": "Add learning hours breakdown and competency coverage to courses table.",
+      "database_changes": [
+        "ALTER courses: add learning_hours_target, self_study_hours, practical_hours, theory_hours, competency_coverage (JSONB)"
+      ],
+      "files_to_change": [
+        "types/organizations.ts",
+        "lib/services/academic/course-service.ts",
+        "Course form components"
+      ],
+      "test_steps": [
+        "Apply migration to staging",
+        "Navigate to course edit form",
+        "Verify new fields appear (hours breakdown, competency coverage)",
+        "Save course with new fields - verify data persists",
+        "Verify course detail shows hours and competency info"
+      ]
+    },
+    {
+      "id": "P1.5.2",
+      "name": "Learner Profile Capabilities",
+      "phase": "1.5 - Existing Module Modifications",
+      "status": "PENDING",
+      "description": "Add capabilities, career aspirations, industry readiness score to learner profiles.",
+      "database_changes": [
+        "ALTER learners_profiles: add capabilities (JSONB), career_aspirations (JSONB), industry_readiness_score (NUMERIC), portfolio_url (TEXT)"
+      ],
+      "files_to_change": [
+        "types/learner-profile.ts",
+        "lib/services/learners/learner-profile-service.ts",
+        "Learner profile components (add capability tab)"
+      ],
+      "test_steps": [
+        "Apply migration to staging",
+        "Navigate to learner profile",
+        "Verify new 'Capabilities' tab appears",
+        "Add a competency to learner - verify it saves",
+        "Verify industry_readiness_score updates",
+        "Verify portfolio_url field works"
+      ]
+    },
+    {
+      "id": "P1.5.3",
+      "name": "Staff Facilitator Role",
+      "phase": "1.5 - Existing Module Modifications",
+      "status": "PENDING",
+      "description": "Add facilitator role type and outcome metrics to staff profiles.",
+      "database_changes": [
+        "ALTER staff: add role_type (VARCHAR), facilitator_certification (JSONB), outcome_metrics (JSONB)"
+      ],
+      "files_to_change": [
+        "types/staff.ts",
+        "lib/services/staff/staff-service.ts",
+        "Staff profile components"
+      ],
+      "test_steps": [
+        "Apply migration to staging",
+        "Navigate to staff profile edit",
+        "Verify role_type dropdown (teacher, facilitator, trainer, industry_mentor, hybrid)",
+        "Set facilitator certifications - verify saves",
+        "Verify outcome metrics display"
+      ]
+    },
+    {
+      "id": "P1.5.4",
+      "name": "Attendance Learning Engagement",
+      "phase": "1.5 - Existing Module Modifications",
+      "status": "PENDING",
+      "description": "Add engagement score and learning behaviors to attendance data. Required for practicals, optional for lectures.",
+      "database_changes": [
+        "No schema change (JSONB structure enhancement in attendance_data)"
+      ],
+      "files_to_change": [
+        "types/student-attendance.ts",
+        "lib/services/academic/attendance-service.ts",
+        "Attendance marking UI components"
+      ],
+      "test_steps": [
+        "Navigate to attendance marking page",
+        "Select a practical/lab period - verify engagement score input is REQUIRED",
+        "Select a lecture period - verify engagement score is OPTIONAL",
+        "Mark attendance with engagement data - verify saves",
+        "Verify learning behaviors can be selected from predefined list"
+      ]
+    },
+    {
+      "id": "P1.5.5",
+      "name": "Billing Outcome-Linked Discounts",
+      "phase": "1.5 - Existing Module Modifications",
+      "status": "PENDING",
+      "description": "Add outcome-based discount criteria linked to competency achievements.",
+      "database_changes": [
+        "ALTER billing_discounts: add is_outcome_based (BOOLEAN), outcome_criteria (JSONB), outcome_verification (JSONB)"
+      ],
+      "files_to_change": [
+        "types/billing-schedule.ts",
+        "lib/services/billing/discounts/billing-discount-service.ts",
+        "Discount form components"
+      ],
+      "test_steps": [
+        "Apply migration to staging",
+        "Navigate to discount creation form",
+        "Toggle 'Outcome-Based' option - verify criteria fields appear",
+        "Set competency achievement criteria",
+        "Save discount - verify outcome criteria persists"
+      ]
+    },
+    {
+      "id": "P2.1",
+      "name": "Industry Integration Module",
+      "phase": "2 - Industry Integration",
+      "status": "PENDING",
+      "description": "Manage industry partners, mentors, projects, and learner engagements.",
+      "database_changes": [
+        "CREATE: industry_partners, industry_mentors, industry_projects, learner_industry_engagements"
+      ],
+      "files_to_create": [
+        "types/industry.ts",
+        "lib/services/industry/ (4 services)",
+        "hooks/industry/ (4 hook files)",
+        "app/(routes)/industry/ (CRUD pages for all entities)"
+      ],
+      "test_steps": [
+        "Create industry partner with all fields",
+        "Add mentor linked to partner",
+        "Create project with required competencies",
+        "Assign learner to project engagement",
+        "Verify competencies demonstrated tracking",
+        "Verify sidebar 'Industry Connect' group"
+      ]
+    },
+    {
+      "id": "P3.1",
+      "name": "Learning Path Module",
+      "phase": "3 - Personalization",
+      "status": "PENDING",
+      "description": "Personalized learning paths with competency targets and step tracking.",
+      "database_changes": [
+        "CREATE: learning_paths, learning_path_steps"
+      ],
+      "test_steps": [
+        "Create learning path with target role and competencies",
+        "Add steps (course, project, certification)",
+        "Mark steps complete with evidence",
+        "Verify progress percentage updates"
+      ]
+    },
+    {
+      "id": "P3.2",
+      "name": "Parent Portal Module",
+      "phase": "3 - Personalization",
+      "status": "PENDING",
+      "description": "Parent engagement with learner progress visibility and communications.",
+      "database_changes": [
+        "CREATE: parent_portal_access, parent_communications"
+      ],
+      "test_steps": [
+        "Create parent access with code",
+        "Login as parent - verify dashboard loads",
+        "Verify competency progress visible",
+        "Send communication - verify parent receives",
+        "Test access levels (view vs interact)"
+      ]
+    },
+    {
+      "id": "P4.1",
+      "name": "Alumni Outcomes Module",
+      "phase": "4 - Accountability",
+      "status": "PENDING",
+      "description": "Track graduate outcomes and correlate with program effectiveness.",
+      "database_changes": [
+        "CREATE: alumni_outcomes, outcome_program_correlation"
+      ],
+      "test_steps": [
+        "Record alumni outcome (employed, company, role)",
+        "Verify program correlation auto-computes",
+        "View program effectiveness dashboard",
+        "Verify salary range (anonymous) tracking"
+      ]
+    },
+    {
+      "id": "P4.2",
+      "name": "Facilitator Development Module",
+      "phase": "4 - Accountability",
+      "status": "PENDING",
+      "description": "Track staff development from teacher to facilitator with industry immersions.",
+      "database_changes": [
+        "CREATE: facilitator_development, facilitator_industry_immersion"
+      ],
+      "test_steps": [
+        "Create facilitator development record",
+        "Track development stage progression",
+        "Record industry immersion with learnings",
+        "Verify outcome_score calculation"
+      ]
+    }
+  ]
+}
