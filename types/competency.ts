@@ -352,3 +352,53 @@ export interface CourseCompetencyContribution {
   }[];
   total_learning_hours: number;
 }
+
+// Learner competency hook types
+export interface LearnerCompetencyFilters {
+  learner_id?: string;
+  competency_id?: string;
+  current_level?: ProficiencyLevel;
+  verified?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface UpsertLearnerCompetencyDTO {
+  learner_id: string;
+  competency_id: string;
+  current_level: ProficiencyLevel;
+  evidence?: LearnerEvidence[];
+}
+
+export interface AddCompetencyEvidenceDTO {
+  learner_competency_id: string;
+  evidence: LearnerEvidence;
+}
+
+export interface RecordCompetencyAssessmentDTO {
+  learner_competency_id: string;
+  assessment: LearnerAssessment;
+}
+
+export interface VerifyLearnerCompetencyDTO {
+  learner_competency_id: string;
+  verified_by: string;
+}
+
+export interface LearnerCompetencyDashboard {
+  learner_id: string;
+  total_competencies: number;
+  by_level: Record<ProficiencyLevel, number>;
+  verified_count: number;
+  recent_assessments: LearnerAssessment[];
+  industry_readiness_score: number;
+}
+
+export interface CompetencyGapAnalysis {
+  competency_id: string;
+  competency_name: string;
+  required_level: ProficiencyLevel;
+  current_level: ProficiencyLevel | null;
+  gap: number;
+  recommendations: string[];
+}
