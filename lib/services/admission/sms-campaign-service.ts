@@ -324,7 +324,7 @@ export class SMSCampaignService {
 
     // Get template
     const template = await CommunicationTemplatesService.getTemplate(input.templateId);
-    if (!template || template.type !== 'sms') {
+    if (!template || template.channel !== 'sms') {
       return {
         totalSent: 0,
         totalFailed: input.leads.length,
