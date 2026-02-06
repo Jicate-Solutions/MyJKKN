@@ -12,8 +12,8 @@ interface DashboardLayoutProps {
 
 const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
   return (
-    <AdminPanelLayout>
-      <QueryClientProvider>
+    <QueryClientProvider>
+      <AdminPanelLayout>
         {children}
         <Toaster />
         <HotToaster
@@ -29,8 +29,8 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
           }}
         />
         <BugReporterWidget />
-      </QueryClientProvider>
-    </AdminPanelLayout>
+      </AdminPanelLayout>
+    </QueryClientProvider>
   );
 };
 
