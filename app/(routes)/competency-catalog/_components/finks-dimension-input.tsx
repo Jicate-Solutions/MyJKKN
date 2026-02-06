@@ -237,8 +237,8 @@ export function FinksDimensionInput({
           />
           <div className="flex justify-between text-xs text-muted-foreground mt-1">
             <span>0</span>
-            <span>50</span>
-            <span>100</span>
+            <span>5</span>
+            <span>10</span>
           </div>
         </div>
       </div>
