@@ -108,7 +108,7 @@ export function ResponsePersonalizer({
         return lead.phone;
       case 'program':
       case 'program_interest':
-        return lead.program_interest || 'your program of interest';
+        return lead.interested_programs?.join(', ') || 'your program of interest';
       case 'funnel_stage':
         return lead.funnel_stage
           .split('_')
