@@ -337,8 +337,9 @@ export class LeadScoringEngineService {
   }>> {
     let query = this.supabase
       .from('admission_leads')
+      // FIX: priority column does not exist in DB → use is_hot_lead, is_priority booleans
       .select(`
-        id, full_name, email, phone, funnel_stage, priority, score, score_category,
+        id, full_name, email, phone, funnel_stage, is_hot_lead, is_priority, score, score_category,
         admission_lead_scores!left(*)
       `)
       .eq('institution_id', institutionId)
