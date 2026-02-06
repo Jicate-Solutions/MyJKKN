@@ -338,9 +338,9 @@ function AdmissionTemplatesPageContent() {
                       <div className="space-y-2">
                         <Label htmlFor="type">Channel Type *</Label>
                         <Select
-                          value={formData.type}
+                          value={formData.channel}
                           onValueChange={(value) =>
-                            setFormData({ ...formData, type: value as TemplateChannel })
+                            setFormData({ ...formData, channel: value as TemplateChannel })
                           }
                         >
                           <SelectTrigger>
