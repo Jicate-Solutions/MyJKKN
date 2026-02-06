@@ -287,25 +287,25 @@ export class SolutionsService extends BaseService {
   static async updateSolution(id: string, input: UpdateSolutionInput): Promise<Solution> {
     const updatedInput: Record<string, unknown> = { ...input };
 
-    // Validate HOD discount if provided
-    if (input.hod_discount !== undefined) {
-      updatedInput.hod_discount = Math.min(Math.max(input.hod_discount, 0), 10);
+    // Validate discount if provided
+    if (input.discount_percentage !== undefined) {
+      updatedInput.discount_percentage = Math.min(Math.max(input.discount_percentage, 0), 10);
     }
 
-    // Recalculate final price if base_price or hod_discount is being updated
-    if (input.base_price !== undefined || input.hod_discount !== undefined) {
+    // Recalculate final price if base_price or discount is being updated
+    if (input.base_price !== undefined || input.discount_percentage !== undefined) {
       const { data: solution } = await (this.supabase as any)
         .from('sh_solutions')
-        .select('client_id, base_price, hod_discount')
+        .select('client_id, base_price, discount_percentage')
         .eq('id', id)
         .single();
 
       if (solution) {
         const basePrice = input.base_price ?? solution.base_price;
-        const hodDiscount = input.hod_discount ?? solution.hod_discount ?? 0;
+        const discountPct = input.discount_percentage ?? solution.discount_percentage ?? 0;
 
         if (basePrice) {
-          const pricing = await this.calculateFinalPrice(solution.client_id, basePrice, hodDiscount);
+          const pricing = await this.calculateFinalPrice(solution.client_id, basePrice, discountPct);
           updatedInput.final_price = pricing.finalPrice;
         }
       }
