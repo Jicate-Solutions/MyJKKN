@@ -377,10 +377,10 @@ function AdmissionLeadsPageContent() {
                             <div className="flex items-center gap-2">
                               <div className="font-medium">{lead.full_name || 'Unknown'}</div>
                               <div className="flex gap-1">
-                                {lead.priority === 'hot' && (
+                                {lead.is_hot_lead && (
                                   <Flame className="h-4 w-4 text-orange-500" />
                                 )}
-                                {lead.priority === 'warm' && (
+                                {(lead.is_priority && !lead.is_hot_lead) && (
                                   <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
                                 )}
                               </div>
