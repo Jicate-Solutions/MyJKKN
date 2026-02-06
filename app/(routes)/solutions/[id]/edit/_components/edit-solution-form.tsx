@@ -308,21 +308,12 @@ export function EditSolutionForm({ solutionId }: EditSolutionFormProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="problem_statement">Problem Statement</Label>
-            <Textarea
-              id="problem_statement"
-              value={problemStatement}
-              onChange={(e) => setProblemStatement(e.target.value)}
-              rows={3}
-            />
-          </div>
-
-          <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
             <Textarea
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the problem and the solution approach..."
               rows={4}
             />
           </div>
