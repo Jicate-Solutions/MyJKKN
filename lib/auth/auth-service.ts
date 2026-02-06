@@ -206,11 +206,33 @@ export class AuthService {
         throw new Error('No authenticated user');
       }
 
-      // Create a unique file name
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}-${Math.random()
-        .toString(36)
-        .slice(2)}.${fileExt}`;
+      // SECURITY: Validate file type - only allow images
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (!allowedTypes.includes(file.type)) {
+        throw new Error('Invalid file type. Only JPEG, PNG, GIF, and WebP images are allowed.');
+      }
+
+      // SECURITY: Validate file size - max 5MB
+      const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+      if (file.size > maxSize) {
+        throw new Error('File too large. Maximum size is 5MB.');
+      }
+
+      // SECURITY: Use crypto.randomUUID() instead of Math.random() for uniqueness
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      // Validate file extension matches MIME type
+      const extToMime: Record<string, string> = {
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        gif: 'image/gif',
+        webp: 'image/webp'
+      };
+      if (extToMime[fileExt] && extToMime[fileExt] !== file.type) {
+        throw new Error('File extension does not match file type.');
+      }
+
+      const fileName = `${user.id}-${crypto.randomUUID()}.${fileExt}`;
       const filePath = `avatars/${fileName}`;
 
       // Upload the file to Supabase Storage
