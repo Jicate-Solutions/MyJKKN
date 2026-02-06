@@ -946,8 +946,8 @@ function LeadDetailPageContent() {
                     <div>
                       <p className="text-xs text-muted-foreground">Last Activity</p>
                       <p className="text-sm font-medium">
-                        {lead.last_contacted_at
-                          ? new Date(lead.last_contacted_at).toLocaleDateString()
+                        {lead.last_contact_at
+                          ? new Date(lead.last_contact_at).toLocaleDateString()
                           : 'No activity'}
                       </p>
                     </div>
