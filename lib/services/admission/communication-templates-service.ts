@@ -173,9 +173,11 @@ export class CommunicationTemplatesService {
       .insert({
         institution_id: input.institution_id,
         name: input.name,
-        type: input.type,
+        channel: input.channel,
         subject: input.subject || null,
         content: input.content,
+        description: input.description || null,
+        category: input.category || null,
         variables: input.variables || [],
         is_active: input.is_active ?? true,
       })
