@@ -267,6 +267,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Profile data hasn't changed, just the token
         console.log('[AuthProvider] Token refreshed, no profile fetch needed');
       }
+      } finally {
+        isHandlingAuthChangeRef.current = false;
+      }
     };
 
     // Listen for auth state changes
