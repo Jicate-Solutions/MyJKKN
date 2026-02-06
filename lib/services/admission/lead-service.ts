@@ -35,7 +35,7 @@ export class LeadService {
   /**
    * Normalize a lead row from the DB to ensure `priority` field is computed
    * from is_hot_lead / is_priority booleans if the DB doesn't have a priority enum column.
-   * Also normalizes `last_contacted_at` from possible `last_contact_at`.
+   * Also normalizes `last_contact_at` from possible `last_contacted_at` or `last_activity_at`.
    */
   private static normalizeLead(row: any): AdmissionLead {
     if (!row) return row;
@@ -51,12 +51,12 @@ export class LeadService {
       }
     }
 
-    // Normalize last_contacted_at from either column name variant
-    if (!row.last_contacted_at && row.last_contact_at) {
-      row.last_contacted_at = row.last_contact_at;
+    // Normalize last_contact_at from either column name variant
+    if (!row.last_contact_at && row.last_contacted_at) {
+      row.last_contact_at = row.last_contacted_at;
     }
-    if (!row.last_contacted_at && row.last_activity_at) {
-      row.last_contacted_at = row.last_activity_at;
+    if (!row.last_contact_at && row.last_activity_at) {
+      row.last_contact_at = row.last_activity_at;
     }
 
     return row as AdmissionLead;
