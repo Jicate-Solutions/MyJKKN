@@ -45,7 +45,7 @@ export function calculateFinkAggregate(
     integration: 15,
     human_dimension: 20,
     caring: 15,
-    learning_how_to_learn: 15
+    learning_to_learn: 15
   };
 
   const finalWeights = { ...defaultWeights, ...weights };
@@ -66,19 +66,19 @@ export function calculateFinkAggregate(
 /**
  * Calculate "AI-Proof" score
  * Measures dimensions that AI cannot replicate: human connection, caring, self-direction
- * Returns average of human_dimension, caring, and learning_how_to_learn (0-100)
+ * Returns average of human_dimension, caring, and learning_to_learn (0-100)
  *
  * Why these dimensions?
  * - human_dimension: Understanding oneself and others (empathy, self-awareness)
  * - caring: Developing feelings, interests, values (emotional intelligence)
- * - learning_how_to_learn: Becoming self-directed (metacognition, autonomy)
+ * - learning_to_learn: Becoming self-directed (metacognition, autonomy)
  *
  * These represent transformation AI cannot achieve - the human element.
  */
 export function calculateAIProofScore(dimensions: Partial<FinksDimensions>): number {
   const humanDimension = dimensions.human_dimension || 0;
   const caring = dimensions.caring || 0;
-  const learningHowToLearn = dimensions.learning_how_to_learn || 0;
+  const learningHowToLearn = dimensions.learning_to_learn || 0;
 
   const sum = humanDimension + caring + learningHowToLearn;
   const count = (humanDimension > 0 ? 1 : 0) + (caring > 0 ? 1 : 0) + (learningHowToLearn > 0 ? 1 : 0);
