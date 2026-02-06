@@ -34,7 +34,7 @@ import {
   useTemplateStats,
   useTemplateVariables
 } from '@/hooks/admission';
-import type { TemplateType, CreateTemplateInput } from '@/lib/services/admission/communication-templates-service';
+import type { TemplateChannel, CreateTemplateInput } from '@/lib/services/admission/communication-templates-service';
 import {
   MessageSquare,
   Search,
@@ -85,13 +85,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { AdmissionErrorBoundary } from '@/components/admission';
 
-const TEMPLATE_TYPES: { value: TemplateType; label: string; icon: React.ElementType }[] = [
+const TEMPLATE_TYPES: { value: TemplateChannel; label: string; icon: React.ElementType }[] = [
   { value: 'email', label: 'Email', icon: Mail },
   { value: 'sms', label: 'SMS', icon: Phone },
   { value: 'whatsapp', label: 'WhatsApp', icon: MessageCircle }
 ];
 
-function getTypeIcon(type: TemplateType | null) {
+function getTypeIcon(type: TemplateChannel | null) {
   const templateType = TEMPLATE_TYPES.find((t) => t.value === type);
   const Icon = templateType?.icon || MessageSquare;
   return <Icon className="h-4 w-4" />;
@@ -142,7 +142,7 @@ function AdmissionTemplatesPageContent() {
     is_active: true
   });
 
-  const typeFilter = searchParams.get('type') as TemplateType | null;
+  const typeFilter = searchParams.get('type') as TemplateChannel | null;
 
   const filters = {
     institutionId: selectedInstitutionId || '',
@@ -340,7 +340,7 @@ function AdmissionTemplatesPageContent() {
                         <Select
                           value={formData.type}
                           onValueChange={(value) =>
-                            setFormData({ ...formData, type: value as TemplateType })
+                            setFormData({ ...formData, type: value as TemplateChannel })
                           }
                         >
                           <SelectTrigger>
