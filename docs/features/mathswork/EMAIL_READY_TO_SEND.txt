@@ -1,0 +1,201 @@
+Subject: JKKN College of Engineering - SAML SSO Configuration Details for MathWorks Integration
+
+---
+
+Dear Mohammed Jamal and MathWorks Enterprise Support Team,
+
+I hope this email finds you well. We are writing to provide the complete SAML SSO configuration details for integrating JKKN College of Engineering with MathWorks services.
+
+We have successfully configured our Identity Provider (IdP) and are ready to enable seamless single sign-on access to MATLAB and other MathWorks products for our students and faculty.
+
+
+✅ STEP 1: MATHWORKS METADATA CONFIGURATION - COMPLETE
+================================================================
+
+We have successfully imported and configured MathWorks as a trusted Service Provider using the metadata file provided earlier.
+
+Configuration Status:
+• Entity ID: https://login.mathworks.com/authngateway/saml/metadata
+• Assertion Consumer Service (ACS) URL: https://services.mathworks.com/authngateway/saml/SSO
+• Single Logout (SLO) URL: https://services.mathworks.com/authngateway/saml/SingleLogout
+• SP Certificate: Successfully extracted and stored
+• Status: Active and operational
+
+
+✅ STEP 2: JKKN IDP ENDPOINTS - OPERATIONAL
+================================================================
+
+Our SAML Identity Provider is deployed and all endpoints are fully operational:
+
+• IdP Metadata URL: https://jkkn.ai/api/saml/metadata (✓ Operational)
+• SSO Login Endpoint: https://jkkn.ai/api/saml/sso (✓ Operational)
+• Single Logout: https://jkkn.ai/api/saml/slo (✓ Operational)
+
+
+📄 STEP 3: JKKN IDP CONFIGURATION DETAILS
+================================================================
+
+OPTION A: Metadata XML File (Recommended)
+------------------------------------------
+Metadata URL: https://jkkn.ai/api/saml/metadata
+
+You can fetch our IdP metadata directly from this URL, or use the attached XML file (myjkkn-idp-metadata.xml).
+
+
+OPTION B: Manual Configuration
+------------------------------------------
+If you prefer manual configuration, please use these details:
+
+IdP Entity ID: https://jkkn.ai/api/saml/metadata
+IdP Binding: HTTP-POST
+IdP Login URL: https://jkkn.ai/api/saml/sso
+IdP Public Certificate: See attached file (myjkkn-saml-public.pem)
+NameID Format: urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress
+
+
+🏷️ STEP 4: SAML ATTRIBUTE MAPPING
+================================================================
+
+Our IdP will send the following SAML attributes in each authentication response:
+
+• NameId (User Identifier): User's email address (e.g., student@jkkn.ac.in)
+• eduPersonScopedAffiliation: Student, Faculty, or Staff
+• mail: User's email address
+• givenName: First name
+• sn: Last name
+• displayName: Full name
+
+
+JKKN to MathWorks Affiliation Mapping:
+---------------------------------------
+JKKN Role               → MathWorks Affiliation
+Student                 → Student
+Faculty                 → Faculty
+Head of Department      → Faculty
+Principal               → Faculty
+Staff                   → Staff
+Administrator           → Staff
+
+
+🧪 STEP 5: TEST USER ACCOUNTS
+================================================================
+
+We will provide the following test accounts for SSO verification:
+
+Test Account 1 (Super Admin):
+• Email: boobalan.a@jkkn.ac.in
+• Name: Boobalan
+• Affiliation: Administrator (Staff)
+• Status: Active and ready for testing
+
+Test Account 2 (Super Admin):
+• Email: ranjith@jkkn.ac.in
+• Name: Ranjith
+• Affiliation: Administrator (Staff)
+• Status: Active and ready for testing
+
+Note: We will share login credentials securely upon your request.
+
+
+📋 STEP 6: TECHNICAL SPECIFICATIONS
+================================================================
+
+SAML Version & Security:
+• SAML Version: 2.0
+• Signature Algorithm: RSA-SHA256
+• Digest Algorithm: SHA256
+• Assertions Signed: Yes
+• Responses Signed: Yes
+• Session Duration: 8 hours
+• Assertion Validity: 5 minutes
+
+Certificate Details:
+• Algorithm: SHA256 with RSA Encryption
+• Key Size: 2048 bits
+• Validity Period: 10 years (until February 2027)
+• Certificate File: Attached as myjkkn-saml-public.pem
+
+
+📞 NEXT STEPS & TIMELINE
+================================================================
+
+To complete the integration:
+
+1. MathWorks Configuration (Your Action):
+   - Import JKKN IdP metadata or configure manually
+   - Enable SSO for our institution domain (jkkn.ac.in)
+   - Configure attribute mapping as specified
+
+2. Integration Testing (Joint Effort):
+   - Test SSO flow using provided test accounts
+   - Verify user attributes are correctly mapped
+   - Confirm session management and logout functionality
+
+3. Production Rollout (Post-Testing):
+   - Enable SSO for all JKKN users
+   - Notify us when integration is live
+   - We will communicate new access method to users
+
+Proposed Timeline:
+• Configuration: 2-3 business days
+• Testing: 2-3 business days
+• Production rollout: 1 business day
+• Total estimated time: ~1 week
+
+Please let us know if this timeline works for your team.
+
+
+📎 ATTACHMENTS
+================================================================
+
+This email includes:
+1. myjkkn-idp-metadata.xml - Complete SAML IdP metadata XML file
+2. myjkkn-saml-public.pem - X.509 public certificate for signature verification
+
+
+👥 CONTACT INFORMATION
+================================================================
+
+Primary Technical Contact:
+Name: [Your Name]
+Title: [Your Title]
+Email: [Your Email]
+Phone: [Your Phone Number]
+
+Institution Details:
+Institution: JKKN College of Engineering
+Location: Komarapalayam, Tamil Nadu, India
+Website: https://jkkn.ai
+Domain: jkkn.ac.in
+
+Business Hours: Monday - Friday, 9:00 AM - 5:00 PM IST (UTC +5:30)
+
+
+================================================================
+
+Thank you for your assistance in enabling SAML SSO integration for JKKN College of Engineering. We are excited to provide our students and faculty with seamless access to MATLAB and MathWorks products.
+
+This integration will significantly enhance the learning experience for our engineering students and support our faculty in delivering high-quality education using industry-standard tools.
+
+We look forward to your confirmation and are available for any clarifications or additional information you may need to complete the configuration.
+
+Please feel free to reach out if you have any questions.
+
+
+Best regards,
+
+[Your Name]
+[Your Title]
+JKKN College of Engineering
+IT Department
+
+Email: [Your Email]
+Phone: [Your Phone]
+Website: https://jkkn.ai
+
+
+---
+To: mohammed.jamal@mathworks.com
+CC: [Your supervisors/stakeholders]
+Priority: High
+Category: Integration Request

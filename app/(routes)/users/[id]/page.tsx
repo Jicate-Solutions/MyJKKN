@@ -23,6 +23,14 @@ interface UserDetailsPageProps {
   params: Promise<{ id: string }>;
 }
 
+// Validate user ID - reject DRP placeholders and non-UUID values
+const isValidUserId = (id: string | undefined): boolean => {
+  if (!id) return false;
+  if (id.includes('%drp:') || id.includes('%%drp:')) return false;
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidPattern.test(id);
+};
+
 export default function UserDetailsPage({ params }: UserDetailsPageProps) {
   const router = useRouter();
   const { id } = use(params);
@@ -32,7 +40,11 @@ export default function UserDetailsPage({ params }: UserDetailsPageProps) {
 
   useEffect(() => {
     const fetchUser = async () => {
-      if (!id) return;
+      if (!isValidUserId(id)) {
+        setError('Invalid user ID. Please go back and try again.');
+        setIsLoading(false);
+        return;
+      }
 
       try {
         setIsLoading(true);

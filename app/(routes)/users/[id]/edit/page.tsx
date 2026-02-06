@@ -20,6 +20,14 @@ import { BeatLoader } from 'react-spinners';
 import { toast } from 'react-hot-toast';
 import { ArrowLeft } from 'lucide-react';
 
+// Validate user ID - reject DRP placeholders and non-UUID values
+const isValidUserId = (id: string | undefined): boolean => {
+  if (!id) return false;
+  if (id.includes('%drp:') || id.includes('%%drp:')) return false;
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidPattern.test(id);
+};
+
 export default function EditUserPage() {
   const router = useRouter();
   const params = useParams();
@@ -31,6 +39,12 @@ export default function EditUserPage() {
 
   useEffect(() => {
     const fetchUser = async () => {
+      if (!isValidUserId(userId)) {
+        setError('Invalid user ID. Please go back and try again.');
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         const userData = await UserService.getUserById(userId);
