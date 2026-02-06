@@ -223,7 +223,7 @@ export function FinksRadarChart({
               {/* Radial axis */}
               <PolarRadiusAxis
                 angle={30}
-                domain={[0, 100]}
+                domain={[0, 10]}
                 tickCount={6}
                 tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                 axisLine={false}
@@ -443,7 +443,7 @@ export function FinksComparisonChart({
                 dataKey="dimension"
                 tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
               />
-              <PolarRadiusAxis angle={30} domain={[0, 100]} tickCount={6} />
+              <PolarRadiusAxis angle={30} domain={[0, 10]} tickCount={6} />
 
               <Radar
                 name="Cohort Average"
