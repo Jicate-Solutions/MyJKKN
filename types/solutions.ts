@@ -435,14 +435,27 @@ export interface SHDiscoveryVisit {
   client_id: string
   department_id: string | null
   solution_id: string | null
+  visit_code: string | null
   visit_date: string
-  visitors: Array<{ name: string; role?: string }>
-  observations: string
-  pain_points: string[]
-  photos_urls: string[]
-  next_steps: string | null
+  visit_time: string | null
+  duration_hours: number | null
+  location: string | null
+  visit_type: string | null
+  visitors: Record<string, unknown>[] | null
+  client_attendees: Record<string, unknown>[] | null
+  observations: string | null
+  current_systems: string | null
+  pain_points: string | null
+  opportunities: string | null
+  photos_urls: string[] | null
+  document_urls: string[] | null
+  follow_up_required: boolean | null
+  follow_up_date: string | null
+  follow_up_notes: string | null
+  outcome: string | null
+  notes: string | null
   created_at: string
-  updated_at: string
+  created_by: string | null
 }
 
 export interface SHClientCommunication {
