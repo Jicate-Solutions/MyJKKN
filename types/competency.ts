@@ -292,6 +292,8 @@ export interface BulkImportResult {
 export type Competency = CompetencyCatalog;
 export type CreateCompetencyDTO = CreateCompetencyInput;
 export type UpdateCompetencyDTO = UpdateCompetencyInput;
+export type CompetencyEvidence = LearnerEvidence;
+export type CompetencyAssessment = LearnerAssessment;
 
 // Mapping aliases (used by hooks)
 export type CompetencyCourseMapping = CourseCompetencyMapping;
