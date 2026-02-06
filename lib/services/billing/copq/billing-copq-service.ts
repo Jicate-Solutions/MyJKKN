@@ -135,12 +135,32 @@ export class BillingCOPQService {
     incident: CreateCOPQIncidentDto
   ): Promise<BillingCOPQIncident> {
     try {
+      // SECURITY: Validate financial inputs before conversion
+      if (
+        typeof incident.visible_cost !== 'number' ||
+        isNaN(incident.visible_cost) ||
+        !isFinite(incident.visible_cost) ||
+        incident.visible_cost < 0
+      ) {
+        throw new Error('Invalid visible_cost: must be a non-negative number');
+      }
+
+      if (
+        typeof incident.hidden_cost_estimate !== 'number' ||
+        isNaN(incident.hidden_cost_estimate) ||
+        !isFinite(incident.hidden_cost_estimate) ||
+        incident.hidden_cost_estimate < 0
+      ) {
+        throw new Error('Invalid hidden_cost_estimate: must be a non-negative number');
+      }
+
       // Get current user for reported_by
       const {
         data: { user }
       } = await this.supabase.auth.getUser();
 
       // Convert input from rupees to paisa for storage
+      // safeRupeesToPaisa() will throw CurrencyError if validation fails
       const incidentInPaisa = {
         ...incident,
         visible_cost: this.rupeesToPaisa(incident.visible_cost),
