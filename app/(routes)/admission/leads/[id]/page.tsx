@@ -791,6 +791,139 @@ function LeadDetailPageContent() {
                 </CardContent>
               </Card>
 
+              {/* Quick Actions */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Quick Actions</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {/* Log Activity Button + Dialog */}
+                  <Dialog open={showActivityDialog} onOpenChange={setShowActivityDialog}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start" size="sm">
+                        <Activity className="h-4 w-4 mr-2" />
+                        Log Activity
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Log Activity</DialogTitle>
+                        <DialogDescription>Record an interaction with this lead</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div>
+                          <Label htmlFor="activity-type">Activity Type</Label>
+                          <Select value={activityType} onValueChange={setActivityType}>
+                            <SelectTrigger className="mt-2">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="call">Phone Call</SelectItem>
+                              <SelectItem value="email">Email</SelectItem>
+                              <SelectItem value="meeting">Meeting</SelectItem>
+                              <SelectItem value="note">Note</SelectItem>
+                              <SelectItem value="sms">SMS</SelectItem>
+                              <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                              <SelectItem value="task">Task</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="activity-subject">Subject</Label>
+                          <Input
+                            id="activity-subject"
+                            value={activitySubject}
+                            onChange={(e) => setActivitySubject(e.target.value)}
+                            placeholder="e.g., Discussed program options"
+                            className="mt-2"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="activity-description">Description (optional)</Label>
+                          <Textarea
+                            id="activity-description"
+                            value={activityDescription}
+                            onChange={(e) => setActivityDescription(e.target.value)}
+                            placeholder="Details about the interaction..."
+                            className="mt-2"
+                            rows={3}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="activity-outcome">Outcome (optional)</Label>
+                          <Input
+                            id="activity-outcome"
+                            value={activityOutcome}
+                            onChange={(e) => setActivityOutcome(e.target.value)}
+                            placeholder="e.g., Interested in BSc Nursing"
+                            className="mt-2"
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowActivityDialog(false)}>Cancel</Button>
+                        <Button onClick={handleLogActivity} disabled={createActivity.isPending}>
+                          {createActivity.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                          Log Activity
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Schedule Follow-up Button + Dialog */}
+                  <Dialog open={showFollowupDialog} onOpenChange={setShowFollowupDialog}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start" size="sm">
+                        <Calendar className="h-4 w-4 mr-2" />
+                        Schedule Follow-up
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Schedule Follow-up</DialogTitle>
+                        <DialogDescription>Set a reminder to follow up with this lead</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div>
+                          <Label htmlFor="followup-date">Follow-up Date</Label>
+                          <Input
+                            id="followup-date"
+                            type="datetime-local"
+                            value={followupDate}
+                            onChange={(e) => setFollowupDate(e.target.value)}
+                            className="mt-2"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="followup-notes">Notes (optional)</Label>
+                          <Textarea
+                            id="followup-notes"
+                            value={followupNotes}
+                            onChange={(e) => setFollowupNotes(e.target.value)}
+                            placeholder="What should be discussed..."
+                            className="mt-2"
+                            rows={3}
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowFollowupDialog(false)}>Cancel</Button>
+                        <Button onClick={handleScheduleFollowup} disabled={scheduleFollowup.isPending}>
+                          {scheduleFollowup.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                          Schedule
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Create Application Button */}
+                  <Button variant="outline" className="w-full justify-start" size="sm" onClick={handleCreateApplication}>
+                    <Send className="h-4 w-4 mr-2" />
+                    Create Application
+                  </Button>
+                </CardContent>
+              </Card>
+
               {/* Quick Info */}
               <Card>
                 <CardHeader>
