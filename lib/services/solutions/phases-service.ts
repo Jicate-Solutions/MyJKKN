@@ -52,13 +52,12 @@ export interface UpdatePhaseInput {
   description?: string;
   status?: PhaseStatus;
   owner_department_id?: string;
-  prd_url?: string;
-  prototype_url?: string;
-  production_url?: string;
   estimated_value?: number;
-  started_date?: string;
-  target_completion?: string;
-  completed_date?: string;
+  start_date?: string;
+  due_date?: string;
+  completion_date?: string;
+  requirements_doc_url?: string;
+  notes?: string;
 }
 
 export interface CreateIterationInput {
