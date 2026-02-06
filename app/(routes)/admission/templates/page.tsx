@@ -607,7 +607,7 @@ function AdmissionTemplatesPageContent() {
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-2">
-                        {getTypeIcon(template.type)}
+                        {getTypeIcon(template.channel)}
                         <CardTitle className="text-base">{template.name}</CardTitle>
                       </div>
                       <DropdownMenu>
