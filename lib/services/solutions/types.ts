@@ -109,22 +109,28 @@ export interface BaseEntity {
 
 export interface Client extends BaseEntity {
   name: string;
-  industry?: string;
+  industry_sector?: string;
   contact_person?: string;
   contact_email?: string;
   contact_phone?: string;
   address?: string;
   city?: string;
+  state?: string;
+  pincode?: string;
+  country?: string;
+  gst_number?: string;
+  pan_number?: string;
   company_size?: string;
   source_type: SourceType;
   source_department_id?: string;
-  source_contact_name?: string;
   partner_status: PartnerStatus;
-  partner_discount: number;
-  partner_since?: string;
   referral_count: number;
   intent_agency_id?: string;
+  logo_url?: string;
+  website?: string;
+  linkedin_url?: string;
   notes?: string;
+  tags?: string[];
   is_active: boolean;
 }
 
