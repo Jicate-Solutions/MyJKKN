@@ -149,12 +149,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(profile);
     } catch (error) {
       console.error('[AuthProvider] Error fetching profile:', error);
+
       // On error, verify auth and redirect if needed
-      const { data, error: userError } = await supabase.auth.getUser();
-      if (userError || !data.user) {
+      // Wrap in try-catch to prevent error handler from crashing
+      try {
+        const { data, error: userError } = await supabase.auth.getUser();
+        if (userError || !data.user) {
+          setUser(null);
+          profileCache.current = null;
+
+          try {
+            router.push('/auth/login');
+          } catch (routerError) {
+            console.error('[AuthProvider] Error routing to login:', routerError);
+            // Fallback to direct navigation if router fails
+            if (typeof window !== 'undefined') {
+              window.location.href = '/auth/login';
+            }
+          }
+        }
+      } catch (authCheckError) {
+        console.error('[AuthProvider] Error checking auth in error handler:', authCheckError);
+        // Last resort: clear state and force page reload to login
         setUser(null);
         profileCache.current = null;
-        router.push('/auth/login');
+        if (typeof window !== 'undefined') {
+          window.location.href = '/auth/login';
+        }
       }
     } finally {
       setLoading(false);
