@@ -107,8 +107,9 @@ export class LeadService {
     if (filters.counselor_id) {
       query = query.eq('counselor_id', filters.counselor_id);
     }
-    if (filters.program_interest) {
-      query = query.contains('interested_programs', [filters.program_interest]);
+    // FIX: LeadFilters.program_interest renamed to interested_programs to match DB
+    if (filters.interested_programs) {
+      query = query.contains('interested_programs', [filters.interested_programs]);
     }
     if (filters.search) {
       const sanitizedSearch = this.sanitizeSearch(filters.search);
