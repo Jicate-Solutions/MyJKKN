@@ -629,10 +629,11 @@ export class InsightActionsService {
     counselorId: string,
     context: ActionContext
   ): Promise<void> {
+    // FIX: assigned_to does not exist in DB → use counselor_id
     await this.supabase
       .from('admission_leads')
       .update({
-        assigned_to: counselorId,
+        counselor_id: counselorId,
         updated_at: new Date().toISOString(),
       })
       .eq('id', leadId);
