@@ -38,7 +38,7 @@ export function createClientSupabaseClient(): TypedSupabaseClient {
   browserInstance = createBrowserClient<Database>(
     supabaseUrl,
     supabaseKey
-  ) as TypedSupabaseClient;
+  ) as unknown as TypedSupabaseClient;
 
   return browserInstance;
 }
