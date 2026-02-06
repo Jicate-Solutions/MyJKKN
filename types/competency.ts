@@ -337,10 +337,16 @@ export interface UpdateCompetencyCourseMappingDTO {
 export interface ProgramCompetencyCoverage {
   program_id: string;
   program_name: string;
-  total_competencies: number;
-  mandatory_count: number;
+  required_competencies: number;
+  mapped_to_courses: number;
   coverage_percentage: number;
-  by_type: Record<CompetencyType, number>;
+  gaps: Array<{
+    competency_id: string;
+    competency_name: string;
+    competency_type: CompetencyType;
+    required_level: string;
+    course_coverage: number;
+  }>;
 }
 
 export interface CourseCompetencyContribution {
