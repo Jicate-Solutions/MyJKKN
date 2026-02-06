@@ -117,9 +117,9 @@ export function ResponsePersonalizer({
       case 'priority':
         return lead.priority;
       case 'city':
-        return lead.city || '';
+        return '';
       case 'state':
-        return lead.state || '';
+        return '';
 
       // Counselor & Institution
       case 'counselor_name':
