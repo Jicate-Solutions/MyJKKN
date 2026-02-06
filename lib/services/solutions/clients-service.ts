@@ -165,8 +165,6 @@ export class ClientsService extends BaseService {
    * Create a new client
    */
   static async createClient(input: CreateClientInput): Promise<Client> {
-    const partnerDiscount = calculatePartnerDiscount(input.partner_status || 'standard');
-
     const { data, error } = await (this.supabase as any).from('sh_clients')
       .insert({
         name: input.name,
