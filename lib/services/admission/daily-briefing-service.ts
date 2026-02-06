@@ -376,12 +376,14 @@ export class DailyBriefingService {
     role: BriefingRole
   ): Promise<BriefingPriority[]> {
     // Get overdue follow-ups and hot leads that need attention
+    // FIX: priority and next_followup_at do not exist in DB
+    // → use is_hot_lead, is_priority, last_contact_at instead
     let query = (this.supabase as any)
       .from('admission_leads')
-      .select('id, full_name, priority, next_followup_at, funnel_stage')
+      .select('id, full_name, is_hot_lead, is_priority, last_contact_at, funnel_stage')
       .eq('institution_id', institutionId)
       .not('funnel_stage', 'in', '(enrolled,lost)')
-      .order('priority', { ascending: false })
+      .order('is_hot_lead', { ascending: false })
       .limit(5);
 
     if (role === 'counselor') {
@@ -397,9 +399,10 @@ export class DailyBriefingService {
 
     return (leads || []).map((lead: any) => {
       let reason = 'Active lead in pipeline';
-      if (lead.priority === 'hot') {
+      // FIX: priority === 'hot' → is_hot_lead boolean
+      if (lead.is_hot_lead) {
         reason = 'Hot lead - high conversion potential';
-      } else if (lead.next_followup_at && new Date(lead.next_followup_at) < new Date()) {
+      } else if (lead.last_contact_at && new Date(lead.last_contact_at) < new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)) {
         reason = 'Overdue follow-up - needs immediate attention';
       } else if (lead.funnel_stage === 'offer_sent') {
         reason = 'Pending offer acceptance';
