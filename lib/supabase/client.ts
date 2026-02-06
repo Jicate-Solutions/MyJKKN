@@ -9,13 +9,24 @@ export type TypedSupabaseClient = SupabaseClient<Database>;
 let adminInstance: SupabaseClient<Database>;
 
 export function createClientSupabaseClient(): TypedSupabaseClient {
+  // Validate environment variables with clear error messages
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error(
+      'Missing Supabase environment variables. ' +
+      'Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set.'
+    );
+  }
+
   // Let @supabase/ssr v0.6.1 handle cookies internally with its built-in
   // browser cookie adapter. No custom cookie handlers needed.
   // The createBrowserClient<Database> return type is compatible with
   // SupabaseClient<Database> - both implement the same interface.
   return createBrowserClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    supabaseUrl,
+    supabaseKey
   ) as TypedSupabaseClient;
 }
 
