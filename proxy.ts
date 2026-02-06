@@ -235,8 +235,7 @@ export async function proxy(request: NextRequest) {
 
         if (currentPath === '/auth/login') {
           const response = NextResponse.next();
-          response.cookies.delete('sb-access-token');
-          response.cookies.delete('sb-refresh-token');
+          clearAuthCookies(response);
           await supabase.auth.signOut();
           return response;
         }
@@ -244,8 +243,7 @@ export async function proxy(request: NextRequest) {
         const studentBlockedResponse = NextResponse.redirect(
           new URL('/auth/login?reason=student_redirect', request.url)
         );
-        studentBlockedResponse.cookies.delete('sb-access-token');
-        studentBlockedResponse.cookies.delete('sb-refresh-token');
+        clearAuthCookies(studentBlockedResponse);
         await supabase.auth.signOut();
         return studentBlockedResponse;
       } else {
