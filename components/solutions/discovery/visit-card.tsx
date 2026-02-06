@@ -140,15 +140,15 @@ export function VisitCard({
           </div>
         )}
 
-        {/* Next Steps */}
-        {visit.next_steps && (
+        {/* Follow Up */}
+        {visit.follow_up_notes && (
           <div className="space-y-1 pt-2 border-t">
             <div className="flex items-center gap-2">
               <ArrowRight className="h-4 w-4 text-primary" />
-              <p className="text-sm font-medium">Next Steps</p>
+              <p className="text-sm font-medium">Follow Up</p>
             </div>
             <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-              {visit.next_steps}
+              {visit.follow_up_notes}
             </p>
           </div>
         )}
