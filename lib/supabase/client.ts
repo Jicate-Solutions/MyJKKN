@@ -1,5 +1,4 @@
 import { createBrowserClient } from '@supabase/ssr';
-import { parse, serialize } from 'cookie';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database.types';
 
@@ -10,30 +9,11 @@ export type TypedSupabaseClient = SupabaseClient<Database>;
 let adminInstance: SupabaseClient<Database>;
 
 export function createClientSupabaseClient(): TypedSupabaseClient {
-  // Use createBrowserClient with getAll/setAll cookie handlers.
-  // These use the 'cookie' package (same as @supabase/ssr internals) for
-  // proper serialization, and gracefully handle prerendering (non-browser).
+  // Let @supabase/ssr v0.6.1 handle cookies internally with its built-in
+  // browser cookie adapter. No custom cookie handlers needed.
   return createBrowserClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          if (typeof document === 'undefined') return [];
-          const parsed = parse(document.cookie);
-          return Object.keys(parsed).map((name) => ({
-            name,
-            value: parsed[name] ?? '',
-          }));
-        },
-        setAll(cookiesToSet) {
-          if (typeof document === 'undefined') return;
-          cookiesToSet.forEach(({ name, value, options }) => {
-            document.cookie = serialize(name, value, options);
-          });
-        },
-      },
-    }
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   ) as unknown as TypedSupabaseClient;
 }
 
