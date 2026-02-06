@@ -731,7 +731,6 @@ export class PaymentsService extends BaseService {
     const earningsEntries = result.splits.map((split) => ({
       payment_id: paymentId,
       recipient_type: split.recipientType as RecipientType,
-      recipient_name: split.recipientName,
       amount: split.amount,
       percentage: split.percentage,
       status: 'calculated' as const,
