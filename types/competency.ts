@@ -352,11 +352,13 @@ export interface ProgramCompetencyCoverage {
 export interface CourseCompetencyContribution {
   course_id: string;
   course_name: string;
+  total_competencies: number;
   competencies: {
     competency_id: string;
     competency_name: string;
     contribution_level: ContributionLevel;
     learning_hours: number;
+    assessment_method?: string;
   }[];
   total_learning_hours: number;
 }
