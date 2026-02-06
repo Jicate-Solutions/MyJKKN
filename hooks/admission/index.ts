@@ -4,7 +4,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { LeadService } from '@/lib/services/admission/lead-service';
-import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, LeadPriority } from '@/types/admission';
+import { ApplicationService } from '@/lib/services/admission/application-service';
+import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, LeadPriority, CreateApplicationInput, UpdateApplicationInput, ApplicationStatus } from '@/types/admission';
 
 // Re-export from use-consultants for convenience
 export { useSourcePerformance } from './use-consultants';
