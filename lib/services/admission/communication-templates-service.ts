@@ -90,8 +90,8 @@ export class CommunicationTemplatesService {
       .eq('institution_id', filters.institutionId)
       .order('name', { ascending: true });
 
-    if (filters.type) {
-      query = query.eq('type', filters.type);
+    if (filters.channel) {
+      query = query.eq('channel', filters.channel);
     }
 
     if (filters.isActive !== undefined) {
