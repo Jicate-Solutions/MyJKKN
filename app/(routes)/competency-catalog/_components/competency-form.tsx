@@ -57,7 +57,8 @@ const COMPETENCY_TYPES: { value: CompetencyType; label: string; description: str
   { value: 'technical', label: 'Technical', description: 'Hard skills, technical knowledge' },
   { value: 'behavioral', label: 'Behavioral', description: 'Soft skills, interpersonal abilities' },
   { value: 'domain', label: 'Domain', description: 'Industry/field-specific knowledge' },
-  { value: 'soft_skill', label: 'Soft Skill', description: 'Communication, teamwork, etc.' }
+  { value: 'soft_skill', label: 'Soft Skill', description: 'Communication, teamwork, etc.' },
+  { value: 'metacognitive', label: 'Metacognitive', description: 'Self-awareness, learning strategies' }
 ];
 
 // Common industry tags for suggestions
