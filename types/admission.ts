@@ -129,9 +129,11 @@ export interface AdmissionLead {
 
   // Status & Scoring
   funnel_stage: FunnelStage;
-  // FIX: priority enum does not exist in DB → use is_hot_lead + is_priority booleans
+  // DB stores is_hot_lead + is_priority booleans; service layer computes priority
   is_hot_lead: boolean;
   is_priority: boolean;
+  // Virtual/computed field: populated by LeadService.normalizeLead() from is_hot_lead/is_priority
+  priority: LeadPriority;
   score: number;
   score_category: string | null;
   score_updated_at: string | null;
