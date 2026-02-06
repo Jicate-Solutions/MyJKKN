@@ -104,17 +104,19 @@ export interface SHDepartment {
 export interface SHClient {
   id: string
   name: string
-  industry: string
+  industry_sector: string | null
   contact_person: string
   contact_phone: string
   contact_email: string | null
   address: string | null
   city: string | null
+  state: string | null
   company_size: string | null
   source_type: SourceType | null
-  source_contact_name: string | null
+  source_department_id: string | null
   partner_status: PartnerStatus
   referral_count: number
+  is_active: boolean
   created_at: string
   updated_at: string
 }
