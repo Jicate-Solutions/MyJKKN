@@ -117,7 +117,7 @@ export class WhatsAppCampaignService {
           };
         }
 
-        if (template.type !== 'whatsapp') {
+        if (template.channel !== 'whatsapp') {
           return {
             success: false,
             error: 'Template is not a WhatsApp template',
