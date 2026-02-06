@@ -287,7 +287,7 @@ export class DiscoveryService extends BaseService {
 
     // Get all visits
     const { data: visits, error } = await (this.supabase as any).from('sh_discovery_visits')
-      .select('id, visit_date, department_id, solution_id, next_steps');
+      .select('id, visit_date, department_id, solution_id, follow_up_required, follow_up_notes');
 
     if (error) throw new Error(`Failed to fetch visit stats: ${error.message}`);
 
@@ -295,7 +295,7 @@ export class DiscoveryService extends BaseService {
     const total = allVisits.length;
     const thisMonth = allVisits.filter((v: any) => v.visit_date >= startOfMonth).length;
     const thisWeek = allVisits.filter((v: any) => v.visit_date >= startOfWeek).length;
-    const pendingFollowUp = allVisits.filter((v: any) => v.next_steps && !v.solution_id).length;
+    const pendingFollowUp = allVisits.filter((v: any) => v.follow_up_required && !v.solution_id).length;
     const converted = allVisits.filter((v: any) => v.solution_id).length;
 
     // Count by department
