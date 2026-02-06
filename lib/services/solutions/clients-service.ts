@@ -255,8 +255,6 @@ export class ClientsService extends BaseService {
     // Auto-upgrade to referral partner status if >= 2 referrals and not already a partner
     if (newReferralCount >= 2 && currentClient.partner_status === 'standard') {
       updateData.partner_status = 'referral';
-      updateData.partner_discount = 0.5;
-      updateData.partner_since = new Date().toISOString();
     }
 
     const { data, error } = await (this.supabase as any).from('sh_clients')
