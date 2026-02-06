@@ -453,9 +453,10 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
                       </p>
                     </div>
                   </div>
-                  {solution.partner_discount_applied && solution.partner_discount_applied > 0 && (
+                  {solution.discount_percentage && solution.discount_percentage > 0 && (
                     <Badge variant="outline" className="mt-2 text-green-600">
-                      {Math.round(solution.partner_discount_applied * 100)}% Partner Discount
+                      {solution.discount_percentage}% Discount
+                      {solution.discount_reason && ` (${solution.discount_reason})`}
                     </Badge>
                   )}
                   {solution.hod_discount && solution.hod_discount > 0 && (
