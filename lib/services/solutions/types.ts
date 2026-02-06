@@ -589,13 +589,12 @@ export interface CreateSolutionInput {
   client_id: string;
   solution_type: SolutionType;
   title: string;
-  problem_statement?: string;
   description?: string;
   lead_department_id: string;
   base_price?: number;
-  hod_discount?: number;
-  started_date?: string;
-  target_completion?: string;
+  discount_percentage?: number;
+  start_date?: string;
+  target_date?: string;
   created_by: string;
 }
 
