@@ -177,7 +177,7 @@ export class LeadService {
       throw new Error(`Failed to fetch lead: ${error.message}`);
     }
 
-    return data as AdmissionLead;
+    return this.normalizeLead(data);
   }
 
   /**
