@@ -5,10 +5,20 @@ import type { Database } from '@/types/database.types';
 // Define a type alias for the browser client
 export type TypedSupabaseClient = SupabaseClient<Database>;
 
+// Browser client singleton instance with proper database typing
+// This ensures only ONE auth state listener is active across the entire app
+let browserInstance: TypedSupabaseClient | null = null;
+
 // Admin singleton instance with proper database typing
 let adminInstance: SupabaseClient<Database>;
 
 export function createClientSupabaseClient(): TypedSupabaseClient {
+  // Return existing singleton if available
+  // This prevents multiple auth state subscriptions and memory leaks
+  if (browserInstance) {
+    return browserInstance;
+  }
+
   // Validate environment variables with clear error messages
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -20,14 +30,17 @@ export function createClientSupabaseClient(): TypedSupabaseClient {
     );
   }
 
+  // Create singleton instance
   // Let @supabase/ssr v0.6.1 handle cookies internally with its built-in
   // browser cookie adapter. No custom cookie handlers needed.
   // The createBrowserClient<Database> return type is compatible with
   // SupabaseClient<Database> - both implement the same interface.
-  return createBrowserClient<Database>(
+  browserInstance = createBrowserClient<Database>(
     supabaseUrl,
     supabaseKey
   ) as TypedSupabaseClient;
+
+  return browserInstance;
 }
 
 export function createAdminClient() {
