@@ -474,18 +474,18 @@ function LeadDetailPageContent() {
                 {lead.is_hot_lead ? 'Hot' : 'Mark Hot'}
               </Button>
               <Button
-                variant={(lead.priority === 'hot' || lead.priority === 'warm') ? 'default' : 'outline'}
+                variant={(lead.is_hot_lead || lead.is_priority) ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => togglePriority.mutate(
-                  { leadId, isPriority: lead.priority === 'cold' },
+                  { leadId, isPriority: (!lead.is_hot_lead && !lead.is_priority) },
                   {
-                    onSuccess: () => toast.success((lead.priority === 'hot' || lead.priority === 'warm') ? 'Removed from priority' : 'Marked as priority'),
+                    onSuccess: () => toast.success((lead.is_hot_lead || lead.is_priority) ? 'Removed from priority' : 'Marked as priority'),
                     onError: () => toast.error('Failed to update priority status')
                   }
                 )}
               >
                 <Star className="h-4 w-4 mr-1" />
-                {(lead.priority === 'hot' || lead.priority === 'warm') ? 'Priority' : 'Mark Priority'}
+                {(lead.is_hot_lead || lead.is_priority) ? 'Priority' : 'Mark Priority'}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
