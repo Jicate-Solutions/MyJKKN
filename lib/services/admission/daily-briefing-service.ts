@@ -474,16 +474,18 @@ export class DailyBriefingService {
     role: BriefingRole,
     date: string
   ): Promise<BriefingScheduledItem[]> {
-    const startOfDay = `${date}T00:00:00`;
-    const endOfDay = `${date}T23:59:59`;
+    // FIX: next_followup_at does not exist in DB
+    // Instead, find leads that need attention today based on last_contact_at
+    // (leads not contacted recently that are in active pipeline stages)
+    const threeDaysAgo = new Date(date);
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
     let query = (this.supabase as any)
       .from('admission_leads')
-      .select('id, full_name, next_followup_at, funnel_stage')
+      .select('id, full_name, last_contact_at, funnel_stage')
       .eq('institution_id', institutionId)
-      .gte('next_followup_at', startOfDay)
-      .lte('next_followup_at', endOfDay)
-      .order('next_followup_at', { ascending: true })
+      .not('funnel_stage', 'in', '(enrolled,lost)')
+      .order('last_contact_at', { ascending: true, nullsFirst: true })
       .limit(10);
 
     if (role === 'counselor') {
@@ -497,13 +499,14 @@ export class DailyBriefingService {
       return [];
     }
 
-    return (leads || []).map((lead: any) => {
-      const followupTime = new Date(lead.next_followup_at);
-      const timeStr = followupTime.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
+    // Filter to leads needing follow-up (not contacted in 3+ days or never contacted)
+    const needsFollowup = (leads || []).filter((lead: any) => {
+      if (!lead.last_contact_at) return true;
+      return new Date(lead.last_contact_at) < threeDaysAgo;
+    });
+
+    return needsFollowup.map((lead: any) => {
+      const timeStr = '09:00 AM'; // Default suggested time since no schedule exists
 
       let action = 'Follow-up call';
       if (lead.funnel_stage === 'interview_scheduled') {
