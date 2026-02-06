@@ -744,9 +744,9 @@ export class PaymentsService extends BaseService {
       return { success: false, splits: [], error: `Failed to insert earnings: ${insertError.message}` };
     }
 
-    // Mark payment as split_calculated
+    // Mark payment as split_processed
     await (this.supabase as any).from('sh_payments')
-      .update({ split_calculated: true })
+      .update({ split_processed: true })
       .eq('id', paymentId);
 
     return { success: true, splits: result.splits };
