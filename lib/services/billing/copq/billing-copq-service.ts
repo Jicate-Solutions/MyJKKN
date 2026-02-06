@@ -73,18 +73,21 @@ export class BillingCOPQService {
   /**
    * Convert rupees to paisa for storage
    * ₹100.50 → 10050 paisa
-   * Uses Math.round to handle floating-point input safely
+   * Uses validated conversion from currency utilities
+   * @throws CurrencyError if rupees is invalid (NaN, Infinity, negative)
    */
   private static rupeesToPaisa(rupees: number): number {
-    return Math.round(rupees * 100);
+    return safeRupeesToPaisa(rupees);
   }
 
   /**
    * Convert paisa to rupees for display
    * 10050 paisa → ₹100.50
+   * Uses validated conversion from currency utilities
+   * @throws CurrencyError if paisa is invalid
    */
   private static paisaToRupees(paisa: number): number {
-    return paisa / 100;
+    return safePaisaToRupees(paisa);
   }
 
   /**
