@@ -372,7 +372,7 @@ function LeadDetailPageContent() {
       return;
     }
     scheduleFollowup.mutate(
-      { leadId, followupDate, notes: followupNotes.trim() || undefined },
+      { leadId, followupDate },
       {
         onSuccess: () => {
           toast.success('Follow-up scheduled successfully');
