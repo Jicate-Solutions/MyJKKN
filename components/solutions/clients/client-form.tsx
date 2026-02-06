@@ -122,7 +122,7 @@ export function ClientForm({ client, onSubmit, isLoading }: ClientFormProps) {
     resolver: zodResolver(clientFormSchema),
     defaultValues: {
       name: client?.name || '',
-      industry: client?.industry || '',
+      industry: client?.industry_sector || '',
       contact_person: client?.contact_person || '',
       contact_phone: client?.contact_phone || '',
       contact_email: client?.contact_email || '',
