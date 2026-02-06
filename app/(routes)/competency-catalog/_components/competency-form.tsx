@@ -80,7 +80,7 @@ const competencyFormSchema = z.object({
   competency_name: z.string()
     .min(3, 'Name must be at least 3 characters')
     .max(255, 'Name cannot exceed 255 characters'),
-  competency_type: z.enum(['technical', 'behavioral', 'domain', 'soft_skill']),
+  competency_type: z.enum(['technical', 'behavioral', 'domain', 'soft_skill', 'metacognitive']),
   description: z.string().max(2000, 'Description cannot exceed 2000 characters').optional(),
   industry_tags: z.array(z.string()).default([]),
   proficiency_levels: z.array(z.object({
