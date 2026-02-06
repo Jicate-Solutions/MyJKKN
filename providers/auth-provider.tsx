@@ -38,7 +38,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const supabase = createClientSupabaseClient();
+
+  // Memoize Supabase client to ensure stable reference across re-renders
+  // This prevents creating new auth subscriptions on every render
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
 
   // Cache management
   const lastFetchTime = useRef<number>(0);
