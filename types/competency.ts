@@ -428,10 +428,18 @@ export interface LearnerCompetencyDashboard {
 }
 
 export interface CompetencyGapAnalysis {
-  competency_id: string;
-  competency_name: string;
-  required_level: ProficiencyLevel;
-  current_level: ProficiencyLevel | null;
-  gap: number;
-  recommendations: string[];
+  learner_id: string;
+  program_id: string;
+  total_required: number;
+  achieved: number;
+  in_progress: number;
+  gaps: Array<{
+    competency_id: string;
+    competency_name: string;
+    required_level: ProficiencyLevel;
+    current_level: ProficiencyLevel | null;
+    gap_levels: number;
+    is_mandatory: boolean;
+    recommended_courses: string[];
+  }>;
 }
