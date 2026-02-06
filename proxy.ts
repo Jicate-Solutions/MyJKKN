@@ -161,8 +161,14 @@ export async function proxy(request: NextRequest) {
     }
 
     // Add auth info to headers
-    res.headers.set('x-user-id', user.id);
-    res.headers.set('x-user-email', user.email || '');
+    // SECURITY: Sanitize user ID (UUIDs are safe but validate anyway)
+    const sanitizedUserId = user.id.replace(/[^\w-]/g, '');
+    res.headers.set('x-user-id', sanitizedUserId);
+
+    // SECURITY FIX: Don't add email to headers - potential header injection risk
+    // Email can contain newlines or special chars that break HTTP header parsing
+    // If email is needed in components, fetch from user context instead
+    // res.headers.set('x-user-email', user.email || ''); // REMOVED for security
 
     // Fetch and verify user profile - with caching for performance
     let profile = profileCache.get(user.id);
