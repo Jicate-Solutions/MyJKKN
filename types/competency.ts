@@ -389,7 +389,10 @@ export interface AddCompetencyEvidenceDTO {
 
 export interface RecordCompetencyAssessmentDTO {
   learner_competency_id: string;
-  assessment: LearnerAssessment;
+  score: number;
+  method: string;
+  notes?: string;
+  assessment?: LearnerAssessment;
 }
 
 export interface VerifyLearnerCompetencyDTO {
