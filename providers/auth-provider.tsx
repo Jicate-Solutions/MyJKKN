@@ -189,9 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       subscription.unsubscribe();
     };
-    // Note: refreshUser is stable when supabase/router are stable (useCallback deps)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase, router]);
+  }, [supabase, router, refreshUser]);
 
   // REMOVED: Realtime subscription to profile changes
   // This was causing excessive queries whenever any profile field changed
