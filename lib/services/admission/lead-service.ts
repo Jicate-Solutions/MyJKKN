@@ -238,7 +238,7 @@ export class LeadService {
     // Log stage history
     await this.logStageHistory(data.id, null, 'new', user?.id);
 
-    return data as AdmissionLead;
+    return this.normalizeLead(data);
   }
 
   /**
