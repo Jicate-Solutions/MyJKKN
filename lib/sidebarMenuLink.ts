@@ -830,24 +830,6 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Academic Management',
       menus: [
         {
-          href: '/competency-catalog',
-          label: 'Competency Catalog',
-          active: pathname.startsWith('/competency-catalog'),
-          icon: Award,
-          submenus: [
-            {
-              href: '/competency-catalog',
-              label: 'All Competencies',
-              active: pathname === '/competency-catalog'
-            },
-            {
-              href: '/competency-catalog/new',
-              label: 'Add Competency',
-              active: pathname === '/competency-catalog/new'
-            }
-          ]
-        },
-        {
           href: '/academic/years',
           label: 'Academic Years',
           active: pathname === '/academic/years',
