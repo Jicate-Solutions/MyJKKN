@@ -242,7 +242,7 @@ export class SMSCampaignService {
         if (!template) {
           return { success: false, error: 'Template not found' };
         }
-        if (template.type !== 'sms') {
+        if (template.channel !== 'sms') {
           return { success: false, error: 'Template is not an SMS template' };
         }
         messageContent = this.replaceTemplateVariables(template.content, input.variables || {});
