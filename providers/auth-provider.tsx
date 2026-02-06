@@ -221,13 +221,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleAuthChange = async (event: string) => {
       const now = Date.now();
 
+      // Prevent concurrent auth change handling
+      if (isHandlingAuthChangeRef.current) {
+        console.log('[AuthProvider] Already handling auth change, skipping event:', event);
+        return;
+      }
+
       // Debounce auth change handler
       if (now - lastRefreshTimestamp.current < DEBOUNCE_TIME) {
         return;
       }
 
-      // Add a small delay to prevent race conditions
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      try {
+        isHandlingAuthChangeRef.current = true;
+
+        // Add a small delay to prevent race conditions
+        await new Promise((resolve) => setTimeout(resolve, 100));
 
       if (event === 'SIGNED_IN') {
         await refreshUser();
