@@ -290,7 +290,8 @@ export class AssignmentRulesService {
     let type: AssignmentRuleType = 'round_robin';
     if (rule.criteria && Array.isArray(rule.criteria)) {
       const fields = rule.criteria.map((c: AssignmentCriterion) => c.field);
-      if (fields.includes('program_interest')) type = 'program';
+      // FIX: program_interest does not exist in DB → use interested_programs
+      if (fields.includes('interested_programs') || fields.includes('program_interest')) type = 'program';
       else if (fields.includes('location') || fields.includes('region')) type = 'location';
       else if (fields.includes('score') || fields.includes('lead_score')) type = 'score';
       else if (fields.includes('source')) type = 'source';
