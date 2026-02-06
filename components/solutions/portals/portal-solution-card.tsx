@@ -74,9 +74,9 @@ export function PortalSolutionCard({ solution }: PortalSolutionCardProps) {
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-          {solution.problem_statement && (
+          {solution.description && (
             <p className="text-sm text-muted-foreground line-clamp-2">
-              {solution.problem_statement}
+              {solution.description}
             </p>
           )}
 
