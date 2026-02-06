@@ -116,14 +116,8 @@ export interface AdmissionLead {
   full_name: string;
   email: string | null;
   phone: string;
-  alternate_phone: string | null;
-  date_of_birth: string | null;
-  gender: Gender | null;
-  address: string | null;
-  city: string | null;
-  state: string | null;
-  pincode: string | null;
-  country: string | null;
+  // FIX: alternate_phone, date_of_birth, gender, address, city, state,
+  // pincode, country do not exist in admission_leads table - removed
 
   // Academic details
   // FIX: program_interest does not exist in DB → use interested_programs (text array)
