@@ -214,7 +214,7 @@ export function FinksDimensionInput({
               id={`dimension-${config.key}`}
               type="number"
               min={0}
-              max={100}
+              max={10}
               value={currentValue}
               onChange={(e) => handleInputChange(config.key, e.target.value)}
               disabled={disabled}
@@ -229,7 +229,7 @@ export function FinksDimensionInput({
           <Slider
             value={[currentValue]}
             onValueChange={(newValue) => handleSliderChange(config.key, newValue)}
-            max={100}
+            max={10}
             step={1}
             disabled={disabled}
             className={`w-full ${config.isAiProof && highlightAiProof ? '[&_.bg-primary]:bg-primary' : ''}`}
