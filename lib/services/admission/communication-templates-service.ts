@@ -278,7 +278,7 @@ export class CommunicationTemplatesService {
   static async getTemplateStats(institutionId: string): Promise<TemplateStats> {
     const { data, error } = await this.supabase
       .from('admission_communication_templates')
-      .select('id, type, is_active')
+      .select('id, channel, is_active')
       .eq('institution_id', institutionId);
 
     if (error) {
