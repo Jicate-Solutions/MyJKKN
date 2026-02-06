@@ -441,8 +441,8 @@ export interface SHDiscoveryVisit {
   duration_hours: number | null
   location: string | null
   visit_type: string | null
-  visitors: Record<string, unknown>[] | null
-  client_attendees: Record<string, unknown>[] | null
+  visitors: { name: string; role?: string; department?: string }[] | null
+  client_attendees: { name: string; role?: string; designation?: string }[] | null
   observations: string | null
   current_systems: string | null
   pain_points: string | null
