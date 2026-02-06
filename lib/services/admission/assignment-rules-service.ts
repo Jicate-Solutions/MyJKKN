@@ -329,7 +329,8 @@ export class AssignmentRulesService {
   static getDefaultCriteria(type: AssignmentRuleType): AssignmentCriterion[] {
     switch (type) {
       case 'program':
-        return [{ field: 'program_interest', operator: 'equals', value: '' }];
+        // FIX: program_interest does not exist in DB → use interested_programs
+        return [{ field: 'interested_programs', operator: 'equals', value: '' }];
       case 'location':
         return [{ field: 'region', operator: 'equals', value: '' }];
       case 'score':
