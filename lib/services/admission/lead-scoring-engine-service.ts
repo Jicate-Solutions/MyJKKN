@@ -331,6 +331,7 @@ export class LeadScoringEngineService {
       email: string | null;
       phone: string;
       funnel_stage: string;
+      // FIX: priority is derived from is_hot_lead/is_priority, not a DB column
       priority: string;
     };
     score: LeadScore | null;
