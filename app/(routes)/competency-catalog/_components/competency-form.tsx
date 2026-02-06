@@ -144,7 +144,7 @@ export function CompetencyForm({
         integration: 0,
         human_dimension: 0,
         caring: 0,
-        learning_how_to_learn: 0
+        learning_to_learn: 0
       },
       is_active: competency?.is_active ?? true
     }
@@ -166,7 +166,7 @@ export function CompetencyForm({
       integration: data.finks_dimensions.integration ?? 0,
       human_dimension: data.finks_dimensions.human_dimension ?? 0,
       caring: data.finks_dimensions.caring ?? 0,
-      learning_how_to_learn: data.finks_dimensions.learning_how_to_learn ?? 0
+      learning_to_learn: data.finks_dimensions.learning_to_learn ?? 0
     };
 
     if (isEditing) {
@@ -409,7 +409,7 @@ export function CompetencyForm({
                   integration: field.value.integration ?? 0,
                   human_dimension: field.value.human_dimension ?? 0,
                   caring: field.value.caring ?? 0,
-                  learning_how_to_learn: field.value.learning_how_to_learn ?? 0
+                  learning_to_learn: field.value.learning_to_learn ?? 0
                 };
 
                 return (
