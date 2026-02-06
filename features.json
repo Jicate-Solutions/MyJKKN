@@ -65,8 +65,8 @@
         "lib/sidebarMenuLink.ts (updated - added Competency & Outcomes group)"
       ],
       "known_issues": [
-        "Build error: TYPE_BADGES in [id]/page.tsx missing 'metacognitive' key (CompetencyType mismatch)",
-        "Detail page: LEVEL_COLORS uses ProficiencyLevel keys for ContributionLevel badges (wrong mapping)"
+        "FIXED: All type mismatches resolved - build passes cleanly",
+        "Needs browser testing to verify CRUD workflow"
       ],
       "test_steps": [
         "Fix build errors and verify npm run build passes",
