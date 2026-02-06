@@ -440,8 +440,14 @@ export function useAdmissionApplications(filters?: any) {
   const query = useQuery({
     queryKey: ['admission-applications', filters],
     queryFn: async () => {
-      // TODO: Implement with ApplicationService
-      return { data: [], metadata: { total: 0, page: 1, limit: 10, totalPages: 0 } };
+      return ApplicationService.getApplications({
+        institutionId: filters?.institutionId,
+        leadId: filters?.leadId,
+        status: filters?.status,
+        search: filters?.search,
+        page: filters?.page || 1,
+        limit: filters?.limit || 10,
+      });
     },
     enabled: true
   });
@@ -460,26 +466,49 @@ export function useApplicationMutations() {
   const queryClient = useQueryClient();
 
   const createApplication = useMutation({
-    mutationFn: async (data: any) => {
-      toast.success('Application created successfully');
-      return data;
+    mutationFn: async (data: CreateApplicationInput) => {
+      return ApplicationService.createApplicationFromLead(data);
     },
     onSuccess: () => {
+      toast.success('Application created successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['lead-timeline'] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create application');
     }
   });
 
   const updateApplication = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: any }) => {
-      toast.success('Application updated successfully');
-      return data;
+    mutationFn: async ({ id, data }: { id: string; data: Partial<UpdateApplicationInput> }) => {
+      return ApplicationService.updateApplication(id, data);
     },
     onSuccess: () => {
+      toast.success('Application updated successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update application');
     }
   });
 
-  return { createApplication, updateApplication };
+  const updateApplicationStatus = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: ApplicationStatus }) => {
+      return ApplicationService.updateStatus(id, status);
+    },
+    onSuccess: () => {
+      toast.success('Application status updated');
+      queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update application status');
+    }
+  });
+
+  return { createApplication, updateApplication, updateApplicationStatus };
 }
 
 // ============================================
