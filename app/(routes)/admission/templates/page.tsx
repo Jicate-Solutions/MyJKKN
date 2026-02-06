@@ -360,7 +360,7 @@ function AdmissionTemplatesPageContent() {
                       </div>
                     </div>
 
-                    {formData.type === 'email' && (
+                    {formData.channel === 'email' && (
                       <div className="space-y-2">
                         <Label htmlFor="subject">Email Subject *</Label>
                         <Input
