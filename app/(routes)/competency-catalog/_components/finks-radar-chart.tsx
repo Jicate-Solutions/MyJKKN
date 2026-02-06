@@ -122,7 +122,7 @@ export function FinksRadarChart({
       previous: previousDimensions?.[config.key],
       target: targetDimensions?.[config.key],
       isAiProof: config.isAiProof,
-      fullMark: 100
+      fullMark: 10
     }));
   }, [currentDimensions, previousDimensions, targetDimensions]);
 
@@ -375,7 +375,7 @@ export function SimplifiedFinksRadar({
       dimension: config.shortLabel,
       score: dimensions[config.key],
       isAiProof: config.isAiProof,
-      fullMark: 100
+      fullMark: 10
     }));
   }, [dimensions]);
 
@@ -425,7 +425,7 @@ export function FinksComparisonChart({
       learner: learnerDimensions[config.key],
       cohort: cohortAverage[config.key],
       isAiProof: config.isAiProof,
-      fullMark: 100
+      fullMark: 10
     }));
   }, [learnerDimensions, cohortAverage]);
 
