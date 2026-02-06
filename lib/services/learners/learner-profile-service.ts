@@ -18,7 +18,7 @@ function validateFinksDimensions(dimensions: Partial<FinksDimensions>): void {
     'integration',
     'human_dimension',
     'caring',
-    'learning_how_to_learn'
+    'learning_to_learn'
   ]);
 
   for (const [key, value] of Object.entries(dimensions)) {
