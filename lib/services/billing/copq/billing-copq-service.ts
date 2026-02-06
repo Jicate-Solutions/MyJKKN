@@ -409,6 +409,9 @@ export class BillingCOPQService {
 
   /**
    * Get monthly summary statistics
+   * Note: The billing_copq_summary view stores costs in paisa (BIGINT).
+   * Column names in the view are: total_visible_paisa, total_hidden_paisa, total_copq_paisa.
+   * This method maps them to the COPQSummary interface and converts paisa to rupees.
    */
   static async getSummary(
     institutionId: string,
@@ -426,7 +429,18 @@ export class BillingCOPQService {
         .order('month');
 
       if (error) throw error;
-      return (data || []) as COPQSummary[];
+
+      // Map view column names (paisa) to TypeScript interface (rupees)
+      return (data || []).map((row: any) => ({
+        institution_id: row.institution_id,
+        month: row.month,
+        category: row.category,
+        incident_count: row.incident_count,
+        total_visible_cost: this.paisaToRupees(row.total_visible_paisa || 0),
+        total_hidden_cost: this.paisaToRupees(row.total_hidden_paisa || 0),
+        total_copq: this.paisaToRupees(row.total_copq_paisa || 0),
+        avg_time_spent: row.avg_time_spent || 0
+      })) as COPQSummary[];
     } catch (error) {
       console.error('[billing/copq] Error fetching summary:', error);
       throw new Error(
