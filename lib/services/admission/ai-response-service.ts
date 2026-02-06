@@ -265,11 +265,10 @@ Lead Information:
 - Name: ${lead.full_name}
 - Email: ${lead.email || 'Not provided'}
 - Phone: ${lead.phone}
-- Program Interest: ${lead.program_interest || 'Not specified'}
+- Program Interest: ${(lead.interested_programs && lead.interested_programs.length > 0) ? lead.interested_programs.join(', ') : 'Not specified'}
 - Current Stage: ${this.formatStageName(lead.funnel_stage)}
-- Priority: ${lead.priority}
+- Priority: ${lead.is_hot_lead ? 'Hot' : lead.is_priority ? 'Warm' : 'Cold'}
 - Source: ${lead.source}
-${lead.notes ? `- Notes: ${lead.notes}` : ''}
 
 ${interactionsContext}
 
