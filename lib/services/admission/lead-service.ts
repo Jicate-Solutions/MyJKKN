@@ -275,7 +275,7 @@ export class LeadService {
       await this.logStageHistory(id, current?.funnel_stage, leadData.funnel_stage, user?.id);
     }
 
-    return data as AdmissionLead;
+    return this.normalizeLead(data);
   }
 
   /**
