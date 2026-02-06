@@ -45,15 +45,35 @@ export function createClientSupabaseClient(): TypedSupabaseClient {
 
 export function createAdminClient() {
   if (!adminInstance) {
-    // For client-side components, fall back to anon key
-    const isClient = typeof window !== 'undefined';
-    const authKey = isClient
-      ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      : process.env.SUPABASE_SERVICE_ROLE_KEY ||
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    // SECURITY FIX: More reliable runtime detection
+    // typeof window check can be bypassed by webpack polyfills/plugins
+    // Check for Node.js-specific properties instead
+    const isServerRuntime = typeof process.env.SUPABASE_SERVICE_ROLE_KEY !== 'undefined';
+
+    // Additional safety: verify we're in Node.js environment (not browser/edge)
+    const isNodeEnvironment = typeof process !== 'undefined' &&
+                              process.versions != null &&
+                              process.versions.node != null;
+
+    // Only use service role key if:
+    // 1. Service role key exists (server environment)
+    // 2. We're in Node.js runtime (not edge/browser)
+    // 3. Window is NOT defined (extra safety check)
+    const canUseServiceKey = isServerRuntime &&
+                             isNodeEnvironment &&
+                             typeof window === 'undefined';
+
+    const authKey = canUseServiceKey
+      ? process.env.SUPABASE_SERVICE_ROLE_KEY!
+      : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !authKey) {
       throw new Error('Missing Supabase credentials');
+    }
+
+    // Log which key is being used (redacted) for debugging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Supabase Admin Client] Using:', canUseServiceKey ? 'SERVICE_ROLE (server)' : 'ANON_KEY (client/edge)');
     }
 
     adminInstance = createClient<Database>(
