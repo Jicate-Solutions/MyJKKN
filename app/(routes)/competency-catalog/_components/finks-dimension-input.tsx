@@ -219,7 +219,7 @@ export function FinksDimensionInput({
               onChange={(e) => handleInputChange(config.key, e.target.value)}
               disabled={disabled}
               className="text-center font-semibold"
-              aria-label={`${config.label} value (0-100)`}
+              aria-label={`${config.label} value (0-10)`}
             />
           </div>
         </div>
