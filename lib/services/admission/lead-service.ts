@@ -175,10 +175,10 @@ export class LeadService {
       .insert({
         ...leadData,
         funnel_stage: 'new' as FunnelStage,
-        priority: 'warm' as LeadPriority,
+        is_hot_lead: false,
+        is_priority: false,
         score: 0,
         tags: leadData.tags || [],
-        is_duplicate: false,
         created_by: user?.id || null
       })
       .select('*')
