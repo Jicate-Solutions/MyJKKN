@@ -268,8 +268,8 @@ export class PhasesService extends BaseService {
         description: input.description,
         owner_department_id: input.owner_department_id,
         estimated_value: input.estimated_value,
-        start_date: input.started_date || null,
-        due_date: input.target_completion || null,
+        start_date: input.start_date || null,
+        due_date: input.due_date || null,
         status: 'prospecting' as PhaseStatus,
       })
       .select()
