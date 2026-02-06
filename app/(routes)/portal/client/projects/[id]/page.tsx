@@ -224,18 +224,12 @@ export default function ClientProjectDetailPage() {
       </Card>
 
       {/* Description */}
-      {(solution.problem_statement || solution.description) && (
+      {solution.description && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">About This Solution</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {solution.problem_statement && (
-              <div>
-                <p className="text-sm font-medium text-muted-foreground mb-1">Problem Statement</p>
-                <p className="text-sm">{solution.problem_statement}</p>
-              </div>
-            )}
             {solution.description && (
               <div>
                 <p className="text-sm font-medium text-muted-foreground mb-1">Description</p>
