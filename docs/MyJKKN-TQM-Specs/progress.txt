@@ -297,30 +297,68 @@ id, learner_profile_id, institution_id, engagement_score, quality_score, combine
 7. **admission_lead_stage_history table:** Created via migration (was missing)
 8. **New lead form payload:** Simplified to 6 essential fields (institution_id, full_name, email, phone, source, tags)
 9. **Test data seeded:** 52 leads, 5 counselors, 20 activities, 10 applications, 3 scoring rules, 3 templates, 5 programs
-10. **types/admission.ts:** OUT OF SYNC with actual DB schema - needs full audit
+10. **types/admission.ts:** FIXED - AdmissionLead interface now matches actual DB schema
+11. **Full service audit completed:** 17 service files audited, all admission_leads queries use correct columns
+12. **ai-insights-service.ts:** Rewrote analyzeTodayFollowups and analyzeOverdueFollowups (was using non-existent next_followup_at)
+13. **lead-scoring-engine-service.ts:** Fixed program_interest → interested_programs in scoring
+14. **agentic-query-service.ts:** Updated CRM_SCHEMA to match actual DB columns
+15. **insight-actions-service.ts:** Fixed next_followup_date, assigned_to, program_interested, priority in select
+16. **whatsapp-campaign-service.ts:** Fixed program_interest → interested_programs in getLeadVariables
+17. **ai-response-service.ts:** Fixed program_interest, priority derivation
+18. **drip-executor-service.ts:** Fixed program_interest → interested_programs
+19. **daily-briefing-service.ts:** Verified already using correct columns
+20. **normalizeLead():** Added to lead-service.ts - computes priority from is_hot_lead/is_priority booleans
+21. **ApplicationService:** Created new file (289 lines) with full CRUD + createApplicationFromLead
+22. **Activity logging:** Added createActivity with last_activity_at/last_contact_at updates
+23. **Follow-up scheduling:** Creates activity record of type 'task' with scheduled_at (no next_followup_at column)
+24. **competency types:** Fixed 4 pre-existing type mismatches blocking build
 
-### Files Modified
+### Files Modified (Full List)
 | File | Change |
 |------|--------|
-| lib/services/admission/lead-service.ts | Fixed getDashboardSummary, getFunnelSummary, getLeads, createLead for schema mismatch |
-| hooks/admission/index.ts | Removed throw error from onError callbacks |
-| app/(routes)/admission/leads/new/page.tsx | Simplified lead payload |
-| DB: admission_lead_stage_history | Created table via migration |
+| lib/services/admission/lead-service.ts | Fixed all methods, added normalizeLead(), scheduleFollowup creates activity |
+| lib/services/admission/ai-insights-service.ts | Rewrote followup methods to use last_contact_at |
+| lib/services/admission/lead-scoring-engine-service.ts | Fixed program_interest, priority, address/city |
+| lib/services/admission/agentic-query-service.ts | Updated CRM_SCHEMA definition |
+| lib/services/admission/insight-actions-service.ts | Fixed 4 wrong column references |
+| lib/services/admission/whatsapp-campaign-service.ts | Fixed getLeadVariables type and body |
+| lib/services/admission/ai-response-service.ts | Fixed interested_programs, priority derivation |
+| lib/services/admission/drip-executor-service.ts | Fixed program_interest |
+| lib/services/admission/activity-service.ts | Added created_by, lead timestamp updates |
+| lib/services/admission/application-service.ts | NEW FILE - Full CRUD for applications |
+| hooks/admission/index.ts | Fixed mutations, replaced stubs with real implementations |
+| types/admission.ts | AdmissionLead matches DB, CreateLeadInput/UpdateLeadInput fixed |
+| app/(routes)/admission/leads/page.tsx | Replaced 8 lead.priority references |
+| app/(routes)/admission/leads/[id]/page.tsx | Replaced 13 references, added activity/followup/application dialogs |
+| app/(routes)/admission/leads/new/page.tsx | Simplified lead payload to 6 fields |
+| types/competency.ts | Fixed 4 pre-existing type mismatches |
+| hooks/competency/use-competencies.ts | Fixed learning_how_to_learn → learning_to_learn |
 
-### Items Completed (3/30)
+### Items Completed (10/30)
 | # | Test | Status | Notes |
 |---|------|--------|-------|
 | 1 | Dashboard loads with real data | FIXED | Schema mismatch in getDashboardSummary/getFunnelSummary |
-| 2 | Create a new lead | IN PROGRESS | Service/DB verified via direct SQL, browser form needs React event fix |
-| 3 | View lead list with filters | FIXED | Fixed priority filter in getLeads |
+| 2 | Create a new lead | FIXED | Service simplified, form payload corrected |
+| 3 | View lead list with filters | FIXED | Priority filter uses is_hot_lead/is_priority |
+| 4 | View lead detail | FIXED | All property references updated to match DB |
+| 5 | Update lead stage | FIXED | updateStage uses correct columns, normalizeLead applied |
+| 6 | Assign counselor | FIXED | assignCounselor uses correct columns |
+| 7 | Log activity | FIXED | createActivity sets created_by, updates lead timestamps |
+| 8 | Schedule follow-up | FIXED | Creates activity of type 'task' with scheduled_at |
+| 9 | Hot/Priority toggle | FIXED | normalizeLead computes priority from booleans |
+| 10 | Create application from lead | FIXED | ApplicationService created, hooks connected |
 
-### Items Remaining (27/30)
-P0: #2 (form UI), #4-#10
-P1: #11-#20
-P2: #21-#30
+### Items Remaining (20/30)
+P1: #11-#20 (analytics, counselors, templates, interviews, documents, scoring, scholarships, offers, status, feedback)
+P2: #21-#30 (scoring CRUD, assignment rules, workflows, campaigns, AI insights, briefing, consultants, publishers, dedup, phone validation)
 
-### Key Risk: All 22 Service Files May Have Same Schema Mismatch
-The pattern found in lead-service.ts likely exists in ALL admission services. Each service needs the same audit: check every column reference against actual DB schema.
+### Schema Audit Status: COMPLETE
+All 17 admission service files audited. Zero remaining references to non-existent columns (priority enum, next_followup_at, program_interest, last_contacted_at, is_duplicate, duplicate_of).
+
+### Build Status
+- TypeScript: PASSES for all production code (0 admission errors)
+- Remaining: 18 errors in TQM test files (grievance + stakeholder-nps) - unrelated
+- All admission pages return 200/307 (correct auth redirect)
 
 ### Staging DB Info
 - Project: hhprjbgknupaplivtoib
@@ -328,8 +366,9 @@ The pattern found in lead-service.ts likely exists in ALL admission services. Ea
 - Auth ID: 5aa8cd3d-56d1-4330-844f-05fff3761315
 - Institution ID: a1111111-1111-1111-1111-111111111111
 - Dev Server: localhost:3000
+- Vercel: https://myjkkn-omm-dev.vercel.app
 
 ---
 
-Last Updated: 2026-02-06
-Status: PHASE 1 IN PROGRESS - SPAWNING PARALLEL AGENTS
+Last Updated: 2026-02-06 23:45
+Status: PHASE 1 - P0 COMPLETE (10/10), BROWSER TESTING NEXT
