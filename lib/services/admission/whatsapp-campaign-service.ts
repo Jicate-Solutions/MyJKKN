@@ -497,15 +497,21 @@ export class WhatsAppCampaignService {
   /**
    * Get lead variables for template replacement
    */
+  // FIX: program_interest does not exist in DB → use interested_programs (array)
   static getLeadVariables(lead: {
     full_name?: string;
     email?: string;
     phone?: string;
-    program_interest?: string;
+    interested_programs?: string[];
     funnel_stage?: string;
   }): Record<string, string> {
     const [firstName, ...lastNameParts] = (lead.full_name || '').split(' ');
     const lastName = lastNameParts.join(' ');
+
+    // FIX: interested_programs is an array, join for template use
+    const programsStr = (lead.interested_programs && lead.interested_programs.length > 0)
+      ? lead.interested_programs.join(', ')
+      : '';
 
     return {
       lead_name: lead.full_name || '',
@@ -514,8 +520,8 @@ export class WhatsAppCampaignService {
       full_name: lead.full_name || '',
       email: lead.email || '',
       phone: lead.phone || '',
-      program_name: lead.program_interest || '',
-      program_interest: lead.program_interest || '',
+      program_name: programsStr,
+      program_interest: programsStr, // backward compat for existing templates
       stage: lead.funnel_stage || '',
     };
   }
