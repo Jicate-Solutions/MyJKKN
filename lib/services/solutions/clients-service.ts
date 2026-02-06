@@ -33,7 +33,6 @@ export interface UpdateClientInput {
   company_size?: string;
   source_type?: SourceType;
   source_department_id?: string;
-  source_contact_name?: string;
   partner_status?: PartnerStatus;
   partner_since?: string;
   is_active?: boolean;
