@@ -117,7 +117,7 @@ export class BuildersService extends BaseService {
       .select(
         `
         *,
-        department:departments(id, name, code),
+        department:departments(id, department_name, department_code),
         skills:sh_builder_skills(*)
       `,
         { count: 'exact' }
