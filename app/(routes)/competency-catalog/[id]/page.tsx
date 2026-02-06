@@ -83,6 +83,13 @@ const LEVEL_COLORS: Record<ProficiencyLevel, string> = {
   expert: 'bg-purple-100 text-purple-700'
 };
 
+const CONTRIBUTION_COLORS: Record<string, string> = {
+  minor: 'bg-slate-100 text-slate-700',
+  moderate: 'bg-blue-100 text-blue-700',
+  major: 'bg-amber-100 text-amber-700',
+  primary: 'bg-emerald-100 text-emerald-700'
+};
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
