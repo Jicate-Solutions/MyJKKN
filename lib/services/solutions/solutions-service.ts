@@ -241,18 +241,20 @@ export class SolutionsService extends BaseService {
     // Generate solution code
     const solutionCode = await this.generateSolutionCode();
 
-    // Validate HOD discount (0-10%)
-    const hodDiscount = Math.min(Math.max(input.hod_discount || 0, 0), 10);
+    // Validate discount (0-10%)
+    const discountPct = Math.min(Math.max(input.hod_discount || 0, 0), 10);
 
     // Calculate final price if base price is provided
     let finalPrice = input.base_price;
     let partnerDiscount = 0;
 
     if (input.base_price) {
-      const pricing = await this.calculateFinalPrice(input.client_id, input.base_price, hodDiscount);
+      const pricing = await this.calculateFinalPrice(input.client_id, input.base_price, discountPct);
       finalPrice = pricing.finalPrice;
       partnerDiscount = pricing.partnerDiscount;
     }
+
+    const totalDiscountPct = partnerDiscount > 0 ? (partnerDiscount * 100) + discountPct : discountPct;
 
     const { data, error } = await (this.supabase as any)
       .from('sh_solutions')
@@ -261,15 +263,14 @@ export class SolutionsService extends BaseService {
         client_id: input.client_id,
         solution_type: input.solution_type,
         title: input.title,
-        problem_statement: input.problem_statement,
-        description: input.description,
+        description: input.description || input.problem_statement,
         lead_department_id: input.lead_department_id,
         base_price: input.base_price,
-        partner_discount_applied: partnerDiscount,
-        hod_discount: hodDiscount,
+        discount_percentage: totalDiscountPct > 0 ? totalDiscountPct : null,
+        discount_reason: partnerDiscount > 0 ? `Partner ${partnerDiscount * 100}%` + (discountPct > 0 ? ` + HOD ${discountPct}%` : '') : (discountPct > 0 ? `HOD ${discountPct}%` : null),
         final_price: finalPrice,
-        started_date: input.started_date,
-        target_completion: input.target_completion,
+        start_date: input.started_date || null,
+        target_date: input.target_completion || null,
         created_by: input.created_by,
         status: 'active' as SolutionStatus,
       })
