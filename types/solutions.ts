@@ -157,16 +157,22 @@ export interface SHPhase {
   id: string
   solution_id: string
   phase_number: number
+  phase_code: string | null
   title: string
   description: string | null
   status: PhaseStatus
-  prd_url: string | null
-  prototype_url: string | null
-  production_url: string | null
+  owner_department_id: string | null
+  owner_user_id: string | null
   estimated_value: number | null
-  target_completion: string | null
-  actual_completion: string | null
-  revision_count: number
+  actual_value: number | null
+  estimated_hours: number | null
+  actual_hours: number | null
+  start_date: string | null
+  due_date: string | null
+  completion_date: string | null
+  requirements_doc_url: string | null
+  notes: string | null
+  metadata: Record<string, unknown> | null
   created_at: string
   updated_at: string
 }
