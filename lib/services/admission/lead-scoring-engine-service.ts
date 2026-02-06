@@ -536,7 +536,7 @@ export class LeadScoringEngineService {
     qualityData['Entrance Exam Score'] = lead.entrance_score || 0;
 
     // Program Match - Calculate based on interest alignment (0-100)
-    qualityData['Program Match'] = lead.program_interest ? 80 : 0; // Base score if interested
+    qualityData['Program Match'] = lead.interested_programs?.length ? 80 : 0; // Base score if interested
 
     // Location Proximity - Would need geocoding, defaulting to 50
     qualityData['Location Proximity'] = 50;
@@ -550,7 +550,7 @@ export class LeadScoringEngineService {
     if (lead.full_name) completeness += 20;
     if (lead.email) completeness += 20;
     if (lead.phone) completeness += 20;
-    if (lead.program_interest) completeness += 20;
+    if (lead.interested_programs?.length) completeness += 20;
     if (lead.address || lead.city) completeness += 20;
     qualityData['Application Completeness'] = completeness;
 
