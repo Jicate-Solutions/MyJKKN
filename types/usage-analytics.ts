@@ -383,3 +383,65 @@ export interface TrackEventFromMiddleware {
   role?: string;
   sessionId?: string;
 }
+
+// =====================================================
+// User Stats Types (Login Analytics)
+// =====================================================
+
+export interface UserStatsSummary {
+  total_registered_users: number;
+  active_users_in_period: number;
+  new_users_in_period: number;
+  avg_logins_per_user: number;
+  avg_session_duration_minutes: number;
+  most_active_role: string;
+  inactive_users_count: number;
+}
+
+export interface RoleDistribution {
+  role: string;
+  total_count: number;
+  active_count: number;
+  percentage: number;
+}
+
+export interface LoginTrendDay {
+  date: string;
+  total_logins: number;
+  unique_users: number;
+}
+
+export interface LoginFrequencyBucket {
+  bucket: string; // "1", "2-5", "6-10", "11-20", "21+"
+  user_count: number;
+}
+
+export interface TopUser {
+  user_id: string;
+  full_name: string;
+  email: string;
+  role: string;
+  login_count: number;
+  last_login: string;
+  avg_session_minutes: number;
+  institution_name?: string;
+  department_name?: string;
+}
+
+export interface DepartmentLoginStats {
+  department_id: string;
+  department_name: string;
+  total_users: number;
+  active_users: number;
+  total_logins: number;
+  avg_logins_per_user: number;
+}
+
+export interface UserStatsResponse {
+  summary: UserStatsSummary;
+  role_distribution: RoleDistribution[];
+  login_trends: LoginTrendDay[];
+  login_frequency: LoginFrequencyBucket[];
+  top_users: TopUser[];
+  department_breakdown: DepartmentLoginStats[];
+}
