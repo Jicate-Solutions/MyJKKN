@@ -33,16 +33,15 @@ export interface SolutionFilters extends PaginationParams {
 
 export interface UpdateSolutionInput {
   title?: string;
-  problem_statement?: string;
   description?: string;
   status?: SolutionStatus;
   lead_department_id?: string;
   base_price?: number;
-  hod_discount?: number;
+  discount_percentage?: number;
   final_price?: number;
-  started_date?: string;
-  target_completion?: string;
-  completed_date?: string;
+  start_date?: string;
+  target_date?: string;
+  completion_date?: string;
 }
 
 export interface SolutionStats {
