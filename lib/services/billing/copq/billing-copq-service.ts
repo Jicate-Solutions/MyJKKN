@@ -513,10 +513,15 @@ export class BillingCOPQService {
             hidden: this.paisaToRupees(dashboardData.visible_vs_hidden?.hidden_paisa || 0)
           },
           by_category: Object.fromEntries(
-            Object.entries(dashboardData.by_category || {}).map(([cat, paisa]) => [
-              cat,
-              this.paisaToRupees(paisa as number)
-            ])
+            Object.entries(dashboardData.by_category || {}).map(([cat, paisa]) => {
+              // Validate that paisa is a valid number before conversion
+              const paisaValue = typeof paisa === 'number' ? paisa : 0;
+              if (!isValidPaisa(paisaValue)) {
+                console.warn(`[billing/copq] Invalid paisa value for category ${cat}:`, paisa);
+                return [cat, 0];
+              }
+              return [cat, this.paisaToRupees(paisaValue)];
+            })
           ),
           trend: (dashboardData.trend || []).map((month: any) => ({
             month: month.month,
