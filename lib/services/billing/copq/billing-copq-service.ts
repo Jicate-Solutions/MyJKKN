@@ -317,6 +317,29 @@ export class BillingCOPQService {
     institutionId?: string
   ): Promise<BillingCOPQIncident> {
     try {
+      // SECURITY: Validate financial inputs if present
+      if (updates.visible_cost !== undefined) {
+        if (
+          typeof updates.visible_cost !== 'number' ||
+          isNaN(updates.visible_cost) ||
+          !isFinite(updates.visible_cost) ||
+          updates.visible_cost < 0
+        ) {
+          throw new Error('Invalid visible_cost: must be a non-negative number');
+        }
+      }
+
+      if (updates.hidden_cost_estimate !== undefined) {
+        if (
+          typeof updates.hidden_cost_estimate !== 'number' ||
+          isNaN(updates.hidden_cost_estimate) ||
+          !isFinite(updates.hidden_cost_estimate) ||
+          updates.hidden_cost_estimate < 0
+        ) {
+          throw new Error('Invalid hidden_cost_estimate: must be a non-negative number');
+        }
+      }
+
       // Convert cost fields from rupees to paisa if present
       const updatesInPaisa = { ...updates };
       if (updates.visible_cost !== undefined) {
