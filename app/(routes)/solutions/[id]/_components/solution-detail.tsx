@@ -336,25 +336,14 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
                 <CardTitle>Solution Details</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {solution.problem_statement && (
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-1">
-                      Problem Statement
-                    </p>
-                    <p className="text-sm">{solution.problem_statement}</p>
-                  </div>
-                )}
-
-                {solution.description && (
+                {solution.description ? (
                   <div>
                     <p className="text-sm font-medium text-muted-foreground mb-1">
                       Description
                     </p>
                     <p className="text-sm">{solution.description}</p>
                   </div>
-                )}
-
-                {!solution.problem_statement && !solution.description && (
+                ) : (
                   <p className="text-sm text-muted-foreground italic">
                     No description provided yet.
                   </p>
