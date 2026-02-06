@@ -63,7 +63,9 @@ export interface BillingCOPQIncident {
   incident_date: string;
   category: COPQCategory;
   description: string;
+  /** Visible cost in rupees. Stored as paisa (BIGINT) in DB, converted by service layer. */
   visible_cost: number;
+  /** Hidden cost estimate in rupees. Stored as paisa (BIGINT) in DB, converted by service layer. */
   hidden_cost_estimate: number;
   time_spent_hours: number | null;
   affected_stakeholders: number;
