@@ -170,7 +170,7 @@ export class ClientsService extends BaseService {
     const { data, error } = await (this.supabase as any).from('sh_clients')
       .insert({
         name: input.name,
-        industry: input.industry,
+        industry_sector: input.industry,
         contact_person: input.contact_person,
         contact_email: input.contact_email,
         contact_phone: input.contact_phone,
@@ -179,10 +179,7 @@ export class ClientsService extends BaseService {
         company_size: input.company_size,
         source_type: input.source_type || 'direct',
         source_department_id: input.source_department_id,
-        source_contact_name: input.source_contact_name,
         partner_status: input.partner_status || 'standard',
-        partner_discount: partnerDiscount,
-        partner_since: input.partner_since,
         is_active: true,
         referral_count: 0,
       })
