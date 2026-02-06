@@ -151,8 +151,13 @@ export async function GET(request: NextRequest) {
       { count: 'exact' }
     );
 
-    // Filter by user's institution access (skip if super admin)
-    if (!isSuperAdmin && accessibleInstitutionIds.length > 0) {
+    // Faculty users can only view their own staff record
+    if (!isSuperAdmin && userProfile?.role === 'faculty') {
+      query = query.eq('institution_email', session.user.email);
+      console.log('[/api/staff] Faculty self-only filter applied for:', session.user.email);
+    }
+    // Filter by user's institution access (skip if super admin or faculty)
+    else if (!isSuperAdmin && accessibleInstitutionIds.length > 0) {
       query = query.in('institution_id', accessibleInstitutionIds);
     }
 
