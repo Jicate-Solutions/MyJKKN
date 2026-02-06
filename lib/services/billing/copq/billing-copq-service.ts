@@ -577,7 +577,7 @@ export class BillingCOPQService {
               return [cat, this.paisaToRupees(paisaValue)];
             })
           ),
-          trend: (dashboardData.trend || []).map((month: any) => ({
+          trend: (dashboardData.trend || []).map((month: COPQMonthlyTrendRow) => ({
             month: month.month,
             copq: this.paisaToRupees(month.copq_paisa || 0),
             visible: this.paisaToRupees(month.visible_paisa || 0),
