@@ -230,11 +230,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (event === 'SIGNED_IN') {
         await refreshUser();
-        router.refresh();
+        try {
+          router.refresh();
+        } catch (routerError) {
+          console.error('[AuthProvider] Error refreshing router:', routerError);
+          // Non-critical error, continue without router refresh
+        }
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         profileCache.current = null;
-        router.push('/auth/login');
+        try {
+          router.push('/auth/login');
+        } catch (routerError) {
+          console.error('[AuthProvider] Error routing to login:', routerError);
+          // Fallback to direct navigation if router fails
+          if (typeof window !== 'undefined') {
+            window.location.href = '/auth/login';
+          }
+        }
       } else if (event === 'USER_UPDATED') {
         // Force refresh on user update
         profileCache.current = null;
