@@ -316,9 +316,10 @@ export class DailyBriefingService {
     const todayStr = today.toISOString();
 
     // Build query based on role
+    // FIX: next_followup_at does not exist in DB → use last_contact_at instead
     let query = (this.supabase as any)
       .from('admission_leads')
-      .select('id, funnel_stage, created_at, next_followup_at')
+      .select('id, funnel_stage, created_at, last_contact_at')
       .eq('institution_id', institutionId);
 
     // Counselors only see their assigned leads
@@ -347,10 +348,12 @@ export class DailyBriefingService {
     const conversions = allLeads.filter((l: any) =>
       l.funnel_stage === 'enrolled'
     ).length;
+    // FIX: next_followup_at doesn't exist → count leads not contacted in 3+ days as needing follow-up
+    const threeDaysAgo = new Date(today.getTime() - 3 * 24 * 60 * 60 * 1000);
     const followUpsDue = allLeads.filter((l: any) => {
-      if (!l.next_followup_at) return false;
-      const followupDate = new Date(l.next_followup_at);
-      return followupDate <= new Date(date + 'T23:59:59');
+      if (l.funnel_stage === 'enrolled' || l.funnel_stage === 'lost') return false;
+      if (!l.last_contact_at) return true; // Never contacted = needs follow-up
+      return new Date(l.last_contact_at) < threeDaysAgo;
     }).length;
 
     const conversionRate = totalLeads > 0 ? (conversions / totalLeads) * 100 : 0;
