@@ -251,7 +251,7 @@ export function EarningsTable({ earnings, isLoading, error, onBulkApprove, onBul
                     </TableCell>
                     <TableCell>
                       <div className="font-medium">
-                        {earning.recipient_name || '-'}
+                        {earning.recipient_type || '-'}
                       </div>
                     </TableCell>
                     <TableCell>
