@@ -146,7 +146,7 @@ function AdmissionTemplatesPageContent() {
 
   const filters = {
     institutionId: selectedInstitutionId || '',
-    type: typeFilter || undefined,
+    channel: typeFilter || undefined,
     isActive: undefined, // Show all (active and inactive)
     search: searchTerm || undefined
   };
