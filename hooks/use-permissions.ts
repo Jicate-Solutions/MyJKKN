@@ -38,6 +38,12 @@ interface PermissionData {
   primaryRole: UserRoleAssignment | null;
 }
 
+// Stable fallback references to prevent infinite re-render loops.
+// Using inline `|| {}` or `|| []` creates new objects each render,
+// which breaks useMemo dependency checks downstream.
+const EMPTY_PERMISSIONS: Record<string, boolean> = {};
+const EMPTY_ROLES: UserRoleAssignment[] = [];
+
 export function usePermissions(
   requiredPermissions: string[] = [],
   options: UsePermissionsOptions = {}
@@ -134,10 +140,10 @@ export function usePermissions(
     refetchOnWindowFocus: false,
   });
 
-  const permissions = permissionData?.permissions || {};
-  const isSuperAdmin = permissionData?.isSuperAdmin || false;
-  const userRoles = permissionData?.userRoles || [];
-  const primaryRole = permissionData?.primaryRole || null;
+  const permissions = permissionData?.permissions ?? EMPTY_PERMISSIONS;
+  const isSuperAdmin = permissionData?.isSuperAdmin ?? false;
+  const userRoles = permissionData?.userRoles ?? EMPTY_ROLES;
+  const primaryRole = permissionData?.primaryRole ?? null;
   
   // Overall loading state
   const isLoading = authLoading || (!!userProfile && queryLoading);
