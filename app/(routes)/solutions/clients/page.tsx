@@ -203,8 +203,8 @@ export default function ClientsPage() {
                                 >
                                   {client.name}
                                 </Link>
-                                {client.industry && (
-                                  <p className="text-xs text-muted-foreground">{client.industry}</p>
+                                {client.industry_sector && (
+                                  <p className="text-xs text-muted-foreground">{client.industry_sector}</p>
                                 )}
                               </div>
                             </div>
