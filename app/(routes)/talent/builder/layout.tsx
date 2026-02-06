@@ -20,7 +20,7 @@ export default async function BuilderLayout({
   const { data: builder } = await (supabase as any).from('sh_builders')
     .select(`
       *,
-      department:departments(id, name, code)
+      department:departments(id, name:department_name, code:department_code)
     `)
     .eq('user_id', user.id)
     .single();
