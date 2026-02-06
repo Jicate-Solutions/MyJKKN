@@ -196,22 +196,19 @@ export interface CreateLeadInput {
   full_name: string;
   phone: string;
   email?: string | null;
-  alternate_phone?: string | null;
-  date_of_birth?: string | null;
-  gender?: Gender | null;
-  address?: string | null;
-  city?: string | null;
-  state?: string | null;
-  pincode?: string | null;
-  program_interest?: string | null;
+  // FIX: alternate_phone, date_of_birth, gender, address, city, state, pincode
+  // do not exist on admission_leads table - removed
+  // FIX: program_interest does not exist → use interested_programs (text array)
+  interested_programs?: string[] | null;
+  preferred_campus?: string | null;
   source: LeadSource;
-  source_detail?: string | null;
-  utm_source?: string | null;
-  utm_medium?: string | null;
-  utm_campaign?: string | null;
-  notes?: string | null;
+  // FIX: source_detail, utm_* columns do not exist on admission_leads - removed
   tags?: string[];
   counselor_id?: string | null;
+  preferred_channel?: string | null;
+  parent_name?: string | null;
+  parent_phone?: string | null;
+  parent_email?: string | null;
 }
 
 export interface UpdateLeadInput extends Partial<CreateLeadInput> {
