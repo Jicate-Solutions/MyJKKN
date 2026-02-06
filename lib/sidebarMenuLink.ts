@@ -1042,6 +1042,29 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      groupLabel: 'Competency & Outcomes',
+      menus: [
+        {
+          href: '/competency-catalog',
+          label: 'Competency Catalog',
+          active: pathname === '/competency-catalog',
+          icon: BookOpen,
+          submenus: [
+            {
+              href: '/competency-catalog',
+              label: 'All Competencies',
+              active: pathname === '/competency-catalog'
+            },
+            {
+              href: '/competency-catalog/new',
+              label: 'Create Competency',
+              active: pathname === '/competency-catalog/new'
+            }
+          ]
+        }
+      ]
+    },
+    {
       groupLabel: 'OKR & Performance',
       menus: [
         {
