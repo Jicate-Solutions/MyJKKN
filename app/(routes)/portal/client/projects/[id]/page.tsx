@@ -185,9 +185,10 @@ export default function ClientProjectDetailPage() {
             <CardContent className="pt-4 pb-4">
               <p className="text-sm text-muted-foreground">Solution Value</p>
               <p className="text-2xl font-bold">{formatCurrency(solution.final_price)}</p>
-              {solution.partner_discount_applied && solution.partner_discount_applied > 0 && (
+              {solution.discount_percentage && solution.discount_percentage > 0 && (
                 <p className="text-xs text-emerald-600">
-                  {Math.round(solution.partner_discount_applied * 100)}% partner discount applied
+                  {solution.discount_percentage}% discount applied
+                  {solution.discount_reason && ` (${solution.discount_reason})`}
                 </p>
               )}
             </CardContent>
