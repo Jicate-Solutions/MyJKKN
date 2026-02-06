@@ -191,6 +191,7 @@ export interface CreateLeadInput {
   utm_campaign?: string | null;
   notes?: string | null;
   tags?: string[];
+  counselor_id?: string | null;
 }
 
 export interface UpdateLeadInput extends Partial<CreateLeadInput> {
