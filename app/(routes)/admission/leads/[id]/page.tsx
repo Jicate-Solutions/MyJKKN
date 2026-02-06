@@ -338,6 +338,58 @@ function LeadDetailPageContent() {
     }
   };
 
+  const handleLogActivity = () => {
+    if (!activitySubject.trim()) {
+      toast.error('Please enter a subject for the activity');
+      return;
+    }
+    createActivity.mutate(
+      {
+        lead_id: leadId,
+        activity_type: activityType as any,
+        subject: activitySubject.trim(),
+        description: activityDescription.trim() || undefined,
+        outcome: activityOutcome.trim() || undefined,
+        completed_at: new Date().toISOString(),
+      },
+      {
+        onSuccess: () => {
+          toast.success('Activity logged successfully');
+          setActivityType('note');
+          setActivitySubject('');
+          setActivityDescription('');
+          setActivityOutcome('');
+          setShowActivityDialog(false);
+        },
+        onError: () => toast.error('Failed to log activity')
+      }
+    );
+  };
+
+  const handleScheduleFollowup = () => {
+    if (!followupDate) {
+      toast.error('Please select a follow-up date');
+      return;
+    }
+    scheduleFollowup.mutate(
+      { leadId, followupDate, notes: followupNotes.trim() || undefined },
+      {
+        onSuccess: () => {
+          toast.success('Follow-up scheduled successfully');
+          setFollowupDate('');
+          setFollowupNotes('');
+          setShowFollowupDialog(false);
+        },
+        onError: () => toast.error('Failed to schedule follow-up')
+      }
+    );
+  };
+
+  const handleCreateApplication = () => {
+    if (!lead) return;
+    router.push(`/admission/applications/new?lead_id=${leadId}&name=${encodeURIComponent((lead as any).full_name || '')}&email=${encodeURIComponent((lead as any).email || '')}&phone=${encodeURIComponent((lead as any).phone || '')}&institution_id=${encodeURIComponent(lead.institution_id || '')}`);
+  };
+
   return (
     <PermissionGuard module="admission" action="view">
       <ContentLayout title="Lead Details">
