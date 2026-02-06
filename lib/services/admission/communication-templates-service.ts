@@ -385,11 +385,11 @@ export class CommunicationTemplatesService {
       errors.push('Template content is required');
     }
 
-    if (input.type === 'email' && !input.subject) {
+    if (input.channel === 'email' && !input.subject) {
       errors.push('Email templates require a subject');
     }
 
-    if (input.type === 'sms' && input.content.length > 160) {
+    if (input.channel === 'sms' && input.content.length > 160) {
       errors.push('SMS templates should be under 160 characters for single-part messages');
     }
 
