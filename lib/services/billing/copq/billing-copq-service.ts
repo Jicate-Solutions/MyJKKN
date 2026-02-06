@@ -593,8 +593,17 @@ export class BillingCOPQService {
           const resolutionDays =
             (new Date(i.resolved_at).getTime() - new Date(i.created_at).getTime()) /
             (1000 * 60 * 60 * 24);
-          totalResolutionDays += resolutionDays;
-          resolvedWithDates++;
+          // Only count positive resolution times (data integrity check)
+          if (resolutionDays >= 0) {
+            totalResolutionDays += resolutionDays;
+            resolvedWithDates++;
+          } else {
+            console.warn('[billing/copq] Invalid resolution time (resolved_at before created_at):', {
+              id: i.id,
+              created_at: i.created_at,
+              resolved_at: i.resolved_at
+            });
+          }
         }
       }
 
