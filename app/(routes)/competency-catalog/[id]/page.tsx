@@ -327,11 +327,11 @@ export default function CompetencyDetailPage() {
                         >
                           <div>
                             <p className="font-medium">
-                              {mapping.program?.program_name || 'Unknown Program'}
+                              {mapping.program?.name || 'Unknown Program'}
                             </p>
-                            {mapping.semester && (
+                            {mapping.semester_expected && (
                               <p className="text-sm text-muted-foreground">
-                                Expected by: {mapping.semester.semester_name}
+                                Expected by semester
                               </p>
                             )}
                           </div>
@@ -375,10 +375,10 @@ export default function CompetencyDetailPage() {
                         >
                           <div>
                             <p className="font-medium">
-                              {mapping.course?.course_name || 'Unknown Course'}
+                              {mapping.course?.name || 'Unknown Course'}
                             </p>
                             <p className="text-sm text-muted-foreground font-mono">
-                              {mapping.course?.course_code}
+                              {mapping.course?.code}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
