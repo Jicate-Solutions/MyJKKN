@@ -428,13 +428,14 @@ export class DiscoveryService extends BaseService {
         phase_id: input.phase_id || null,
         communication_type: input.communication_type,
         source: 'manual',
-        direction: input.direction || null,
+        direction: input.direction || 'outbound',
         subject: input.subject || null,
         summary: input.summary,
+        content: input.summary,
         participants: input.participants || [],
-        attachments_urls: input.attachments_urls || [],
+        attachments: input.attachments_urls || [],
         communication_date: input.communication_date || new Date().toISOString(),
-        recorded_by: input.recorded_by || null,
+        created_by: input.recorded_by || null,
       })
       .select()
       .single();
