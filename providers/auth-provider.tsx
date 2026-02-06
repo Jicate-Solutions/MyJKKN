@@ -49,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const lastRefreshTimestamp = useRef<number>(0);
   const profileCache = useRef<Profile | null>(null);
   const isFetchingRef = useRef(false);
+  const isHandlingAuthChangeRef = useRef(false);
 
   const refreshUser = useCallback(async () => {
     const now = Date.now();
