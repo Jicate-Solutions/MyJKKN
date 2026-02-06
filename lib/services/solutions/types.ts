@@ -432,8 +432,8 @@ export interface Payment extends BaseEntity {
   paid_at?: string;
   status: PaymentStatus;
   split_model_id?: string;
-  split_calculated: boolean;
-  recorded_by?: string;
+  split_processed: boolean;
+  created_by?: string;
   notes?: string;
 }
 
