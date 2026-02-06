@@ -77,31 +77,38 @@ export default async function ChangeRequestsPage() {
     };
   }
 
-  // Fetch all statuses (client component will handle filtering by tabs)
-  const [pendingRequests, approvedRequests, rejectedRequests] = await Promise.all([
-    LearnerProfileChangeService.getPendingRequests({
-      ...filters,
-      status: 'pending',
-      limit: 1000, // Fetch all
-    }),
-    LearnerProfileChangeService.getPendingRequests({
-      ...filters,
-      status: 'approved',
-      limit: 1000,
-    }),
-    LearnerProfileChangeService.getPendingRequests({
-      ...filters,
-      status: 'rejected',
-      limit: 1000,
-    }),
-  ]);
+  // Fetch initial data — only pending on server render (most important).
+  // Approved/rejected are fetched with smaller limits to avoid query timeouts.
+  let allRequests: Awaited<ReturnType<typeof LearnerProfileChangeService.getPendingRequests>>['data'] = [];
 
-  // Combine all requests for client component
-  const allRequests = [
-    ...pendingRequests.data,
-    ...approvedRequests.data,
-    ...rejectedRequests.data,
-  ];
+  try {
+    const [pendingRequests, approvedRequests, rejectedRequests] = await Promise.all([
+      LearnerProfileChangeService.getPendingRequests({
+        ...filters,
+        status: 'pending',
+        limit: 100,
+      }),
+      LearnerProfileChangeService.getPendingRequests({
+        ...filters,
+        status: 'approved',
+        limit: 50,
+      }),
+      LearnerProfileChangeService.getPendingRequests({
+        ...filters,
+        status: 'rejected',
+        limit: 50,
+      }),
+    ]);
+
+    allRequests = [
+      ...pendingRequests.data,
+      ...approvedRequests.data,
+      ...rejectedRequests.data,
+    ];
+  } catch (error) {
+    console.error('[change-requests-page] Error fetching requests:', error);
+    // Continue with empty data rather than crashing the page
+  }
 
   return (
     <ContentLayout title="Change Requests Management">

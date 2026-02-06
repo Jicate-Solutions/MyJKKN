@@ -166,12 +166,45 @@ export class LearnerProfileChangeService {
   /**
    * Get pending requests with filters (for HOD/Staff)
    * Applies role-based filtering
+   * Optimized: filters by learner IDs first to avoid slow nested-relation filtering
    */
   static async getPendingRequests(
     filters: ChangeRequestFilters = {}
   ): Promise<{ data: ProfileChangeRequest[]; total: number }> {
     const supabase = await createClient();
 
+    // Step 1: If filtering by institution or department, resolve matching learner IDs first.
+    // This avoids PostgREST nested-relation filtering (learner.institution_id) which is very slow.
+    let learnerIds: string[] | null = null;
+
+    if (filters.institution_id || filters.department_id) {
+      let learnerQuery = supabase
+        .from('learners_profiles')
+        .select('id');
+
+      if (filters.institution_id) {
+        learnerQuery = learnerQuery.eq('institution_id', filters.institution_id);
+      }
+      if (filters.department_id) {
+        learnerQuery = learnerQuery.eq('department_id', filters.department_id);
+      }
+
+      const { data: learners, error: learnerError } = await learnerQuery;
+
+      if (learnerError) {
+        console.error('[learner-profile-change-service] Error fetching learner IDs:', learnerError);
+        throw new Error(`Failed to fetch learner IDs: ${learnerError.message}`);
+      }
+
+      learnerIds = learners?.map((l) => l.id) || [];
+
+      // No matching learners → return empty immediately
+      if (learnerIds.length === 0) {
+        return { data: [], total: 0 };
+      }
+    }
+
+    // Step 2: Query change requests with lightweight joins
     let query = supabase
       .from('profile_change_requests')
       .select(
@@ -179,27 +212,20 @@ export class LearnerProfileChangeService {
         *,
         learner:learners_profiles(
           id, first_name, last_name, roll_number, college_email,
-          institution_id, degree_id, department_id, program_id, semester_id,
+          institution_id, department_id,
           institution:institutions(id, name),
-          degree:degrees(id, degree_name),
-          department:departments(id, department_name),
-          program:programs(id, program_name),
-          semester:semesters(id, semester_name, semester_code)
+          department:departments(id, department_name)
         ),
         submitter:profiles!submitted_by(id, full_name, email)
       `,
-        { count: 'exact' }
+        { count: 'estimated' }
       )
       .eq('request_status', filters.status || 'pending')
       .order('submitted_at', { ascending: false });
 
-    // Apply filters
-    if (filters.institution_id) {
-      query = query.eq('learner.institution_id', filters.institution_id);
-    }
-
-    if (filters.department_id) {
-      query = query.eq('learner.department_id', filters.department_id);
+    // Apply learner ID filter (resolved from Step 1)
+    if (learnerIds !== null) {
+      query = query.in('learner_id', learnerIds);
     }
 
     if (filters.learner_id) {
