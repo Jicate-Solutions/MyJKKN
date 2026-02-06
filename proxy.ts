@@ -217,9 +217,8 @@ export async function proxy(request: NextRequest) {
       const redirectUrl = new URL('/unauthorized?reason=inactive', request.url);
       const response = NextResponse.redirect(redirectUrl);
 
-      // Clear auth cookies
-      response.cookies.delete('sb-access-token');
-      response.cookies.delete('sb-refresh-token');
+      // SECURITY FIX: Use helper to properly clear auth cookies
+      clearAuthCookies(response);
 
       return response;
     }
