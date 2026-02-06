@@ -333,7 +333,7 @@ export function useLeadMutations() {
 
   const togglePriority = useMutation({
     mutationFn: async ({ leadId, isPriority }: { leadId: string; isPriority: boolean }) => {
-      return LeadService.updatePriority(leadId, isPriority ? 'hot' : 'cold');
+      return LeadService.updatePriority(leadId, isPriority ? 'warm' : 'cold');
     },
     onSuccess: (_, variables) => {
       toast.success(variables.isPriority ? 'Marked as priority' : 'Removed priority status');
