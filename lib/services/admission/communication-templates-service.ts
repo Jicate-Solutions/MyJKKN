@@ -292,9 +292,9 @@ export class CommunicationTemplatesService {
       totalTemplates: templates.length,
       activeTemplates: activeTemplates.length,
       byType: {
-        sms: templates.filter((t: { type: string }) => t.type === 'sms').length,
-        email: templates.filter((t: { type: string }) => t.type === 'email').length,
-        whatsapp: templates.filter((t: { type: string }) => t.type === 'whatsapp').length,
+        sms: templates.filter((t: { channel: string }) => t.channel === 'sms').length,
+        email: templates.filter((t: { channel: string }) => t.channel === 'email').length,
+        whatsapp: templates.filter((t: { channel: string }) => t.channel === 'whatsapp').length,
       },
     };
   }
