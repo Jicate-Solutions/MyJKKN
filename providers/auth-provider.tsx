@@ -87,14 +87,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // If no profile, check if we're actually logged in
         const { data, error } = await supabase.auth.getUser();
         if (error || !data.user) {
+          // Not authenticated — clear state
           setUser(null);
           profileCache.current = null;
           return;
         }
+
+        // User is authenticated but profile fetch returned null (RLS issue, timeout, etc.)
+        // Keep the existing cached profile to prevent Access Denied flash
+        if (profileCache.current) {
+          console.warn('[AuthProvider] Profile fetch returned null for authenticated user, keeping cached profile');
+          lastFetchTime.current = now; // Extend cache to avoid retrying immediately
+          setUser(profileCache.current);
+        }
+        return;
       }
 
       // Check if user account is active
-      if (profile && profile.is_active === false) {
+      if (profile.is_active === false) {
         // Sign out inactive user and redirect to unauthorized page
         await supabase.auth.signOut();
         setUser(null);
@@ -112,12 +122,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(profile);
     } catch (error) {
       console.error('[AuthProvider] Error fetching profile:', error);
-      // On error, verify auth and redirect if needed
+      // On error, verify auth status
       const { data, error: userError } = await supabase.auth.getUser();
       if (userError || !data.user) {
+        // Not authenticated — redirect to login
         setUser(null);
         profileCache.current = null;
         router.push('/auth/login');
+      } else if (profileCache.current) {
+        // Authenticated but profile fetch failed — keep cached profile
+        console.warn('[AuthProvider] Profile fetch error for authenticated user, keeping cached profile');
+        setUser(profileCache.current);
       }
     } finally {
       setLoading(false);
@@ -150,6 +165,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Optimized session sync - only listen to critical auth events
   useEffect(() => {
+    // Track if initial session has been handled to distinguish
+    // first SIGNED_IN from token-refresh SIGNED_IN
+    let initialSessionHandled = false;
+
     const handleAuthChange = async (event: string) => {
       const now = Date.now();
 
@@ -161,9 +180,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Add a small delay to prevent race conditions
       await new Promise((resolve) => setTimeout(resolve, 100));
 
+      if (event === 'INITIAL_SESSION') {
+        // Mark initial session as handled — refreshUser() from mount useEffect covers this
+        initialSessionHandled = true;
+        return;
+      }
+
       if (event === 'SIGNED_IN') {
-        await refreshUser();
-        router.refresh();
+        if (!initialSessionHandled) {
+          // First SIGNED_IN — genuine sign-in
+          initialSessionHandled = true;
+          await refreshUser();
+          router.refresh();
+        } else {
+          // Subsequent SIGNED_IN events are from token refresh — skip heavy refresh
+          // Profile hasn't changed, just the token
+          console.log('[AuthProvider] SIGNED_IN from token refresh, skipping profile refetch');
+        }
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         profileCache.current = null;
