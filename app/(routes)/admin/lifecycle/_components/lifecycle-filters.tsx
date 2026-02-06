@@ -1,6 +1,5 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
 import {
   Select,
   SelectContent,
@@ -10,7 +9,8 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { X } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
 interface LifecycleFiltersProps {
   institutionId?: string;
@@ -25,17 +25,9 @@ export function LifecycleFilters({
   isSuperAdmin,
   onClose,
 }: LifecycleFiltersProps) {
-  // Fetch institutions for the super admin selector
-  const { data: institutions } = useQuery({
-    queryKey: ['institutions-list'],
-    queryFn: async () => {
-      const response = await fetch('/api/organizations/institutions');
-      if (!response.ok) throw new Error('Failed to fetch institutions');
-      const result = await response.json();
-      return result.data || result || [];
-    },
-    enabled: isSuperAdmin,
-    staleTime: 10 * 60 * 1000,
+  const { institutions, loading } = useInstitutionsWithAccess({
+    isActive: true,
+    autoFetch: true,
   });
 
   return (
@@ -55,13 +47,21 @@ export function LifecycleFilters({
                 onValueChange={(v) =>
                   onInstitutionChange(v === 'all' ? undefined : v)
                 }
+                disabled={loading}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="All Institutions" />
+                  {loading ? (
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading...
+                    </span>
+                  ) : (
+                    <SelectValue placeholder="All Institutions" />
+                  )}
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Institutions</SelectItem>
-                  {(institutions || []).map((inst: { id: string; name: string }) => (
+                  {institutions.map((inst) => (
                     <SelectItem key={inst.id} value={inst.id}>
                       {inst.name}
                     </SelectItem>

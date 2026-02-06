@@ -540,7 +540,10 @@ export const PERMISSION_CATEGORIES = [
       },
       { key: 'resources.approvals.reject', label: 'Reject Resource Requests' },
       { key: 'resources.analytics.view', label: 'View Resource Analytics' },
-      { key: 'resources.reports.view', label: 'View Resource Reports' }
+      { key: 'resources.reports.view', label: 'View Resource Reports' },
+      { key: 'resources.maintenance.view', label: 'View Resource Maintenance' },
+      { key: 'resources.maintenance.create', label: 'Create Maintenance Records' },
+      { key: 'resources.maintenance.edit', label: 'Edit Maintenance Records' }
     ]
   },
   {
@@ -574,6 +577,19 @@ export const PERMISSION_CATEGORIES = [
       // LTI Launches
       { key: 'lti.launches.create', label: 'Launch LTI Tools' },
       { key: 'lti.launches.debug', label: 'Debug LTI Launches' }
+    ]
+  },
+  {
+    name: 'Administration',
+    key: 'admin',
+    permissions: [
+      { key: 'admin.lifecycle.view', label: 'View Lifecycle Analytics Dashboard' },
+      { key: 'system.bugs.view', label: 'View All Bug Reports (Admin)' },
+      { key: 'audit.view', label: 'View Audit Trail' },
+      { key: 'users.dashboard.view', label: 'View User Analytics Dashboard' },
+      { key: 'learners.dashboard.view', label: 'View Learners Analytics Dashboard' },
+      { key: 'ai_query.view', label: 'Access AI Assistant' },
+      { key: 'learners.bug_reports.view', label: 'View Bug Reports & Leaderboard' }
     ]
   }
 ];

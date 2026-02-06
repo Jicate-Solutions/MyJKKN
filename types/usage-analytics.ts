@@ -64,11 +64,14 @@ export interface ModuleUsageDaily {
 export interface LifecycleKPIs {
   active_users_24h: number;
   active_users_7d: number;
+  active_users_period: number;
   total_actions_24h: number;
   total_actions_7d: number;
+  total_actions_period: number;
   modules_used: number;
   total_modules: number;
-  health_score: number | null; // null = "Coming in Phase 3"
+  period_days: number; // how many days the selected period covers
+  health_score: number | null;
   health_grade: string | null;
   trends: {
     active_users_change: number; // percentage change vs previous period
