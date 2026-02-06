@@ -269,7 +269,7 @@ Before marking any feature complete:
 
 ## ADMISSION CRM PHASE 1: MODULE VERIFICATION & REPAIR (2026-02-06)
 
-### Status: IN PROGRESS - 3/30 items verified & fixed
+### Status: IN PROGRESS - 10/30 items verified & fixed
 
 ### Critical Discovery: Schema-Service Mismatch
 The core bug across the entire admission module: `lead-service.ts` (and likely other services) was coded against a DIFFERENT schema than what's deployed in the DB.
