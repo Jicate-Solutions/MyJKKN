@@ -3017,6 +3017,7 @@ $$;
 
 -- Get user merged permissions (Multi-role support)
 -- Created: 2025-12-27 - Returns merged permissions from all assigned roles
+-- Updated: 2026-02-06 - Fixed null handling: use ->> with COALESCE for null-safe boolean extraction
 CREATE OR REPLACE FUNCTION public.get_user_merged_permissions(p_user_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -3034,20 +3035,23 @@ BEGIN
         INNER JOIN custom_roles cr ON ur.role_id = cr.id
         WHERE ur.user_id = p_user_id
     LOOP
-        -- Merge each role's permissions using OR logic
-        merged_permissions := jsonb_object_agg(
-            COALESCE(key, ''),
-            CASE
-                WHEN (merged_permissions->key)::boolean = true OR (role_permissions->key)::boolean = true
-                THEN true
-                ELSE false
-            END
-        )
+        -- Merge each role's permissions using OR logic with null-safe extraction
+        SELECT COALESCE(
+            jsonb_object_agg(
+                key,
+                COALESCE((merged_permissions->>key)::boolean, false)
+                OR
+                COALESCE((role_permissions->>key)::boolean, false)
+            ),
+            '{}'::jsonb
+        ) INTO merged_permissions
         FROM (
-            SELECT key FROM jsonb_object_keys(merged_permissions) AS key
-            UNION
-            SELECT key FROM jsonb_object_keys(role_permissions) AS key
-        ) AS all_keys;
+            SELECT DISTINCT key FROM (
+                SELECT jsonb_object_keys(merged_permissions) AS key
+                UNION
+                SELECT jsonb_object_keys(role_permissions) AS key
+            ) combined_keys
+        ) all_keys;
     END LOOP;
 
     RETURN merged_permissions;
@@ -3775,3 +3779,426 @@ $$;
 
 COMMENT ON FUNCTION link_existing_profiles_to_approved_learners IS
 'Manually links existing profiles to approved learners with matching emails. Includes institution_id and department_id from learner. Run after migration or periodically to sync existing data.';
+
+-- ================================================================================
+-- LIFECYCLE ANALYTICS FUNCTIONS
+-- Updated: 2026-02-06
+-- ================================================================================
+
+-- compute_module_usage_daily: Roll up usage_events into module_usage_daily
+-- Called daily via pg_cron (e.g., at 2 AM)
+-- Updated: 2026-02-06 - Rewritten to FOR LOOP to avoid PostgreSQL error 42803
+-- (correlated subqueries referencing ungrouped outer columns in GROUP BY)
+CREATE OR REPLACE FUNCTION compute_module_usage_daily(target_date DATE DEFAULT CURRENT_DATE - INTERVAL '1 day')
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    rec RECORD;
+    v_by_role JSONB;
+    v_by_event_type JSONB;
+    rows_upserted INTEGER := 0;
+BEGIN
+    FOR rec IN
+        SELECT
+            COALESCE(ue.institution_id, '00000000-0000-0000-0000-000000000000'::uuid) AS inst_id,
+            ue.module,
+            COUNT(*)::integer AS event_count,
+            COUNT(DISTINCT ue.user_id)::integer AS unique_users,
+            SUM(ue.weight)::bigint AS weighted_score
+        FROM usage_events ue
+        WHERE ue.created_at >= target_date::timestamptz
+          AND ue.created_at < (target_date + INTERVAL '1 day')::timestamptz
+        GROUP BY COALESCE(ue.institution_id, '00000000-0000-0000-0000-000000000000'::uuid), ue.module
+    LOOP
+        -- Compute by_role JSONB separately
+        SELECT COALESCE(jsonb_object_agg(sub.r, sub.cnt), '{}'::jsonb)
+        INTO v_by_role
+        FROM (
+            SELECT ue2.role AS r, COUNT(*)::integer AS cnt
+            FROM usage_events ue2
+            WHERE ue2.module = rec.module
+              AND COALESCE(ue2.institution_id, '00000000-0000-0000-0000-000000000000'::uuid) = rec.inst_id
+              AND ue2.created_at >= target_date::timestamptz
+              AND ue2.created_at < (target_date + INTERVAL '1 day')::timestamptz
+              AND ue2.role IS NOT NULL
+            GROUP BY ue2.role
+        ) sub;
+
+        -- Compute by_event_type JSONB separately
+        SELECT COALESCE(jsonb_object_agg(sub.et, sub.cnt), '{}'::jsonb)
+        INTO v_by_event_type
+        FROM (
+            SELECT ue3.event_type AS et, COUNT(*)::integer AS cnt
+            FROM usage_events ue3
+            WHERE ue3.module = rec.module
+              AND COALESCE(ue3.institution_id, '00000000-0000-0000-0000-000000000000'::uuid) = rec.inst_id
+              AND ue3.created_at >= target_date::timestamptz
+              AND ue3.created_at < (target_date + INTERVAL '1 day')::timestamptz
+            GROUP BY ue3.event_type
+        ) sub;
+
+        -- Upsert into module_usage_daily
+        INSERT INTO module_usage_daily (metric_date, institution_id, module, event_count, unique_users, weighted_score, by_role, by_event_type)
+        VALUES (target_date, rec.inst_id, rec.module, rec.event_count, rec.unique_users, rec.weighted_score, v_by_role, v_by_event_type)
+        ON CONFLICT (metric_date, institution_id, module)
+        DO UPDATE SET
+            event_count = EXCLUDED.event_count,
+            unique_users = EXCLUDED.unique_users,
+            weighted_score = EXCLUDED.weighted_score,
+            by_role = EXCLUDED.by_role,
+            by_event_type = EXCLUDED.by_event_type;
+
+        rows_upserted := rows_upserted + 1;
+    END LOOP;
+
+    RETURN rows_upserted;
+END;
+$$;
+
+COMMENT ON FUNCTION compute_module_usage_daily IS
+'Rolls up usage_events for a given date into module_usage_daily. Run daily via pg_cron.';
+
+
+-- refresh_lifecycle_dashboard_view: Refresh the materialized view
+-- Called every 5 minutes via pg_cron
+CREATE OR REPLACE FUNCTION refresh_lifecycle_dashboard_view()
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY mv_lifecycle_dashboard;
+END;
+$$;
+
+COMMENT ON FUNCTION refresh_lifecycle_dashboard_view IS
+'Refreshes mv_lifecycle_dashboard materialized view. Called every 5 min via pg_cron.';
+
+
+-- compute_institution_health_scores: Calculate health scores for all institutions
+-- Called daily via pg_cron (Phase 2)
+CREATE OR REPLACE FUNCTION compute_institution_health_scores(target_date DATE DEFAULT CURRENT_DATE)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    rows_upserted INTEGER := 0;
+    total_modules CONSTANT INTEGER := 25;
+BEGIN
+    INSERT INTO institution_health_scores (
+        score_date, institution_id,
+        active_user_pct, module_breadth_score, action_depth_score,
+        consistency_score, feature_maturity_score, health_score, health_grade
+    )
+    SELECT
+        target_date,
+        inst.institution_id,
+        -- active_user_pct: % of total users who logged in within last 7 days
+        COALESCE(
+            (inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0
+        )::numeric(5,2),
+        -- module_breadth_score: % of modules accessed in last 30 days
+        COALESCE(
+            (inst.modules_used::numeric / total_modules) * 100, 0
+        )::numeric(5,2),
+        -- action_depth_score: weighted actions per active user (capped at 100)
+        LEAST(
+            COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10,
+            100
+        )::numeric(5,2),
+        -- consistency_score: based on daily active user coefficient of variation
+        GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))::numeric(5,2),
+        -- feature_maturity_score: CRUD actions as % of total (higher = more productive usage)
+        COALESCE(
+            (inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0
+        )::numeric(5,2),
+        -- composite health_score
+        (
+            0.30 * COALESCE((inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0)
+          + 0.20 * COALESCE((inst.modules_used::numeric / total_modules) * 100, 0)
+          + 0.20 * LEAST(COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10, 100)
+          + 0.15 * GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))
+          + 0.15 * COALESCE((inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0)
+        )::numeric(5,2),
+        -- health_grade
+        CASE
+            WHEN (
+                0.30 * COALESCE((inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0)
+              + 0.20 * COALESCE((inst.modules_used::numeric / total_modules) * 100, 0)
+              + 0.20 * LEAST(COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10, 100)
+              + 0.15 * GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))
+              + 0.15 * COALESCE((inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0)
+            ) >= 80 THEN 'A'
+            WHEN (
+                0.30 * COALESCE((inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0)
+              + 0.20 * COALESCE((inst.modules_used::numeric / total_modules) * 100, 0)
+              + 0.20 * LEAST(COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10, 100)
+              + 0.15 * GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))
+              + 0.15 * COALESCE((inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0)
+            ) >= 60 THEN 'B'
+            WHEN (
+                0.30 * COALESCE((inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0)
+              + 0.20 * COALESCE((inst.modules_used::numeric / total_modules) * 100, 0)
+              + 0.20 * LEAST(COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10, 100)
+              + 0.15 * GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))
+              + 0.15 * COALESCE((inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0)
+            ) >= 40 THEN 'C'
+            WHEN (
+                0.30 * COALESCE((inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0)
+              + 0.20 * COALESCE((inst.modules_used::numeric / total_modules) * 100, 0)
+              + 0.20 * LEAST(COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10, 100)
+              + 0.15 * GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))
+              + 0.15 * COALESCE((inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0)
+            ) >= 20 THEN 'D'
+            ELSE 'F'
+        END
+    FROM (
+        SELECT
+            mud.institution_id,
+            -- Active users in last 7 days
+            (SELECT COUNT(DISTINCT user_id) FROM usage_events
+             WHERE institution_id = mud.institution_id
+               AND created_at >= target_date - INTERVAL '7 days') AS active_users_7d,
+            -- Total users in institution
+            (SELECT COUNT(*) FROM profiles
+             WHERE institution_id = mud.institution_id AND is_active = true) AS total_users,
+            -- Modules used in last 30 days
+            (SELECT COUNT(DISTINCT module) FROM module_usage_daily
+             WHERE institution_id = mud.institution_id
+               AND metric_date >= target_date - 30) AS modules_used,
+            -- Weighted score in last 30 days
+            SUM(CASE WHEN mud.metric_date >= target_date - 30 THEN mud.weighted_score ELSE 0 END) AS weighted_score_30d,
+            -- Total actions in last 30 days
+            SUM(CASE WHEN mud.metric_date >= target_date - 30 THEN mud.event_count ELSE 0 END) AS total_actions,
+            -- CRUD actions in last 30 days
+            SUM(CASE WHEN mud.metric_date >= target_date - 30
+                THEN COALESCE((mud.by_event_type->>'create')::int, 0)
+                   + COALESCE((mud.by_event_type->>'update')::int, 0)
+                   + COALESCE((mud.by_event_type->>'delete')::int, 0)
+                ELSE 0 END) AS crud_actions,
+            -- Daily variance (stddev / avg of daily unique users)
+            COALESCE(
+                STDDEV(mud.unique_users) / NULLIF(AVG(mud.unique_users), 0), 0
+            ) AS daily_variance
+        FROM module_usage_daily mud
+        WHERE mud.metric_date >= target_date - 30
+        GROUP BY mud.institution_id
+    ) inst
+    ON CONFLICT (score_date, institution_id)
+    DO UPDATE SET
+        active_user_pct = EXCLUDED.active_user_pct,
+        module_breadth_score = EXCLUDED.module_breadth_score,
+        action_depth_score = EXCLUDED.action_depth_score,
+        consistency_score = EXCLUDED.consistency_score,
+        feature_maturity_score = EXCLUDED.feature_maturity_score,
+        health_score = EXCLUDED.health_score,
+        health_grade = EXCLUDED.health_grade;
+
+    GET DIAGNOSTICS rows_upserted = ROW_COUNT;
+    RETURN rows_upserted;
+END;
+$$;
+
+COMMENT ON FUNCTION compute_institution_health_scores IS
+'Computes health scores for all institutions based on usage data. Phase 2 feature.';
+
+
+-- backfill_usage_events: Process existing user_sessions into usage_events
+-- One-time run for historical data
+CREATE OR REPLACE FUNCTION backfill_usage_events()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    rows_inserted INTEGER := 0;
+    session_rec RECORD;
+    module_name TEXT;
+BEGIN
+    -- Insert login events from user_sessions
+    INSERT INTO usage_events (user_id, session_id, event_type, module, weight, institution_id, role, source, created_at)
+    SELECT
+        user_id,
+        session_id,
+        'login',
+        'dashboard',
+        1,
+        institution_id,
+        role,
+        'backfill',
+        login_at
+    FROM user_sessions
+    WHERE login_at IS NOT NULL
+    ON CONFLICT DO NOTHING;
+
+    GET DIAGNOSTICS rows_inserted = ROW_COUNT;
+
+    -- Insert module access events from user_sessions.modules_accessed array
+    FOR session_rec IN
+        SELECT session_id, user_id, institution_id, role, login_at, modules_accessed
+        FROM user_sessions
+        WHERE modules_accessed IS NOT NULL AND array_length(modules_accessed, 1) > 0
+    LOOP
+        FOREACH module_name IN ARRAY session_rec.modules_accessed
+        LOOP
+            INSERT INTO usage_events (user_id, session_id, event_type, module, weight, institution_id, role, source, created_at)
+            VALUES (
+                session_rec.user_id,
+                session_rec.session_id,
+                'page_visit',
+                module_name,
+                1,
+                session_rec.institution_id,
+                session_rec.role,
+                'backfill',
+                session_rec.login_at + INTERVAL '1 minute'
+            )
+            ON CONFLICT DO NOTHING;
+
+            rows_inserted := rows_inserted + 1;
+        END LOOP;
+    END LOOP;
+
+    -- Now compute module_usage_daily for all backfilled dates
+    PERFORM compute_module_usage_daily(d::date)
+    FROM generate_series(
+        (SELECT MIN(login_at)::date FROM user_sessions),
+        CURRENT_DATE,
+        '1 day'::interval
+    ) AS d;
+
+    RETURN rows_inserted;
+END;
+$$;
+
+COMMENT ON FUNCTION backfill_usage_events IS
+'One-time function to backfill usage_events from user_sessions. Run once after initial setup.';
+
+
+-- archive_old_usage_events: Move old events to archive table
+-- Called monthly via pg_cron (Phase 3)
+CREATE OR REPLACE FUNCTION archive_old_usage_events(months_to_keep INTEGER DEFAULT 12)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    cutoff_date TIMESTAMPTZ;
+    rows_archived INTEGER := 0;
+BEGIN
+    cutoff_date := CURRENT_DATE - (months_to_keep || ' months')::interval;
+
+    -- Copy to archive
+    INSERT INTO usage_events_archive (id, user_id, session_id, event_type, module, feature, resource_type, weight, institution_id, department_id, role, request_method, source, metadata, created_at)
+    SELECT id, user_id, session_id, event_type, module, feature, resource_type, weight, institution_id, department_id, role, request_method, source, metadata, created_at
+    FROM usage_events
+    WHERE created_at < cutoff_date;
+
+    GET DIAGNOSTICS rows_archived = ROW_COUNT;
+
+    -- Delete archived records from main table
+    DELETE FROM usage_events WHERE created_at < cutoff_date;
+
+    RETURN rows_archived;
+END;
+$$;
+
+COMMENT ON FUNCTION archive_old_usage_events IS
+'Archives usage_events older than N months to usage_events_archive. Phase 3 maintenance.';
+
+
+-- ensure_usage_events_partitions: Auto-create monthly partitions for usage_events
+-- Updated: 2026-02-06 - Phase 3
+-- Note: usage_events was created as a regular table (not partitioned).
+-- This function gracefully handles both cases. Archive strategy manages data lifecycle.
+CREATE OR REPLACE FUNCTION ensure_usage_events_partitions()
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    is_partitioned BOOLEAN;
+BEGIN
+    -- Check if usage_events is actually partitioned
+    SELECT (relkind = 'p') INTO is_partitioned
+    FROM pg_class WHERE relname = 'usage_events';
+
+    IF NOT is_partitioned THEN
+        RAISE NOTICE 'usage_events is not partitioned. Archive strategy handles data lifecycle instead.';
+        RETURN;
+    END IF;
+
+    -- If partitioned, create monthly partitions (future-proofing)
+    DECLARE
+        partition_start DATE;
+        partition_end DATE;
+        partition_name TEXT;
+        i INTEGER;
+    BEGIN
+        FOR i IN 0..3 LOOP
+            partition_start := DATE_TRUNC('month', CURRENT_DATE + (i || ' months')::interval);
+            partition_end := partition_start + INTERVAL '1 month';
+            partition_name := 'usage_events_' || TO_CHAR(partition_start, 'YYYY_MM');
+
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_class c
+                JOIN pg_namespace n ON c.relnamespace = n.oid
+                WHERE c.relname = partition_name AND n.nspname = 'public'
+            ) THEN
+                EXECUTE format(
+                    'CREATE TABLE IF NOT EXISTS %I PARTITION OF usage_events FOR VALUES FROM (%L) TO (%L)',
+                    partition_name, partition_start, partition_end
+                );
+            END IF;
+        END LOOP;
+    END;
+END;
+$$;
+
+COMMENT ON FUNCTION ensure_usage_events_partitions IS
+'Auto-creates monthly partitions for usage_events table. No-op if table is not partitioned.';
+
+
+-- compute_feature_usage_summary: Aggregate feature-level usage from usage_events
+-- Updated: 2026-02-06 - Phase 3
+CREATE OR REPLACE FUNCTION compute_feature_usage_summary(target_date DATE DEFAULT CURRENT_DATE - INTERVAL '1 day')
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    rows_upserted INTEGER := 0;
+    rec RECORD;
+BEGIN
+    FOR rec IN
+        SELECT
+            COALESCE(ue.institution_id, '00000000-0000-0000-0000-000000000000'::uuid) AS inst_id,
+            ue.module,
+            ue.feature,
+            COUNT(*)::integer AS usage_count,
+            COUNT(DISTINCT ue.user_id)::integer AS unique_users
+        FROM usage_events ue
+        WHERE ue.created_at >= target_date::timestamptz
+          AND ue.created_at < (target_date + INTERVAL '1 day')::timestamptz
+          AND ue.feature IS NOT NULL
+        GROUP BY COALESCE(ue.institution_id, '00000000-0000-0000-0000-000000000000'::uuid), ue.module, ue.feature
+    LOOP
+        INSERT INTO feature_usage_summary (summary_date, institution_id, module, feature, usage_count, unique_users)
+        VALUES (target_date, rec.inst_id, rec.module, rec.feature, rec.usage_count, rec.unique_users)
+        ON CONFLICT (summary_date, institution_id, module, feature)
+        DO UPDATE SET
+            usage_count = EXCLUDED.usage_count,
+            unique_users = EXCLUDED.unique_users;
+
+        rows_upserted := rows_upserted + 1;
+    END LOOP;
+
+    RETURN rows_upserted;
+END;
+$$;
+
+COMMENT ON FUNCTION compute_feature_usage_summary IS
+'Aggregates feature-level usage from usage_events into feature_usage_summary. Run daily via pg_cron.';

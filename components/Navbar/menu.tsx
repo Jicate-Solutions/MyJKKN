@@ -13,11 +13,10 @@ import {
 } from '@/components/ui/tooltip';
 import { CollapseMenuButton } from './CollapseMenuButton';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { GetPages, GetRoleBasedPages } from '@/lib/sidebarMenuLink';
+import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
 import { AuthService } from '@/lib/auth/auth-service';
-import { useState, useEffect } from 'react';
-import { CustomRole } from '@/types/auth';
-import { RoleService } from '@/lib/services/roles/role-service';
+import { useMemo } from 'react';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface MenuProps {
   isOpen: boolean | undefined;
@@ -25,32 +24,33 @@ interface MenuProps {
 
 export function Menu({ isOpen }: MenuProps) {
   const pathname = usePathname();
-  const [userRole, setUserRole] = useState<CustomRole | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    permissions,
+    isSuperAdmin,
+    isLoading: permissionsLoading,
+    userProfile
+  } = usePermissions();
 
-  // Fetch the user's role
-  useEffect(() => {
-    const fetchUserRole = async () => {
-      try {
-        setIsLoading(true);
-        const profile = await AuthService.getUserProfile();
+  // Build RolePermissionData from usePermissions (multi-role merged)
+  const roleData = useMemo((): RolePermissionData | null => {
+    if (!userProfile) return null;
 
-        if (profile && profile.role) {
-          const roleData = await RoleService.getRoleByKey(profile.role);
-          setUserRole(roleData);
-        }
-      } catch (error) {
-        console.error('Error fetching user role:', error);
-      } finally {
-        setIsLoading(false);
-      }
+    // Super admin: GetRoleBasedPages checks role_key === 'super_admin'
+    if (isSuperAdmin) {
+      return {
+        role_key: 'super_admin',
+        permissions: {}
+      };
+    }
+
+    return {
+      role_key: userProfile.role || '',
+      permissions
     };
+  }, [userProfile, permissions, isSuperAdmin]);
 
-    fetchUserRole();
-  }, []);
-
-  // Use the role-based menu
-  const pages = GetRoleBasedPages(pathname, userRole);
+  // Use the role-based menu with merged permissions
+  const pages = GetRoleBasedPages(pathname, roleData);
 
   const handleLogout = async () => {
     try {
@@ -63,7 +63,7 @@ export function Menu({ isOpen }: MenuProps) {
   return (
     <ScrollArea className='[&>div>div[style]]:!block'>
       <nav className='mt-8 h-full w-full'>
-        {isLoading ? (
+        {permissionsLoading ? (
           <div className='flex justify-center items-center py-4'>
             <div className='animate-pulse h-4 w-24 bg-muted rounded mb-2'></div>
             {[1, 2, 3, 4, 5].map((i) => (

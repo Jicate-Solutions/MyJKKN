@@ -59,10 +59,20 @@ import {
   Bot,
   UserCircle,
   FileCheck,
-  Briefcase
+  Briefcase,
+  BarChart3
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
+
+/**
+ * Lightweight interface for role-based page filtering.
+ * Can be built from usePermissions hook output without needing a full CustomRole.
+ */
+export interface RolePermissionData {
+  role_key: string;
+  permissions: Record<string, boolean>;
+}
 
 interface MenuItem {
   href: string;
@@ -218,6 +228,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
   '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
+
+  // Lifecycle Analytics
+  '/admin/lifecycle': 'admin.lifecycle.view',
 
   // LTI Monitoring
   '/admin/lti/analytics': 'lti.analytics.view',
@@ -964,6 +977,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/audit-trail'),
           icon: History,
           submenus: []
+        },
+        {
+          href: '/admin/lifecycle',
+          label: 'Lifecycle Analytics',
+          active: pathname.startsWith('/admin/lifecycle'),
+          icon: BarChart3,
+          submenus: []
         }
       ]
     },
@@ -1022,7 +1042,7 @@ export function GetPages(pathname: string): MenuGroup[] {
 // New function to filter menus based on user role permissions
 export function GetRoleBasedPages(
   pathname: string,
-  userRole?: CustomRole | null
+  userRole?: CustomRole | RolePermissionData | null
 ): MenuGroup[] {
   const allMenus = GetPages(pathname);
 

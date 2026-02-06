@@ -228,5 +228,8 @@
     "chrome-devtools",
     "next-devtools"
   ],
-  "hooks": {}
+  "hooks": {},
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  }
 }

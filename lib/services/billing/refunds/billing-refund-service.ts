@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { trackUsage } from '@/lib/utils/track-usage';
 import type {
   BillingRefund,
   RefundFilters,
@@ -60,6 +61,7 @@ export class BillingRefundService {
         .single();
 
       if (error) throw error;
+      trackUsage({ module: 'billing/refunds', feature: 'create_refund', eventType: 'create' });
       return data;
     } catch (error) {
       console.error('Error creating refund:', error);
@@ -305,6 +307,7 @@ export class BillingRefundService {
         .single();
 
       if (error) throw error;
+      trackUsage({ module: 'billing/refunds', feature: 'approve_refund', eventType: 'update' });
       return data;
     } catch (error) {
       console.error('Error approving refund:', error);
@@ -430,6 +433,7 @@ export class BillingRefundService {
         // Don't throw here as the main refund update was successful
       }
 
+      trackUsage({ module: 'billing/refunds', feature: 'process_refund', eventType: 'update' });
       return data;
     } catch (error) {
       console.error('Error processing refund:', error);

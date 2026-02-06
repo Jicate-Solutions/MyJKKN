@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { trackUsage } from '@/lib/utils/track-usage';
 import type {
   BillingInvoice,
   CreateInvoiceDto,
@@ -348,6 +349,7 @@ export class BillingInvoiceServiceOptimized {
         }
       }
 
+      trackUsage({ module: 'billing/invoices', feature: 'create_invoice', eventType: 'create' });
       // Return the created invoice with full details
       return await this.getBillingInvoice((data as any).id);
     } catch (error) {
@@ -406,6 +408,7 @@ export class BillingInvoiceServiceOptimized {
         console.error('Error deleting invoice:', error);
         throw new Error(`Failed to delete invoice: ${error.message}`);
       }
+      trackUsage({ module: 'billing/invoices', feature: 'delete_invoice', eventType: 'delete' });
     } catch (error) {
       console.error('Error in deleteBillingInvoice:', error);
       throw error;

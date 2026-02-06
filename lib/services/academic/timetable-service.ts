@@ -1,6 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { trackUsage } from '@/lib/utils/track-usage';
 import type {
   Timetable,
   CreateTimetableDto,
@@ -373,6 +374,7 @@ Please select a different date period that doesn't overlap.`
         throw new Error('Failed to create timetable.');
       }
 
+      trackUsage({ module: 'academic/timetables', feature: 'create_timetable', eventType: 'create' });
       return timetable;
     } catch (error) {
       logger.error('academic/timetables', 'Error in createTimetable service', error);
@@ -584,6 +586,7 @@ Please select a different date period that doesn't overlap.`
         throw error;
       }
 
+      trackUsage({ module: 'academic/timetables', feature: 'update_timetable', eventType: 'update' });
       toast.success('Timetable configuration saved successfully!', {
         duration: 3000,
         position: 'top-center',
@@ -647,6 +650,7 @@ Please select a different date period that doesn't overlap.`
 
       if (error) throw error;
 
+      trackUsage({ module: 'academic/timetables', feature: 'delete_timetable', eventType: 'delete' });
       if (showToast) {
         toast.success('Timetable deleted successfully');
       }

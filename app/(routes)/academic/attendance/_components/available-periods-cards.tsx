@@ -14,7 +14,8 @@ import {
   BookOpen,
   Loader2,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  FlaskConical
 } from 'lucide-react';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
@@ -68,9 +69,15 @@ export function AvailablePeriodsCards({
       try {
         setCheckingAttendance(true);
 
+        // Updated: 2026-02-06 - Separate practical periods from standard periods
+        // Practical periods use batches instead of sections, so the standard
+        // attendance check (which requires section_id) doesn't apply to them
+        const standardPeriods = periods.filter((p) => p.period_mode !== 'practical');
+        const practicalPeriods = periods.filter((p) => p.period_mode === 'practical');
+
         // Updated: 2025-10-09 - For multi-section periods, check using the first section
         // The service will check both section_id and section_ids array automatically
-        const periodChecks = periods.map((period) => ({
+        const periodChecks = standardPeriods.map((period) => ({
           timetable_slot_id: period.timetable_slot_id,
           timetable_id: period.timetable_id,
           // Use first section's ID for multi-section periods (service checks section_ids array)
@@ -80,10 +87,21 @@ export function AvailablePeriodsCards({
           attendance_date: targetDate
         }));
 
-        const attendanceMap =
-          await AttendanceService.checkExistingAttendanceForPeriods(
-            periodChecks
-          );
+        // Only check standard periods; practical periods default to "not marked"
+        // (practical attendance is tracked per-batch, not per-section)
+        let attendanceMap = new Map<string, { isMarked: boolean; recordId?: string }>();
+
+        if (periodChecks.length > 0) {
+          attendanceMap =
+            await AttendanceService.checkExistingAttendanceForPeriods(
+              periodChecks
+            );
+        }
+
+        // Mark practical periods as unchecked (they'll be verified on the mark page)
+        practicalPeriods.forEach((period) => {
+          attendanceMap.set(period.timetable_slot_id, { isMarked: false });
+        });
 
         // Updated: 2025-10-09 - Simplified: One check per slot, service handles multi-section logic
         const marked = new Set<string>();
@@ -359,6 +377,54 @@ export function AvailablePeriodsCards({
                       </div>
                     )}
 
+                    {/* Updated: 2026-02-06 - Practical Period Batch & Course Info */}
+                    {period.period_mode === 'practical' && period.practical_config && (
+                      <div className='space-y-2'>
+                        {/* Practical Period Indicator with Batches */}
+                        {period.practical_config.batches && period.practical_config.batches.length > 0 && (
+                          <div className='bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800 px-3 py-2.5 rounded-md'>
+                            <div className='flex items-center gap-2 mb-1.5'>
+                              <FlaskConical className='h-4 w-4 text-purple-600 dark:text-purple-400 flex-shrink-0' />
+                              <span className='font-semibold text-xs text-purple-700 dark:text-purple-300 uppercase tracking-wide'>
+                                Practical - {period.practical_config.batches.length} {period.practical_config.batches.length === 1 ? 'Batch' : 'Batches'}
+                              </span>
+                            </div>
+                            <div className='flex flex-wrap gap-1.5 ml-6'>
+                              {period.practical_config.batches.map((batch: any) => (
+                                <Badge
+                                  key={batch.batch_id}
+                                  variant='outline'
+                                  className='text-xs bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700'
+                                >
+                                  {batch.batch_name}
+                                  {batch.estimated_count > 0 && (
+                                    <span className='ml-1 text-purple-500 dark:text-purple-400'>
+                                      ({batch.estimated_count})
+                                    </span>
+                                  )}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Available Courses for Practical Period */}
+                        {!period.course && period.practical_config.available_courses && period.practical_config.available_courses.length > 0 && (
+                          <div className='flex items-start gap-2'>
+                            <BookOpen className='h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0' />
+                            <div className='min-w-0 flex-1'>
+                              <span className='text-xs text-muted-foreground'>Available Courses: </span>
+                              <span className='font-medium text-sm'>
+                                {period.practical_config.available_courses.map((c: any) =>
+                                  c.course_code ? `${c.course_code} - ${c.course_name}` : c.course_name
+                                ).join(', ')}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Class Details - Mobile Responsive Grid */}
                     <div className='grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 gap-2 text-xs text-muted-foreground'>
                       {period.degree_name && (
@@ -429,11 +495,17 @@ export function AvailablePeriodsCards({
                           </>
                         ) : (
                           <>
-                            <Users className='h-4 w-4 mr-2 flex-shrink-0' />
+                            {period.period_mode === 'practical' ? (
+                              <FlaskConical className='h-4 w-4 mr-2 flex-shrink-0' />
+                            ) : (
+                              <Users className='h-4 w-4 mr-2 flex-shrink-0' />
+                            )}
                             <span className='text-sm'>
-                              {isMultiSection
-                                ? 'Mark All Sections'
-                                : 'Mark Attendance'}
+                              {period.period_mode === 'practical'
+                                ? 'Select Batch & Mark Attendance'
+                                : isMultiSection
+                                  ? 'Mark All Sections'
+                                  : 'Mark Attendance'}
                             </span>
                           </>
                         )}

@@ -114,7 +114,9 @@ export default function AttendanceMarkPage() {
     batch_name: string;
     course_id: string;
     course_name: string;
+    course_code?: string;
     section_ids: string[];
+    staff?: { id: string; first_name: string; last_name: string; email?: string }[];
   } | null>(null);
 
   // Updated: 2025-01-16 - Leave block checking state
@@ -399,9 +401,48 @@ export default function AttendanceMarkPage() {
                   }
 
                   // NEW: Check if this is a practical period (Updated: 2025-10-25)
+                  // Updated: 2026-02-06 - Enrich practical_config with course details from DB
                   if (slot.period_mode === 'practical' && slot.practical_config) {
                     setPeriodMode('practical');
-                    setPracticalConfig(slot.practical_config);
+
+                    // Enrich available_courses with full course details (raw data may only have IDs)
+                    const config = { ...slot.practical_config };
+                    if (config.available_courses && Array.isArray(config.available_courses)) {
+                      const courseIds = config.available_courses
+                        .map((c: any) => typeof c === 'string' ? c : c.course_id)
+                        .filter(Boolean);
+
+                      if (courseIds.length > 0) {
+                        const needsEnrichment = config.available_courses.some(
+                          (c: any) => typeof c === 'string' || !c.course_name
+                        );
+
+                        if (needsEnrichment) {
+                          try {
+                            const { data: coursesData } = await supabase
+                              .from('courses')
+                              .select('id, course_name, course_code')
+                              .in('id', courseIds);
+
+                            if (coursesData && coursesData.length > 0) {
+                              const coursesMap = new Map(
+                                coursesData.map((c: any) => [c.id, c])
+                              );
+                              config.available_courses = courseIds.map((id: string) => {
+                                const course = coursesMap.get(id);
+                                return course
+                                  ? { course_id: id, course_name: course.course_name, course_code: course.course_code }
+                                  : { course_id: id, course_name: id, course_code: '' };
+                              });
+                            }
+                          } catch (enrichError) {
+                            logger.warn('academic/attendance/mark', 'Could not enrich practical courses', enrichError);
+                          }
+                        }
+                      }
+                    }
+
+                    setPracticalConfig(config);
                   } else {
                     setPeriodMode('standard');
                     setPracticalConfig(null);
@@ -1261,7 +1302,7 @@ export default function AttendanceMarkPage() {
         ? {
             course_id: practicalSelection.course_id || '',
             course_name: practicalSelection.course_name || 'Unknown Course',
-            course_code: 'N/A' // Course code may not be available from practical selection
+            course_code: practicalSelection.course_code || 'N/A'
           }
         : {
             course_id: courseDetails?.id || courseId || '',
@@ -1588,7 +1629,22 @@ export default function AttendanceMarkPage() {
           </Alert>
         )}
 
-        {/* Status Indicator */}
+        {/* Updated: 2026-02-06 - Practical Batch Selector moved to TOP for practical periods */}
+        {periodMode === 'practical' && practicalConfig && !practicalSelection && (
+          <PracticalAttendanceSelector
+            practicalConfig={practicalConfig}
+            periodId={periodId || ''}
+            date={date || ''}
+            timetableId={timetableId || ''}
+            onSelectionComplete={(selection) => {
+              setPracticalSelection(selection);
+            }}
+            onConflictCheck={(params) => AttendanceService.checkPracticalConflict(params)}
+          />
+        )}
+
+        {/* Status Indicator - hide for practical periods until batch is selected */}
+        {(periodMode !== 'practical' || practicalSelection) && (
         <div className='flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg dark:bg-blue-950 dark:border-blue-800/50'>
           <div className='flex-shrink-0'>
             {loadingStudents || loadingExistingAttendance ? (
@@ -1621,8 +1677,10 @@ export default function AttendanceMarkPage() {
               </div>
             )}
         </div>
+        )}
 
-        {/* Modern Header with Gradient Background */}
+        {/* Modern Header with Gradient Background - hide for practical periods until batch is selected */}
+        {(periodMode !== 'practical' || practicalSelection) && (<>
         <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 p-6 text-white shadow-lg'>
           <div className='absolute inset-0 bg-black/20'></div>
           <div className='relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4'>
@@ -1630,7 +1688,18 @@ export default function AttendanceMarkPage() {
               <Button
                 variant='secondary'
                 size='sm'
-                onClick={() => router.push('/academic/attendance')}
+                onClick={() => {
+                  if (practicalSelection) {
+                    // Go back to batch selection instead of leaving the page
+                    setPracticalSelection(null);
+                    setStudents([]);
+                    setAttendanceData({});
+                    setExistingAttendance(null);
+                    setAssignedStaff([]);
+                  } else {
+                    router.push('/academic/attendance');
+                  }
+                }}
                 className='bg-white/20 hover:bg-white/30 text-white border-white/30'
               >
                 <ArrowLeft className='h-4 w-4' />
@@ -1642,7 +1711,7 @@ export default function AttendanceMarkPage() {
                   Mark Attendance
                 </h1>
                 <p className='text-blue-100 text-sm'>
-                  {courseName || 'Unknown Course'} • {periodName}
+                  {practicalSelection?.course_name || courseName || 'Unknown Course'} • {periodName}
                 </p>
               </div>
             </div>
@@ -1656,8 +1725,13 @@ export default function AttendanceMarkPage() {
                 <Clock className='h-3 w-3 mr-1' />
                 {startTime} - {endTime}
               </Badge>
-              {/* Updated: 2025-10-08 - Support for multi-section display */}
-              {contextData?.slot_sections &&
+              {/* Updated: 2026-02-06 - Show batch name for practical periods */}
+              {practicalSelection ? (
+                <Badge className='bg-purple-500/30 text-white border-purple-300/50 hover:bg-purple-500/40'>
+                  <Users className='h-3 w-3 mr-1' />
+                  Batch: {practicalSelection.batch_name}
+                </Badge>
+              ) : contextData?.slot_sections &&
               contextData.slot_sections.length > 0 ? (
                 <Badge className='bg-green-500/30 text-white border-green-300/50 hover:bg-green-500/40'>
                   <Users className='h-3 w-3 mr-1' />
@@ -1731,8 +1805,17 @@ export default function AttendanceMarkPage() {
                         </div>
                       )}
 
-                      {/* Updated: 2025-10-08 - Support for multi-section display */}
-                      {(contextData?.slot_sections &&
+                      {/* Updated: 2026-02-06 - Show batch name for practical periods */}
+                      {practicalSelection ? (
+                        <div className='bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-700'>
+                          <span className='text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider font-semibold'>
+                            Batch
+                          </span>
+                          <p className='text-sm font-bold text-purple-700 dark:text-purple-300 mt-1'>
+                            {practicalSelection.batch_name}
+                          </p>
+                        </div>
+                      ) : (contextData?.slot_sections &&
                         contextData.slot_sections.length > 0) ||
                       contextData?.section_name ? (
                         <div
@@ -1784,7 +1867,26 @@ export default function AttendanceMarkPage() {
                         </span>
                       </div>
 
-                      {loadingStaff ? (
+                      {/* Updated: 2026-02-06 - Show practical selection staff when available */}
+                      {practicalSelection?.staff && practicalSelection.staff.length > 0 ? (
+                        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
+                          {practicalSelection.staff.map((staff) => (
+                            <div
+                              key={staff.id}
+                              className='flex items-center gap-3 p-3 rounded-lg border-2 transition-all bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                            >
+                              <div className='p-2 rounded-full bg-purple-100 dark:bg-purple-800'>
+                                <User className='h-4 w-4 text-purple-600 dark:text-purple-400' />
+                              </div>
+                              <div className='flex-1 min-w-0'>
+                                <p className='text-sm font-semibold text-gray-900 dark:text-gray-100 truncate'>
+                                  {`${staff.first_name} ${staff.last_name}`.trim()}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : loadingStaff ? (
                         <div className='flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg'>
                           <div className='animate-spin h-5 w-5 border-3 border-blue-600 border-t-transparent rounded-full'></div>
                           <span className='text-gray-600 dark:text-gray-400 text-sm'>
@@ -1854,7 +1956,7 @@ export default function AttendanceMarkPage() {
                     Course:
                   </span>
                   <span className='text-gray-900 dark:text-gray-200 font-semibold'>
-                    {courseName || 'N/A'}
+                    {practicalSelection?.course_code ? `${practicalSelection.course_code} - ` : ''}{practicalSelection?.course_name || courseName || 'N/A'}
                   </span>
                 </div>
                 <div className='flex flex-col items-start gap-2'>
@@ -1915,10 +2017,10 @@ export default function AttendanceMarkPage() {
                 </div>
                 <div className='flex flex-col items-start gap-2'>
                   <span className='text-gray-600 dark:text-gray-400 font-medium'>
-                    Section:
+                    {practicalSelection ? 'Batch:' : 'Section:'}
                   </span>
                   <span className='text-gray-900 dark:text-gray-200 font-semibold'>
-                    {contextData.section_name || 'N/A'}
+                    {practicalSelection ? practicalSelection.batch_name : (contextData.section_name || 'N/A')}
                   </span>
                 </div>
                 <div className='flex flex-col items-start gap-2'>
@@ -2093,21 +2195,7 @@ export default function AttendanceMarkPage() {
             </CardContent>
           </Card>
         </div>
-
-        {/* NEW: Practical Attendance Selector (Updated: 2025-10-25) */}
-        {periodMode === 'practical' && practicalConfig && !practicalSelection && (
-          <PracticalAttendanceSelector
-            practicalConfig={practicalConfig}
-            periodId={periodId || ''}
-            date={date || ''}
-            timetableId={timetableId || ''}
-            onSelectionComplete={(selection) => {
-              setPracticalSelection(selection);
-              // Students will be loaded in the existing useEffect when practicalSelection changes
-            }}
-            onConflictCheck={AttendanceService.checkPracticalConflict}
-          />
-        )}
+        </>)}
 
         {/* Show only after practical selection is made (if practical period) or always (if standard period) */}
         {(periodMode === 'standard' || practicalSelection) && (

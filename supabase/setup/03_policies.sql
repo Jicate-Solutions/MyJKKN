@@ -2107,3 +2107,85 @@ CREATE POLICY "Admins can view all favorites" ON public.user_app_favorites
             AND role IN ('admin', 'super_admin')
         )
     );
+
+-- ================================================================================
+-- LIFECYCLE ANALYTICS RLS POLICIES
+-- Updated: 2026-02-06
+-- ================================================================================
+
+-- usage_events: Insert via SECURITY DEFINER functions (service role)
+-- Select: scoped by role
+CREATE POLICY "Super admin can view all usage_events" ON public.usage_events
+    FOR SELECT USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
+    );
+
+CREATE POLICY "Institution admin can view own institution usage_events" ON public.usage_events
+    FOR SELECT USING (
+        institution_id IN (
+            SELECT institution_id FROM profiles WHERE id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Service role can insert usage_events" ON public.usage_events
+    FOR INSERT WITH CHECK (true);
+
+-- module_usage_daily: Same access pattern
+CREATE POLICY "Super admin can view all module_usage_daily" ON public.module_usage_daily
+    FOR SELECT USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
+    );
+
+CREATE POLICY "Institution admin can view own module_usage_daily" ON public.module_usage_daily
+    FOR SELECT USING (
+        institution_id IN (
+            SELECT institution_id FROM profiles WHERE id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Service role can insert module_usage_daily" ON public.module_usage_daily
+    FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Service role can update module_usage_daily" ON public.module_usage_daily
+    FOR UPDATE USING (true);
+
+-- institution_health_scores: Super admin only for cross-institution, institution admin for own
+CREATE POLICY "Super admin can view all health_scores" ON public.institution_health_scores
+    FOR SELECT USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
+    );
+
+CREATE POLICY "Institution admin can view own health_scores" ON public.institution_health_scores
+    FOR SELECT USING (
+        institution_id IN (
+            SELECT institution_id FROM profiles WHERE id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Service role can manage health_scores" ON public.institution_health_scores
+    FOR ALL USING (true);
+
+-- feature_usage_summary: Same as module_usage_daily
+CREATE POLICY "Super admin can view all feature_usage_summary" ON public.feature_usage_summary
+    FOR SELECT USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
+    );
+
+CREATE POLICY "Institution admin can view own feature_usage_summary" ON public.feature_usage_summary
+    FOR SELECT USING (
+        institution_id IN (
+            SELECT institution_id FROM profiles WHERE id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Service role can manage feature_usage_summary" ON public.feature_usage_summary
+    FOR ALL USING (true);
+
+-- usage_events_archive: Super admin only
+CREATE POLICY "Super admin can view usage_events_archive" ON public.usage_events_archive
+    FOR SELECT USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
+    );
+
+CREATE POLICY "Service role can manage usage_events_archive" ON public.usage_events_archive
+    FOR ALL USING (true);

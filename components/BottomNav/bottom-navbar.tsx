@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useLayoutEffect, useRef } from 'react';
+import { useEffect, useMemo, useCallback, useLayoutEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -22,10 +22,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
-import { GetRoleBasedPages } from '@/lib/sidebarMenuLink';
-import { AuthService } from '@/lib/auth/auth-service';
-import { RoleService } from '@/lib/services/roles/role-service';
-import { CustomRole } from '@/types/auth';
+import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
+import { usePermissions } from '@/hooks/use-permissions';
 import { BottomNavItem } from './bottom-nav-item';
 import { BottomNavSubmenu } from './bottom-nav-submenu';
 import { BottomNavMoreMenu } from './bottom-nav-more-menu';
@@ -122,10 +120,15 @@ export function BottomNavbar() {
   const pathname = usePathname();
   const router = useRouter();
   const isMobile = useIsMobile();
-  const [userRole, setUserRole] = useState<CustomRole | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const hasInitialized = useRef(false);
   const hasHydrated = useBottomNavHydration();
+
+  const {
+    permissions,
+    isSuperAdmin,
+    isLoading,
+    userProfile
+  } = usePermissions();
 
   const {
     activeNavId,
@@ -141,29 +144,27 @@ export function BottomNavbar() {
     setActivePage
   } = useBottomNav();
 
-  // Fetch user role on mount
-  useEffect(() => {
-    const fetchUserRole = async () => {
-      try {
-        setIsLoading(true);
-        const profile = await AuthService.getUserProfile();
-        if (profile?.role) {
-          const roleData = await RoleService.getRoleByKey(profile.role);
-          setUserRole(roleData);
-        }
-      } catch (error) {
-        console.error('[BottomNav] Error fetching user role:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchUserRole();
-  }, []);
+  // Build RolePermissionData from usePermissions (multi-role merged)
+  const roleData = useMemo((): RolePermissionData | null => {
+    if (!userProfile) return null;
 
-  // Get filtered pages based on role
+    if (isSuperAdmin) {
+      return {
+        role_key: 'super_admin',
+        permissions: {}
+      };
+    }
+
+    return {
+      role_key: userProfile.role || '',
+      permissions
+    };
+  }, [userProfile, permissions, isSuperAdmin]);
+
+  // Get filtered pages based on merged permissions
   const filteredPages = useMemo(() => {
-    return GetRoleBasedPages(pathname, userRole);
-  }, [pathname, userRole]);
+    return GetRoleBasedPages(pathname, roleData);
+  }, [pathname, roleData]);
 
   // Transform filtered pages into bottom nav groups
   const allNavGroups = useMemo((): BottomNavGroup[] => {

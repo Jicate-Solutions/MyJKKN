@@ -1,6 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import toast from 'react-hot-toast';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { trackUsage } from '@/lib/utils/track-usage';
 import { LeaveCalendarService } from './leave-calendar-service';
 import type {
   StudentAttendance,
@@ -1116,6 +1117,7 @@ export class AttendanceService {
         result = insertResult;
       }
 
+      trackUsage({ module: 'academic/attendance', feature: 'mark_attendance', eventType: 'create' });
       return result as ConsolidatedStudentAttendance;
     } catch (error) {
       logger.error('academic/attendance', 'Error upserting consolidated attendance', error);
@@ -2379,6 +2381,38 @@ export class AttendanceService {
               }
             }
 
+            // Updated: 2026-02-06 - Inject timetable-level section_id into slots for section-level timetables
+            // For section-level timetables, the section_id is stored on the timetable record,
+            // not in each slot's section_ids array. Practical periods especially may have empty section_ids.
+            if (
+              (timetable as any).timetable_type === 'section' &&
+              (timetable as any).section_id
+            ) {
+              const timetableSectionId = (timetable as any).section_id;
+              slots = slots.map((slot) => {
+                if (!slot.section_ids || slot.section_ids.length === 0) {
+                  return { ...slot, section_ids: [timetableSectionId] };
+                }
+                return slot;
+              });
+
+              // Ensure the timetable's section is in the sectionsMap for resolution
+              if (!sectionsMap.has(timetableSectionId) && uniqueSectionIds.indexOf(timetableSectionId) === -1) {
+                try {
+                  const { data: sectionData } = await this.supabase
+                    .from('sections')
+                    .select('*')
+                    .eq('id', timetableSectionId)
+                    .single();
+                  if (sectionData) {
+                    sectionsMap.set(timetableSectionId, sectionData);
+                  }
+                } catch (error) {
+                  logger.warn('academic/attendance', 'Could not fetch timetable section', { timetableSectionId });
+                }
+              }
+            }
+
             // Enhance slots with related data
             slots = slots.map((slot) => {
               // For section-level timetables, get section name from timetable.sections
@@ -2636,6 +2670,10 @@ export class AttendanceService {
                 sections: ss.sections || []
               })) || [],
             sections: slot.sections || [],
+            // Updated: 2026-02-06 - Pass through period_mode and practical_config for dual-mode period support
+            // Practical periods use batches instead of sections for runtime attendance selection
+            period_mode: slot.period_mode || 'standard',
+            practical_config: slot.practical_config || undefined,
             // Updated: 2025-10-13 - Pass through staff filtering metadata for subdivision expansion
             _staff_filter_id: slot._staff_filter_id,
             _is_hod_user: slot._is_hod_user,
@@ -3277,6 +3315,7 @@ export class AttendanceService {
         institution_id: attendanceData.institution_id
       });
 
+      trackUsage({ module: 'academic/attendance', feature: 'save_manual_attendance', eventType: 'create', metadata: { student_count: attendanceData.student_records.length } });
       toast.success(
         `✅ Manual attendance saved for ${attendanceData.student_records.length} students`
       );
