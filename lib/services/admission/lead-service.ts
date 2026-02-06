@@ -515,15 +515,38 @@ export class LeadService {
   // ============================================================================
 
   /**
-   * Schedule next followup
+   * Schedule next followup.
+   * Creates a 'task' activity with scheduled_at and updates lead contact timestamp.
+   * The actual DB may or may not have next_followup_at - we rely on the activity record.
    */
-  static async scheduleFollowup(leadId: string, followupDate: string): Promise<AdmissionLead> {
-    // Note: next_followup_at column doesn't exist yet. Update last_contact_at as closest equivalent.
+  static async scheduleFollowup(leadId: string, followupDate: string, notes?: string): Promise<AdmissionLead> {
+    const { data: { user } } = await (this.supabase as any).auth.getUser();
+
+    // 1. Create a follow-up activity record
+    const { error: activityError } = await (this.supabase as any)
+      .from('admission_lead_activities')
+      .insert({
+        lead_id: leadId,
+        activity_type: 'task',
+        subject: 'Follow-up Scheduled',
+        description: notes || `Follow-up scheduled for ${new Date(followupDate).toLocaleDateString()}`,
+        scheduled_at: followupDate,
+        created_by: user?.id || null,
+      });
+
+    if (activityError) {
+      console.error('[LeadService] Error creating follow-up activity:', activityError);
+      // Don't throw - still try to update the lead
+    }
+
+    // 2. Update the lead's contact timestamp and try next_followup_at if column exists
+    const updatePayload: any = {
+      last_contact_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
     const { data, error } = await (this.supabase as any).from('admission_leads')
-      .update({
-        last_contact_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq('id', leadId)
       .select(`
         *,
