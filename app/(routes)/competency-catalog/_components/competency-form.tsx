@@ -90,12 +90,12 @@ const competencyFormSchema = z.object({
     typical_duration_hours: z.number().optional()
   })).min(1, 'At least one proficiency level is required'),
   finks_dimensions: z.object({
-    foundational_knowledge: z.number().min(0).max(100).default(0),
-    application: z.number().min(0).max(100).default(0),
-    integration: z.number().min(0).max(100).default(0),
-    human_dimension: z.number().min(0).max(100).default(0),
-    caring: z.number().min(0).max(100).default(0),
-    learning_how_to_learn: z.number().min(0).max(100).default(0)
+    foundational_knowledge: z.number().min(0).max(10).default(0),
+    application: z.number().min(0).max(10).default(0),
+    integration: z.number().min(0).max(10).default(0),
+    human_dimension: z.number().min(0).max(10).default(0),
+    caring: z.number().min(0).max(10).default(0),
+    learning_to_learn: z.number().min(0).max(10).default(0)
   }),
   is_active: z.boolean().default(true)
 });
