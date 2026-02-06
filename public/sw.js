@@ -1,4 +1,4 @@
-const CACHE_NAME = 'myjkkn-v1';
+const CACHE_NAME = 'myjkkn-v2';
 const urlsToCache = [
   '/',
   '/manifest.json',
@@ -48,6 +48,12 @@ self.addEventListener('fetch', (event) => {
   // Skip cross-origin requests
   if (!event.request.url.startsWith(self.location.origin)) {
     return;
+  }
+
+  // Skip requests with unresolved Next.js DRP (Dynamic Route Params) placeholders
+  // These contain %%drp:id:<hash>%% patterns that haven't been resolved yet
+  if (event.request.url.includes('%drp:') || event.request.url.includes('%%drp:')) {
+    return; // Let the browser handle it naturally
   }
 
   // Don't cache API requests - always fetch fresh
