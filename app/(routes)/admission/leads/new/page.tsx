@@ -158,18 +158,11 @@ function NewLeadPageContent() {
       full_name: formData.full_name.trim(),
       email: formData.email?.trim() || null,
       phone: formData.phone.trim(),
-      alternate_phone: formData.alternate_phone?.trim() || null,
-      date_of_birth: formData.date_of_birth || null,
-      gender: (formData.gender || null) as any,
-      address: formData.address_line1?.trim() || null,
-      city: formData.city?.trim() || null,
-      state: formData.state?.trim() || null,
-      pincode: formData.pincode?.trim() || null,
       source: formData.first_touch_source as any,
-      notes: formData.notes?.trim() || null
+      tags: [] as string[]
     };
 
-    console.log('[admission/leads] Submitting lead with payload:', leadPayload);
+    console.error('[DEBUG] Form submitted. institutionId:', institutionId, 'payload:', JSON.stringify(leadPayload));
 
     createLeadWithProfile.mutate(
       leadPayload,
