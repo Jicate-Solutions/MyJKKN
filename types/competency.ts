@@ -170,10 +170,15 @@ export interface UpdateCompetencyInput {
 export interface CompetencyFilters {
   institution_id: string;
   search?: string;
-  competency_type?: CompetencyType;
+  competency_type?: CompetencyType | CompetencyType[];
   is_active?: boolean;
   industry_tag?: string;
+  industry_tags?: string[];
   min_ai_resistance?: number;
+  page?: number;
+  limit?: number;
+  sort_by?: 'competency_code' | 'competency_name' | 'created_at';
+  sort_order?: 'asc' | 'desc';
 }
 
 export interface CreateProgramMappingInput {
