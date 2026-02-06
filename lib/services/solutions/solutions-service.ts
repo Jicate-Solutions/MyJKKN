@@ -70,24 +70,18 @@ export class SolutionsService extends BaseService {
   private static async getPartnerDiscount(clientId: string): Promise<number> {
     const { data: client, error } = await (this.supabase as any)
       .from('sh_clients')
-      .select('partner_status, partner_discount')
+      .select('partner_status')
       .eq('id', clientId)
       .single();
 
     if (error || !client) return 0;
 
     // Partner status auto-discount (50% for yi, alumni, mou, referral)
-    let discount = 0;
     if (client.partner_status !== 'standard') {
-      discount = 0.5;
+      return 0.5;
     }
 
-    // Use client's custom discount if higher
-    if (client.partner_discount && client.partner_discount > discount) {
-      discount = client.partner_discount;
-    }
-
-    return discount;
+    return 0;
   }
 
   /**
