@@ -148,7 +148,7 @@ export class SolutionsService extends BaseService {
         `
         *,
         client:sh_clients(*),
-        department:departments(id, department_name, department_code)
+        department:departments(id, name:department_name, code:department_code)
       `,
         { count: 'exact' }
       )
@@ -207,7 +207,7 @@ export class SolutionsService extends BaseService {
         `
         *,
         client:sh_clients(*),
-        department:departments(id, department_name, department_code)
+        department:departments(id, name:department_name, code:department_code)
       `
       )
       .eq('id', id)
