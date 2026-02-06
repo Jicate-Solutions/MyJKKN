@@ -1,171 +1,274 @@
 'use client';
 
-// ============================================================================
-// Competency Catalog - List Page
-// Main listing of all competencies with filters and actions
-// ============================================================================
-
+import { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
+import { Plus, Award, TrendingUp, BookOpen, Shield } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { usePermissions } from '@/hooks/use-permissions';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { PermissionGuard } from '@/components/auth/permission-guard';
-import { CompetencyTable } from './_components/competency-table';
-import { useCompetencyStats } from '@/hooks/competency';
+import { BeatLoader } from 'react-spinners';
+import { CompetencyList } from './_components/competency-list';
+import { CompetencyFilters } from './_components/competency-filters';
+import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
+import { useCompetencies, useCompetencyStats } from '@/hooks/competency';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
-import {
-  Award,
-  BookOpen,
-  Briefcase,
-  Users,
-  TrendingUp
-} from 'lucide-react';
-
-// ============================================================================
-// STATS CARD COMPONENT
-// ============================================================================
-
-function StatsCard({
-  title,
-  value,
-  description,
-  icon: Icon,
-  loading = false
-}: {
-  title: string;
-  value: number | string;
-  description?: string;
-  icon: React.ElementType;
-  loading?: boolean;
-}) {
-  return (
-    <Card>
-      <CardContent className="pt-6">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-full bg-primary/10">
-            <Icon className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            {loading ? (
-              <Skeleton className="h-8 w-16" />
-            ) : (
-              <p className="text-2xl font-bold">{value}</p>
-            )}
-            <p className="text-sm text-muted-foreground">{title}</p>
-            {description && (
-              <p className="text-xs text-muted-foreground mt-1">{description}</p>
-            )}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
+import type { CompetencyType, CompetencyFilters as CompetencyFiltersType } from '@/types/competency';
 
 export default function CompetencyCatalogPage() {
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions();
+
   const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
   const institutionId = institutions?.[0]?.institution_id || '';
 
-  const { data: stats, isLoading: statsLoading } = useCompetencyStats(institutionId);
+  // Filter state
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<CompetencyType | undefined>(undefined);
+  const [activeFilter, setActiveFilter] = useState<boolean | undefined>(undefined);
+  const [page, setPage] = useState(1);
 
-  // Show loading while institutions are being fetched
-  const isLoadingData = institutionsLoading || statsLoading;
+  const canViewCatalog =
+    isSuperAdmin || canAccess('competency.catalog', 'view');
+  const canCreateCatalog =
+    isSuperAdmin || canAccess('competency.catalog', 'create');
 
-  return (
-    <PermissionGuard module="competency.catalog" action="view">
-      <ContentLayout title="Competency Catalog">
-        <div className="space-y-6">
-          {/* Breadcrumb */}
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/academic">Academic</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>Competency Catalog</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
+  // Build filters object for the hook
+  const filters: CompetencyFiltersType = useMemo(() => ({
+    institution_id: institutionId,
+    search: search || undefined,
+    competency_type: typeFilter,
+    is_active: activeFilter,
+    page,
+    limit: 10,
+    sort_by: 'competency_name',
+    sort_order: 'asc' as const
+  }), [institutionId, search, typeFilter, activeFilter, page]);
 
-          {/* Stats Overview */}
-          <div className="grid gap-4 md:grid-cols-4">
-            <StatsCard
-              title="Total Competencies"
-              value={stats?.total_competencies || 0}
-              icon={Award}
-              loading={isLoadingData}
-            />
-            <StatsCard
-              title="Active"
-              value={stats?.active_count || 0}
-              description={`${stats?.inactive_count || 0} archived`}
-              icon={TrendingUp}
-              loading={isLoadingData}
-            />
-            <StatsCard
-              title="Mapped to Programs"
-              value={stats?.mapped_to_programs || 0}
-              icon={BookOpen}
-              loading={isLoadingData}
-            />
-            <StatsCard
-              title="Mapped to Courses"
-              value={stats?.mapped_to_courses || 0}
-              icon={Briefcase}
-              loading={isLoadingData}
-            />
-          </div>
+  // Fetch data
+  const {
+    data,
+    isLoading: competenciesLoading,
+    error,
+    refetch
+  } = useCompetencies(filters);
 
-          {/* Type Distribution */}
-          {stats && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Competency Distribution by Type</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-3">
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-blue-100 text-blue-800">Technical</Badge>
-                    <span className="text-sm font-medium">{stats.by_type?.technical || 0}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-purple-100 text-purple-800">Behavioral</Badge>
-                    <span className="text-sm font-medium">{stats.by_type?.behavioral || 0}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-amber-100 text-amber-800">Domain</Badge>
-                    <span className="text-sm font-medium">{stats.by_type?.domain || 0}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-emerald-100 text-emerald-800">Soft Skill</Badge>
-                    <span className="text-sm font-medium">{stats.by_type?.soft_skill || 0}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+  const {
+    data: stats,
+    isLoading: statsLoading
+  } = useCompetencyStats(institutionId);
 
-          {/* Main Data Table */}
-          <CompetencyTable />
+  const competencies = data?.data || [];
+  const metadata = data?.metadata || { total: 0, page: 1, limit: 10, totalPages: 1 };
+  const loading = competenciesLoading || institutionsLoading;
+
+  // Filter handlers
+  const updateFilters = (updates: {
+    search?: string;
+    competency_type?: CompetencyType | undefined;
+    is_active?: boolean | undefined;
+  }) => {
+    if (updates.search !== undefined) setSearch(updates.search);
+    if ('competency_type' in updates) setTypeFilter(updates.competency_type);
+    if ('is_active' in updates) setActiveFilter(updates.is_active);
+    setPage(1);
+  };
+
+  const changePage = (newPage: number) => {
+    setPage(newPage);
+  };
+
+  // Show loading state while permissions are loading
+  if (permissionsLoading || institutionsLoading) {
+    return (
+      <ContentLayout title='Competency Catalog'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
         </div>
       </ContentLayout>
-    </PermissionGuard>
+    );
+  }
+
+  if (!canViewCatalog) {
+    return (
+      <ContentLayout title='Competency Catalog'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view the competency catalog.
+          </p>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <ContentLayout title='Competency Catalog'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>{error.message}</p>
+          <Button
+            variant='outline'
+            onClick={() => refetch()}
+            className='mt-4'
+          >
+            Try Again
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Calculate summary statistics
+  const totalCompetencies = stats?.total_competencies || 0;
+  const activeCount = stats?.active_count || 0;
+  const avgAiResistance = stats?.average_ai_resistance || 0;
+  const programsMapped = stats?.programs_mapped || 0;
+
+  return (
+    <ContentLayout title='Competency Catalog'>
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Academic', href: '/academic' },
+          { label: 'Competency Catalog', href: '/competency-catalog' }
+        ]}
+      />
+      <div className='space-y-6 mt-4'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
+          <div>
+            <h1 className='text-2xl font-bold py-1'>Competency Catalog</h1>
+            <p className='text-sm sm:text-base text-muted-foreground'>
+              Manage competencies, skill definitions, and learning outcomes
+            </p>
+          </div>
+          <div className='flex flex-col sm:flex-row gap-2'>
+            {canCreateCatalog ? (
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/competency-catalog/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Create Competency
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                className='w-full sm:w-auto opacity-50'
+                disabled
+                variant='outline'
+              >
+                <Plus className='mr-2 h-4 w-4' />
+                Create Competency
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Summary Cards */}
+        <div className='grid grid-cols-1 md:grid-cols-4 gap-4'>
+          <Card>
+            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+              <CardTitle className='text-sm font-medium'>
+                Total Competencies
+              </CardTitle>
+              <Award className='h-4 w-4 text-muted-foreground' />
+            </CardHeader>
+            <CardContent>
+              <div className='text-2xl font-bold'>{totalCompetencies}</div>
+              <p className='text-xs text-muted-foreground'>
+                All defined competencies
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+              <CardTitle className='text-sm font-medium'>
+                By Type
+              </CardTitle>
+              <BookOpen className='h-4 w-4 text-muted-foreground' />
+            </CardHeader>
+            <CardContent>
+              <div className='flex flex-wrap gap-1'>
+                {stats?.by_type && Object.entries(stats.by_type).map(([type, count]) => (
+                  count > 0 && (
+                    <Badge
+                      key={type}
+                      variant='outline'
+                      className='text-xs'
+                    >
+                      {type.replace('_', ' ')}: {count}
+                    </Badge>
+                  )
+                ))}
+                {!stats?.by_type && <span className='text-sm text-muted-foreground'>--</span>}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+              <CardTitle className='text-sm font-medium'>
+                Active
+              </CardTitle>
+              <TrendingUp className='h-4 w-4 text-muted-foreground' />
+            </CardHeader>
+            <CardContent>
+              <div className='text-2xl font-bold text-green-600'>
+                {activeCount}
+              </div>
+              <p className='text-xs text-muted-foreground'>
+                {stats?.inactive_count || 0} archived
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+              <CardTitle className='text-sm font-medium'>
+                Avg AI Resistance
+              </CardTitle>
+              <Shield className='h-4 w-4 text-muted-foreground' />
+            </CardHeader>
+            <CardContent>
+              <div className='text-2xl font-bold'>
+                {avgAiResistance > 0 ? avgAiResistance.toFixed(1) : '0'}/10
+              </div>
+              <p className='text-xs text-muted-foreground'>
+                {programsMapped} mapped to programs
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardContent className='p-6'>
+            <CompetencyFilters
+              filters={{
+                search,
+                competency_type: typeFilter,
+                is_active: activeFilter
+              }}
+              onFilterChange={updateFilters}
+            />
+
+            {loading ? (
+              <div className='flex justify-center items-center p-8'>
+                <BeatLoader color='#00e902' />
+              </div>
+            ) : (
+              <CompetencyList
+                competencies={competencies}
+                metadata={metadata}
+                onPageChange={changePage}
+                onRefresh={() => refetch()}
+              />
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </ContentLayout>
   );
 }
