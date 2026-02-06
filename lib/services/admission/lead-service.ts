@@ -60,10 +60,11 @@ export class LeadService {
       }
     }
     if (filters.priority) {
-      if (Array.isArray(filters.priority)) {
-        query = query.in('priority', filters.priority);
-      } else {
-        query = query.eq('priority', filters.priority);
+      // Map priority filter to actual DB columns (is_hot_lead, is_priority booleans)
+      if (filters.priority === 'hot' || (Array.isArray(filters.priority) && filters.priority.includes('hot'))) {
+        query = query.eq('is_hot_lead', true);
+      } else if (filters.priority === 'warm' || (Array.isArray(filters.priority) && filters.priority.includes('warm'))) {
+        query = query.eq('is_priority', true);
       }
     }
     if (filters.source) {
@@ -77,10 +78,7 @@ export class LeadService {
       query = query.eq('counselor_id', filters.counselor_id);
     }
     if (filters.program_interest) {
-      query = query.eq('program_interest', filters.program_interest);
-    }
-    if (filters.is_duplicate !== undefined) {
-      query = query.eq('is_duplicate', filters.is_duplicate);
+      query = query.contains('interested_programs', [filters.program_interest]);
     }
     if (filters.search) {
       const sanitizedSearch = this.sanitizeSearch(filters.search);
