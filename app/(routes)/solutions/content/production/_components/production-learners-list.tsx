@@ -63,7 +63,7 @@ export function ProductionLearnersList() {
   // Calculate stats from real data
   const stats = {
     total: statsData?.total || learnersData?.metadata?.total || learners.length,
-    active: statsData?.active || learners.filter((l) => l.status === 'active').length,
+    active: statsData?.active || learners.filter((l) => l.is_active === true).length,
     totalOrders: learners.reduce((sum, l) => sum + (l.orders_completed || 0), 0),
     totalEarnings: learners.reduce((sum, l) => sum + (l.total_earnings || 0), 0),
   };
