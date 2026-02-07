@@ -865,7 +865,11 @@ export class AttendanceReportService {
             avatar_url: freshData.avatar_url || s.avatar_url,
             section_id: sectionId,
             section_name: sectionName,
-            is_present: s.status === 'Present'
+            is_present: s.status === 'Present',
+            // P1.5.4 - Include engagement data from attendance record
+            ...(s.engagement_score && { engagement_score: s.engagement_score }),
+            ...(s.learning_behaviors && s.learning_behaviors.length > 0 && { learning_behaviors: s.learning_behaviors }),
+            ...(s.engagement_notes && { engagement_notes: s.engagement_notes })
           };
         });
 
