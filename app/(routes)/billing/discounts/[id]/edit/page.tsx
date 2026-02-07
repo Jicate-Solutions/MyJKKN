@@ -40,6 +40,11 @@ export default function EditDiscountPage() {
 
   const [formData, setFormData] = useState<Partial<UpdateDiscountDto>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isOutcomeBased, setIsOutcomeBased] = useState(false);
+  const [outcomeCriteria, setOutcomeCriteria] = useState<Partial<OutcomeCriteria>>({
+    type: 'competency_achievement',
+    minimum_level: 'intermediate'
+  });
 
   const {
     canAccess,
