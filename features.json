@@ -35,7 +35,7 @@
       "id": "P1.2",
       "name": "Competency Catalog Module",
       "phase": "1.2 - Foundation",
-      "status": "BUILD_PASSING_NEEDS_BROWSER_TEST",
+      "status": "DONE",
       "description": "New module for defining skill taxonomy using Fink's Taxonomy. Includes catalog CRUD, program mapping, course mapping, and learner tracking.",
       "database_changes": [
         "Migration: 20260206000001_create_competency_tables.sql (APPLIED to staging)",
