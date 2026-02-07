@@ -736,6 +736,226 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
             </>
           )}
 
+          {/* Capabilities & Career Section */}
+          {activeSection === 'capabilities' && (
+            <>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5" />
+                  Capabilities & Career
+                </CardTitle>
+                <CardDescription>Competency tracking, career aspirations, and industry readiness</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Industry Readiness Score */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-medium flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-blue-500" />
+                    Industry Readiness
+                  </h3>
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1">
+                      <Progress
+                        value={learner.industry_readiness_score ?? 0}
+                        className="h-3"
+                      />
+                    </div>
+                    <span className="text-2xl font-bold min-w-[60px] text-right">
+                      {learner.industry_readiness_score != null
+                        ? `${learner.industry_readiness_score}%`
+                        : '—'}
+                    </span>
+                  </div>
+                  {learner.portfolio_url && (
+                    <div className="flex items-center gap-2">
+                      <Globe className="h-4 w-4 text-muted-foreground" />
+                      <a
+                        href={learner.portfolio_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline flex items-center gap-1"
+                      >
+                        Portfolio
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  )}
+                  {!learner.industry_readiness_score && !learner.portfolio_url && (
+                    <p className="text-sm text-muted-foreground">
+                      No industry readiness data available yet. This will be populated as the learner acquires competencies and completes industry engagements.
+                    </p>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Competencies */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-medium flex items-center gap-2">
+                    <Target className="h-4 w-4 text-green-500" />
+                    Competencies
+                  </h3>
+                  {learner.capabilities?.competencies && learner.capabilities.competencies.length > 0 ? (
+                    <div className="space-y-3">
+                      {learner.capabilities.competencies.map((comp, idx) => (
+                        <div key={idx} className="flex items-center justify-between rounded-lg border p-3">
+                          <div>
+                            <p className="text-sm font-medium">{comp.competency_name || comp.competency_id}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge variant="outline" className="capitalize text-xs">
+                                {comp.current_level}
+                              </Badge>
+                              {comp.evidence && comp.evidence.length > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  {comp.evidence.length} evidence item{comp.evidence.length !== 1 ? 's' : ''}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {comp.verified_at && (
+                            <Badge variant="default" className="text-xs">Verified</Badge>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No competencies tracked yet. Competencies will appear here as the learner progresses through courses and assessments.
+                    </p>
+                  )}
+                </div>
+
+                {/* Capability Summary */}
+                {learner.capabilities?.summary && (
+                  <>
+                    <Separator />
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-medium">Capability Summary</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="rounded-lg border p-3 text-center">
+                          <p className="text-xl font-bold">{learner.capabilities.summary.technical_skills}</p>
+                          <p className="text-xs text-muted-foreground">Technical</p>
+                        </div>
+                        <div className="rounded-lg border p-3 text-center">
+                          <p className="text-xl font-bold">{learner.capabilities.summary.behavioral_skills}</p>
+                          <p className="text-xs text-muted-foreground">Behavioral</p>
+                        </div>
+                        <div className="rounded-lg border p-3 text-center">
+                          <p className="text-xl font-bold">{learner.capabilities.summary.domain_knowledge}</p>
+                          <p className="text-xs text-muted-foreground">Domain</p>
+                        </div>
+                        <div className="rounded-lg border p-3 text-center">
+                          <p className="text-xl font-bold">{learner.capabilities.summary.soft_skills}</p>
+                          <p className="text-xs text-muted-foreground">Soft Skills</p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Fink's Learning Profile */}
+                {learner.capabilities?.overall_finks_profile && (
+                  <>
+                    <Separator />
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-medium">Fink&apos;s Learning Profile</h3>
+                      <div className="space-y-2">
+                        {[
+                          { key: 'foundational_knowledge', label: 'Foundational Knowledge', color: 'bg-blue-500' },
+                          { key: 'application', label: 'Application', color: 'bg-green-500' },
+                          { key: 'integration', label: 'Integration', color: 'bg-purple-500' },
+                          { key: 'human_dimension', label: 'Human Dimension', color: 'bg-orange-500' },
+                          { key: 'caring', label: 'Caring', color: 'bg-pink-500' },
+                          { key: 'learning_how_to_learn', label: 'Learning How to Learn', color: 'bg-teal-500' },
+                        ].map(({ key, label }) => {
+                          const score = (learner.capabilities?.overall_finks_profile as any)?.[key] ?? 0;
+                          return (
+                            <div key={key} className="space-y-1">
+                              <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">{label}</span>
+                                <span className="font-medium">{score}%</span>
+                              </div>
+                              <Progress value={score} className="h-2" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <Separator />
+
+                {/* Career Aspirations */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-medium flex items-center gap-2">
+                    <Briefcase className="h-4 w-4 text-purple-500" />
+                    Career Aspirations
+                  </h3>
+                  {learner.career_aspirations &&
+                   (learner.career_aspirations.target_roles?.length ||
+                    learner.career_aspirations.preferred_industries?.length ||
+                    learner.career_aspirations.further_studies !== undefined) ? (
+                    <div className="space-y-4">
+                      {learner.career_aspirations.target_roles && learner.career_aspirations.target_roles.length > 0 && (
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">Target Roles</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {learner.career_aspirations.target_roles.map((role, idx) => (
+                              <Badge key={idx} variant="secondary">{role}</Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {learner.career_aspirations.preferred_industries && learner.career_aspirations.preferred_industries.length > 0 && (
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">Preferred Industries</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {learner.career_aspirations.preferred_industries.map((ind, idx) => (
+                              <Badge key={idx} variant="outline">{ind}</Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {learner.career_aspirations.location_preferences && learner.career_aspirations.location_preferences.length > 0 && (
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">Location Preferences</h4>
+                          <p className="text-sm">{learner.career_aspirations.location_preferences.join(', ')}</p>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-4">
+                        {learner.career_aspirations.salary_expectations && (
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-medium text-muted-foreground">Salary Expectations</h4>
+                            <p className="text-sm">{learner.career_aspirations.salary_expectations}</p>
+                          </div>
+                        )}
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">Further Studies</h4>
+                          <p className="text-sm">
+                            {learner.career_aspirations.further_studies === true ? 'Interested' :
+                             learner.career_aspirations.further_studies === false ? 'Not interested' : 'Not specified'}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">Entrepreneurship</h4>
+                          <p className="text-sm">
+                            {learner.career_aspirations.entrepreneurship_interest === true ? 'Interested' :
+                             learner.career_aspirations.entrepreneurship_interest === false ? 'Not interested' : 'Not specified'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No career aspirations recorded yet. This section will be populated during career counseling sessions.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </>
+          )}
+
           {/* Admission Details Section */}
           {activeSection === 'admission' && (
             <>
