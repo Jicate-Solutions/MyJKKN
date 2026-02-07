@@ -516,6 +516,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/talent/production/queue': 'talent.production.queue.view',
   '/talent/production/earnings': 'talent.production.earnings.view',
 
+  // Learning Paths (Personalization)
+  '/learning-paths': 'learning_paths.view',
+  '/learning-paths/new': 'learning_paths.create',
+  '/learning-paths/[id]': 'learning_paths.view',
+  '/learning-paths/[id]/edit': 'learning_paths.edit',
+
   // Client Portal (External)
   '/portal/client': 'portal.client.view',
   '/portal/client/projects': 'portal.client.projects.view',
