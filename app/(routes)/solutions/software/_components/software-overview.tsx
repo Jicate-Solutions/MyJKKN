@@ -103,7 +103,7 @@ export function SoftwareOverview() {
             {builderStatsLoading ? (
               <Skeleton className="h-8 w-16" />
             ) : (
-              <div className="text-2xl font-bold">{builderStats?.totalBuilders || 0}</div>
+              <div className="text-2xl font-bold">{builderStats?.active || 0}</div>
             )}
             <p className="text-xs text-muted-foreground">Active talent</p>
           </CardContent>
