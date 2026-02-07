@@ -440,6 +440,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Value Added Courses (VAC) Module
   '/vac': 'vac.view',
+  '/vac/my-courses': 'vac.view',
   '/vac/progress': 'vac.progress.view',
   '/vac/admin/courses': 'vac.admin.view',
   '/vac/admin/courses/new': 'vac.admin.create',
