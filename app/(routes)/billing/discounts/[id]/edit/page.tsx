@@ -210,7 +210,10 @@ export default function EditDiscountPage() {
 
       const updateData: UpdateDiscountDto = {
         ...formData,
-        discount_amount: discountAmount
+        discount_amount: discountAmount,
+        // Outcome-based discount fields
+        is_outcome_based: isOutcomeBased,
+        outcome_criteria: isOutcomeBased ? outcomeCriteria as OutcomeCriteria : undefined
       };
 
       await updateDiscountMutation.mutateAsync({
