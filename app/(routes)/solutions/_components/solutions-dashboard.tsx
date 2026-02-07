@@ -258,7 +258,7 @@ export function SolutionsDashboard() {
                 ) : (
                   <p className="text-lg font-semibold">
                     {contentStats?.byDivision
-                      ? Object.values(contentStats.byDivision).filter((v) => v > 0).length
+                      ? Object.values(contentStats.byDivision).filter((v) => (v as number) > 0).length
                       : 0}
                   </p>
                 )}
