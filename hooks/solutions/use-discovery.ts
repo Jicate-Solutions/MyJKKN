@@ -169,12 +169,10 @@ export function useLinkVisitToResult() {
     mutationFn: ({
       visitId,
       solutionId,
-      phaseId,
     }: {
       visitId: string;
       solutionId: string;
-      phaseId?: string;
-    }) => discoveryService.linkVisitToResult(visitId, solutionId, phaseId),
+    }) => discoveryService.linkVisitToResult(visitId, solutionId),
     onSuccess: (data: DiscoveryVisit) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.discoveryVisits.all });
       if (data?.id) {
