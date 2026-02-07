@@ -55,6 +55,11 @@ export default function NewDiscountPage() {
     discount_value: 0,
     effective_date: new Date().toISOString().split('T')[0]
   });
+  const [isOutcomeBased, setIsOutcomeBased] = useState(false);
+  const [outcomeCriteria, setOutcomeCriteria] = useState<Partial<OutcomeCriteria>>({
+    type: 'competency_achievement',
+    minimum_level: 'intermediate'
+  });
 
   const {
     canAccess,
