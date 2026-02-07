@@ -363,7 +363,7 @@ export class TrainingService extends BaseService {
     }
 
     if (filters?.to_date) {
-      query = query.lte('scheduled_at', filters.to_date);
+      query = query.lte('session_date', filters.to_date);
     }
 
     // Apply pagination
