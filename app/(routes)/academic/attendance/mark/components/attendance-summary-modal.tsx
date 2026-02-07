@@ -235,6 +235,73 @@ export function AttendanceSummaryModal({
             </Card>
           </div>
 
+          {/* P1.5.4 - Engagement Summary */}
+          {hasEngagementData && (
+            <Card className='border-l-4 border-l-amber-500 bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20'>
+              <CardContent className='p-4'>
+                <div className='flex items-center gap-2 mb-3'>
+                  <Sparkles className='h-5 w-5 text-amber-600 dark:text-amber-400' />
+                  <h3 className='font-semibold text-amber-800 dark:text-amber-200'>
+                    Engagement Summary
+                    {isEngagementRequired && (
+                      <span className='ml-2 text-xs font-normal text-amber-600 dark:text-amber-400'>
+                        (Required for this period)
+                      </span>
+                    )}
+                  </h3>
+                </div>
+                <div className='grid grid-cols-1 sm:grid-cols-3 gap-4 mb-3'>
+                  <div className='bg-white dark:bg-gray-800 rounded-lg p-3 text-center'>
+                    <div className='flex items-center justify-center gap-1 mb-1'>
+                      {[1, 2, 3, 4, 5].map(star => (
+                        <Star
+                          key={star}
+                          className={cn(
+                            'h-4 w-4',
+                            star <= Math.round(averageEngagement)
+                              ? 'text-amber-400 fill-amber-400'
+                              : 'text-gray-300'
+                          )}
+                        />
+                      ))}
+                    </div>
+                    <p className='text-lg font-bold text-gray-900 dark:text-gray-100'>
+                      {averageEngagement}/5
+                    </p>
+                    <p className='text-xs text-gray-500'>Avg. Engagement</p>
+                  </div>
+                  <div className='bg-white dark:bg-gray-800 rounded-lg p-3 text-center'>
+                    <p className='text-lg font-bold text-gray-900 dark:text-gray-100'>
+                      {engagementScores.length}/{presentCount}
+                    </p>
+                    <p className='text-xs text-gray-500'>Students Scored</p>
+                  </div>
+                  <div className='bg-white dark:bg-gray-800 rounded-lg p-3 text-center'>
+                    <p className='text-lg font-bold text-gray-900 dark:text-gray-100'>
+                      {Object.keys(behaviorCounts).length}
+                    </p>
+                    <p className='text-xs text-gray-500'>Behaviors Observed</p>
+                  </div>
+                </div>
+                {Object.keys(behaviorCounts).length > 0 && (
+                  <div className='flex flex-wrap gap-1.5'>
+                    {Object.entries(behaviorCounts)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([behavior, count]) => (
+                        <Badge
+                          key={behavior}
+                          variant='secondary'
+                          className='text-xs bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700'
+                        >
+                          {LEARNING_BEHAVIOR_LABELS[behavior as LearningBehavior] || behavior} ({count})
+                        </Badge>
+                      ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Student Lists */}
           <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
             {/* Present Students */}
