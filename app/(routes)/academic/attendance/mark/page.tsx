@@ -54,7 +54,6 @@ import { PracticalAttendanceSelector } from './_components/practical-attendance-
 import type { SubdivisionGroup, PeriodMode, PracticalConfig } from '@/types/academics';
 import type { LearningBehavior } from '@/types/attendance';
 import { LEARNING_BEHAVIOR_LABELS } from '@/types/attendance';
-import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Sparkles, MessageSquare, Star } from 'lucide-react';
