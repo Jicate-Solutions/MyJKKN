@@ -139,6 +139,13 @@ export class PhasesService extends BaseService {
           title,
           solution_code,
           client:sh_clients(id, name)
+        ),
+        assignments:sh_builder_assignments(
+          id,
+          builder_id,
+          role,
+          status,
+          builder:sh_builders(id, name, email)
         )
       `,
         { count: 'exact' }
