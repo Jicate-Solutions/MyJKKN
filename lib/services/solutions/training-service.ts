@@ -359,7 +359,7 @@ export class TrainingService extends BaseService {
     }
 
     if (filters?.from_date) {
-      query = query.gte('scheduled_at', filters.from_date);
+      query = query.gte('session_date', filters.from_date);
     }
 
     if (filters?.to_date) {
