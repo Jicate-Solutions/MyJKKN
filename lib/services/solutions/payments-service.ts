@@ -414,11 +414,38 @@ export class PaymentsService extends BaseService {
       splitModelId = model?.id || null;
     }
 
+    // Resolve solution_id and client_id if not provided
+    let solutionId = input.solution_id || null;
+    let clientId = input.client_id || null;
+
+    if (!solutionId && input.phase_id) {
+      const { data: phase } = await (this.supabase as any).from('sh_solution_phases')
+        .select('solution_id').eq('id', input.phase_id).single();
+      solutionId = phase?.solution_id || null;
+    }
+    if (!solutionId && input.program_id) {
+      const { data: prog } = await (this.supabase as any).from('sh_training_programs')
+        .select('solution_id').eq('id', input.program_id).single();
+      solutionId = prog?.solution_id || null;
+    }
+    if (!solutionId && input.order_id) {
+      const { data: ord } = await (this.supabase as any).from('sh_content_orders')
+        .select('solution_id').eq('id', input.order_id).single();
+      solutionId = ord?.solution_id || null;
+    }
+    if (!clientId && solutionId) {
+      const { data: sol } = await (this.supabase as any).from('sh_solutions')
+        .select('client_id').eq('id', solutionId).single();
+      clientId = sol?.client_id || null;
+    }
+
     const { data, error } = await (this.supabase as any).from('sh_payments')
       .insert({
-        phase_id: input.phase_id,
-        program_id: input.program_id,
-        order_id: input.order_id,
+        solution_id: solutionId,
+        client_id: clientId,
+        phase_id: input.phase_id || null,
+        program_id: input.program_id || null,
+        order_id: input.order_id || null,
         amount: input.amount,
         payment_type: input.payment_type,
         payment_method: input.payment_method,
