@@ -245,7 +245,7 @@ export function SolutionsDashboard() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <p className="text-muted-foreground">In Queue</p>
+                <p className="text-muted-foreground">Orders</p>
                 {contentLoading ? (
                   <Skeleton className="h-6 w-12" />
                 ) : (
@@ -253,11 +253,15 @@ export function SolutionsDashboard() {
                 )}
               </div>
               <div>
-                <p className="text-muted-foreground">Learners</p>
+                <p className="text-muted-foreground">Divisions</p>
                 {contentLoading ? (
                   <Skeleton className="h-6 w-12" />
                 ) : (
-                  <p className="text-lg font-semibold">{builderStats?.active || 0}</p>
+                  <p className="text-lg font-semibold">
+                    {contentStats?.byDivision
+                      ? Object.values(contentStats.byDivision).filter((v) => v > 0).length
+                      : 0}
+                  </p>
                 )}
               </div>
             </div>
