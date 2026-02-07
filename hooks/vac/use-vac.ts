@@ -39,6 +39,7 @@ export const vacQueryKeys = {
   isEnrolled: (userId: string, courseId: string) => [...vacQueryKeys.all, 'is-enrolled', userId, courseId] as const,
   enrollmentStats: (courseId: string) => [...vacQueryKeys.all, 'enrollment-stats', courseId] as const,
   courseEnrollments: (courseId: string) => [...vacQueryKeys.all, 'course-enrollments', courseId] as const,
+  analytics: () => [...vacQueryKeys.all, 'analytics'] as const,
 };
 
 // ============================================
