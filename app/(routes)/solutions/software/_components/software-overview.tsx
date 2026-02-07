@@ -69,7 +69,7 @@ export function SoftwareOverview() {
             {solutionsLoading ? (
               <Skeleton className="h-8 w-16" />
             ) : (
-              <div className="text-2xl font-bold">{softwareSolutions?.count || 0}</div>
+              <div className="text-2xl font-bold">{softwareSolutions?.metadata?.total || 0}</div>
             )}
             <p className="text-xs text-muted-foreground">Software projects</p>
           </CardContent>
