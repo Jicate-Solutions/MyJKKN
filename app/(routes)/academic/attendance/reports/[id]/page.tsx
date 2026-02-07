@@ -770,6 +770,85 @@ export default function AttendanceReportDetailPage() {
                               </div>
                             </div>
                           </div>
+
+                          {/* P1.5.4 - Engagement Stats (shown when engagement data exists) */}
+                          {(() => {
+                            const engagedStudents = period.students?.filter(
+                              (s: any) => s.engagement_score && s.engagement_score > 0
+                            ) || [];
+                            if (engagedStudents.length === 0) return null;
+
+                            const avgScore = Math.round(
+                              (engagedStudents.reduce((sum: number, s: any) => sum + s.engagement_score, 0) / engagedStudents.length) * 10
+                            ) / 10;
+
+                            const allBehaviors: string[] = [];
+                            engagedStudents.forEach((s: any) => {
+                              if (s.learning_behaviors && Array.isArray(s.learning_behaviors)) {
+                                allBehaviors.push(...s.learning_behaviors);
+                              }
+                            });
+                            const behaviorCounts: Record<string, number> = {};
+                            allBehaviors.forEach(b => {
+                              behaviorCounts[b] = (behaviorCounts[b] || 0) + 1;
+                            });
+
+                            return (
+                              <div className='bg-white p-4 rounded-xl shadow-sm border border-amber-200'>
+                                <div className='flex items-center gap-2 mb-3'>
+                                  <Sparkles className='h-4 w-4 text-amber-600' />
+                                  <span className='text-sm font-semibold text-gray-700'>
+                                    Learning Engagement
+                                  </span>
+                                  {(period as any).engagement_required && (
+                                    <Badge className='bg-amber-100 text-amber-700 border-0 text-xs'>
+                                      Required
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className='grid grid-cols-2 gap-3 mb-3'>
+                                  <div className='text-center'>
+                                    <div className='flex items-center justify-center gap-0.5 mb-1'>
+                                      {[1, 2, 3, 4, 5].map(star => (
+                                        <Star
+                                          key={star}
+                                          className={`h-3.5 w-3.5 ${
+                                            star <= Math.round(avgScore)
+                                              ? 'text-amber-400 fill-amber-400'
+                                              : 'text-gray-300'
+                                          }`}
+                                        />
+                                      ))}
+                                    </div>
+                                    <p className='text-lg font-bold text-gray-900'>{avgScore}/5</p>
+                                    <p className='text-xs text-gray-500'>Avg. Score</p>
+                                  </div>
+                                  <div className='text-center'>
+                                    <p className='text-lg font-bold text-gray-900 mt-3'>
+                                      {engagedStudents.length}/{period.total_count}
+                                    </p>
+                                    <p className='text-xs text-gray-500'>Students Scored</p>
+                                  </div>
+                                </div>
+                                {Object.keys(behaviorCounts).length > 0 && (
+                                  <div className='flex flex-wrap gap-1'>
+                                    {Object.entries(behaviorCounts)
+                                      .sort(([, a], [, b]) => b - a)
+                                      .slice(0, 6)
+                                      .map(([behavior, count]) => (
+                                        <Badge
+                                          key={behavior}
+                                          variant='secondary'
+                                          className='text-[10px] bg-amber-50 text-amber-700 border-amber-200'
+                                        >
+                                          {LEARNING_BEHAVIOR_LABELS[behavior as LearningBehavior] || behavior} ({count})
+                                        </Badge>
+                                      ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </CardContent>
                     </Card>
