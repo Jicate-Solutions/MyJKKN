@@ -274,9 +274,9 @@ export function ContentOverview() {
             ) : (
               <div className="space-y-4">
                 {recentDeliverables.map((item) => {
-                  const Icon = divisionIcons[item.division || 'writing'] || FileText;
+                  const Icon = divisionIcons[item.order?.division || 'writing'] || FileText;
                   const status = statusConfig[item.status] || statusConfig.pending;
-                  const progress = item.progress_percentage || 0;
+                  const progress = statusProgress[item.status] || 0;
                   return (
                     <div key={item.id} className="space-y-2">
                       <div className="flex items-center justify-between">
