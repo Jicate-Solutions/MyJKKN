@@ -224,8 +224,8 @@ export default function PaymentsPage() {
                       <TableRow key={payment.id}>
                         <TableCell>
                           <div>
-                            <p className="font-medium">{payment.solution?.title || 'Unknown Solution'}</p>
-                            <p className="text-sm text-muted-foreground">{payment.solution?.solution_code || 'N/A'}</p>
+                            <p className="font-medium">{getSolutionTitle(payment)}</p>
+                            <p className="text-sm text-muted-foreground">{getSolutionCode(payment)}</p>
                           </div>
                         </TableCell>
                         <TableCell>
