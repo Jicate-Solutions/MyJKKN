@@ -1008,6 +1008,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/vac/my-courses',
+          label: 'My Courses',
+          active: pathname === '/vac/my-courses',
+          icon: BookMarked,
+          submenus: []
+        },
+        {
           href: '/vac/progress',
           label: 'My Progress',
           active: pathname === '/vac/progress',
