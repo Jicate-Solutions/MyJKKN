@@ -30,7 +30,13 @@ export interface TrainingProgramWithDetails extends TrainingProgram {
 }
 
 export interface TrainingSessionWithDetails extends TrainingSession {
-  program?: TrainingProgram;
+  program?: TrainingProgram & {
+    solution?: {
+      id: string;
+      title: string;
+      solution_code: string;
+    };
+  };
   assignments?: Array<
     CohortAssignment & {
       cohort_member?: {
