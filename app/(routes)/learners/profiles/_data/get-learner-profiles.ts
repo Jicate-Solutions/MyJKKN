@@ -8,6 +8,7 @@
 
 
 import { createClient } from '@/lib/supabase/server';
+import { buildLearnerSearchConditions } from '@/lib/utils/learner-search';
 
 
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
@@ -16,6 +17,9 @@ interface GetLearnerProfilesParams {
   page?: number;
   limit?: number;
   search?: string;
+  search_case_sensitive?: boolean;
+  search_exact_match?: boolean;
+  search_fields?: string[];
   lifecycle_status?: LifecycleStatus;
   institution_id?: string;
   degree_id?: string;
@@ -52,6 +56,12 @@ interface GetLearnerProfilesResult {
 export async function getLearnerProfiles(
   params: GetLearnerProfilesParams = {}
 ): Promise<GetLearnerProfilesResult> {
+  // Debug: Log all filter params received
+  if (process.env.NODE_ENV === 'development') {
+    const activeFilters = Object.entries(params).filter(([_, v]) => v !== undefined && v !== null);
+    console.log('[getLearnerProfiles] Filters received:', Object.fromEntries(activeFilters));
+  }
+
   // Apply cache profile for warm data (5 minutes)
 
   // Add cache tags for invalidation
@@ -68,6 +78,9 @@ export async function getLearnerProfiles(
     page = 1,
     limit = 10,
     search,
+    search_case_sensitive,
+    search_exact_match,
+    search_fields,
     lifecycle_status,
     institution_id,
     degree_id,
@@ -104,40 +117,14 @@ export async function getLearnerProfiles(
 
   // Apply filters - Parse advanced search format
   if (search) {
-    // Check if this is the new advanced search format: "name:John|roll:123|email:test@example.com"
-    if (search.includes('|') || search.includes(':')) {
-      // Parse the search format
-      const searchParts = search.split('|');
-      const searchConditions: string[] = [];
+    const searchConditions = buildLearnerSearchConditions(search, {
+      caseSensitive: search_case_sensitive,
+      exactMatch: search_exact_match,
+      searchFields: search_fields
+    });
 
-      searchParts.forEach(part => {
-        const [field, value] = part.split(':');
-        if (!field || !value) return;
-
-        const trimmedValue = value.trim();
-        if (!trimmedValue) return;
-
-        // Map field names to database columns
-        if (field === 'name') {
-          // Search in both first_name and last_name
-          searchConditions.push(`first_name.ilike.%${trimmedValue}%`);
-          searchConditions.push(`last_name.ilike.%${trimmedValue}%`);
-        } else if (field === 'roll') {
-          searchConditions.push(`roll_number.ilike.%${trimmedValue}%`);
-        } else if (field === 'email') {
-          searchConditions.push(`college_email.ilike.%${trimmedValue}%`);
-        }
-      });
-
-      // Apply the OR conditions if we have any
-      if (searchConditions.length > 0) {
-        query = query.or(searchConditions.join(','));
-      }
-    } else {
-      // Fallback to old search format (search all fields)
-      query = query.or(
-        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,application_id.ilike.%${search}%,roll_number.ilike.%${search}%,college_email.ilike.%${search}%`
-      );
+    if (searchConditions.length > 0) {
+      query = query.or(searchConditions.join(','));
     }
   }
 
@@ -218,39 +205,14 @@ export async function getLearnerProfiles(
 
   // Apply the same filters as the main query
   if (search) {
-    // Check if this is the new advanced search format
-    if (search.includes('|') || search.includes(':')) {
-      // Parse the search format
-      const searchParts = search.split('|');
-      const searchConditions: string[] = [];
+    const searchConditions = buildLearnerSearchConditions(search, {
+      caseSensitive: search_case_sensitive,
+      exactMatch: search_exact_match,
+      searchFields: search_fields
+    });
 
-      searchParts.forEach(part => {
-        const [field, value] = part.split(':');
-        if (!field || !value) return;
-
-        const trimmedValue = value.trim();
-        if (!trimmedValue) return;
-
-        // Map field names to database columns
-        if (field === 'name') {
-          searchConditions.push(`first_name.ilike.%${trimmedValue}%`);
-          searchConditions.push(`last_name.ilike.%${trimmedValue}%`);
-        } else if (field === 'roll') {
-          searchConditions.push(`roll_number.ilike.%${trimmedValue}%`);
-        } else if (field === 'email') {
-          searchConditions.push(`college_email.ilike.%${trimmedValue}%`);
-        }
-      });
-
-      // Apply the OR conditions if we have any
-      if (searchConditions.length > 0) {
-        countQuery = countQuery.or(searchConditions.join(','));
-      }
-    } else {
-      // Fallback to old search format
-      countQuery = countQuery.or(
-        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,application_id.ilike.%${search}%,roll_number.ilike.%${search}%,college_email.ilike.%${search}%`
-      );
+    if (searchConditions.length > 0) {
+      countQuery = countQuery.or(searchConditions.join(','));
     }
   }
   if (lifecycle_status) {

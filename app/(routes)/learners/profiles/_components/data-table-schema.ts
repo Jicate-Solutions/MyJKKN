@@ -18,6 +18,9 @@ export const profilesSearchParamsSchema = z.object({
 
   // Search
   search: z.string().optional(),
+  search_case_sensitive: z.string().optional(),
+  search_exact_match: z.string().optional(),
+  search_fields: z.string().optional(),
 
   // Filters
   institution_id: z.string().uuid().optional(),

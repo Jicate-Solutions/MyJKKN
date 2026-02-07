@@ -77,8 +77,7 @@ export default async function ChangeRequestsPage() {
     };
   }
 
-  // Fetch initial data — only pending on server render (most important).
-  // Approved/rejected are fetched with smaller limits to avoid query timeouts.
+  // Fetch all requests for each status (no pagination limit on server)
   let allRequests: Awaited<ReturnType<typeof LearnerProfileChangeService.getPendingRequests>>['data'] = [];
 
   try {
@@ -86,17 +85,14 @@ export default async function ChangeRequestsPage() {
       LearnerProfileChangeService.getPendingRequests({
         ...filters,
         status: 'pending',
-        limit: 100,
       }),
       LearnerProfileChangeService.getPendingRequests({
         ...filters,
         status: 'approved',
-        limit: 50,
       }),
       LearnerProfileChangeService.getPendingRequests({
         ...filters,
         status: 'rejected',
-        limit: 50,
       }),
     ]);
 

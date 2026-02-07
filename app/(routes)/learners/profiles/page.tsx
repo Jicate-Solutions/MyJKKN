@@ -69,10 +69,30 @@ async function ProfilesContent({
     }
   }
 
+  // Debug: Log raw searchParams received by server component
+  if (process.env.NODE_ENV === 'development') {
+    const filterKeys = ['institution_id', 'degree_id', 'department_id', 'program_id', 'semester_id', 'section_id'];
+    const activeFilters = filterKeys.filter(k => searchParams[k]);
+    console.log(`[ProfilesContent] statusFilter=${statusFilter} | Active filters: ${activeFilters.join(', ') || 'none'} | Raw params:`,
+      Object.fromEntries(filterKeys.map(k => [k, searchParams[k] || '(empty)'])));
+  }
+
   // Parse search parameters
   const page = Number(searchParams.page) || 1;
   const limit = Number(searchParams.pageSize) || Number(searchParams.limit) || 10; // Support both pageSize (DataTable) and limit (legacy)
   const search = (searchParams.search as string) || undefined;
+  const search_case_sensitive = searchParams.search_case_sensitive
+    ? searchParams.search_case_sensitive === 'true'
+    : undefined;
+  const search_exact_match = searchParams.search_exact_match
+    ? searchParams.search_exact_match === 'true'
+    : undefined;
+  const search_fields = (searchParams.search_fields as string | undefined)
+    ? (searchParams.search_fields as string)
+        .split(',')
+        .map((field) => field.trim())
+        .filter(Boolean)
+    : undefined;
   const institution_id = (searchParams.institution_id as string) || undefined;
   const degree_id = (searchParams.degree_id as string) || undefined;
   const department_id = (searchParams.department_id as string) || undefined;
@@ -92,6 +112,9 @@ async function ProfilesContent({
     page,
     limit,
     search,
+    search_case_sensitive,
+    search_exact_match,
+    search_fields,
     lifecycle_status: statusFilter,
     institution_id,
     degree_id,
@@ -121,6 +144,26 @@ async function ProfilesContent({
       {/* Filters (Client Component) - Hidden for students */}
       {!isStudent && (
         <ProfilesFilters searchParams={parsedParams} statusFilter={statusFilter as any} />
+      )}
+
+      {/* Debug: Active filter indicators (dev only) */}
+      {process.env.NODE_ENV === 'development' && !isStudent && (
+        <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded-md mt-2">
+          <span className="font-medium">Active Filters:</span>{' '}
+          {[
+            institution_id && `institution`,
+            degree_id && `degree`,
+            department_id && `department`,
+            program_id && `program`,
+            semester_id && `semester`,
+            section_id && `section`,
+            academic_year_id && `academic_year`,
+            gender && `gender=${gender}`,
+            is_profile_complete !== undefined && `profile_complete=${is_profile_complete}`,
+          ].filter(Boolean).join(', ') || 'none'}
+          {' | '}
+          <span className="font-medium">Results:</span> {metadata.total_items} total, showing page {metadata.page} of {metadata.total_pages}
+        </div>
       )}
 
       {/* Table */}
