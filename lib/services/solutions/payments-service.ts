@@ -166,46 +166,47 @@ export const RECIPIENT_NAMES: Record<string, string> = {
 // SERVICE CLASS
 // ============================================
 
-export class PaymentsService extends BaseService {
-  /** Reusable SELECT clause for payment queries with joins */
-  private static readonly PAYMENT_SELECT = `
-    *,
+/** Reusable SELECT clause for payment queries with joins */
+const PAYMENT_SELECT = `
+  *,
+  solution:sh_solutions(
+    id,
+    title,
+    solution_code,
+    client:sh_clients(id, name)
+  ),
+  phase:sh_solution_phases(
+    id,
+    title,
     solution:sh_solutions(
       id,
       title,
       solution_code,
       client:sh_clients(id, name)
-    ),
-    phase:sh_solution_phases(
+    )
+  ),
+  program:sh_training_programs(
+    id,
+    solution:sh_solutions(
       id,
       title,
-      solution:sh_solutions(
-        id,
-        title,
-        solution_code,
-        client:sh_clients(id, name)
-      )
-    ),
-    program:sh_training_programs(
+      solution_code,
+      client:sh_clients(id, name)
+    )
+  ),
+  order:sh_content_orders(
+    id,
+    solution:sh_solutions(
       id,
-      solution:sh_solutions(
-        id,
-        title,
-        solution_code,
-        client:sh_clients(id, name)
-      )
-    ),
-    order:sh_content_orders(
-      id,
-      solution:sh_solutions(
-        id,
-        title,
-        solution_code,
-        client:sh_clients(id, name)
-      )
-    ),
-    earnings:sh_earnings_ledger(*)
-  `;
+      title,
+      solution_code,
+      client:sh_clients(id, name)
+    )
+  ),
+  earnings:sh_earnings_ledger(*)
+`;
+
+export class PaymentsService extends BaseService {
   // ============================================
   // PAYMENT OPERATIONS
   // ============================================
