@@ -67,11 +67,23 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
       institution_id: course?.institution_id || '',
       course_code: course?.course_code || '',
       course_name: course?.course_name || '',
-      is_active: course?.is_active ?? true
+      is_active: course?.is_active ?? true,
+      theory_hours: course?.theory_hours ?? null,
+      practical_hours: course?.practical_hours ?? null,
+      self_study_hours: course?.self_study_hours ?? null,
+      learning_hours_target: course?.learning_hours_target ?? null
     }
   });
 
   const watchedInstitutionId = form.watch('institution_id');
+  const watchedTheory = form.watch('theory_hours');
+  const watchedPractical = form.watch('practical_hours');
+  const watchedSelfStudy = form.watch('self_study_hours');
+
+  const calculatedTotal =
+    (Number(watchedTheory) || 0) +
+    (Number(watchedPractical) || 0) +
+    (Number(watchedSelfStudy) || 0);
 
   useEffect(() => {
     async function loadInstitutions() {
