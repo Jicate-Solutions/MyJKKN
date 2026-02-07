@@ -113,8 +113,8 @@ export class ProductionService extends BaseService {
       query = query.eq('skill_level', filters.skill_level);
     }
 
-    if (filters?.status) {
-      query = query.eq('status', filters.status);
+    if (filters?.is_active !== undefined) {
+      query = query.eq('is_active', filters.is_active);
     }
 
     if (filters?.search) {
