@@ -96,7 +96,6 @@ export function useAlumniOutcomes(
     queryKey,
     queryFn,
     enabled: !authLoading && !!profile && !!filters.institution_id,
-    placeholderData: (previousData) => previousData,
     ...QUERY_CONFIG.DYNAMIC_DATA
   });
 }
@@ -257,7 +256,6 @@ export function useOutcomeCorrelations(
     queryKey,
     queryFn: () => OutcomeCorrelationService.getCorrelations(filters as OutcomeCorrelationFilters),
     enabled: !authLoading && !!profile && !!filters.institution_id,
-    placeholderData: (previousData) => previousData,
     ...QUERY_CONFIG.SEMI_STABLE_DATA
   });
 }
