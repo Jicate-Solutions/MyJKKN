@@ -195,17 +195,17 @@ export function TrainingOverview() {
                       {(session.program as any)?.solution?.title || 'Training Program'}
                     </p>
                     <div className="flex items-center gap-4 mt-2 text-sm">
-                      {session.scheduled_at && (
-                        <>
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {format(new Date(session.scheduled_at), 'dd MMM yyyy')}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {format(new Date(session.scheduled_at), 'hh:mm a')}
-                          </span>
-                        </>
+                      {session.session_date && (
+                        <span className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {format(new Date(session.session_date + 'T00:00:00'), 'dd MMM yyyy')}
+                        </span>
+                      )}
+                      {session.start_time && (
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {session.start_time.slice(0, 5)}
+                        </span>
                       )}
                       {session.location && (
                         <span className="flex items-center gap-1">
