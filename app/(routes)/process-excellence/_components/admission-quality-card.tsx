@@ -180,9 +180,19 @@ export function AdmissionQualityCard({ institutionId }: AdmissionQualityCardProp
                   ? `${current.first_contact_sla_pct.toFixed(0)}%`
                   : '--'}
               </span>
-              <span className={`text-[10px] ${slaOk ? 'text-green-600' : 'text-amber-600'}`}>
-                {slaOk ? '✓' : '⚠'}
-              </span>
+              {slaDelta.text ? (
+                <span
+                  className={`text-[10px] font-medium ${
+                    slaDelta.isPositive ? 'text-green-600' : 'text-red-500'
+                  }`}
+                >
+                  {slaDelta.text}
+                </span>
+              ) : (
+                <span className={`text-[10px] ${slaOk ? 'text-green-600' : 'text-amber-600'}`}>
+                  {slaOk ? '✓' : '⚠'}
+                </span>
+              )}
             </div>
             <div className="text-[10px] text-muted-foreground mt-0.5">
               Target: {SLA_TARGET}% within 4hrs
