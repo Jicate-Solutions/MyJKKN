@@ -84,10 +84,12 @@ export function SoftwareOverview() {
             {phaseStatsLoading ? (
               <Skeleton className="h-8 w-16" />
             ) : (
-              <div className="text-2xl font-bold">{phaseStats?.activePhases || 0}</div>
+              <div className="text-2xl font-bold">
+                {phaseStats ? phaseStats.total - (phaseStats.byStatus?.completed || 0) - (phaseStats.byStatus?.cancelled || 0) - (phaseStats.byStatus?.on_hold || 0) : 0}
+              </div>
             )}
             <p className="text-xs text-muted-foreground">
-              of {phaseStats?.totalPhases || 0} total
+              of {phaseStats?.total || 0} total
             </p>
           </CardContent>
         </Card>
