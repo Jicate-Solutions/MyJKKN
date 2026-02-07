@@ -45,7 +45,8 @@ export interface UpdateProductionLearnerInput {
   phone?: string;
   division?: ContentDivision;
   skill_level?: SkillLevel;
-  status?: string;
+  is_active?: boolean;
+  availability_status?: string;
 }
 
 export interface CreateProductionAssignmentInput {
