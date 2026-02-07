@@ -245,6 +245,34 @@ export function DiscountList({
     );
   };
 
+  const getOutcomeStatusBadge = (discount: BillingDiscount) => {
+    if (!discount.is_outcome_based) return null;
+
+    const verificationStatus = discount.outcome_verification?.status || 'pending';
+    const statusConfig = {
+      pending: {
+        className: 'bg-amber-100 text-amber-800 border-amber-200',
+        label: 'Outcome Pending'
+      },
+      verified: {
+        className: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+        label: 'Outcome Verified'
+      },
+      rejected: {
+        className: 'bg-red-100 text-red-800 border-red-200',
+        label: 'Outcome Rejected'
+      }
+    };
+
+    const config = statusConfig[verificationStatus as keyof typeof statusConfig] || statusConfig.pending;
+    return (
+      <Badge variant='outline' className={config.className}>
+        <Award className='mr-1 h-3 w-3' />
+        {config.label}
+      </Badge>
+    );
+  };
+
   return (
     <div className='space-y-4'>
       <div className='flex justify-between items-center'>
