@@ -69,6 +69,11 @@ export default function EditDiscountPage() {
         effective_date: discount.effective_date,
         expiry_date: discount.expiry_date
       });
+      // Initialize outcome-based fields
+      setIsOutcomeBased(discount.is_outcome_based || false);
+      if (discount.outcome_criteria) {
+        setOutcomeCriteria(discount.outcome_criteria);
+      }
     }
   }, [discount]);
 
