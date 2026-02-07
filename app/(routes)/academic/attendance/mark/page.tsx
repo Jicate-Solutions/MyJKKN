@@ -198,10 +198,10 @@ export default function AttendanceMarkPage() {
             semester_id,
             section_id,
             timetable_data,
-            academic_years(id, academic_year_name),
+            academic_years!timetables_academic_year_id_fkey(id, academic_year_name),
             degrees(id, degree_name),
             programs(id, program_name),
-            departments(id, department_name)
+            departments!timetables_department_id_fkey(id, department_name)
           `
           )
           .eq('id', timetableId);
