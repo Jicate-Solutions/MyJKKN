@@ -139,6 +139,9 @@ export function ProcessExcellenceDashboardContent() {
         </Card>
       </div>
 
+      {/* Admission Process Quality */}
+      <AdmissionQualityCard institutionId={selectedInstitutionId} />
+
       {/* SLA Distribution & Waste Breakdown */}
       <div className='grid gap-6 lg:grid-cols-2'>
         {/* SLA Distribution */}
