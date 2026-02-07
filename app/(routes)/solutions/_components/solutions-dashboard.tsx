@@ -10,7 +10,6 @@ import {
   BookOpen,
   Video,
   DollarSign,
-  Users,
   TrendingUp,
   Building2,
   FileText,
