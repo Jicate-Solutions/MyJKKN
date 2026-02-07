@@ -126,6 +126,9 @@ export interface UpdateStaffDto extends Partial<CreateStaffDto> {}
 
 export interface StaffFilters {
   search?: string;
+  search_case_sensitive?: boolean;
+  search_exact_match?: boolean;
+  search_fields?: string[];
   category_id?: string;
   institution_id?: string;
   institution_email?: string;

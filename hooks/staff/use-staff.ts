@@ -40,9 +40,13 @@ export function useStaff(
 ): UseQueryResult<StaffListResponse, Error> {
   const { profile, isLoading: authLoading } = useAuth();
 
-  // Create stable query key by serializing only the values that matter (no search - handled by DataTable)
+  // Create stable query key by serializing only the values that matter
   const queryKey = useMemo(() => {
     const stableFilters = {
+      search: filters.search || '',
+      search_case_sensitive: filters.search_case_sensitive ?? false,
+      search_exact_match: filters.search_exact_match ?? false,
+      search_fields: (filters.search_fields || []).join(','),
       category_id: filters.category_id || '',
       institution_id: filters.institution_id || '',
       department_id: filters.department_id || '',
@@ -58,6 +62,10 @@ export function useStaff(
       profile?.institution_id || ''
     ];
   }, [
+    filters.search,
+    filters.search_case_sensitive,
+    filters.search_exact_match,
+    filters.search_fields,
     filters.category_id,
     filters.institution_id,
     filters.department_id,

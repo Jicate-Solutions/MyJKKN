@@ -21,6 +21,10 @@ import type {
   StaffProfileAnalytics
 } from '@/types/staff';
 import toast from 'react-hot-toast';
+import {
+  buildStaffSearchConditions,
+  resolveStaffFiltersForUser
+} from '@/lib/utils/staff-search';
 
 interface CreateStaffDto {
   first_name: string;
@@ -347,9 +351,15 @@ export class StaffService {
 
       // Apply other filters AFTER institution filter
       if (filters.search) {
-        query = query.or(
-          `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,staff_id.ilike.%${filters.search}%`
-        );
+        const searchConditions = buildStaffSearchConditions(filters.search, {
+          caseSensitive: filters.search_case_sensitive,
+          exactMatch: filters.search_exact_match,
+          searchFields: filters.search_fields
+        });
+
+        if (searchConditions.length > 0) {
+          query = query.or(searchConditions.join(','));
+        }
       }
 
       if (filters.category_id) {
@@ -425,9 +435,14 @@ export class StaffService {
     }
   ): Promise<StaffListResponse> {
     try {
+      const effectiveFilters = resolveStaffFiltersForUser(filters, {
+        role: userProfile?.role || '',
+        institution_id: userProfile?.institution_id
+      });
+
       // Super admins see all staff
       if (userProfile?.is_super_admin) {
-        return await this.getStaff(filters);
+        return await this.getStaff(effectiveFilters);
       }
 
       // Faculty users can only view their own staff record
@@ -436,7 +451,10 @@ export class StaffService {
           '[staff-service] Applied faculty self-only filter for:',
           userProfile.email
         );
-        return await this.getStaffForFacultyUser(filters, userProfile.email);
+        return await this.getStaffForFacultyUser(
+          effectiveFilters,
+          userProfile.email
+        );
       }
 
       // If user is HOD and has an institution, automatically filter by their institution
@@ -444,7 +462,6 @@ export class StaffService {
         userProfile?.role === 'hod' &&
         userProfile.institution_id
       ) {
-        filters.institution_id = userProfile.institution_id;
         console.log(
           'Applied HOD institution filter:',
           userProfile.institution_id
@@ -452,13 +469,13 @@ export class StaffService {
 
         // For HOD users, use optimized query with explicit institution filtering
         return await this.getStaffOptimizedForHOD(
-          filters,
+          effectiveFilters,
           userProfile.institution_id
         );
       }
 
       // Use the existing getStaff method with enhanced filters
-      return await this.getStaff(filters);
+      return await this.getStaff(effectiveFilters);
     } catch (error) {
       console.error('Error fetching staff with role-based filtering:', error);
       throw error;
@@ -555,13 +572,23 @@ export class StaffService {
 
       // Apply other filters
       if (filters.search) {
-        query = query.or(
-          `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,staff_id.ilike.%${filters.search}%`
-        );
+        const searchConditions = buildStaffSearchConditions(filters.search, {
+          caseSensitive: filters.search_case_sensitive,
+          exactMatch: filters.search_exact_match,
+          searchFields: filters.search_fields
+        });
+
+        if (searchConditions.length > 0) {
+          query = query.or(searchConditions.join(','));
+        }
       }
 
       if (filters.category_id) {
         query = query.eq('category_id', filters.category_id);
+      }
+
+      if (filters.department_id) {
+        query = query.eq('department_id', filters.department_id);
       }
 
       if (filters.institution_id) {

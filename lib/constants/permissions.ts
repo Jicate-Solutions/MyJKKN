@@ -240,8 +240,10 @@ export const PERMISSION_CATEGORIES = [
 
       // Specific Page Access (Granular Permissions)
       // Admin Features
+      { key: 'learners.dashboard.view', label: 'View Learners Analytics Dashboard' },
       { key: 'learners.profiles.view', label: 'View Learner Profiles (Admin)' },
       { key: 'learners.alumni.view', label: 'View Alumni & Graduates (Admin)' },
+      { key: 'learners.bug_reports.view', label: 'View Bug Reports & Leaderboard' },
 
       // Learner Portal Features (Student Self-Service)
       { key: 'learners.my-timetable.view', label: 'View My Timetable (Students)' },
@@ -587,9 +589,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'system.bugs.view', label: 'View All Bug Reports (Admin)' },
       { key: 'audit.view', label: 'View Audit Trail' },
       { key: 'users.dashboard.view', label: 'View User Analytics Dashboard' },
-      { key: 'learners.dashboard.view', label: 'View Learners Analytics Dashboard' },
-      { key: 'ai_query.view', label: 'Access AI Assistant' },
-      { key: 'learners.bug_reports.view', label: 'View Bug Reports & Leaderboard' }
+      { key: 'ai_query.view', label: 'Access AI Assistant' }
     ]
   }
 ];

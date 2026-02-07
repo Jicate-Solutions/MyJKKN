@@ -236,6 +236,13 @@ class RouteMatcher {
    * @param userRole - User's role (for static checks)
    * @param userPermissions - User's permission object (for dynamic checks)
    * @returns true if user has access, false otherwise
+   *
+   * NOTE: For built-in roles (faculty, hod, staff, etc.), userPermissions is
+   * typically undefined because the middleware only fetches permissions for custom roles.
+   * In this case, routes matched by the permission trie (MENU_PERMISSIONS) will fall
+   * through to allow access. Fine-grained permission enforcement for built-in roles
+   * happens client-side via the usePermissions hook.
+   * Only PROTECTED_ROUTES static role checks are enforced in middleware for built-in roles.
    */
   hasAccess(
     path: string,
@@ -247,13 +254,19 @@ class RouteMatcher {
     // If no match found, path is not protected
     if (!config) return true;
 
-    // If route has dynamic permission requirement
+    // If route has dynamic permission requirement and permissions are provided
     if (config.permission && userPermissions) {
       // Check if user has the required permission
       return userPermissions[config.permission] === true;
     }
 
-    // Fallback to static role checking
+    // If route has dynamic permission requirement but no permissions provided
+    // (built-in roles), allow access - client-side enforces fine-grained permissions
+    if (config.permission && !userPermissions) {
+      return true;
+    }
+
+    // Static role checking (from PROTECTED_ROUTES)
     if (config.roles && config.roles.length > 0) {
       return config.roles.includes(userRole);
     }

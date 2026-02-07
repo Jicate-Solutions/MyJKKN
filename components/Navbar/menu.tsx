@@ -49,6 +49,13 @@ export function Menu({ isOpen }: MenuProps) {
     };
   }, [userProfile, permissions, isSuperAdmin]);
 
+  // Debug: Log permission state for troubleshooting
+  if (process.env.NODE_ENV === 'development' && roleData && !permissionsLoading) {
+    const permCount = Object.keys(roleData.permissions).length;
+    const trueCount = Object.values(roleData.permissions).filter(v => v === true).length;
+    console.log(`[Menu] Role: ${roleData.role_key} | Permissions: ${trueCount}/${permCount} true`);
+  }
+
   // Use the role-based menu with merged permissions
   const pages = GetRoleBasedPages(pathname, roleData);
 

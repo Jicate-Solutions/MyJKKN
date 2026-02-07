@@ -148,7 +148,7 @@ export async function proxy(request: NextRequest) {
     let profile = profileCache.get(user.id);
 
     if (!profile) {
-      // Cache miss - fetch from database
+      // Cache miss - fetch from database with retry on transient failure
       const { data, error: profileError } = await supabase
         .from('profiles')
         .select('*')
@@ -156,12 +156,33 @@ export async function proxy(request: NextRequest) {
         .single();
 
       if (profileError) {
-        // FIXED: Clear cache on profile fetch error
-        profileCache.invalidate(user.id);
-        return NextResponse.redirect(new URL('/unauthorized', request.url));
+        console.error('[Proxy] Profile fetch failed (attempt 1):', profileError.code, profileError.message);
+
+        // Retry once after short delay for transient errors (timeout, network, etc.)
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const { data: retryData, error: retryError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (retryError) {
+          console.error('[Proxy] Profile fetch failed (attempt 2):', retryError.code, retryError.message);
+          profileCache.invalidate(user.id);
+
+          // FIXED: Redirect to login with error context instead of /unauthorized
+          // /unauthorized is for permission issues, not transient fetch failures
+          const redirectUrl = new URL('/auth/login', request.url);
+          redirectUrl.searchParams.set('error', 'profile_load_failed');
+          redirectUrl.searchParams.set('redirectedFrom', currentPath);
+          return NextResponse.redirect(redirectUrl);
+        }
+
+        profile = retryData;
+      } else {
+        profile = data;
       }
 
-      profile = data;
       // Store in cache for future requests (5-minute TTL)
       profileCache.set(user.id, profile);
     }
