@@ -92,7 +92,6 @@ export function useFacilitatorDevelopments(
     queryKey,
     queryFn,
     enabled: !authLoading && !!profile && !!filters.institution_id,
-    placeholderData: (previousData) => previousData,
     ...QUERY_CONFIG.DYNAMIC_DATA
   });
 }
@@ -235,7 +234,6 @@ export function useImmersions(
     queryKey,
     queryFn: () => FacilitatorImmersionService.getImmersions(filters as ImmersionFilters),
     enabled: !authLoading && !!profile,
-    placeholderData: (previousData) => previousData,
     ...QUERY_CONFIG.DYNAMIC_DATA
   });
 }
