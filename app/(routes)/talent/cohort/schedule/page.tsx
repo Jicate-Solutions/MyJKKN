@@ -125,7 +125,7 @@ export default function MySchedulePage() {
                   <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4" />
-                      {formatDateTime(assignment.session?.scheduled_at || null)}
+                      {formatDateTime(assignment.session?.session_date || null)}
                     </div>
                     {assignment.session?.location && (
                       <div className="flex items-center gap-2">
@@ -176,7 +176,7 @@ export default function MySchedulePage() {
                   <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4" />
-                      {formatDateTime(assignment.session?.scheduled_at || null)}
+                      {formatDateTime(assignment.session?.session_date || null)}
                     </div>
                   </div>
                 </CardContent>
