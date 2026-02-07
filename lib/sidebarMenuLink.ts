@@ -1741,6 +1741,41 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      groupLabel: 'Accountability',
+      menus: [
+        {
+          href: '/alumni',
+          label: 'Alumni Outcomes',
+          active: pathname === '/alumni' || pathname.startsWith('/alumni/outcomes'),
+          icon: Award,
+          submenus: [
+            {
+              href: '/alumni',
+              label: 'Dashboard',
+              active: pathname === '/alumni'
+            },
+            {
+              href: '/alumni/outcomes',
+              label: 'All Outcomes',
+              active: pathname === '/alumni/outcomes'
+            },
+            {
+              href: '/alumni/outcomes/new',
+              label: 'Record Outcome',
+              active: pathname === '/alumni/outcomes/new'
+            }
+          ]
+        },
+        {
+          href: '/alumni/effectiveness',
+          label: 'Program Effectiveness',
+          active: pathname === '/alumni/effectiveness',
+          icon: TrendingUp,
+          submenus: []
+        }
+      ]
+    },
+    {
       groupLabel: 'Learners Management',
       menus: [
         // Learner Portal (Student Self-Service) - Only for role='student'
