@@ -10,8 +10,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PenSquare, ArrowLeft, Award, Target, Users, TrendingUp, GraduationCap, Briefcase, Star } from 'lucide-react';
-import type { Staff, StaffRoleType, FacilitatorCertification, StaffOutcomeMetrics } from '@/types/staff';
-import { Progress } from '@/components/ui/progress';
+import type { Staff, FacilitatorCertification } from '@/types/staff';
 import {
   Breadcrumb,
   BreadcrumbItem,
