@@ -59,7 +59,6 @@ export interface CreateContentOrderInput {
   solution_id: string;
   order_type?: ContentOrderType;
   quantity?: number;
-  style_preference?: string;
   brand_guidelines_url?: string;
   division?: ContentDivision;
   due_date?: string;
