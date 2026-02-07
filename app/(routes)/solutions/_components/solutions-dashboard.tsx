@@ -42,6 +42,15 @@ export function SolutionsDashboard() {
 
   const isLoading = statsLoading || buildersLoading || cohortLoading || contentLoading || phasesLoading;
 
+  // Compute active phases from byStatus (all statuses that are in-progress work)
+  const activePhaseCount = phaseStats?.byStatus
+    ? Object.entries(phaseStats.byStatus)
+        .filter(([status]) =>
+          ['prospecting', 'discovery', 'prd_writing', 'prototype_building', 'client_demo', 'revisions', 'approved', 'deploying', 'training'].includes(status)
+        )
+        .reduce((sum, [, count]) => sum + count, 0)
+    : 0;
+
   return (
     <div className="space-y-6">
       {/* Quick Actions */}
