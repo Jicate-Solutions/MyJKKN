@@ -5,7 +5,8 @@ import type {
   DiscountListResponse,
   CreateDiscountDto,
   UpdateDiscountDto,
-  BulkOperationResult
+  BulkOperationResult,
+  OutcomeVerification
 } from '@/types/billing-schedule';
 
 export class BillingDiscountService {
