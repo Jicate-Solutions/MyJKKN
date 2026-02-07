@@ -235,7 +235,6 @@ export class ContentService extends BaseService {
         solution_id: input.solution_id,
         order_type: input.order_type,
         quantity: input.quantity ?? 1,
-        style_preference: input.style_preference,
         brand_guidelines_url: input.brand_guidelines_url,
         division: input.division,
         due_date: input.due_date,
