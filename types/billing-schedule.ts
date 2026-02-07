@@ -59,8 +59,12 @@ export interface OutcomeCondition {
  */
 export interface OutcomeCriteria {
   type: OutcomeCriteriaType;
+  competency_ids?: string[];
   required_competencies?: string[];
+  min_proficiency?: 'beginner' | 'intermediate' | 'advanced' | 'expert';
   minimum_level?: 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert';
+  min_score?: number;
+  evaluation_period_days?: number;
   industry_readiness_threshold?: number;
   or_conditions?: OutcomeCondition[];
 }
