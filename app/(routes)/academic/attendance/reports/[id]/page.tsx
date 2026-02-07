@@ -904,6 +904,9 @@ export default function AttendanceReportDetailPage() {
                                 <TableHead className='text-center'>
                                   Status
                                 </TableHead>
+                                <TableHead className='text-center'>
+                                  Engagement
+                                </TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
