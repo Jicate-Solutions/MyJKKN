@@ -127,7 +127,7 @@ export function ProductionLearnerCard({ learner }: ProductionLearnerCardProps) {
                 <Star className="h-3 w-3" />
               </div>
               <p className="text-lg font-semibold">
-                {learner.avg_rating?.toFixed(1) || '-'}
+                {learner.average_rating?.toFixed(1) || '-'}
               </p>
               <p className="text-xs text-muted-foreground">Rating</p>
             </div>
