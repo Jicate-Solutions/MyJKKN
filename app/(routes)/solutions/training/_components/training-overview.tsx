@@ -192,7 +192,7 @@ export function TrainingOverview() {
                   <div className="flex-1">
                     <p className="font-medium">{session.title || `Session ${session.session_number}`}</p>
                     <p className="text-sm text-muted-foreground">
-                      {session.program?.solution?.title || 'Training Program'}
+                      {(session.program as any)?.solution?.title || 'Training Program'}
                     </p>
                     <div className="flex items-center gap-4 mt-2 text-sm">
                       {session.scheduled_at && (
