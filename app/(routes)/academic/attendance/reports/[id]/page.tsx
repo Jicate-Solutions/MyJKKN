@@ -1053,7 +1053,7 @@ export default function AttendanceReportDetailPage() {
                                   ) : (
                                     <TableRow>
                                       <TableCell
-                                        colSpan={5}
+                                        colSpan={6}
                                         className='text-center py-8 text-gray-500'
                                       >
                                         No students found matching &quot;
