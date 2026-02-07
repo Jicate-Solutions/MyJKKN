@@ -78,14 +78,14 @@ export interface CreateDeliverableInput {
   order_id: string;
   title: string;
   file_url?: string;
-  file_type?: string;
+  file_format?: string;
   notes?: string;
 }
 
 export interface UpdateDeliverableInput {
   title?: string;
   file_url?: string;
-  file_type?: string;
+  file_format?: string;
   status?: DeliverableStatus;
   notes?: string;
 }
