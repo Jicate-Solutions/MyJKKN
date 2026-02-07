@@ -26,7 +26,9 @@ import { useCreateBillingDiscount } from '@/hooks/billing/use-billing-discounts'
 import type {
   DiscountCategory,
   DiscountType,
-  CreateDiscountDto
+  CreateDiscountDto,
+  OutcomeCriteria,
+  OutcomeCriteriaType
 } from '@/types/billing-schedule';
 import {
   Table,
