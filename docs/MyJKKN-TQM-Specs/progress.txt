@@ -639,4 +639,29 @@ Applied via Supabase MCP `apply_migration` (name: admission_workflow_configs_and
 - No TypeScript errors in new files
 - Code pushed to omm-dev, Vercel auto-deploying
 
-### Phase 4G: Browser Test — PENDING
+### Phase 4G: Browser Test ✅ COMPLETE
+- Logged in to myjkkn-omm-dev.vercel.app with test credentials
+- **Workflow Config page (/admission/workflow-config):**
+  - All 10 sections render: Workflow Configuration, Config Name, Academic Year, Assessment, Entrance Exam, Admission Stages, Required Documents, Quota Configuration, SLA Thresholds, Save Configuration
+  - 14 admission stages displayed with New and Enrolled marked as required
+  - Document checkboxes, quota toggles, SLA inputs all render
+  - Sidebar shows "Workflow Config" under Settings submenu
+- **Group Dashboard page (/admission/group-dashboard):**
+  - Totals: 53 leads, 17 applied, 1 enrolled (real data from DB)
+  - Institution comparison table: 11 institutions, JKKN College of Engineering has 53/17/1
+  - Seat Fill Status: "No seat configuration found" (expected)
+  - Cross-Campus Duplicates: "No cross-campus duplicates found" (all leads in one institution)
+  - NAAC report generates on click: Shows all institutions x 5 years, 1 enrolled in 2025-26
+  - CSV export button appears when report is shown
+  - Sidebar shows "Group Dashboard" with Building2 icon
+
+## PHASE 4: Institution Workflow Mapping ✅ COMPLETE
+
+---
+
+Last Updated: 2026-02-07
+Status: ALL 4 PHASES COMPLETE
+- Phase 1: Module Verification - 30/30 items verified (10 fixed, 15 clean, 5 mock-only)
+- Phase 2: Counselor Daily View - Full "My Day" page with KPIs, follow-ups, pipeline
+- Phase 3: TQM Integration - Admission Quality Card in Process Excellence dashboard
+- Phase 4: Institution Workflow Mapping - Workflow Config + Group Dashboard + NAAC Report
