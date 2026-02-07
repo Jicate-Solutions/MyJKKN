@@ -129,6 +129,9 @@ export default function AttendanceMarkPage() {
 
   const { saveConsolidatedAttendance } = useConsolidatedAttendance();
 
+  // P1.5.4 - Helper: is this a practical/lab period where engagement is required?
+  const isEngagementRequired = periodMode === 'practical' || isSubdividedSlot;
+
   // Filter students based on search
   const filteredStudents = useMemo(() => {
     if (!searchTerm) return students;
