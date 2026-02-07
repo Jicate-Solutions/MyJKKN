@@ -1010,6 +1010,44 @@ export default function AttendanceReportDetailPage() {
                                               : 'Absent'}
                                           </Badge>
                                         </TableCell>
+                                        <TableCell className='text-center'>
+                                          {(student as any).engagement_score ? (
+                                            <div className='flex flex-col items-center gap-1'>
+                                              <div className='flex items-center gap-0.5'>
+                                                {[1, 2, 3, 4, 5].map(star => (
+                                                  <Star
+                                                    key={star}
+                                                    className={`h-3 w-3 ${
+                                                      star <= (student as any).engagement_score
+                                                        ? 'text-amber-400 fill-amber-400'
+                                                        : 'text-gray-300'
+                                                    }`}
+                                                  />
+                                                ))}
+                                              </div>
+                                              {(student as any).learning_behaviors &&
+                                                (student as any).learning_behaviors.length > 0 && (
+                                                  <div className='flex flex-wrap justify-center gap-0.5'>
+                                                    {(student as any).learning_behaviors.slice(0, 2).map((b: string) => (
+                                                      <span
+                                                        key={b}
+                                                        className='text-[9px] px-1 py-0.5 bg-amber-50 text-amber-700 rounded'
+                                                      >
+                                                        {LEARNING_BEHAVIOR_LABELS[b as LearningBehavior] || b}
+                                                      </span>
+                                                    ))}
+                                                    {(student as any).learning_behaviors.length > 2 && (
+                                                      <span className='text-[9px] text-gray-400'>
+                                                        +{(student as any).learning_behaviors.length - 2}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                )}
+                                            </div>
+                                          ) : (
+                                            <span className='text-xs text-gray-400'>-</span>
+                                          )}
+                                        </TableCell>
                                       </TableRow>
                                     ))
                                   ) : (
