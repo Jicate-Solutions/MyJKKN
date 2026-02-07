@@ -445,6 +445,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/parent-portal/communications': 'tqm.parent_portal.communication.view',
   '/parent-portal/communications/new': 'tqm.parent_portal.communication.view',
   '/parent-portal/communication': 'tqm.parent_portal.communication.view',
+  '/parent-portal/[id]': 'tqm.parent_portal.view',
   '/parent-portal/feedback': 'tqm.parent_portal.feedback.view',
   '/grievance': 'tqm.grievance.view',
   '/grievance/tickets': 'tqm.grievance.tickets.view',
