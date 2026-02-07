@@ -10,7 +10,8 @@ import {
   FileText,
   User,
   Calendar,
-  Percent
+  Percent,
+  Award
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
