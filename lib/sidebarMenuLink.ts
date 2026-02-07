@@ -1039,6 +1039,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/vac/admin/courses/new'
             },
             {
+              href: '/vac/admin/enrollments',
+              label: 'Enrollments',
+              active: pathname === '/vac/admin/enrollments'
+            },
+            {
               href: '/vac/admin/analytics',
               label: 'Analytics',
               active: pathname === '/vac/admin/analytics'
