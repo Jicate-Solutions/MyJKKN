@@ -101,6 +101,14 @@ export default function AttendanceMarkPage() {
   const [assignedStaff, setAssignedStaff] = useState<any[]>([]);
   const [loadingStaff, setLoadingStaff] = useState(false);
 
+  // P1.5.4 - Learning Engagement state
+  const [engagementData, setEngagementData] = useState<
+    Record<string, { score?: number; behaviors?: LearningBehavior[]; notes?: string }>
+  >({});
+
+  // Helper: is this a practical/lab period where engagement is required?
+  const isEngagementRequired = periodMode === 'practical' || isSubdividedSlot;
+
   // State for subdivided slot detection (Updated: 2025-10-11)
   const [isSubdividedSlot, setIsSubdividedSlot] = useState(false);
   const [subdivisionGroups, setSubdivisionGroups] = useState<
