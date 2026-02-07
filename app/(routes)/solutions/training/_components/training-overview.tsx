@@ -218,7 +218,7 @@ export function TrainingOverview() {
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary">
                       <Users className="mr-1 h-3 w-3" />
-                      {session.cohort_count || 0} cohort
+                      {(session as any).assignments?.length || 0} cohort
                     </Badge>
                   </div>
                 </div>
