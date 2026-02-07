@@ -76,6 +76,8 @@ export interface OutcomeVerification {
   verified: boolean;
   verified_at?: string;
   verified_by?: string;
+  evidence_urls?: string[];
+  status?: 'pending' | 'verified' | 'rejected';
   competencies_verified?: string[];
   readiness_score_at_verification?: number;
   notes?: string;
