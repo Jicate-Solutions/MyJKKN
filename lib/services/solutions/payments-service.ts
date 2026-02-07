@@ -324,40 +324,7 @@ export class PaymentsService extends BaseService {
    */
   static async getPaymentById(id: string): Promise<PaymentWithDetails | null> {
     const { data, error } = await (this.supabase as any).from('sh_payments')
-      .select(
-        `
-        *,
-        phase:sh_solution_phases(
-          id,
-          title,
-          solution:sh_solutions(
-            id,
-            title,
-            solution_code,
-            client:sh_clients(id, name)
-          )
-        ),
-        program:sh_training_programs(
-          id,
-          solution:sh_solutions(
-            id,
-            title,
-            solution_code,
-            client:sh_clients(id, name)
-          )
-        ),
-        order:sh_content_orders(
-          id,
-          solution:sh_solutions(
-            id,
-            title,
-            solution_code,
-            client:sh_clients(id, name)
-          )
-        ),
-        earnings:sh_earnings_ledger(*)
-      `
-      )
+      .select(PAYMENT_SELECT)
       .eq('id', id)
       .single();
 
