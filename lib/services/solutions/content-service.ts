@@ -479,7 +479,7 @@ export class ContentService extends BaseService {
         order_id: input.order_id,
         title: input.title,
         file_url: input.file_url,
-        file_type: input.file_type,
+        file_format: input.file_format,
         notes: input.notes,
         status: 'pending' as DeliverableStatus,
         revision_count: 0,
