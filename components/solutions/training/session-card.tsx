@@ -31,7 +31,7 @@ export function SessionCard({
 }: SessionCardProps) {
   const statusInfo = sessionStatusConfig[session.status]
   const isScheduled = session.status === 'scheduled'
-  const scheduledDate = session.scheduled_at ? new Date(session.scheduled_at) : null
+  const scheduledDate = session.session_date ? new Date(session.session_date + 'T00:00:00') : null
   const isSessionToday = scheduledDate && isToday(scheduledDate)
   const isSessionPast = scheduledDate && isPast(scheduledDate) && !isToday(scheduledDate)
 
