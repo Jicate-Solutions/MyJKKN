@@ -398,7 +398,7 @@ export class ProductionService extends BaseService {
       `
       )
       .eq('learner_id', learnerId)
-      .order('assigned_at', { ascending: false });
+      .order('requested_at', { ascending: false });
 
     if (error) throw new Error(`Failed to fetch assignments: ${error.message}`);
     return data as ProductionAssignmentWithDetails[];
