@@ -299,8 +299,126 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
                 {staff.department?.department_name}
               </p>
             </div>
+            <div>
+              <p className='font-medium'>Role Type</p>
+              <Badge variant={staff.role_type === 'facilitator' || staff.role_type === 'hybrid' ? 'default' : 'secondary'} className='capitalize'>
+                {(staff.role_type || 'teacher').replace('_', ' ')}
+              </Badge>
+            </div>
           </CardContent>
         </Card>
+
+        {/* Facilitator & Outcomes */}
+        {(staff.role_type && staff.role_type !== 'teacher') && (
+          <>
+            {/* Certifications */}
+            <Card>
+              <CardHeader>
+                <CardTitle className='flex items-center gap-2'>
+                  <Award className='h-5 w-5 text-primary' />
+                  Facilitator Certifications
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {staff.facilitator_certification && staff.facilitator_certification.length > 0 ? (
+                  <div className='space-y-3'>
+                    {staff.facilitator_certification.map((cert: FacilitatorCertification, index: number) => (
+                      <div key={index} className='flex items-start justify-between p-3 rounded-lg border'>
+                        <div className='space-y-1'>
+                          <p className='font-medium'>{cert.certification_name}</p>
+                          <p className='text-sm text-muted-foreground'>{cert.issuing_body}</p>
+                          <p className='text-xs text-muted-foreground'>
+                            Issued: {format(new Date(cert.issue_date), 'PP')}
+                            {cert.expiry_date && ` | Expires: ${format(new Date(cert.expiry_date), 'PP')}`}
+                          </p>
+                        </div>
+                        {cert.certificate_url && (
+                          <a
+                            href={cert.certificate_url}
+                            target='_blank'
+                            rel='noopener noreferrer'
+                            className='text-xs text-primary hover:underline'
+                          >
+                            View Certificate
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className='text-sm text-muted-foreground'>No certifications recorded yet.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Outcome Metrics */}
+            <Card>
+              <CardHeader>
+                <CardTitle className='flex items-center gap-2'>
+                  <Target className='h-5 w-5 text-primary' />
+                  Outcome Metrics
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {staff.outcome_metrics && Object.keys(staff.outcome_metrics).length > 0 ? (
+                  <div className='space-y-4'>
+                    <div className='grid gap-4 md:grid-cols-3'>
+                      <div className='p-3 rounded-lg border text-center'>
+                        <Users className='h-5 w-5 mx-auto mb-1 text-muted-foreground' />
+                        <p className='text-2xl font-bold'>{staff.outcome_metrics.learners_mentored ?? '—'}</p>
+                        <p className='text-xs text-muted-foreground'>Learners Mentored</p>
+                      </div>
+                      <div className='p-3 rounded-lg border text-center'>
+                        <TrendingUp className='h-5 w-5 mx-auto mb-1 text-muted-foreground' />
+                        <p className='text-2xl font-bold'>
+                          {staff.outcome_metrics.average_competency_improvement != null
+                            ? `${staff.outcome_metrics.average_competency_improvement}%`
+                            : '—'}
+                        </p>
+                        <p className='text-xs text-muted-foreground'>Avg Competency Improvement</p>
+                      </div>
+                      <div className='p-3 rounded-lg border text-center'>
+                        <GraduationCap className='h-5 w-5 mx-auto mb-1 text-muted-foreground' />
+                        <p className='text-2xl font-bold'>{staff.outcome_metrics.courses_with_competency_mapping ?? '—'}</p>
+                        <p className='text-xs text-muted-foreground'>Courses Mapped</p>
+                      </div>
+                      <div className='p-3 rounded-lg border text-center'>
+                        <Briefcase className='h-5 w-5 mx-auto mb-1 text-muted-foreground' />
+                        <p className='text-2xl font-bold'>{staff.outcome_metrics.industry_projects_facilitated ?? '—'}</p>
+                        <p className='text-xs text-muted-foreground'>Industry Projects</p>
+                      </div>
+                      <div className='p-3 rounded-lg border text-center'>
+                        <Star className='h-5 w-5 mx-auto mb-1 text-muted-foreground' />
+                        <p className='text-2xl font-bold'>
+                          {staff.outcome_metrics.placement_success_rate != null
+                            ? `${staff.outcome_metrics.placement_success_rate}%`
+                            : '—'}
+                        </p>
+                        <p className='text-xs text-muted-foreground'>Placement Success</p>
+                      </div>
+                      <div className='p-3 rounded-lg border text-center'>
+                        <Star className='h-5 w-5 mx-auto mb-1 text-muted-foreground' />
+                        <p className='text-2xl font-bold'>
+                          {staff.outcome_metrics.student_satisfaction_score != null
+                            ? `${staff.outcome_metrics.student_satisfaction_score}/5`
+                            : '—'}
+                        </p>
+                        <p className='text-xs text-muted-foreground'>Student Satisfaction</p>
+                      </div>
+                    </div>
+                    {staff.outcome_metrics.last_computed && (
+                      <p className='text-xs text-muted-foreground text-right'>
+                        Last computed: {format(new Date(staff.outcome_metrics.last_computed), 'PPp')}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className='text-sm text-muted-foreground'>No outcome metrics recorded yet.</p>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </ContentLayout>
   );
