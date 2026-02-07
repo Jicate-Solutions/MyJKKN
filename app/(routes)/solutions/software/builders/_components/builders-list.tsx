@@ -105,7 +105,7 @@ export function BuildersList() {
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 py-4">
-            <Wallet className="h-8 w-8 text-green-500" />
+            <Code2 className="h-8 w-8 text-green-500" />
             <div>
               {statsLoading ? (
                 <Skeleton className="h-8 w-20" />
