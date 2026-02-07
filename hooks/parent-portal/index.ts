@@ -48,3 +48,21 @@ export {
   useCompleteRegistration,
   useLogActivity,
 } from './use-parent-auth';
+
+// Admin Access Management hooks
+export {
+  parentAccessKeys,
+  adminCommunicationKeys,
+  useParentAccessRecords,
+  useParentAccessRecord,
+  useParentAccessStats,
+  useCreateParentAccess,
+  useUpdateParentAccess,
+  useToggleParentAccess,
+  useRegenerateAccessCode,
+  useDeleteParentAccess,
+  useAdminCommunications,
+  useAdminCommunicationStats,
+  useSendAdminCommunication,
+  useDeleteAdminCommunication,
+} from './use-parent-portal';
