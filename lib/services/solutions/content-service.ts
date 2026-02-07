@@ -2,6 +2,7 @@
 // CRUD operations for sh_content_orders, sh_content_deliverables
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   ContentOrder,
   ContentDeliverable,
