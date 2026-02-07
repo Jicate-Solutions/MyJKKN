@@ -3783,4 +3783,229 @@ export class AttendanceService {
       return null;
     }
   }
+
+  // =====================
+  // P1.5.4 - LEARNING ENGAGEMENT METHODS
+  // =====================
+
+  /**
+   * Update engagement data for a specific student in an existing attendance record.
+   * Patches the attendance_data JSONB without overwriting other fields.
+   *
+   * @param attendanceId - The consolidated_student_attendance record ID
+   * @param periodId - The period slot ID within attendance_data
+   * @param studentId - The student whose engagement to update
+   * @param engagement - The engagement data to set
+   */
+  static async updateEngagement(
+    attendanceId: string,
+    periodId: string,
+    studentId: string,
+    engagement: { score: number; behaviors?: string[]; notes?: string }
+  ): Promise<boolean> {
+    try {
+      // 1. Fetch the existing attendance record
+      const { data: record, error: fetchError } = await this.supabase
+        .from('consolidated_student_attendance')
+        .select('attendance_data')
+        .eq('id', attendanceId)
+        .single();
+
+      if (fetchError || !record) {
+        logger.error('academic/attendance', 'Failed to fetch attendance record for engagement update', fetchError);
+        return false;
+      }
+
+      const attendanceData = record.attendance_data as Record<string, any>;
+      const periodData = attendanceData[periodId];
+
+      if (!periodData || !periodData.students) {
+        logger.error('academic/attendance', 'Period not found in attendance data', { attendanceId, periodId });
+        return false;
+      }
+
+      // 2. Find and update the student's engagement data
+      const studentIndex = periodData.students.findIndex(
+        (s: any) => s.student_id === studentId
+      );
+
+      if (studentIndex === -1) {
+        logger.error('academic/attendance', 'Student not found in period data', { attendanceId, periodId, studentId });
+        return false;
+      }
+
+      // Update engagement fields
+      periodData.students[studentIndex].engagement_score = engagement.score;
+      if (engagement.behaviors && engagement.behaviors.length > 0) {
+        periodData.students[studentIndex].learning_behaviors = engagement.behaviors;
+      }
+      if (engagement.notes) {
+        periodData.students[studentIndex].engagement_notes = engagement.notes;
+      }
+
+      // 3. Recompute average engagement score for the period
+      const scores = periodData.students
+        .map((s: any) => s.engagement_score)
+        .filter((s: number | undefined): s is number => s !== undefined && s > 0);
+
+      if (scores.length > 0) {
+        periodData.average_engagement_score =
+          Math.round((scores.reduce((a: number, b: number) => a + b, 0) / scores.length) * 10) / 10;
+      }
+
+      attendanceData[periodId] = periodData;
+
+      // 4. Save back
+      const { error: updateError } = await this.supabase
+        .from('consolidated_student_attendance')
+        .update({
+          attendance_data: attendanceData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', attendanceId);
+
+      if (updateError) {
+        logger.error('academic/attendance', 'Failed to update engagement data', updateError);
+        return false;
+      }
+
+      logger.info('academic/attendance', 'Engagement updated successfully', {
+        attendanceId,
+        periodId,
+        studentId,
+        score: engagement.score
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('academic/attendance', 'Error in updateEngagement', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get engagement statistics for a section over a date range.
+   * Aggregates engagement scores and behavior frequencies from attendance_data JSONB.
+   *
+   * @param sectionId - The section to get stats for
+   * @param dateRange - Start and end dates (YYYY-MM-DD)
+   * @returns Aggregated engagement statistics
+   */
+  static async getEngagementStats(
+    sectionId: string,
+    dateRange: { from: string; to: string }
+  ): Promise<{
+    averageScore: number;
+    totalRecords: number;
+    behaviorFrequency: Record<string, number>;
+    scoreDistribution: { score: number; count: number }[];
+    periodBreakdown: {
+      date: string;
+      periodName: string;
+      averageScore: number;
+      studentCount: number;
+    }[];
+  }> {
+    try {
+      // Fetch all consolidated attendance records for this section in the date range
+      const { data: records, error } = await this.supabase
+        .from('consolidated_student_attendance')
+        .select('attendance_date, attendance_data')
+        .eq('section_id', sectionId)
+        .gte('attendance_date', dateRange.from)
+        .lte('attendance_date', dateRange.to);
+
+      if (error) {
+        logger.error('academic/attendance', 'Error fetching engagement stats', error);
+        return {
+          averageScore: 0,
+          totalRecords: 0,
+          behaviorFrequency: {},
+          scoreDistribution: [],
+          periodBreakdown: []
+        };
+      }
+
+      // Aggregate engagement data from all records
+      const allScores: number[] = [];
+      const behaviorCounts: Record<string, number> = {};
+      const scoreBuckets: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      const periodStats: {
+        date: string;
+        periodName: string;
+        averageScore: number;
+        studentCount: number;
+      }[] = [];
+
+      for (const record of records || []) {
+        const attendanceData = record.attendance_data as Record<string, any>;
+        if (!attendanceData) continue;
+
+        for (const [, periodData] of Object.entries(attendanceData)) {
+          const period = periodData as any;
+          if (!period.students || !Array.isArray(period.students)) continue;
+
+          const periodScores: number[] = [];
+
+          for (const student of period.students) {
+            if (student.engagement_score && student.engagement_score > 0) {
+              allScores.push(student.engagement_score);
+              periodScores.push(student.engagement_score);
+
+              // Count score distribution
+              const roundedScore = Math.round(student.engagement_score);
+              if (roundedScore >= 1 && roundedScore <= 5) {
+                scoreBuckets[roundedScore] = (scoreBuckets[roundedScore] || 0) + 1;
+              }
+            }
+
+            // Count behaviors
+            if (student.learning_behaviors && Array.isArray(student.learning_behaviors)) {
+              for (const behavior of student.learning_behaviors) {
+                behaviorCounts[behavior] = (behaviorCounts[behavior] || 0) + 1;
+              }
+            }
+          }
+
+          // Period-level stats
+          if (periodScores.length > 0) {
+            periodStats.push({
+              date: record.attendance_date,
+              periodName: period.period_name || 'Unknown',
+              averageScore:
+                Math.round(
+                  (periodScores.reduce((a, b) => a + b, 0) / periodScores.length) * 10
+                ) / 10,
+              studentCount: periodScores.length
+            });
+          }
+        }
+      }
+
+      const averageScore =
+        allScores.length > 0
+          ? Math.round((allScores.reduce((a, b) => a + b, 0) / allScores.length) * 10) / 10
+          : 0;
+
+      return {
+        averageScore,
+        totalRecords: allScores.length,
+        behaviorFrequency: behaviorCounts,
+        scoreDistribution: Object.entries(scoreBuckets).map(([score, count]) => ({
+          score: Number(score),
+          count
+        })),
+        periodBreakdown: periodStats
+      };
+    } catch (error) {
+      logger.error('academic/attendance', 'Error in getEngagementStats', error);
+      return {
+        averageScore: 0,
+        totalRecords: 0,
+        behaviorFrequency: {},
+        scoreDistribution: [],
+        periodBreakdown: []
+      };
+    }
+  }
 }
