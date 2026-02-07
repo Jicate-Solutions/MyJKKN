@@ -18,7 +18,10 @@ import type {
   StaffGeographicStats,
   StaffDemographicStats,
   StaffTenureAnalytics,
-  StaffProfileAnalytics
+  StaffProfileAnalytics,
+  StaffRoleType,
+  FacilitatorCertification,
+  StaffOutcomeMetrics
 } from '@/types/staff';
 import toast from 'react-hot-toast';
 
