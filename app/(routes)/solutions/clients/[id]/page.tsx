@@ -26,7 +26,6 @@ import {
   FileText,
   Plus,
   AlertCircle,
-  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useClient, useUpdateClient, type UpdateClientInput } from '@/hooks/solutions/use-clients';
