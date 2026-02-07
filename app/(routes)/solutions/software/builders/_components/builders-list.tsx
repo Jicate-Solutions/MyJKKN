@@ -23,7 +23,7 @@ import {
   Users,
   Star,
   FolderKanban,
-  Wallet,
+  Code2,
   AlertCircle,
 } from 'lucide-react';
 import { useBuilders, useBuilderStats } from '@/hooks/solutions/use-builders';
