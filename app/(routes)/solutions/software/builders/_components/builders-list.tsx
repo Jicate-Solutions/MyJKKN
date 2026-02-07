@@ -84,7 +84,7 @@ export function BuildersList() {
               {statsLoading ? (
                 <Skeleton className="h-8 w-16" />
               ) : (
-                <p className="text-2xl font-bold">{stats?.activeBuilders || 0}</p>
+                <p className="text-2xl font-bold">{stats?.active || 0}</p>
               )}
               <p className="text-sm text-muted-foreground">Active</p>
             </div>
