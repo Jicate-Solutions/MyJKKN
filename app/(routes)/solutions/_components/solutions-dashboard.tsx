@@ -167,7 +167,7 @@ export function SolutionsDashboard() {
                 {phasesLoading ? (
                   <Skeleton className="h-6 w-12" />
                 ) : (
-                  <p className="text-lg font-semibold">{phaseStats?.activePhases || 0}</p>
+                  <p className="text-lg font-semibold">{activePhaseCount}</p>
                 )}
               </div>
               <div>
