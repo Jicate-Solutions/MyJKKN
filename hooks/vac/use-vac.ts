@@ -765,6 +765,20 @@ export function useCourseEnrollments(courseId: string | undefined) {
 }
 
 /**
+ * Fetch overall VAC analytics (admin dashboard)
+ * Aggregates enrollment, course, revenue, and track data
+ */
+export function useVACAnalytics() {
+  return useQuery({
+    queryKey: vacQueryKeys.analytics(),
+    queryFn: () => VACService.getOverallAnalytics(),
+    retry: 2,
+    staleTime: 2 * 60 * 1000, // Fresh for 2 minutes
+    gcTime: 10 * 60 * 1000, // Cache for 10 minutes
+  });
+}
+
+/**
  * Combined hook for course detail with enrollment status
  */
 export function useVACCourseWithEnrollment(
