@@ -184,7 +184,7 @@ export type {
   RevenueSplitResult,
 } from './payments-service';
 
-export { earningsService, EarningsService } from './earnings-service';
+export { earningsService, EarningsService, getRecipientDisplayName } from './earnings-service';
 export type {
   EarningsWithPayment,
   EarningsFilters,
