@@ -84,7 +84,6 @@ export function useLearningPaths(
     queryKey,
     queryFn,
     enabled: !authLoading && !!profile && !!filters.institution_id,
-    placeholderData: (previousData) => previousData,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
