@@ -202,10 +202,10 @@ export function PhasesList() {
                           {formatCurrency(phase.estimated_value)}
                         </TableCell>
                         <TableCell>
-                          {phase.target_completion ? (
+                          {phase.due_date ? (
                             <div className="flex items-center gap-1 text-sm">
                               <Calendar className="h-3 w-3" />
-                              {format(new Date(phase.target_completion), 'dd MMM yyyy')}
+                              {format(new Date(phase.due_date), 'dd MMM yyyy')}
                             </div>
                           ) : (
                             <span className="text-muted-foreground">-</span>
