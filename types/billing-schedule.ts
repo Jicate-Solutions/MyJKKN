@@ -373,6 +373,7 @@ export interface UpdateDiscountDto extends Partial<CreateDiscountDto> {
   approval_date?: string;
   approval_status?: ApprovalStatus;
   discount_amount?: number;
+  outcome_verification?: OutcomeVerification;
 }
 
 // Discount Filters
