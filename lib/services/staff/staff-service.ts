@@ -290,7 +290,7 @@ export class StaffService {
             id,
             category_name
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -432,7 +432,7 @@ export class StaffService {
             id,
             category_name
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -532,7 +532,7 @@ export class StaffService {
             id,
             category_name
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -1030,7 +1030,7 @@ export class StaffService {
     let query = (supabase as any).from('staff').select(`
         institution_id,
         is_active,
-        institution:institutions(id, name)
+        institution:institutions!staff_institution_id_fkey(id, name)
       `);
 
     // Apply filters
@@ -1072,7 +1072,7 @@ export class StaffService {
         institution_id,
         is_active,
         department:departments(id, department_name),
-        institution:institutions(id, name)
+        institution:institutions!staff_institution_id_fkey(id, name)
       `);
 
     // Apply filters
@@ -1230,7 +1230,7 @@ export class StaffService {
         date_of_joining,
         category:employment_categories(category_name),
         department:departments(department_name),
-        institution:institutions(name)
+        institution:institutions!staff_institution_id_fkey(name)
       `);
 
     // Apply filters
