@@ -2,43 +2,73 @@
 
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageBreadcrumb } from '@/components/navigation';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useState } from 'react';
+import { Save, ArrowLeft, Users, AlertCircle } from 'lucide-react';
 import {
-  Save,
-  ArrowLeft,
-  Users,
-  Calendar,
-  BookOpen
-} from 'lucide-react';
-import { format, addMonths } from 'date-fns';
+  useCreateCohortMember,
+  COHORT_LEVELS,
+  TRACK_LABELS,
+} from '@/hooks/solutions/use-training';
+import type { CohortTrack } from '@/lib/services/solutions/types';
 
-export default function NewCohortPage() {
+export default function NewCohortMemberPage() {
   const router = useRouter();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const createMember = useCreateCohortMember();
+
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    level: 0,
+    track: '' as CohortTrack | '',
+  });
+
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: name === 'level' ? parseInt(value, 10) : value,
+    }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    setTimeout(() => {
-      router.push('/solutions/training/cohort');
-    }, 1000);
+
+    if (!formData.name.trim()) return;
+
+    createMember.mutate(
+      {
+        name: formData.name.trim(),
+        email: formData.email.trim() || undefined,
+        phone: formData.phone.trim() || undefined,
+        level: formData.level,
+        track: (formData.track || undefined) as CohortTrack | undefined,
+      },
+      {
+        onSuccess: () => {
+          router.push('/solutions/training/cohort');
+        },
+      }
+    );
   };
 
   return (
-    <ContentLayout title="Create Cohort">
+    <ContentLayout title="Add Cohort Member">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Solutions Hub', href: '/solutions' },
           { label: 'Training', href: '/solutions/training' },
           { label: 'Cohort', href: '/solutions/training/cohort' },
-          { label: 'New Cohort' },
+          { label: 'Add Member' },
         ]}
       />
 
@@ -49,217 +79,126 @@ export default function NewCohortPage() {
             Back
           </Button>
           <div>
-            <h1 className="text-2xl font-bold py-1">Create New Cohort</h1>
+            <h1 className="text-2xl font-bold py-1">Add Cohort Member</h1>
             <p className="text-sm text-muted-foreground">
-              Set up a new training cohort for a program
+              Enroll a new member into the training cohort
             </p>
           </div>
         </div>
 
+        {createMember.isError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              {(createMember.error as Error)?.message || 'Failed to create cohort member. Please try again.'}
+            </AlertDescription>
+          </Alert>
+        )}
+
         <form onSubmit={handleSubmit}>
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Cohort Details */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5" />
-                  Cohort Details
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+          <Card className="max-w-2xl">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Member Details
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name *</Label>
+                <Input
+                  id="name"
+                  name="name"
+                  placeholder="e.g., Dr. Sarah Wilson"
+                  value={formData.name}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Cohort Name *</Label>
+                  <Label htmlFor="email">Email</Label>
                   <Input
-                    id="name"
-                    placeholder="e.g., Batch 2026-A"
-                    required
+                    id="email"
+                    name="email"
+                    type="email"
+                    placeholder="e.g., sarah@jkkn.ac.in"
+                    value={formData.email}
+                    onChange={handleChange}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    placeholder="e.g., +91 98765 43210"
+                    value={formData.phone}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="level">Starting Level</Label>
+                  <select
+                    id="level"
+                    name="level"
+                    className="w-full rounded-md border p-2"
+                    value={formData.level}
+                    onChange={handleChange}
+                  >
+                    {COHORT_LEVELS.map((l) => (
+                      <option key={l.level} value={l.level}>
+                        Level {l.level} - {l.title}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    {COHORT_LEVELS.find((l) => l.level === formData.level)?.description}
+                  </p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="program">Training Program *</Label>
-                  <select id="program" className="w-full rounded-md border p-2" required>
-                    <option value="">Select program</option>
-                    <option value="1">Web Development Bootcamp</option>
-                    <option value="2">Data Analytics Certification</option>
-                    <option value="3">Leadership Development</option>
-                    <option value="4">Digital Marketing</option>
-                    <option value="5">Project Management</option>
+                  <Label htmlFor="track">Track</Label>
+                  <select
+                    id="track"
+                    name="track"
+                    className="w-full rounded-md border p-2"
+                    value={formData.track}
+                    onChange={handleChange}
+                  >
+                    <option value="">Not specified</option>
+                    {(Object.entries(TRACK_LABELS) as [CohortTrack, string][]).map(
+                      ([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="min_size">Min Participants</Label>
-                    <Input
-                      id="min_size"
-                      type="number"
-                      placeholder="10"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="max_size">Max Participants *</Label>
-                    <Input
-                      id="max_size"
-                      type="number"
-                      placeholder="30"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="mode">Delivery Mode</Label>
-                  <select id="mode" className="w-full rounded-md border p-2">
-                    <option value="online">Online</option>
-                    <option value="offline">Offline (In-person)</option>
-                    <option value="hybrid">Hybrid</option>
-                  </select>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Schedule */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Calendar className="h-5 w-5" />
-                  Schedule
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="start_date">Start Date *</Label>
-                  <Input
-                    id="start_date"
-                    type="date"
-                    defaultValue={format(addMonths(new Date(), 1), 'yyyy-MM-dd')}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="end_date">End Date *</Label>
-                  <Input
-                    id="end_date"
-                    type="date"
-                    defaultValue={format(addMonths(new Date(), 4), 'yyyy-MM-dd')}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="schedule_pattern">Session Schedule</Label>
-                  <Input
-                    id="schedule_pattern"
-                    placeholder="e.g., Mon-Wed-Fri, 6-8 PM"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="timezone">Timezone</Label>
-                  <select id="timezone" className="w-full rounded-md border p-2">
-                    <option value="IST">IST (India Standard Time)</option>
-                    <option value="UTC">UTC</option>
-                    <option value="EST">EST (Eastern US)</option>
-                    <option value="PST">PST (Pacific US)</option>
-                  </select>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Trainers & Pricing */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BookOpen className="h-5 w-5" />
-                  Trainers & Pricing
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="lead_trainer">Lead Trainer *</Label>
-                  <select id="lead_trainer" className="w-full rounded-md border p-2" required>
-                    <option value="">Select trainer</option>
-                    <option value="1">Dr. Kumar</option>
-                    <option value="2">Prof. Sharma</option>
-                    <option value="3">Ms. Priya</option>
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="co_trainers">Co-Trainers</Label>
-                  <Input
-                    id="co_trainers"
-                    placeholder="Select additional trainers"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="price">Price per Participant (₹)</Label>
-                  <Input
-                    id="price"
-                    type="number"
-                    placeholder="e.g., 25000"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="early_bird">Early Bird Discount (%)</Label>
-                  <Input
-                    id="early_bird"
-                    type="number"
-                    placeholder="e.g., 10"
-                    max="50"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Additional Info */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Additional Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="venue">Venue / Platform</Label>
-                  <Input
-                    id="venue"
-                    placeholder="e.g., Conference Hall B, Zoom"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="prerequisites">Prerequisites</Label>
-                  <Textarea
-                    id="prerequisites"
-                    placeholder="Any prerequisites for joining this cohort"
-                    rows={2}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    placeholder="Brief description of this cohort"
-                    rows={3}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Actions */}
           <div className="flex justify-end gap-4 mt-6">
-            <Button type="button" variant="outline" onClick={() => router.back()}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.back()}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button
+              type="submit"
+              disabled={createMember.isPending || !formData.name.trim()}
+            >
               <Save className="mr-2 h-4 w-4" />
-              {isSubmitting ? 'Creating...' : 'Create Cohort'}
+              {createMember.isPending ? 'Adding...' : 'Add Member'}
             </Button>
           </div>
         </form>
