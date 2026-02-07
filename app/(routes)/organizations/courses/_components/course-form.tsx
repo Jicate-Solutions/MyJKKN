@@ -219,6 +219,125 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle className='flex items-center gap-2'>
+              <Clock className='h-5 w-5' />
+              Learning Hours
+            </CardTitle>
+            <CardDescription>
+              Break down total learning hours by category. These inform competency coverage and timetable planning.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className='space-y-6'>
+            <div className='grid gap-6 md:grid-cols-3'>
+              <FormField
+                control={form.control}
+                name='theory_hours'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className='flex items-center gap-1.5'>
+                      <GraduationCap className='h-4 w-4 text-blue-500' />
+                      Theory / Lecture Hours
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={0}
+                        placeholder='e.g., 45'
+                        {...field}
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormDescription>Classroom lectures and tutorials</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='practical_hours'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className='flex items-center gap-1.5'>
+                      <FlaskConical className='h-4 w-4 text-green-500' />
+                      Practical / Lab Hours
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={0}
+                        placeholder='e.g., 30'
+                        {...field}
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormDescription>Lab sessions, workshops, projects</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='self_study_hours'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className='flex items-center gap-1.5'>
+                      <BookOpen className='h-4 w-4 text-purple-500' />
+                      Self-Study Hours
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={0}
+                        placeholder='e.g., 25'
+                        {...field}
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormDescription>Independent study and assignments</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className='flex items-center justify-between rounded-lg border p-4 bg-muted/50'>
+              <div className='space-y-1'>
+                <p className='text-sm font-medium'>Total Learning Hours</p>
+                <p className='text-xs text-muted-foreground'>
+                  Sum of theory + practical + self-study
+                </p>
+              </div>
+              <div className='text-right'>
+                <p className='text-2xl font-bold'>
+                  {calculatedTotal > 0 ? calculatedTotal : '—'}
+                </p>
+                {calculatedTotal > 0 && (
+                  <p className='text-xs text-muted-foreground'>hours</p>
+                )}
+              </div>
+            </div>
+
+            <FormField
+              control={form.control}
+              name='learning_hours_target'
+              render={({ field }) => (
+                <FormItem className='hidden'>
+                  <FormControl>
+                    <Input type='hidden' {...field} value={calculatedTotal || ''} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </CardContent>
+        </Card>
+
         <div className='flex justify-end space-x-4'>
           <Button
             variant='outline'
