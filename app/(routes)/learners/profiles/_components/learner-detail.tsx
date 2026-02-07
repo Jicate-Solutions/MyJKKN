@@ -18,6 +18,12 @@ import {
   Home,
   BookText,
   FileText,
+  Sparkles,
+  Briefcase,
+  Globe,
+  ExternalLink,
+  Target,
+  TrendingUp,
 } from 'lucide-react';
 import {
   Card,
