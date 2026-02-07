@@ -145,6 +145,7 @@ export interface ClientReferral extends BaseEntity {
   bonus_amount?: number;
   bonus_paid: boolean;
   paid_at?: string;
+  notes?: string;
 }
 
 // ============================================
