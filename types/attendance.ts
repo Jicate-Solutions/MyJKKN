@@ -71,6 +71,9 @@ export interface ConsolidatedAttendancePeriod {
   course_id: string;
   course_name: string;
   students: ConsolidatedAttendanceStudent[];
+  // P1.5.4 - Period-level engagement metadata
+  engagement_required?: boolean; // true for practical/lab periods
+  average_engagement_score?: number; // Auto-computed average of student scores
   // Faculty information - can be single or multiple
   assigned_faculty?: {
     faculty_id: string;
