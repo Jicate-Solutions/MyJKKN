@@ -660,9 +660,9 @@ export class LeadService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Get all leads - use actual DB columns (no next_followup_at column exists)
+    // Get all leads - use actual DB columns including next_followup_at
     const { data: leads, error } = await (this.supabase as any).from('admission_leads')
-      .select('funnel_stage, created_at, is_hot_lead, is_priority, last_contact_at')
+      .select('funnel_stage, created_at, is_hot_lead, is_priority, last_contact_at, next_followup_at')
       .eq('institution_id', institutionId);
 
     if (error) {
@@ -679,13 +679,16 @@ export class LeadService {
     const convertedLeads = allLeads.filter((l: any) =>
       l.funnel_stage === 'enrolled'
     ).length;
-    // Count leads not contacted recently as pending followups
-    const oneWeekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Count leads with overdue or pending followups
     const pendingFollowups = allLeads.filter((l: any) =>
-      l.last_contact_at && new Date(l.last_contact_at) < oneWeekAgo &&
+      l.next_followup_at && new Date(l.next_followup_at) <= new Date() &&
       l.funnel_stage !== 'enrolled' && l.funnel_stage !== 'lost'
     ).length;
-    const todayFollowups = 0; // No followup scheduling column exists yet
+    const todayFollowups = allLeads.filter((l: any) =>
+      l.next_followup_at &&
+      new Date(l.next_followup_at).toDateString() === today.toDateString() &&
+      l.funnel_stage !== 'enrolled' && l.funnel_stage !== 'lost'
+    ).length;
 
     const conversionRate = totalLeads > 0
       ? (convertedLeads / totalLeads) * 100
