@@ -6,7 +6,7 @@ import type { CheckedState } from '@radix-ui/react-checkbox';
 import { Badge } from '@/components/ui/badge';
 import { DataTableRowActions } from './row-actions';
 import { Course } from '@/types/organizations';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 
