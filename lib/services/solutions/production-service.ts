@@ -293,7 +293,7 @@ export class ProductionService extends BaseService {
       if (learner.skill_level) {
         stats.bySkillLevel[learner.skill_level as SkillLevel]++;
       }
-      if (learner.status === 'active') {
+      if (learner.is_active === true) {
         stats.active++;
       }
     });
