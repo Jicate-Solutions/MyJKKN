@@ -188,7 +188,10 @@ export default function NewDiscountPage() {
           discount_value: formData.discount_value!,
           discount_reason: formData.discount_reason!,
           effective_date: formData.effective_date!,
-          expiry_date: formData.expiry_date
+          expiry_date: formData.expiry_date,
+          // Outcome-based discount fields
+          is_outcome_based: isOutcomeBased,
+          outcome_criteria: isOutcomeBased ? outcomeCriteria as OutcomeCriteria : undefined
         };
 
         // Create the discount using the mutation
