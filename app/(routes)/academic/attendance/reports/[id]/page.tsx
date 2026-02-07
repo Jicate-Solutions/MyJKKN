@@ -39,8 +39,12 @@ import {
   ChevronRight,
   Search,
   ArrowUpDown,
-  Shield
+  Shield,
+  Sparkles,
+  Star
 } from 'lucide-react';
+import { LEARNING_BEHAVIOR_LABELS } from '@/types/attendance';
+import type { LearningBehavior } from '@/types/attendance';
 import {
   Table,
   TableBody,
