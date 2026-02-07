@@ -76,7 +76,10 @@ export interface UpdatePaymentInput {
   payment_method?: string;
   reference_number?: string;
   due_date?: string;
+  /** Maps to DB column payment_date */
   paid_at?: string;
+  /** DB column name directly */
+  payment_date?: string;
   status?: PaymentStatus;
   notes?: string;
 }
