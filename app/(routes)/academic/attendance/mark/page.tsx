@@ -1087,6 +1087,20 @@ export default function AttendanceMarkPage() {
       return;
     }
 
+    // P1.5.4 - Validate engagement scores for practical/lab periods
+    if (isEngagementRequired) {
+      const presentStudents = students.filter(s => attendanceData[s.id] === 'Present');
+      const missingEngagement = presentStudents.filter(
+        s => !engagementData[s.id]?.score || engagementData[s.id].score! < 1
+      );
+      if (missingEngagement.length > 0) {
+        toast.error(
+          `Engagement score is required for all present students in practical/lab periods. ${missingEngagement.length} student(s) missing scores.`
+        );
+        return;
+      }
+    }
+
     // Show summary modal
     setShowSummaryModal(true);
   };
