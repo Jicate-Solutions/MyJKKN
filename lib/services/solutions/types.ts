@@ -452,26 +452,43 @@ export interface RevenueSplitModel extends BaseEntity {
   description?: string;
   split_config: Record<string, number>;
   is_default: boolean;
+  effective_from?: string;
+  effective_to?: string;
+  created_by?: string;
 }
 
 export interface Payment extends BaseEntity {
+  payment_code?: string;
+  solution_id?: string;
   phase_id?: string;
-  program_id?: string;
   order_id?: string;
+  program_id?: string;
+  mou_id?: string;
+  client_id?: string;
   amount: number;
+  currency?: string;
   payment_type: PaymentType;
+  status: PaymentStatus;
+  payment_date?: string;
+  due_date?: string;
   payment_method?: string;
   reference_number?: string;
-  due_date?: string;
-  paid_at?: string;
-  status: PaymentStatus;
+  invoice_number?: string;
+  invoice_url?: string;
+  receipt_url?: string;
   split_model_id?: string;
   split_processed: boolean;
-  created_by?: string;
+  split_processed_at?: string;
+  gst_amount?: number;
+  tds_amount?: number;
+  net_amount?: number;
   notes?: string;
+  metadata?: Record<string, unknown>;
+  created_by?: string;
 }
 
 export interface EarningsLedger extends BaseEntity {
+  ledger_code?: string;
   payment_id: string;
   recipient_type: RecipientType;
   recipient_id?: string;
@@ -483,7 +500,13 @@ export interface EarningsLedger extends BaseEntity {
   amount: number;
   percentage: number;
   status: EarningsStatus;
+  approved_at?: string;
+  approved_by?: string;
+  processed_at?: string;
   paid_at?: string;
+  payment_reference?: string;
+  bank_account?: string;
+  notes?: string;
 }
 
 // ============================================
