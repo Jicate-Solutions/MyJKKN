@@ -102,7 +102,7 @@ export function BuilderCard({ builder }: BuilderCardProps) {
                 <Star className="h-3 w-3" />
               </div>
               <p className="text-lg font-semibold">
-                {builder.avg_rating ? builder.avg_rating.toFixed(1) : '-'}
+                {builder.average_rating ? builder.average_rating.toFixed(1) : '-'}
               </p>
               <p className="text-xs text-muted-foreground">Rating</p>
             </div>
