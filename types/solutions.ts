@@ -385,10 +385,11 @@ export interface SHProductionLearner {
   phone: string | null
   division: ContentDivision | null
   skill_level: SkillLevel
-  status: 'active' | 'inactive'
+  is_active: boolean | null
+  availability_status: string | null
   orders_completed: number
   total_earnings: number
-  avg_rating: number | null
+  average_rating: number | null
   created_at: string
   updated_at: string
 }
