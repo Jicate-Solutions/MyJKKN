@@ -3856,7 +3856,8 @@ export class AttendanceService {
       attendanceData[periodId] = periodData;
 
       // 4. Save back
-      const { error: updateError } = await (this.supabase as any)
+      const supabase: any = this.supabase;
+      const { error: updateError } = await supabase
         .from('consolidated_student_attendance')
         .update({
           attendance_data: attendanceData,
