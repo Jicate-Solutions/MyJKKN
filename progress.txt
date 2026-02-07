@@ -3,7 +3,7 @@
 ## Current Session: 2026-02-07
 
 ### Working On
-- Phase 1.5.2: Learner Profile Capabilities
+- Phase 1.5.3: Staff Facilitator Role
 
 ### Completed This Session
 - Phase 1.5.1: Course Enhancements - DONE (browser tested on Vercel deployment)
@@ -12,6 +12,11 @@
   - Detail page: 4 metric boxes + distribution progress bars
   - Table: Hours column added
   - Browser tested: Create CSE301, list, detail, edit all verified
+- Phase 1.5.2: Learner Profile Capabilities - DONE (browser tested on Vercel deployment)
+  - DB migration: 4 new columns (capabilities JSONB, career_aspirations JSONB, industry_readiness_score NUMERIC, portfolio_url TEXT)
+  - Service: updateCapabilities, updateCareerAspirations, updateIndustryReadiness methods
+  - UI: Capabilities & Career tab in learner detail sidebar
+  - Browser tested: Industry readiness (72.5%), competencies, Fink's profile, career aspirations all verified
 
 ### Blocked
 - Nothing currently blocked
