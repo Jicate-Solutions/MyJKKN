@@ -105,9 +105,6 @@ export default function AttendanceMarkPage() {
     Record<string, { score?: number; behaviors?: LearningBehavior[]; notes?: string }>
   >({});
 
-  // Helper: is this a practical/lab period where engagement is required?
-  const isEngagementRequired = periodMode === 'practical' || isSubdividedSlot;
-
   // State for subdivided slot detection (Updated: 2025-10-11)
   const [isSubdividedSlot, setIsSubdividedSlot] = useState(false);
   const [subdivisionGroups, setSubdivisionGroups] = useState<
