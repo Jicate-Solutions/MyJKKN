@@ -598,7 +598,7 @@ export class ContentService extends BaseService {
       .update({
         status: 'review' as DeliverableStatus,
         file_url: fileUrl,
-        file_type: fileType,
+        file_format: fileType,
       })
       .eq('id', id)
       .select()
