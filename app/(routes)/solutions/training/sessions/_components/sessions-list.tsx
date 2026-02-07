@@ -90,17 +90,18 @@ export function SessionsList() {
                     {programSolution?.title || 'Training Program'}
                   </p>
                   <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                    {session.scheduled_at && (
-                      <>
-                        <span className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {format(new Date(session.scheduled_at), 'EEE, dd MMM yyyy')}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          {format(new Date(session.scheduled_at), 'hh:mm a')}
-                        </span>
-                      </>
+                    {session.session_date && (
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        {format(new Date(session.session_date + 'T00:00:00'), 'EEE, dd MMM yyyy')}
+                      </span>
+                    )}
+                    {session.start_time && (
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {session.start_time.slice(0, 5)}
+                        {session.end_time ? ` - ${session.end_time.slice(0, 5)}` : ''}
+                      </span>
                     )}
                     {session.duration_minutes && (
                       <span className="flex items-center gap-1">
