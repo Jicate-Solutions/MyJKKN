@@ -263,7 +263,7 @@ export class ProductionService extends BaseService {
     active: number;
   }> {
     const { data, error } = await (this.supabase as any).from('sh_production_learners')
-      .select('division, skill_level, status');
+      .select('division, skill_level, is_active');
 
     if (error) throw new Error(`Failed to fetch learner stats: ${error.message}`);
 
