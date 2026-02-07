@@ -550,7 +550,6 @@ export class TrainingService extends BaseService {
         session_id: sessionId,
         cohort_member_id: cohortMemberId,
         role,
-        assigned_by: null, // Self-claimed
       })
       .select()
       .single();
