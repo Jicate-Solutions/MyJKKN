@@ -20,6 +20,16 @@ import type {
 // ============================================
 
 export interface PaymentWithDetails extends Payment {
+  /** Direct solution join via solution_id FK */
+  solution?: {
+    id: string;
+    title: string;
+    solution_code: string;
+    client?: {
+      id: string;
+      name: string;
+    };
+  };
   phase?: {
     id: string;
     title: string;
