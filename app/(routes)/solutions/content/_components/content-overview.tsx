@@ -83,6 +83,17 @@ export function ContentOverview() {
     delivered: { label: 'Delivered', color: 'bg-emerald-100 text-emerald-800' },
   };
 
+  // Progress estimation by status (ContentDeliverable has no progress_percentage field)
+  const statusProgress: Record<string, number> = {
+    pending: 0,
+    in_progress: 50,
+    review: 80,
+    revision: 40,
+    approved: 100,
+    delivered: 100,
+    rejected: 0,
+  };
+
   const totalInQueue = queueByDivision.reduce((sum, d) => sum + d.count, 0) || 1; // Avoid division by zero
 
   return (
