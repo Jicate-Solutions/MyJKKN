@@ -22,6 +22,7 @@ import {
   SLA_STATUS_LABELS
 } from '@/types/process-excellence';
 import type { ABCDRating, WasteCategory } from '@/types/process-excellence';
+import { AdmissionQualityCard } from './admission-quality-card';
 
 export function ProcessExcellenceDashboardContent() {
   const { selectedInstitutionId } = useUserInstitutionAccess();
