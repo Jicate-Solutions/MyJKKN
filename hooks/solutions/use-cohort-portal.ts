@@ -102,7 +102,7 @@ export function useUpcomingSessions(memberId: string) {
 
       const sessionsWithDetails = await Promise.all(sessionsPromises);
       return sessionsWithDetails.filter(
-        (s) => s.session && new Date(s.session.scheduled_at) > now
+        (s) => s.session && s.session.session_date && new Date(s.session.session_date + 'T00:00:00') > now
       );
     },
     enabled: !!memberId,
