@@ -39,7 +39,11 @@ const courseSchema = z.object({
     .max(20, 'Course code must be at most 20 characters')
     .transform((val) => val.toUpperCase()),
   course_name: z.string().min(2, 'Course name must be at least 2 characters'),
-  is_active: z.boolean().default(true)
+  is_active: z.boolean().default(true),
+  theory_hours: z.coerce.number().int().min(0).optional().nullable(),
+  practical_hours: z.coerce.number().int().min(0).optional().nullable(),
+  self_study_hours: z.coerce.number().int().min(0).optional().nullable(),
+  learning_hours_target: z.coerce.number().int().min(0).optional().nullable()
 });
 
 type FormValues = z.infer<typeof courseSchema>;
