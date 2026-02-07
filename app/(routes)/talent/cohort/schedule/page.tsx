@@ -70,7 +70,7 @@ export default function MySchedulePage() {
     session?: {
       id: string;
       title: string;
-      scheduled_at: string;
+      session_date: string;
       location?: string | null;
       status: string;
       program?: {
@@ -87,10 +87,10 @@ export default function MySchedulePage() {
 
   const now = new Date();
   const upcomingSessions = typedAssignments.filter(
-    (a) => a.session && new Date(a.session.scheduled_at) > now && a.session.status !== 'completed'
+    (a) => a.session && new Date(a.session.session_date + 'T00:00:00') > now && a.session.status !== 'completed'
   );
   const pastSessions = typedAssignments.filter(
-    (a) => a.session && (new Date(a.session.scheduled_at) <= now || a.session.status === 'completed')
+    (a) => a.session && (new Date(a.session.session_date + 'T00:00:00') <= now || a.session.status === 'completed')
   );
 
   return (
