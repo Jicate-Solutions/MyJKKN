@@ -321,6 +321,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/audit-trail': 'audit.view',
 
   // Admission CRM Module
+  '/admission/counselor-view': 'admission.dashboard.view',
   '/admission/dashboard': 'admission.dashboard.view',
   '/admission/leads': 'admission.leads.view',
   '/admission/leads/new': 'admission.leads.create',
