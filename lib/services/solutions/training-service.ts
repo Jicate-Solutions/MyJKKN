@@ -332,7 +332,10 @@ export class TrainingService extends BaseService {
       .select(
         `
         *,
-        program:sh_training_programs(*),
+        program:sh_training_programs(
+          *,
+          solution:sh_solutions(id, title, solution_code)
+        ),
         assignments:sh_cohort_assignments(
           *,
           cohort_member:sh_cohort_members(id, name, level)
