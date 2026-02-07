@@ -2052,6 +2052,17 @@ export default function AttendanceMarkPage() {
           </Card>
         </div>
 
+        {/* P1.5.4 - Engagement Required Alert for Practical/Lab */}
+        {isEngagementRequired && (!existingAttendance || isEditMode) && (
+          <Alert className='border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700'>
+            <Sparkles className='h-4 w-4 text-amber-600 dark:text-amber-400' />
+            <AlertDescription className='text-amber-800 dark:text-amber-200'>
+              This is a practical/lab session. <strong>Engagement scores are required</strong> for all present students before saving.
+              Rate each student 1-5 stars, then optionally add learning behaviors and notes.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* NEW: Practical Attendance Selector (Updated: 2025-10-25) */}
         {periodMode === 'practical' && practicalConfig && !practicalSelection && (
           <PracticalAttendanceSelector
