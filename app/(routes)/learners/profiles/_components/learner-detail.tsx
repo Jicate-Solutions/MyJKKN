@@ -93,6 +93,11 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
       label: 'Admission Details',
       icon: BookText,
     },
+    {
+      id: 'capabilities',
+      label: 'Capabilities & Career',
+      icon: Sparkles,
+    },
   ];
 
   // Helper function to format date
