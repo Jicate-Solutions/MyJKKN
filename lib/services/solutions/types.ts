@@ -347,10 +347,17 @@ export interface CohortAssignment extends BaseEntity {
   session_id: string;
   cohort_member_id: string;
   role: 'observer' | 'co_lead' | 'lead' | 'support';
+  status?: string;
   earnings?: number;
+  hours_worked?: number;
   rating?: number;
-  feedback?: string;
-  assigned_by?: string;
+  feedback_from_participants?: string;
+  self_reflection?: string;
+  mentor_feedback?: string;
+  areas_of_improvement?: string[];
+  requested_at?: string;
+  approved_at?: string;
+  approved_by?: string;
   completed_at?: string;
 }
 
