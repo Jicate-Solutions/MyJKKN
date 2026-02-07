@@ -226,8 +226,8 @@ export function ProductionLearnersList() {
                         {formatCurrency(learner.total_earnings || 0)}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={learner.status === 'active' ? 'default' : 'secondary'}>
-                          {learner.status === 'active' ? 'Active' : learner.status || 'Inactive'}
+                        <Badge variant={learner.is_active === true ? 'default' : 'secondary'}>
+                          {learner.is_active === true ? 'Active' : 'Inactive'}
                         </Badge>
                       </TableCell>
                     </TableRow>
