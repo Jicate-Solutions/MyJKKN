@@ -389,7 +389,24 @@ export interface ProductionLearner extends BaseEntity {
   skill_level: SkillLevel;
   orders_completed: number;
   total_earnings: number;
-  status: string;
+  is_active?: boolean;
+  availability_status?: string;
+  average_rating?: number;
+  institution_id?: string;
+  department_id?: string;
+  learner_id?: string;
+  staff_id?: string;
+  learner_code?: string;
+  bio?: string;
+  specializations?: string[];
+  software_tools?: string[];
+  portfolio_url?: string;
+  behance_url?: string;
+  dribbble_url?: string;
+  tags?: string[];
+  total_deliverables?: number;
+  notes?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ProductionAssignment extends BaseEntity {
