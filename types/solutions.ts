@@ -281,11 +281,20 @@ export interface SHTrainingSession {
   program_id: string
   session_number: number
   title: string | null
-  scheduled_at: string | null
+  session_date: string | null
+  start_time: string | null
+  end_time: string | null
   duration_minutes: number
   location: string | null
+  room: string | null
+  is_virtual: boolean
+  meeting_url: string | null
   status: SessionStatus
   attendance_count: number | null
+  max_attendance: number | null
+  materials_url: string | null
+  recording_url: string | null
+  feedback_form_url: string | null
   notes: string | null
   created_at: string
   updated_at: string
