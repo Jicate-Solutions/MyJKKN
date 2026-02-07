@@ -58,10 +58,7 @@ export default function NewDiscountPage() {
   const [isOutcomeBased, setIsOutcomeBased] = useState(false);
   const [outcomeCriteria, setOutcomeCriteria] = useState<Partial<OutcomeCriteria>>({
     type: 'competency_achievement',
-    minimum_level: 'intermediate',
-    min_proficiency: 'intermediate',
-    min_score: 0,
-    evaluation_period_days: 90
+    minimum_level: 'intermediate'
   });
 
   const {
