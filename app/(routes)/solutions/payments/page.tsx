@@ -18,7 +18,7 @@ import {
 import Link from 'next/link';
 import { Plus, DollarSign, Clock, CheckCircle2, AlertCircle, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
-import { usePayments, usePaymentStats } from '@/hooks/solutions/use-payments';
+import { usePayments, usePaymentStats, type PaymentWithDetails } from '@/hooks/solutions/use-payments';
 import type { PaymentStatus } from '@/lib/services/solutions/types';
 
 function formatCurrency(amount: number): string {
@@ -27,6 +27,42 @@ function formatCurrency(amount: number): string {
     currency: 'INR',
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+/** Extract solution title from payment (tries direct join, then phase/program/order) */
+function getSolutionTitle(payment: PaymentWithDetails): string {
+  // Direct solution join (from solution_id FK)
+  const sol = Array.isArray(payment.solution) ? payment.solution[0] : payment.solution;
+  if (sol?.title) return sol.title;
+  // Fallback: derive from phase -> solution
+  const phase = Array.isArray(payment.phase) ? payment.phase[0] : payment.phase;
+  const phaseSol = Array.isArray(phase?.solution) ? phase?.solution[0] : phase?.solution;
+  if (phaseSol?.title) return phaseSol.title;
+  // Fallback: derive from program -> solution
+  const program = Array.isArray(payment.program) ? payment.program[0] : payment.program;
+  const progSol = Array.isArray(program?.solution) ? program?.solution[0] : program?.solution;
+  if (progSol?.title) return progSol.title;
+  // Fallback: derive from order -> solution
+  const order = Array.isArray(payment.order) ? payment.order[0] : payment.order;
+  const orderSol = Array.isArray(order?.solution) ? order?.solution[0] : order?.solution;
+  if (orderSol?.title) return orderSol.title;
+  return 'Unknown Solution';
+}
+
+/** Extract solution code from payment */
+function getSolutionCode(payment: PaymentWithDetails): string {
+  const sol = Array.isArray(payment.solution) ? payment.solution[0] : payment.solution;
+  if (sol?.solution_code) return sol.solution_code;
+  const phase = Array.isArray(payment.phase) ? payment.phase[0] : payment.phase;
+  const phaseSol = Array.isArray(phase?.solution) ? phase?.solution[0] : phase?.solution;
+  if (phaseSol?.solution_code) return phaseSol.solution_code;
+  const program = Array.isArray(payment.program) ? payment.program[0] : payment.program;
+  const progSol = Array.isArray(program?.solution) ? program?.solution[0] : program?.solution;
+  if (progSol?.solution_code) return progSol.solution_code;
+  const order = Array.isArray(payment.order) ? payment.order[0] : payment.order;
+  const orderSol = Array.isArray(order?.solution) ? order?.solution[0] : order?.solution;
+  if (orderSol?.solution_code) return orderSol.solution_code;
+  return 'N/A';
 }
 
 const statusConfig: Record<PaymentStatus, { label: string; color: string; icon: React.ElementType }> = {
