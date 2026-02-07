@@ -115,23 +115,26 @@
       "id": "P1.5.2",
       "name": "Learner Profile Capabilities",
       "phase": "1.5 - Existing Module Modifications",
-      "status": "PENDING",
+      "status": "DONE",
       "description": "Add capabilities, career aspirations, industry readiness score to learner profiles.",
       "database_changes": [
-        "ALTER learners_profiles: add capabilities (JSONB), career_aspirations (JSONB), industry_readiness_score (NUMERIC), portfolio_url (TEXT)"
+        "ALTER learners_profiles: add capabilities (JSONB DEFAULT '{}'), career_aspirations (JSONB DEFAULT '{}'), industry_readiness_score (NUMERIC 0-100), portfolio_url (TEXT)",
+        "Check constraint on industry_readiness_score 0-100, index on non-null scores"
       ],
-      "files_to_change": [
-        "types/learner-profile.ts",
-        "lib/services/learners/learner-profile-service.ts",
-        "Learner profile components (add capability tab)"
+      "files_changed": [
+        "lib/services/learners/learner-profile-service.ts (updateCapabilities, updateCareerAspirations, updateIndustryReadiness)",
+        "app/(routes)/learners/profiles/_components/learner-detail.tsx (Capabilities & Career tab)"
       ],
       "test_steps": [
-        "Apply migration to staging",
-        "Navigate to learner profile",
-        "Verify new 'Capabilities' tab appears",
-        "Add a competency to learner - verify it saves",
-        "Verify industry_readiness_score updates",
-        "Verify portfolio_url field works"
+        "Apply migration to staging - PASS",
+        "Navigate to learner profile - PASS (test learner Ravi Kumar created)",
+        "Verify 'Capabilities & Career' tab appears in sidebar - PASS",
+        "Industry Readiness: 72.5% with progress bar and Portfolio link - PASS",
+        "Competencies: Python (intermediate, verified), Data Analysis (beginner) - PASS",
+        "Capability Summary: 4 metric boxes (Technical, Behavioral, Domain, Soft Skills) - PASS",
+        "Fink's Learning Profile: All 6 dimensions with progress bars and scores - PASS",
+        "Career Aspirations: Target roles, industries, locations, salary, interests - PASS",
+        "Other tabs (Personal, Academic) still work correctly - PASS"
       ]
     },
     {
