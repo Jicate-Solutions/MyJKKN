@@ -177,7 +177,7 @@ export default function AvailableSessionsPage() {
                 <div className="space-y-2 text-sm text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4" />
-                    {formatDateTime(session.scheduled_at)}
+                    {formatDateTime(session.session_date)}
                   </div>
                 </div>
 
