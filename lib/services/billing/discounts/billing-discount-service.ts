@@ -51,7 +51,11 @@ export class BillingDiscountService {
           effective_date: discountData.effective_date,
           expiry_date: discountData.expiry_date,
           approval_status: 'pending',
-          created_by: user?.id
+          created_by: user?.id,
+          // Outcome-based discount fields
+          is_outcome_based: discountData.is_outcome_based || false,
+          outcome_criteria: discountData.outcome_criteria || {},
+          outcome_verification: discountData.is_outcome_based ? { verified: false, status: 'pending' } : {}
         } as any)
         .select(
           `
