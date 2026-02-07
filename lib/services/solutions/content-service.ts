@@ -548,7 +548,7 @@ export class ContentService extends BaseService {
 
     // Flag to MD if revision count exceeds threshold
     if (shouldFlagToMD(newRevisionCount)) {
-      console.warn(`Deliverable ${id} has ${newRevisionCount} revisions - flagging to MD`);
+      logger.warn('solutions/content', `Deliverable ${id} has ${newRevisionCount} revisions - flagging to MD`);
     }
 
     return data as ContentDeliverable;
