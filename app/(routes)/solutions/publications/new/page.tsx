@@ -42,7 +42,7 @@ interface FormState {
   journal_type: string;
   authors_text: string;
   abstract: string;
-  submitted_date: string;
+  submission_date: string;
   nirf_category: string;
   naac_criterion: string;
 }
@@ -55,7 +55,7 @@ const initialFormState: FormState = {
   journal_type: '',
   authors_text: '',
   abstract: '',
-  submitted_date: '',
+  submission_date: '',
   nirf_category: '',
   naac_criterion: '',
 };
@@ -110,7 +110,7 @@ export default function NewPublicationPage() {
         journal_type: (form.journal_type as JournalType) || undefined,
         authors: parseAuthorsText(form.authors_text),
         abstract: form.abstract || undefined,
-        submitted_date: form.submitted_date || undefined,
+        submission_date: form.submission_date || undefined,
         nirf_category: form.nirf_category || undefined,
         naac_criterion: form.naac_criterion || undefined,
         created_by: 'current-user',
@@ -305,12 +305,12 @@ export default function NewPublicationPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="submitted_date">Submitted Date</Label>
+                  <Label htmlFor="submission_date">Submitted Date</Label>
                   <Input
-                    id="submitted_date"
+                    id="submission_date"
                     type="date"
-                    value={form.submitted_date}
-                    onChange={(e) => updateField('submitted_date', e.target.value)}
+                    value={form.submission_date}
+                    onChange={(e) => updateField('submission_date', e.target.value)}
                   />
                 </div>
               </CardContent>
