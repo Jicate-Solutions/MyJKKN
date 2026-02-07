@@ -220,7 +220,7 @@ export default function CohortPortalHomePage() {
                     {nextSession.session?.title || 'Training Session'}
                   </h3>
                   <p className="text-sm text-muted-foreground">
-                    {formatDateTime(nextSession.session?.scheduled_at || null)}
+                    {formatDateTime(nextSession.session?.session_date || null)}
                   </p>
                   <Badge className="mt-2" variant="outline">
                     Role: {nextSession.role || 'Not assigned'}
