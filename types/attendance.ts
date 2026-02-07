@@ -23,13 +23,44 @@ export interface AttendanceStudent {
   status: string;
 }
 
+// Predefined learning behaviors for attendance engagement tracking
+// Updated: 2026-02-07 - P1.5.4 Attendance Learning Engagement
+export type LearningBehavior =
+  | 'active_participation'
+  | 'asking_questions'
+  | 'peer_collaboration'
+  | 'problem_solving'
+  | 'critical_thinking'
+  | 'hands_on_practice'
+  | 'presentation'
+  | 'independent_work'
+  | 'mentoring_peers'
+  | 'creative_application';
+
+export const LEARNING_BEHAVIOR_LABELS: Record<LearningBehavior, string> = {
+  active_participation: 'Active Participation',
+  asking_questions: 'Asking Questions',
+  peer_collaboration: 'Peer Collaboration',
+  problem_solving: 'Problem Solving',
+  critical_thinking: 'Critical Thinking',
+  hands_on_practice: 'Hands-on Practice',
+  presentation: 'Presentation',
+  independent_work: 'Independent Work',
+  mentoring_peers: 'Mentoring Peers',
+  creative_application: 'Creative Application',
+};
+
 // New consolidated attendance types for JSONB structure
-// Updated: 2025-10-08 - Added section_id for historical accuracy
+// Updated: 2026-02-07 - P1.5.4 Added engagement_score, learning_behaviors, notes
 export interface ConsolidatedAttendanceStudent {
   student_id: string;
   section_id: string; // Stores section at time of marking - preserves history
   status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
   marked_at: string;
+  // P1.5.4 - Learning Engagement fields
+  engagement_score?: number; // 1-5 scale. Required for practical/lab, optional for lectures
+  learning_behaviors?: LearningBehavior[]; // Selected from predefined list
+  engagement_notes?: string; // Free-text notes on student engagement
 }
 
 export interface ConsolidatedAttendancePeriod {
