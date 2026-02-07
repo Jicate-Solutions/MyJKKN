@@ -5,10 +5,7 @@ const nextConfig: NextConfig = {
   // In 16.1.1, this is at root level (no longer experimental)
   cacheComponents: true,
 
-  // Fix for Windows EPERM error during build
   experimental: {
-    workerThreads: false,
-    cpus: 1
   },
 
   images: {
