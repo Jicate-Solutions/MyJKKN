@@ -3805,7 +3805,7 @@ export class AttendanceService {
   ): Promise<boolean> {
     try {
       // 1. Fetch the existing attendance record
-      const { data: record, error: fetchError } = await this.supabase
+      const { data: record, error: fetchError } = await (this.supabase as any)
         .from('consolidated_student_attendance')
         .select('attendance_data')
         .eq('id', attendanceId)
