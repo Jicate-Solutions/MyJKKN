@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, PenSquare } from 'lucide-react';
+import { BookOpen, Clock, FlaskConical, GraduationCap, Loader2, PenSquare } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
 import { CourseService } from '@/lib/services/organization/course-service';
 import type { Course } from '@/types/organizations';
 import {
