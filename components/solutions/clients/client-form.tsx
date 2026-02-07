@@ -336,13 +336,16 @@ export function ClientForm({ client, onSubmit, isLoading }: ClientFormProps) {
 
             <FormField
               control={form.control}
-              name="source_contact_name"
+              name="source_department_id"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Referred By / Source Contact</FormLabel>
+                  <FormLabel>Source Department ID</FormLabel>
                   <FormControl>
-                    <Input placeholder="Name of referrer" {...field} />
+                    <Input placeholder="Department UUID (optional)" {...field} />
                   </FormControl>
+                  <FormDescription>
+                    The referring department, if applicable
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
