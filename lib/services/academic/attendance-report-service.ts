@@ -905,6 +905,9 @@ export class AttendanceReportService {
           course_name: period.course_name || 'Unknown Course',
           faculty: facultyArray,
           marked_by_details: period.marked_by_details,
+          // P1.5.4 - Include engagement metadata
+          ...(period.engagement_required !== undefined && { engagement_required: period.engagement_required }),
+          ...(period.average_engagement_score !== undefined && { average_engagement_score: period.average_engagement_score }),
           students: processedStudents,
           present_count: presentCount,
           absent_count: totalCount - presentCount,
