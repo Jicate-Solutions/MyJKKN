@@ -644,9 +644,11 @@ export interface CreateBuilderInput {
 }
 
 export interface CreatePaymentInput {
+  solution_id?: string;
   phase_id?: string;
   program_id?: string;
   order_id?: string;
+  client_id?: string;
   amount: number;
   payment_type: PaymentType;
   payment_method?: string;
@@ -655,5 +657,5 @@ export interface CreatePaymentInput {
   payment_date?: string;
   status?: PaymentStatus;
   notes?: string;
-  created_by: string;
+  created_by?: string;
 }

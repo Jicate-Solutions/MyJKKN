@@ -300,11 +300,7 @@ export function SolutionsDashboard() {
               <Building2 className="h-8 w-8 text-muted-foreground" />
               <div>
                 <p className="font-medium">Clients</p>
-                {isLoading ? (
-                  <Skeleton className="h-4 w-16" />
-                ) : (
-                  <p className="text-sm text-muted-foreground">{solutionStats?.totalClients || 0} total</p>
-                )}
+                <p className="text-sm text-muted-foreground">Manage clients</p>
               </div>
             </CardContent>
           </Link>
