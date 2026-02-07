@@ -66,12 +66,27 @@ export interface CreateDiscoveryVisitInput {
 export interface UpdateDiscoveryVisitInput {
   solution_id?: string;
   visit_date?: string;
+  visit_time?: string;
+  duration_hours?: number;
+  location?: string;
+  visit_type?: string;
   visitors?: Array<{ name: string; role?: string }>;
+  client_attendees?: Array<{ name: string; role?: string }>;
   observations?: string;
+  current_systems?: string;
   pain_points?: string;
+  opportunities?: string;
+  competitor_info?: string;
+  budget_indication?: string;
+  timeline_indication?: string;
+  decision_makers?: string[];
   photos_urls?: string[];
-  follow_up_notes?: string;
+  document_urls?: string[];
   follow_up_required?: boolean;
+  follow_up_date?: string;
+  follow_up_notes?: string;
+  outcome?: string;
+  notes?: string;
 }
 
 export interface CreateCommunicationInput {
