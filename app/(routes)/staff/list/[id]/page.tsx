@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, PenSquare, ArrowLeft } from 'lucide-react';
+import { Loader2, PenSquare, ArrowLeft, Award, Target, Users, TrendingUp, GraduationCap, Briefcase, Star } from 'lucide-react';
 import type { Staff } from '@/types/staff';
 import {
   Breadcrumb,
