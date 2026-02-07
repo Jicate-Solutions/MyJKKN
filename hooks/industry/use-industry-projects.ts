@@ -87,7 +87,6 @@ export function useIndustryProjects(
     queryKey,
     queryFn,
     enabled: !authLoading && !!profile,
-    placeholderData: (previousData) => previousData,
     ...QUERY_CONFIG.DYNAMIC_DATA
   });
 }
