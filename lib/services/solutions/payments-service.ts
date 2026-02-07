@@ -166,6 +166,7 @@ export const RECIPIENT_NAMES: Record<string, string> = {
 // SERVICE CLASS
 // ============================================
 
+export class PaymentsService extends BaseService {
   /** Reusable SELECT clause for payment queries with joins */
   private static readonly PAYMENT_SELECT = `
     *,
@@ -205,8 +206,6 @@ export const RECIPIENT_NAMES: Record<string, string> = {
     ),
     earnings:sh_earnings_ledger(*)
   `;
-
-export class PaymentsService extends BaseService {
   // ============================================
   // PAYMENT OPERATIONS
   // ============================================
