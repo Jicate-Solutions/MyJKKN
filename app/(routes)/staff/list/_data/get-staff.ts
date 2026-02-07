@@ -29,8 +29,8 @@ export async function getStaff(filters: StaffFilters = {}) {
     .select(`
       *,
       category:employment_categories(id, category_name),
-      institution:institutions(id, name),
-      department:departments(id, department_name)
+      institution:institutions!staff_institution_id_fkey(id, name),
+      department:departments!staff_department_id_fkey(id, department_name)
     `, { count: 'exact' })
     .range(from, to)
     .order('created_at', { ascending: false });
