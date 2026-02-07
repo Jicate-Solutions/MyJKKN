@@ -193,7 +193,7 @@ export function BuildersList() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell>{builder.department?.department_name || '-'}</TableCell>
+                      <TableCell>{builder.department?.name || builder.department?.department_name || '-'}</TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
                           {builder.skills?.slice(0, 3).map((skill: { skill_name: string }) => (
