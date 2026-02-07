@@ -29,7 +29,8 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { BookOpen, Clock, FlaskConical, GraduationCap } from 'lucide-react';
 
 const courseSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
