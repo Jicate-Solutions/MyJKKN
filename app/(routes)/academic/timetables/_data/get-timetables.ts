@@ -64,10 +64,10 @@ export async function getTimetables(
       `
       *,
       institution:institutions(id, name, counselling_code),
-      academic_year:academic_years(id, academic_year_name),
+      academic_year:academic_years!timetables_academic_year_id_fkey(id, academic_year_name),
       degree:degrees(id, degree_name),
       program:programs(id, program_name),
-      department:departments(id, department_name),
+      department:departments!timetables_department_id_fkey(id, department_name),
       semesters:semesters(id, semester_name),
       sections:sections(id, section_name)
     `,
