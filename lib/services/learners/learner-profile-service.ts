@@ -369,6 +369,119 @@ export class LearnerProfileService {
   }
 
   /**
+   * Update learner capabilities (competencies, finks profile, etc.)
+   */
+  static async updateCapabilities(
+    learnerId: string,
+    capabilities: Record<string, unknown>
+  ): Promise<void> {
+    try {
+      this.validateId(learnerId, 'learner_id');
+
+      const { data: current, error: fetchError } = await (this.getSupabase() as any)
+        .from('learners_profiles')
+        .select('capabilities')
+        .eq('id', learnerId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const merged = {
+        ...(current?.capabilities || {}),
+        ...capabilities,
+        last_updated: new Date().toISOString()
+      };
+
+      const { error: updateError } = await (this.getSupabase() as any)
+        .from('learners_profiles')
+        .update({
+          capabilities: merged,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', learnerId);
+
+      if (updateError) throw updateError;
+      toast.success('Capabilities updated successfully');
+    } catch (error) {
+      console.error('[LearnerProfile] Error updating capabilities:', this.formatError(error));
+      toast.error('Failed to update capabilities');
+      throw error;
+    }
+  }
+
+  /**
+   * Update learner career aspirations
+   */
+  static async updateCareerAspirations(
+    learnerId: string,
+    aspirations: Record<string, unknown>
+  ): Promise<void> {
+    try {
+      this.validateId(learnerId, 'learner_id');
+
+      const merged = {
+        ...aspirations,
+        updated_at: new Date().toISOString()
+      };
+
+      const { error } = await (this.getSupabase() as any)
+        .from('learners_profiles')
+        .update({
+          career_aspirations: merged,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', learnerId);
+
+      if (error) throw error;
+      toast.success('Career aspirations updated successfully');
+    } catch (error) {
+      console.error('[LearnerProfile] Error updating career aspirations:', this.formatError(error));
+      toast.error('Failed to update career aspirations');
+      throw error;
+    }
+  }
+
+  /**
+   * Update industry readiness score and portfolio URL
+   */
+  static async updateIndustryReadiness(
+    learnerId: string,
+    data: { industry_readiness_score?: number; portfolio_url?: string }
+  ): Promise<void> {
+    try {
+      this.validateId(learnerId, 'learner_id');
+
+      if (data.industry_readiness_score !== undefined &&
+          (data.industry_readiness_score < 0 || data.industry_readiness_score > 100)) {
+        throw new Error('Industry readiness score must be between 0 and 100');
+      }
+
+      const updateData: Record<string, unknown> = {
+        updated_at: new Date().toISOString()
+      };
+
+      if (data.industry_readiness_score !== undefined) {
+        updateData.industry_readiness_score = data.industry_readiness_score;
+      }
+      if (data.portfolio_url !== undefined) {
+        updateData.portfolio_url = data.portfolio_url;
+      }
+
+      const { error } = await (this.getSupabase() as any)
+        .from('learners_profiles')
+        .update(updateData)
+        .eq('id', learnerId);
+
+      if (error) throw error;
+      toast.success('Industry readiness updated successfully');
+    } catch (error) {
+      console.error('[LearnerProfile] Error updating industry readiness:', this.formatError(error));
+      toast.error('Failed to update industry readiness');
+      throw error;
+    }
+  }
+
+  /**
    * Batch update Fink's dimensions from assessment results
    * Useful for updating multiple learners after competency assessments
    */
