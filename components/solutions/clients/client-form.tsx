@@ -50,7 +50,7 @@ const clientFormSchema = z.object({
   city: z.string().optional(),
   company_size: z.string().optional(),
   source_type: z.enum(['placement', 'alumni', 'clinical', 'referral', 'direct', 'yi', 'intent']).nullable().optional(),
-  source_contact_name: z.string().optional(),
+  source_department_id: z.string().optional(),
   partner_status: z.enum(['standard', 'yi', 'alumni', 'mou', 'referral']),
 })
 
