@@ -249,7 +249,7 @@ export function SolutionsDashboard() {
                 {contentLoading ? (
                   <Skeleton className="h-6 w-12" />
                 ) : (
-                  <p className="text-lg font-semibold">{contentStats?.inQueue || 0}</p>
+                  <p className="text-lg font-semibold">{contentStats?.total || 0}</p>
                 )}
               </div>
               <div>
