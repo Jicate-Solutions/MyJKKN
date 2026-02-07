@@ -5,6 +5,28 @@ import { BaseService, type BaseListResponse } from '../base-service';
 import type { EarningsLedger, EarningsStatus, RecipientType, PaginationParams } from './types';
 
 // ============================================
+// CONSTANTS
+// ============================================
+
+/** Map recipient_type to human-readable name (DB has no recipient_name column) */
+const RECIPIENT_TYPE_NAMES: Record<string, string> = {
+  builder: 'Builder',
+  cohort_member: 'Cohort Member',
+  production_learner: 'Production Learner',
+  department: 'Department',
+  jicate: 'JICATE',
+  institution: 'Institution',
+  council: 'Council',
+  infrastructure: 'Infrastructure',
+  referral_bonus: 'Referral Bonus',
+};
+
+/** Derive a display name from recipient_type */
+export function getRecipientDisplayName(recipientType: string): string {
+  return RECIPIENT_TYPE_NAMES[recipientType] || recipientType;
+}
+
+// ============================================
 // TYPES
 // ============================================
 
