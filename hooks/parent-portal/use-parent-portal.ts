@@ -222,7 +222,6 @@ export function useAdminCommunications(
     queryFn: () =>
       ParentCommunicationService.getCommunications(filters as any),
     enabled: !authLoading && !!profile && !!filters.institution_id,
-    placeholderData: (prev: any) => prev,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
