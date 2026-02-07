@@ -101,7 +101,9 @@ export interface CreateTrainingSessionInput {
   program_id: string;
   session_number?: number;
   title?: string;
-  scheduled_at?: string;
+  session_date?: string;
+  start_time?: string;
+  end_time?: string;
   duration_minutes?: number;
   location?: string;
 }
@@ -109,7 +111,9 @@ export interface CreateTrainingSessionInput {
 export interface UpdateTrainingSessionInput {
   session_number?: number;
   title?: string;
-  scheduled_at?: string;
+  session_date?: string;
+  start_time?: string;
+  end_time?: string;
   duration_minutes?: number;
   location?: string;
   google_calendar_event_id?: string;
