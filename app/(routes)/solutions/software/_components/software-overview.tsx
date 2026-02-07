@@ -217,7 +217,7 @@ export function SoftwareOverview() {
                     <div className="text-right text-sm">
                       <div className="flex items-center gap-1">
                         <Users className="h-3 w-3" />
-                        {phase.builder_count || 0} builders
+                        {phase.assignments?.length || 0} builders
                       </div>
                     </div>
                     <Badge className={statusColors[phase.status] || 'bg-gray-100'}>
