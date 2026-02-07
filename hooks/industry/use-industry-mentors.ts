@@ -74,7 +74,6 @@ export function useIndustryMentors(
     queryKey,
     queryFn,
     enabled: !authLoading && !!profile,
-    placeholderData: (previousData) => previousData,
     ...QUERY_CONFIG.DYNAMIC_DATA
   });
 }
