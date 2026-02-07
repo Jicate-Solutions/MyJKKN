@@ -22,6 +22,7 @@ import {
   getRecipientTypeDisplayName,
   getEarningsStatusColor,
 } from '@/hooks/solutions/use-earnings';
+import type { EarningsWithPayment } from '@/lib/services/solutions/earnings-service';
 import type { RecipientType, EarningsStatus } from '@/lib/services/solutions/types';
 
 function formatCurrency(amount: number): string {
@@ -30,6 +31,41 @@ function formatCurrency(amount: number): string {
     currency: 'INR',
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+/** Extract solution title from an earning entry (solution is nested under phase/program/order) */
+function getEarningSolutionTitle(earning: EarningsWithPayment): string {
+  const payment = earning.payment;
+  if (!payment) return 'Unknown Solution';
+  // Try phase -> solution
+  const phase = Array.isArray(payment.phase) ? payment.phase[0] : payment.phase;
+  const phaseSol = Array.isArray(phase?.solution) ? phase?.solution[0] : phase?.solution;
+  if (phaseSol?.title) return phaseSol.title;
+  // Try program -> solution
+  const program = Array.isArray(payment.program) ? payment.program[0] : payment.program;
+  const progSol = Array.isArray(program?.solution) ? program?.solution[0] : program?.solution;
+  if (progSol?.title) return progSol.title;
+  // Try order -> solution
+  const order = Array.isArray(payment.order) ? payment.order[0] : payment.order;
+  const orderSol = Array.isArray(order?.solution) ? order?.solution[0] : order?.solution;
+  if (orderSol?.title) return orderSol.title;
+  return 'Unknown Solution';
+}
+
+/** Extract solution code from an earning entry */
+function getEarningSolutionCode(earning: EarningsWithPayment): string {
+  const payment = earning.payment;
+  if (!payment) return 'N/A';
+  const phase = Array.isArray(payment.phase) ? payment.phase[0] : payment.phase;
+  const phaseSol = Array.isArray(phase?.solution) ? phase?.solution[0] : phase?.solution;
+  if (phaseSol?.solution_code) return phaseSol.solution_code;
+  const program = Array.isArray(payment.program) ? payment.program[0] : payment.program;
+  const progSol = Array.isArray(program?.solution) ? program?.solution[0] : program?.solution;
+  if (progSol?.solution_code) return progSol.solution_code;
+  const order = Array.isArray(payment.order) ? payment.order[0] : payment.order;
+  const orderSol = Array.isArray(order?.solution) ? order?.solution[0] : order?.solution;
+  if (orderSol?.solution_code) return orderSol.solution_code;
+  return 'N/A';
 }
 
 const recipientConfig: Record<RecipientType, { label: string; icon: React.ElementType; color: string }> = {
