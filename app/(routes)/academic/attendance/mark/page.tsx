@@ -2583,6 +2583,8 @@ export default function AttendanceMarkPage() {
           startTime={startTime || undefined}
           endTime={endTime || undefined}
           existingAttendance={existingAttendance}
+          engagementData={engagementData}
+          isEngagementRequired={isEngagementRequired}
         />
       </div>
     </ContentLayout>
