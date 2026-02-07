@@ -80,7 +80,8 @@ const staffSchema = z.object({
   category_id: z.string().min(1, 'Category is required'),
   institution_id: z.string().min(1, 'Institution is required'),
   department_id: z.string().min(1, 'Department is required'),
-  is_active: z.boolean().default(true)
+  is_active: z.boolean().default(true),
+  role_type: z.enum(['teacher', 'facilitator', 'trainer', 'industry_mentor', 'hybrid']).default('teacher')
 });
 
 type FormValues = z.infer<typeof staffSchema>;
