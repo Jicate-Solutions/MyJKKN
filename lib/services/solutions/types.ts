@@ -308,12 +308,24 @@ export interface TrainingSession extends BaseEntity {
   program_id: string;
   session_number: number;
   title?: string;
-  scheduled_at?: string;
+  description?: string;
+  topics?: string[];
+  session_date?: string;
+  start_time?: string;
+  end_time?: string;
   duration_minutes?: number;
   location?: string;
+  room?: string;
+  is_virtual?: boolean;
+  meeting_url?: string;
   google_calendar_event_id?: string;
+  microsoft_calendar_event_id?: string;
   status: SessionStatus;
   attendance_count?: number;
+  max_attendance?: number;
+  materials_url?: string;
+  recording_url?: string;
+  feedback_form_url?: string;
   notes?: string;
 }
 
