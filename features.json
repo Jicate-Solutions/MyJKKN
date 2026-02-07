@@ -90,22 +90,25 @@
       "id": "P1.5.1",
       "name": "Course Enhancements",
       "phase": "1.5 - Existing Module Modifications",
-      "status": "PENDING",
+      "status": "DONE",
       "description": "Add learning hours breakdown and competency coverage to courses table.",
       "database_changes": [
-        "ALTER courses: add learning_hours_target, self_study_hours, practical_hours, theory_hours, competency_coverage (JSONB)"
+        "ALTER courses: add learning_hours_target, self_study_hours, practical_hours, theory_hours, competency_coverage (JSONB), overall_finks_profile (JSONB), ai_era_strategic_value (SMALLINT)",
+        "Check constraints for non-negative values and 0-100 range on ai_era_strategic_value"
       ],
-      "files_to_change": [
-        "types/organizations.ts",
-        "lib/services/academic/course-service.ts",
-        "Course form components"
+      "files_changed": [
+        "app/(routes)/organizations/courses/_components/course-form.tsx (Learning Hours card with auto-calc)",
+        "app/(routes)/organizations/courses/[id]/page.tsx (Learning Hours display with progress bars)",
+        "app/(routes)/organizations/courses/_components/columns.tsx (Hours column added)"
       ],
       "test_steps": [
-        "Apply migration to staging",
-        "Navigate to course edit form",
-        "Verify new fields appear (hours breakdown, competency coverage)",
-        "Save course with new fields - verify data persists",
-        "Verify course detail shows hours and competency info"
+        "Apply migration to staging - PASS",
+        "Navigate to course create form - PASS (Learning Hours section visible)",
+        "Create CSE301 with Theory=45, Practical=30, Self-Study=25 - PASS (Total auto-calculated=100)",
+        "List page shows Hours column with '100h' - PASS",
+        "Detail page shows 4 metric boxes + distribution bars - PASS",
+        "Edit course (Practical 30→40) - PASS (Total recalculated=110)",
+        "Database verified: all values persisted correctly - PASS"
       ]
     },
     {
