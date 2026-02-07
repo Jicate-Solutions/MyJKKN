@@ -35,10 +35,10 @@ export function TrainingOverview() {
 
   // Calculate stats from real data
   const stats = {
-    activePrograms: programsData?.count || 0,
-    scheduledSessions: sessionsData?.data?.filter(s => s.status === 'scheduled').length || 0,
+    activePrograms: programsData?.metadata?.total || 0,
+    scheduledSessions: sessionsData?.data?.filter((s: { status: string }) => s.status === 'scheduled').length || 0,
     cohortMembers: cohortStats?.total || 0,
-    completedSessions: sessionsData?.data?.filter(s => s.status === 'completed').length || 0,
+    completedSessions: sessionsData?.data?.filter((s: { status: string }) => s.status === 'completed').length || 0,
   };
 
   const upcomingSessions = upcomingData?.data?.slice(0, 3) || [];
