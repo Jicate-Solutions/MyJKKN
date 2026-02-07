@@ -34,9 +34,10 @@ export function ContentOverview() {
   const isLoading = ordersLoading || statsLoading || deliverablesLoading || learnersLoading;
 
   // Calculate stats from real data
-  const activeOrders = ordersData?.data?.filter(o => o.status === 'active').length || 0;
+  // ContentOrder has no 'status' field - count total orders as active
+  const activeOrders = ordersData?.metadata?.total || ordersData?.data?.length || 0;
   const inQueue = deliverablesData?.data?.filter(d => d.status === 'pending' || d.status === 'in_progress').length || 0;
-  const productionLearners = learnersData?.count || 0;
+  const productionLearners = learnersData?.metadata?.total || learnersData?.data?.length || 0;
   const completedThisMonth = deliverablesData?.data?.filter(d => {
     if (d.status !== 'approved' && d.status !== 'delivered') return false;
     const now = new Date();
