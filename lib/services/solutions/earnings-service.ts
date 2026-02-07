@@ -266,7 +266,7 @@ export class EarningsService extends BaseService {
    */
   static async getEarningsSummary(): Promise<EarningsSummary[]> {
     const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
-      .select('recipient_type, recipient_name, status, amount');
+      .select('recipient_type, status, amount');
 
     if (error) throw new Error(`Failed to fetch earnings summary: ${error.message}`);
 
@@ -277,7 +277,7 @@ export class EarningsService extends BaseService {
       if (!summaryMap.has(type)) {
         summaryMap.set(type, {
           recipient_type: type,
-          recipient_name: entry.recipient_name || type,
+          recipient_name: getRecipientDisplayName(type),
           total_calculated: 0,
           total_approved: 0,
           total_paid: 0,
