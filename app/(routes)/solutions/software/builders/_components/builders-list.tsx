@@ -210,15 +210,17 @@ export function BuildersList() {
                       </TableCell>
                       <TableCell className="text-center">
                         <div>
-                          <span className="font-medium">{builder.active_assignments || 0}</span>
+                          <span className="font-medium">
+                            {builder.assignments?.filter((a: { status: string }) => a.status === 'active').length || 0}
+                          </span>
                           <span className="text-muted-foreground">
                             {' '}
-                            / {builder.completed_assignments || 0} completed
+                            / {builder.assignments?.filter((a: { status: string }) => a.status === 'completed').length || 0} completed
                           </span>
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-medium">
-                        {formatCurrency(builder.total_earnings || 0)}
+                        {builder.skills?.length || 0} skills
                       </TableCell>
                       <TableCell>
                         <Badge variant={builder.is_active ? 'default' : 'secondary'}>
