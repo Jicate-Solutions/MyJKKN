@@ -415,9 +415,18 @@ export interface ProductionAssignment extends BaseEntity {
   role: 'lead' | 'contributor' | 'reviewer';
   earnings?: number;
   quality_rating?: number;
-  assigned_by?: string;
-  assigned_at?: string;
+  timeliness_rating?: number;
+  requested_at?: string;
+  started_at?: string;
+  submitted_at?: string;
   completed_at?: string;
+  approved_by?: string;
+  approved_at?: string;
+  estimated_hours?: number;
+  actual_hours?: number;
+  feedback?: string;
+  notes?: string;
+  status?: string;
 }
 
 // ============================================
