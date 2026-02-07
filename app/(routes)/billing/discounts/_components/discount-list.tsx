@@ -398,6 +398,11 @@ export function DiscountList({
                   <TableCell>
                     {getApprovalStatusBadge(discount.approval_status)}
                   </TableCell>
+                  <TableCell>
+                    {getOutcomeStatusBadge(discount) || (
+                      <span className='text-xs text-muted-foreground'>--</span>
+                    )}
+                  </TableCell>
                   <TableCell>{formatDate(discount.effective_date)}</TableCell>
                   <TableCell className='text-right'>
                     <DropdownMenu>
