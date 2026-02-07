@@ -17,8 +17,8 @@ import { MiniPipeline } from './_components/mini-pipeline';
 import { TodayActivityLog } from './_components/today-activity-log';
 
 export default function CounselorViewPage() {
-  const { selectedInstitution } = useUserInstitutionAccess();
-  const institutionId = selectedInstitution?.id;
+  const { selectedInstitutionId } = useUserInstitutionAccess();
+  const institutionId = selectedInstitutionId;
 
   const {
     isLoading,
