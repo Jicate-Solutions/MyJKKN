@@ -649,6 +649,133 @@ export class VACService {
   }
 
   /**
+   * Get overall analytics across ALL courses (admin dashboard)
+   * Fetches courses and all enrollments, then aggregates in JS
+   */
+  static async getOverallAnalytics(): Promise<{
+    totalEnrollments: number;
+    activeStudents: number;
+    completedEnrollments: number;
+    totalCourses: number;
+    activeCourses: number;
+    totalRevenue: number;
+    courseStats: Array<{
+      courseId: string;
+      courseName: string;
+      courseCode: string;
+      enrollmentCount: number;
+      completionRate: number;
+      revenue: number;
+    }>;
+    trackDistribution: Array<{
+      track: string;
+      count: number;
+      percentage: number;
+    }>;
+    paymentBreakdown: {
+      paid: number;
+      pending: number;
+      waived: number;
+      refunded: number;
+    };
+  }> {
+    const supabase = getSupabase();
+
+    // Fetch all courses (active and inactive)
+    const { data: coursesData, error: coursesError } = await supabase
+      .from('vac_courses')
+      .select('*')
+      .order('code');
+
+    if (coursesError) throw coursesError;
+
+    const courses = (coursesData || []) as VACCourse[];
+
+    // Fetch ALL enrollments across all courses using the details view
+    const { data: enrollmentsData, error: enrollmentsError } = await supabase
+      .from('vac_enrollments_with_details')
+      .select('*')
+      .order('enrolled_at', { ascending: false });
+
+    if (enrollmentsError) throw enrollmentsError;
+
+    const enrollments = (enrollmentsData || []) as VACEnrollmentWithDetails[];
+
+    // Aggregate stats
+    const totalEnrollments = enrollments.length;
+    const activeStudents = enrollments.filter(e => e.status === 'active').length;
+    const completedEnrollments = enrollments.filter(e => e.status === 'completed').length;
+    const totalCourses = courses.length;
+    const activeCourses = courses.filter(c => c.is_active).length;
+    const totalRevenue = enrollments
+      .filter(e => e.payment_status === 'paid' && e.payment_amount)
+      .reduce((sum, e) => sum + (e.payment_amount || 0), 0);
+
+    // Per-course stats
+    const courseEnrollmentMap = new Map<string, VACEnrollmentWithDetails[]>();
+    enrollments.forEach(e => {
+      const existing = courseEnrollmentMap.get(e.course_id) || [];
+      existing.push(e);
+      courseEnrollmentMap.set(e.course_id, existing);
+    });
+
+    const courseStats = courses
+      .map(course => {
+        const courseEnrollments = courseEnrollmentMap.get(course.id) || [];
+        const completed = courseEnrollments.filter(e => e.status === 'completed').length;
+        const total = courseEnrollments.length;
+        const revenue = courseEnrollments
+          .filter(e => e.payment_status === 'paid' && e.payment_amount)
+          .reduce((sum, e) => sum + (e.payment_amount || 0), 0);
+
+        return {
+          courseId: course.id,
+          courseName: course.name,
+          courseCode: course.code,
+          enrollmentCount: total,
+          completionRate: total > 0 ? Math.round((completed / total) * 100) : 0,
+          revenue,
+        };
+      })
+      .sort((a, b) => b.enrollmentCount - a.enrollmentCount);
+
+    // Track distribution based on enrollments
+    const trackCounts = new Map<string, number>();
+    enrollments.forEach(e => {
+      const track = e.course_track || 'unknown';
+      trackCounts.set(track, (trackCounts.get(track) || 0) + 1);
+    });
+
+    const trackDistribution = Array.from(trackCounts.entries())
+      .map(([track, count]) => ({
+        track,
+        count,
+        percentage: totalEnrollments > 0 ? Math.round((count / totalEnrollments) * 100) : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    // Payment breakdown
+    const paymentBreakdown = {
+      paid: enrollments.filter(e => e.payment_status === 'paid').length,
+      pending: enrollments.filter(e => e.payment_status === 'pending').length,
+      waived: enrollments.filter(e => e.payment_status === 'waived').length,
+      refunded: enrollments.filter(e => e.payment_status === 'refunded').length,
+    };
+
+    return {
+      totalEnrollments,
+      activeStudents,
+      completedEnrollments,
+      totalCourses,
+      activeCourses,
+      totalRevenue,
+      courseStats,
+      trackDistribution,
+      paymentBreakdown,
+    };
+  }
+
+  /**
    * Get all enrollments for a course (admin)
    */
   static async getCourseEnrollments(courseId: string): Promise<VACEnrollmentsResponse> {
