@@ -192,7 +192,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         category_id: staff.category_id || '',
         institution_id: staff.institution_id || '',
         department_id: staff.department_id || '',
-        is_active: staff.is_active ?? true
+        is_active: staff.is_active ?? true,
+        role_type: staff.role_type || 'teacher'
       });
     }
   }, [staff, isEditing, form]);
