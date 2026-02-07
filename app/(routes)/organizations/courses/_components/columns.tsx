@@ -87,6 +87,23 @@ export const columns: ColumnDef<Course>[] = [
     size: 200
   },
   {
+    accessorKey: 'learning_hours_target',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Hours' />
+    ),
+    cell: ({ row }) => {
+      const hours = row.getValue('learning_hours_target') as number | null;
+      if (!hours) return <span className='text-muted-foreground text-sm'>—</span>;
+      return (
+        <span className='flex items-center gap-1 text-sm'>
+          <Clock className='h-3.5 w-3.5 text-muted-foreground' />
+          {hours}h
+        </span>
+      );
+    },
+    size: 80
+  },
+  {
     accessorKey: 'is_active',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Status' />
