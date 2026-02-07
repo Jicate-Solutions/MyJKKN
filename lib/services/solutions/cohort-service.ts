@@ -369,7 +369,7 @@ export class CohortService extends BaseService {
    */
   static async getAvailableSessionsForMember(
     memberId: string
-  ): Promise<Array<{ id: string; title: string; scheduled_at: string; program_id: string }>> {
+  ): Promise<Array<{ id: string; title: string; session_date: string; program_id: string }>> {
     // Get member's track
     const { data: member } = await (this.supabase as any).from('sh_cohort_members')
       .select('track')
@@ -384,14 +384,14 @@ export class CohortService extends BaseService {
         `
         id,
         title,
-        scheduled_at,
+        session_date,
         program_id,
         program:sh_training_programs(track)
       `
       )
       .eq('status', 'scheduled')
-      .gte('scheduled_at', new Date().toISOString())
-      .order('scheduled_at', { ascending: true });
+      .gte('session_date', new Date().toISOString().split('T')[0])
+      .order('session_date', { ascending: true });
 
     if (error) throw new Error(`Failed to fetch sessions: ${error.message}`);
 
