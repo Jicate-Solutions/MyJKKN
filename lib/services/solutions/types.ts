@@ -362,7 +362,6 @@ export interface ContentOrder extends BaseEntity {
   solution_id: string;
   order_type?: ContentOrderType;
   quantity: number;
-  style_preference?: string;
   brand_guidelines_url?: string;
   division?: ContentDivision;
   due_date?: string;
@@ -373,7 +372,7 @@ export interface ContentDeliverable extends BaseEntity {
   order_id: string;
   title: string;
   file_url?: string;
-  file_type?: string;
+  file_format?: string;
   status: DeliverableStatus;
   revision_count: number;
   approved_by?: string;
