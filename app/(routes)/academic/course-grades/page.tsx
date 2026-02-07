@@ -200,6 +200,7 @@ async function getFilterOptions(institutionId: string) {
 }
 
 export default async function CourseGradesPage({ searchParams }: PageProps) {
+  const resolvedSearchParams = await searchParams;
   const supabase = await createClient();
 
   // Check authentication
@@ -237,7 +238,7 @@ export default async function CourseGradesPage({ searchParams }: PageProps) {
 
   // Fetch data
   const [grades, filterOptions] = await Promise.all([
-    getGrades(institutionAccess.institution_id, searchParams),
+    getGrades(institutionAccess.institution_id, resolvedSearchParams),
     getFilterOptions(institutionAccess.institution_id)
   ]);
 
