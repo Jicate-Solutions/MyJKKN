@@ -136,9 +136,11 @@ export function BuildersList() {
               <Filter className="mr-2 h-4 w-4" />
               Filter
             </Button>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Builder
+            <Button asChild>
+              <Link href="/solutions/software/builders/new">
+                <Plus className="mr-2 h-4 w-4" />
+                Add Builder
+              </Link>
             </Button>
           </div>
         </CardContent>
