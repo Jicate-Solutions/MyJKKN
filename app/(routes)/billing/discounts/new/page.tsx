@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { usePermissions } from '@/hooks/use-permissions';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { BeatLoader } from 'react-spinners';
