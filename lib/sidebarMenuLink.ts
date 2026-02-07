@@ -649,7 +649,7 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/admission/settings',
           label: 'Settings',
-          active: pathname.startsWith('/admission/settings') || pathname.startsWith('/admission/workflows'),
+          active: pathname.startsWith('/admission/settings') || pathname.startsWith('/admission/workflows') || pathname.startsWith('/admission/workflow-config'),
           icon: Settings,
           submenus: [
             {
@@ -661,6 +661,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/workflows',
               label: 'Workflows',
               active: pathname === '/admission/workflows'
+            },
+            {
+              href: '/admission/workflow-config',
+              label: 'Workflow Config',
+              active: pathname === '/admission/workflow-config'
             },
             {
               href: '/admission/templates',
