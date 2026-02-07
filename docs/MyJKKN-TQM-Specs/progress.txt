@@ -445,3 +445,73 @@ These pages render correctly but use mock/hardcoded data:
 4. `/admission/documents` - Needs storage + service for document upload
 5. `/admission/gd-pi` - Needs DB tables + service for GD-PI sessions
 6. Analytics hooks (`useFunnelAnalyticsDashboard`, `useCounselorPerformance`) - Need real implementations
+
+---
+
+## ADMISSION CRM PHASE 2: COUNSELOR DAILY VIEW (2026-02-07)
+
+### Status: BUILD PASSES — Awaiting browser test
+
+### What Was Built
+A single-page "My Day" command center at `/admission/counselor-view` answering "What do I do today?" for counselors.
+
+### Phase 2A: DB Migrations (Applied to staging)
+1. **Migration: `add_counselor_daily_view_columns`**
+   - Added `next_followup_at TIMESTAMPTZ` to `admission_leads`
+   - Added composite index on `(counselor_id, next_followup_at)`
+   - Added `user_id UUID REFERENCES auth.users(id)` to `admission_counselors`
+   - Added `is_active BOOLEAN DEFAULT true` to `admission_counselors`
+   - Added index on `(user_id) WHERE is_active = true`
+
+2. **Migration: `create_counselor_daily_view_function`**
+   - `get_counselor_daily_view(p_user_id UUID, p_institution_id UUID) RETURNS JSON`
+   - Handles 3 cases: not_a_counselor, admin/manager view (all leads), counselor view (own leads)
+   - Returns: counselor_id, is_manager, kpis, followups (with urgency), pipeline, today_activities, unassigned_count
+   - Adapted all columns to actual schema (is_hot_lead, interested_programs, title, performed_by)
+
+3. **lead-service.ts fixes**
+   - `scheduleFollowup`: Changed subject→title, created_by→performed_by, stores scheduled_at in metadata JSONB, updates next_followup_at
+   - `getDashboardSummary`: Uses next_followup_at for real follow-up counts
+
+4. **Test data seeded**: 10 leads with next_followup_at (6 today, 4 overdue)
+
+### Phase 2B: Service + Hooks
+| File | Purpose |
+|------|---------|
+| lib/services/admission/counselor-daily-view-service.ts | Full service with getDailyView (RPC), getUnassignedLeads, assignLeads, rescheduleFollowup, addQuickNote, logCall, advanceStage, getCounselors |
+| hooks/admission/use-counselor-daily-view.ts | useCounselorDailyView (60s auto-refresh), useUnassignedLeads, useCounselorsList, useCounselorActions (5 mutations) |
+
+### Phase 2C: UI Components
+| File | Purpose |
+|------|---------|
+| app/(routes)/admission/counselor-view/page.tsx | Main page composing all sections with 3-column layout |
+| _components/counselor-kpi-strip.tsx | 5 KPI cards (My Leads, Follow-ups Due, Hot Leads, Conversions%, Active Pipeline) |
+| _components/followup-card.tsx | Individual lead card with Call, WhatsApp, Move Stage, Reschedule, Quick Note actions |
+| _components/followup-list.tsx | Sortable list wrapper (urgency/name/score sorting) |
+| _components/unassigned-leads-panel.tsx | Manager-only panel with checkboxes + counselor assignment dropdown |
+| _components/mini-pipeline.tsx | Compact horizontal funnel with color-coded stage pills |
+| _components/today-activity-log.tsx | Activity feed with icons, badges, and timestamps |
+
+### Phase 2D: Integration
+| Change | File |
+|--------|------|
+| Route permission added | lib/sidebarMenuLink.ts line 324: '/admission/counselor-view': 'admission.dashboard.view' |
+| Sidebar menu entry added | lib/sidebarMenuLink.ts: "My Day" with CalendarCheck icon at TOP of Admission CRM section |
+| CalendarCheck icon imported | lib/sidebarMenuLink.ts line 37 |
+
+### Schema Adaptations (spec vs actual DB)
+| Spec Column | Actual DB Column | Adaptation |
+|-------------|-----------------|------------|
+| priority = 'hot' | is_hot_lead (boolean) | WHERE is_hot_lead = true |
+| next_followup_at | next_followup_at | Added via migration |
+| program_interest | interested_programs (text[]) | Array field |
+| user_id on counselors | user_id | Added via migration |
+| is_active on counselors | is_active | Added via migration |
+| subject on activities | title | Direct rename |
+| created_by on activities | performed_by | Direct rename |
+| scheduled_at on activities | metadata JSONB | Stored as metadata.scheduled_at |
+
+### Build Status
+- Next.js build: PASSES
+- Route `/admission/counselor-view` included in build output
+- No TypeScript errors in new files
