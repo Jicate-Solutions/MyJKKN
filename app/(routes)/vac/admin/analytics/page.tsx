@@ -1,45 +1,89 @@
 'use client';
 
-import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   BarChart3,
   Users,
   GraduationCap,
   TrendingUp,
-  Clock,
   Award,
-  BookOpen
+  BookOpen,
+  DollarSign,
+  AlertCircle
 } from 'lucide-react';
+import { useVACAnalytics } from '@/hooks/vac/use-vac';
+
+// Track bar colors by index
+const TRACK_COLORS = [
+  'bg-blue-500',
+  'bg-green-500',
+  'bg-purple-500',
+  'bg-orange-500',
+  'bg-pink-500',
+  'bg-cyan-500',
+  'bg-yellow-500',
+  'bg-red-500',
+];
+
+function MetricSkeleton() {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-4 w-4 rounded" />
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="h-8 w-16" />
+      </CardContent>
+    </Card>
+  );
+}
+
+function ListSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="space-y-4">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-4 w-20" />
+          </div>
+          <Skeleton className="h-2 w-full rounded-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-10 text-center">
+      <AlertCircle className="h-10 w-10 text-muted-foreground mb-3" />
+      <p className="text-sm text-muted-foreground">{message}</p>
+    </div>
+  );
+}
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
 
 export default function VACAnalyticsPage() {
-  // Placeholder analytics data
-  const stats = {
-    totalEnrollments: 1234,
-    activeStudents: 856,
-    completedCourses: 378,
-    avgCompletionRate: 72,
-    totalCourses: 24,
-    avgRating: 4.5,
-  };
+  const { data: analytics, isLoading, isError, error } = useVACAnalytics();
 
-  const courseStats = [
-    { name: 'Soft Skills for Workplace', enrollments: 234, completionRate: 78, rating: 4.6 },
-    { name: 'Digital Marketing Basics', enrollments: 198, completionRate: 65, rating: 4.3 },
-    { name: 'Data Analytics Fundamentals', enrollments: 187, completionRate: 71, rating: 4.7 },
-    { name: 'Communication Skills', enrollments: 156, completionRate: 82, rating: 4.4 },
-    { name: 'Financial Literacy', enrollments: 142, completionRate: 68, rating: 4.2 },
-  ];
-
-  const trackDistribution = [
-    { track: 'Professional Development', percentage: 35, count: 432 },
-    { track: 'Technical Skills', percentage: 28, count: 345 },
-    { track: 'Communication', percentage: 22, count: 271 },
-    { track: 'Personal Growth', percentage: 15, count: 186 },
-  ];
+  const hasData = analytics && analytics.totalEnrollments > 0;
+  const avgCompletionRate =
+    hasData && analytics.totalEnrollments > 0
+      ? Math.round((analytics.completedEnrollments / analytics.totalEnrollments) * 100)
+      : 0;
 
   return (
     <ContentLayout title="VAC Analytics">
@@ -60,101 +104,150 @@ export default function VACAnalyticsPage() {
           </p>
         </div>
 
+        {/* Error State */}
+        {isError && (
+          <Card className="border-destructive">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 text-destructive">
+                <AlertCircle className="h-5 w-5" />
+                <p className="text-sm">
+                  Failed to load analytics data.{' '}
+                  {error instanceof Error ? error.message : 'Please try again.'}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Key Metrics */}
         <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Enrollments</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.totalEnrollments.toLocaleString()}</div>
-            </CardContent>
-          </Card>
+          {isLoading ? (
+            <>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <MetricSkeleton key={i} />
+              ))}
+            </>
+          ) : (
+            <>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Enrollments</CardTitle>
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {analytics?.totalEnrollments.toLocaleString() ?? 0}
+                  </div>
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Students</CardTitle>
-              <GraduationCap className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.activeStudents.toLocaleString()}</div>
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Active Students</CardTitle>
+                  <GraduationCap className="h-4 w-4 text-green-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {analytics?.activeStudents.toLocaleString() ?? 0}
+                  </div>
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Completions</CardTitle>
-              <Award className="h-4 w-4 text-blue-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.completedCourses}</div>
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Completions</CardTitle>
+                  <Award className="h-4 w-4 text-blue-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {analytics?.completedEnrollments ?? 0}
+                  </div>
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Completion Rate</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.avgCompletionRate}%</div>
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Completion Rate</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-green-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{avgCompletionRate}%</div>
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Courses</CardTitle>
-              <BookOpen className="h-4 w-4 text-purple-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.totalCourses}</div>
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Courses</CardTitle>
+                  <BookOpen className="h-4 w-4 text-purple-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{analytics?.totalCourses ?? 0}</div>
+                  {analytics && analytics.activeCourses < analytics.totalCourses && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {analytics.activeCourses} active
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg. Rating</CardTitle>
-              <BarChart3 className="h-4 w-4 text-yellow-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">★ {stats.avgRating}</div>
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+                  <DollarSign className="h-4 w-4 text-yellow-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {analytics ? formatCurrency(analytics.totalRevenue) : formatCurrency(0)}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
           {/* Top Courses */}
           <Card>
             <CardHeader>
-              <CardTitle>Top Courses by Enrollment</CardTitle>
-              <CardDescription>Most popular VAC courses</CardDescription>
+              <CardTitle>Courses by Enrollment</CardTitle>
+              <CardDescription>Enrollment count and completion rate per course</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {courseStats.map((course, i) => (
-                  <div key={i} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-sm">{course.name}</span>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">★ {course.rating}</Badge>
-                        <span className="text-sm text-muted-foreground">
-                          {course.enrollments} enrolled
+              {isLoading ? (
+                <ListSkeleton rows={5} />
+              ) : !hasData || analytics.courseStats.length === 0 ? (
+                <EmptyState message="No enrollment data yet. Enroll students in courses to see analytics." />
+              ) : (
+                <div className="space-y-4">
+                  {analytics.courseStats.map((course) => (
+                    <div key={course.courseId} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-sm truncate mr-2">
+                          {course.courseName}
                         </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant="outline">{course.courseCode}</Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {course.enrollmentCount} enrolled
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full bg-primary rounded-full transition-all"
+                          style={{ width: `${course.completionRate}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>{course.completionRate}% completion rate</span>
+                        {course.revenue > 0 && (
+                          <span>{formatCurrency(course.revenue)} revenue</span>
+                        )}
                       </div>
                     </div>
-                    <div className="h-2 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full bg-primary rounded-full"
-                        style={{ width: `${course.completionRate}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground text-right">
-                      {course.completionRate}% completion rate
-                    </p>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -165,60 +258,80 @@ export default function VACAnalyticsPage() {
               <CardDescription>Distribution across course tracks</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {trackDistribution.map((track, i) => (
-                  <div key={i} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{track.track}</span>
-                      <span className="text-sm text-muted-foreground">
-                        {track.count} students ({track.percentage}%)
-                      </span>
+              {isLoading ? (
+                <ListSkeleton rows={4} />
+              ) : !hasData || analytics.trackDistribution.length === 0 ? (
+                <EmptyState message="No enrollment data yet. Track distribution will appear once students enroll." />
+              ) : (
+                <div className="space-y-4">
+                  {analytics.trackDistribution.map((track, i) => (
+                    <div key={track.track} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium capitalize">{track.track}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {track.count} student{track.count !== 1 ? 's' : ''} ({track.percentage}%)
+                        </span>
+                      </div>
+                      <div className="h-3 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${TRACK_COLORS[i % TRACK_COLORS.length]}`}
+                          style={{ width: `${track.percentage}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-3 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${
-                          i === 0 ? 'bg-blue-500' :
-                          i === 1 ? 'bg-green-500' :
-                          i === 2 ? 'bg-purple-500' : 'bg-orange-500'
-                        }`}
-                        style={{ width: `${track.percentage}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Time Spent Analysis */}
+        {/* Payment Breakdown */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5" />
-              Learning Time Analysis
+              <BarChart3 className="h-5 w-5" />
+              Payment Status Breakdown
             </CardTitle>
-            <CardDescription>Average time spent on courses this month</CardDescription>
+            <CardDescription>Overview of enrollment payment statuses</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-4">
-              <div className="text-center p-4 rounded-lg bg-muted">
-                <div className="text-3xl font-bold text-primary">12.5h</div>
-                <p className="text-sm text-muted-foreground">Avg per Student</p>
+            {isLoading ? (
+              <div className="grid gap-4 md:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-20 rounded-lg" />
+                ))}
               </div>
-              <div className="text-center p-4 rounded-lg bg-muted">
-                <div className="text-3xl font-bold text-green-600">45min</div>
-                <p className="text-sm text-muted-foreground">Avg Session Duration</p>
+            ) : !hasData ? (
+              <EmptyState message="No enrollment data yet." />
+            ) : (
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="text-center p-4 rounded-lg bg-muted">
+                  <div className="text-3xl font-bold text-green-600">
+                    {analytics.paymentBreakdown.paid}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Paid</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-muted">
+                  <div className="text-3xl font-bold text-yellow-600">
+                    {analytics.paymentBreakdown.pending}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Pending</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-muted">
+                  <div className="text-3xl font-bold text-blue-600">
+                    {analytics.paymentBreakdown.waived}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Waived</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-muted">
+                  <div className="text-3xl font-bold text-red-600">
+                    {analytics.paymentBreakdown.refunded}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Refunded</p>
+                </div>
               </div>
-              <div className="text-center p-4 rounded-lg bg-muted">
-                <div className="text-3xl font-bold text-blue-600">3.2</div>
-                <p className="text-sm text-muted-foreground">Sessions per Week</p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-muted">
-                <div className="text-3xl font-bold text-purple-600">86%</div>
-                <p className="text-sm text-muted-foreground">Video Watch Rate</p>
-              </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       </div>
