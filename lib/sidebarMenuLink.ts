@@ -523,6 +523,13 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Admission CRM',
       menus: [
         {
+          href: '/admission/counselor-view',
+          label: 'My Day',
+          active: pathname === '/admission/counselor-view',
+          icon: CalendarCheck,
+          submenus: []
+        },
+        {
           href: '/admission/dashboard',
           label: 'Dashboard',
           active: pathname === '/admission/dashboard',
