@@ -158,8 +158,8 @@ export function DeliverableCard({
               addSuffix: true,
             })}
           </span>
-          {deliverable.file_type && (
-            <span className="uppercase">{deliverable.file_type}</span>
+          {deliverable.file_format && (
+            <span className="uppercase">{deliverable.file_format}</span>
           )}
         </div>
       </CardContent>
