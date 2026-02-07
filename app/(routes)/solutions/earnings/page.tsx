@@ -226,9 +226,9 @@ export default function EarningsPage() {
                       <TableRow key={earning.id}>
                         <TableCell>
                           <div>
-                            <p className="font-medium">{earning.payment?.solution?.title || 'Unknown Solution'}</p>
+                            <p className="font-medium">{getEarningSolutionTitle(earning)}</p>
                             <p className="text-sm text-muted-foreground">
-                              {earning.payment?.solution?.solution_code || 'N/A'}
+                              {getEarningSolutionCode(earning)}
                             </p>
                           </div>
                         </TableCell>
@@ -238,7 +238,7 @@ export default function EarningsPage() {
                               <RecipientIcon className="mr-1 h-3 w-3" />
                               {recipient.label}
                             </Badge>
-                            <span>{earning.recipient_name}</span>
+                            <span>{getRecipientTypeDisplayName(recipientType)}</span>
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-medium">
