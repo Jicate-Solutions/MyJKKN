@@ -47,7 +47,7 @@ export function SolutionsDashboard() {
         .filter(([status]) =>
           ['prospecting', 'discovery', 'prd_writing', 'prototype_building', 'client_demo', 'revisions', 'approved', 'deploying', 'training'].includes(status)
         )
-        .reduce((sum, [, count]) => sum + count, 0)
+        .reduce((sum, [, count]) => sum + (count as number), 0)
     : 0;
 
   return (
