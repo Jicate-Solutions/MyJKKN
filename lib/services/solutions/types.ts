@@ -109,6 +109,7 @@ export interface BaseEntity {
 
 export interface Client extends BaseEntity {
   name: string;
+  company_code?: string;
   industry_sector?: string;
   contact_person?: string;
   contact_email?: string;
@@ -132,6 +133,7 @@ export interface Client extends BaseEntity {
   notes?: string;
   tags?: string[];
   is_active: boolean;
+  created_by?: string;
 }
 
 export interface ClientReferral extends BaseEntity {
