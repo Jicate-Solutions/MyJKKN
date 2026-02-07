@@ -34,6 +34,7 @@ import {
   LayoutGrid,
   Building,
   Boxes,
+  CalendarCheck,
   CalendarClock,
   UserSearch,
   Flame,
