@@ -314,8 +314,8 @@ export class ProductionService extends BaseService {
         deliverable_id: input.deliverable_id,
         learner_id: input.learner_id,
         role: input.role ?? 'contributor',
-        assigned_by: input.assigned_by,
-        assigned_at: new Date().toISOString(),
+        approved_by: input.approved_by,
+        requested_at: new Date().toISOString(),
       })
       .select()
       .single();
