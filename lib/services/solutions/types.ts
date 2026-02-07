@@ -535,7 +535,7 @@ export interface Publication extends BaseEntity {
   journal_name?: string;
   journal_type?: JournalType;
   status: PublicationStatus;
-  submitted_date?: string;
+  submission_date?: string;
   published_date?: string;
   doi?: string;
   url?: string;
