@@ -706,6 +706,100 @@ export class StaffService {
     }
   }
 
+  // ============================================
+  // FACILITATOR ROLE METHODS (Workshop Transformation P1.5.3)
+  // ============================================
+
+  /**
+   * Update staff role type
+   */
+  static async updateRoleType(
+    staffId: string,
+    roleType: StaffRoleType
+  ): Promise<void> {
+    try {
+      const { error } = await (this.supabase as any)
+        .from('staff')
+        .update({
+          role_type: roleType,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', staffId);
+
+      if (error) throw error;
+      toast.success('Role type updated successfully');
+    } catch (error) {
+      console.error('[staff-service] Error updating role type:', error);
+      toast.error('Failed to update role type');
+      throw error;
+    }
+  }
+
+  /**
+   * Update facilitator certifications
+   */
+  static async updateFacilitatorCertifications(
+    staffId: string,
+    certifications: FacilitatorCertification[]
+  ): Promise<void> {
+    try {
+      const { error } = await (this.supabase as any)
+        .from('staff')
+        .update({
+          facilitator_certification: certifications,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', staffId);
+
+      if (error) throw error;
+      toast.success('Certifications updated successfully');
+    } catch (error) {
+      console.error('[staff-service] Error updating certifications:', error);
+      toast.error('Failed to update certifications');
+      throw error;
+    }
+  }
+
+  /**
+   * Update staff outcome metrics
+   */
+  static async updateOutcomeMetrics(
+    staffId: string,
+    metrics: Partial<StaffOutcomeMetrics>
+  ): Promise<void> {
+    try {
+      // Get current metrics and merge
+      const { data: current, error: fetchError } = await (this.supabase as any)
+        .from('staff')
+        .select('outcome_metrics')
+        .eq('id', staffId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const merged = {
+        ...(current?.outcome_metrics || {}),
+        ...metrics,
+        last_computed: new Date().toISOString()
+      };
+
+      const { error } = await (this.supabase as any)
+        .from('staff')
+        .update({
+          outcome_metrics: merged,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', staffId);
+
+      if (error) throw error;
+      toast.success('Outcome metrics updated successfully');
+    } catch (error) {
+      console.error('[staff-service] Error updating outcome metrics:', error);
+      toast.error('Failed to update outcome metrics');
+      throw error;
+    }
+  }
+
   // Dashboard Analytics Methods
 
   static async getDashboardStats(
