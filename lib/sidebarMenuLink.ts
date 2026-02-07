@@ -539,6 +539,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/admission/group-dashboard',
+          label: 'Group Dashboard',
+          active: pathname === '/admission/group-dashboard',
+          icon: Building2,
+          submenus: []
+        },
+        {
           href: '/admission/leads',
           label: 'Leads',
           active: pathname.startsWith('/admission/leads'),
