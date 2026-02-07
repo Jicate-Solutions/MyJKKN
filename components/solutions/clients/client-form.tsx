@@ -130,7 +130,7 @@ export function ClientForm({ client, onSubmit, isLoading }: ClientFormProps) {
       city: client?.city || '',
       company_size: client?.company_size || '',
       source_type: client?.source_type || null,
-      source_contact_name: client?.source_contact_name || '',
+      source_department_id: client?.source_department_id || '',
       partner_status: client?.partner_status || 'standard',
     },
   })
