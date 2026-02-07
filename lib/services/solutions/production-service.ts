@@ -53,7 +53,7 @@ export interface CreateProductionAssignmentInput {
   deliverable_id: string;
   learner_id: string;
   role?: 'lead' | 'contributor' | 'reviewer';
-  assigned_by?: string;
+  approved_by?: string;
 }
 
 // ============================================
