@@ -44,7 +44,7 @@ export interface CreatePublicationInput {
   abstract?: string;
   journal_name?: string;
   journal_type?: JournalType;
-  submitted_date?: string;
+  submission_date?: string;
   nirf_category?: string;
   naac_criterion?: string;
   created_by: string;
@@ -58,7 +58,7 @@ export interface UpdatePublicationInput {
   journal_name?: string;
   journal_type?: JournalType;
   status?: PublicationStatus;
-  submitted_date?: string;
+  submission_date?: string;
   published_date?: string;
   doi?: string;
   url?: string;
@@ -234,7 +234,7 @@ export class PublicationsService extends BaseService {
         abstract: input.abstract,
         journal_name: input.journal_name,
         journal_type: input.journal_type,
-        submitted_date: input.submitted_date,
+        submission_date: input.submission_date,
         nirf_category: input.nirf_category,
         naac_criterion: input.naac_criterion,
         status: 'identified' as PublicationStatus,
