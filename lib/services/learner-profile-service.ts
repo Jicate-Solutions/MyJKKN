@@ -569,6 +569,37 @@ export class LearnerProfileService {
     const { data: userData } = await supabase.auth.getUser();
     const currentUserId = userData.user?.id;
 
+    // Validate college_email uniqueness before update (prevents cryptic DB constraint errors)
+    if (dto.college_email) {
+      const { data: existingLearner } = await supabase
+        .from('learners_profiles')
+        .select('id, first_name, last_name')
+        .eq('college_email', dto.college_email)
+        .neq('id', id)
+        .maybeSingle() as { data: any; error: any };
+
+      if (existingLearner) {
+        throw new Error(
+          `Email "${dto.college_email}" is already assigned to another learner: ${existingLearner.first_name} ${existingLearner.last_name || ''}`.trim()
+        );
+      }
+
+      // Also check profiles table for non-pre-registered profiles with this email
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id, full_name, learner_id')
+        .eq('email', dto.college_email)
+        .eq('is_pre_registered', false)
+        .maybeSingle() as { data: any; error: any };
+
+      // Only block if the profile belongs to a DIFFERENT learner
+      if (existingProfile && existingProfile.learner_id !== id) {
+        throw new Error(
+          `Email "${dto.college_email}" is already in use by another user${existingProfile.full_name ? ': ' + existingProfile.full_name : ''}`
+        );
+      }
+    }
+
     // First update with provided DTO
     const updateQuery: any = supabase.from('learners_profiles');
     const { data: updatedData, error: updateError } = await updateQuery
