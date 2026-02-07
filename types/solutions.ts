@@ -104,6 +104,7 @@ export interface SHDepartment {
 export interface SHClient {
   id: string
   name: string
+  company_code: string | null
   industry_sector: string | null
   contact_person: string
   contact_phone: string
@@ -111,12 +112,23 @@ export interface SHClient {
   address: string | null
   city: string | null
   state: string | null
+  pincode: string | null
+  country: string | null
+  gst_number: string | null
+  pan_number: string | null
   company_size: string | null
   source_type: SourceType | null
   source_department_id: string | null
   partner_status: PartnerStatus
   referral_count: number
+  intent_agency_id: string | null
+  logo_url: string | null
+  website: string | null
+  linkedin_url: string | null
+  notes: string | null
+  tags: string[] | null
   is_active: boolean
+  created_by: string | null
   created_at: string
   updated_at: string
 }
