@@ -47,7 +47,7 @@ export interface AddSkillInput {
   builder_id: string;
   skill_name: string;
   proficiency_level?: number;
-  acquired_date?: string;
+  assessed_date?: string;
 }
 
 export interface CreateAssignmentInput {
