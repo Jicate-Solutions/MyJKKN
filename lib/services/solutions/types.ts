@@ -227,8 +227,7 @@ export interface BuilderSkill extends BaseEntity {
   builder_id: string;
   skill_name: string;
   proficiency_level: number;
-  acquired_date?: string;
-  version: number;
+  assessed_date?: string;
 }
 
 export interface BuilderAssignment extends BaseEntity {
