@@ -150,6 +150,9 @@ export interface DetailedAttendanceReport {
       marker_email: string;
       marked_at: string; // ISO timestamp when the period was marked
     };
+    // P1.5.4 - Period-level engagement metadata
+    engagement_required?: boolean;
+    average_engagement_score?: number;
     students: {
       student_id: string;
       student_name: string;
@@ -158,6 +161,10 @@ export interface DetailedAttendanceReport {
       section_id?: string; // Updated: 2025-10-08 - For multi-section support
       section_name?: string; // Updated: 2025-10-08 - For multi-section support
       is_present: boolean;
+      // P1.5.4 - Student-level engagement data
+      engagement_score?: number;
+      learning_behaviors?: string[];
+      engagement_notes?: string;
     }[];
     present_count: number;
     absent_count: number;
