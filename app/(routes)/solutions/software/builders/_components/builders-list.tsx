@@ -110,9 +110,9 @@ export function BuildersList() {
               {statsLoading ? (
                 <Skeleton className="h-8 w-20" />
               ) : (
-                <p className="text-2xl font-bold">{formatCurrency(stats?.totalEarningsPaid || 0)}</p>
+                <p className="text-2xl font-bold">{stats?.totalSkills || 0}</p>
               )}
-              <p className="text-sm text-muted-foreground">Total Paid</p>
+              <p className="text-sm text-muted-foreground">Total Skills</p>
             </div>
           </CardContent>
         </Card>
