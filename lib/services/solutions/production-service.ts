@@ -200,7 +200,7 @@ export class ProductionService extends BaseService {
   static async getLearnersByDivision(
     division: ContentDivision
   ): Promise<ProductionLearnerWithAssignments[]> {
-    const result = await this.getLearners({ division, status: 'active' });
+    const result = await this.getLearners({ division, is_active: true });
     return result.data;
   }
 
