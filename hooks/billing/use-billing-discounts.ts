@@ -189,3 +189,62 @@ export function useBulkApplyDiscounts() {
     }
   });
 }
+
+// ============================================
+// OUTCOME-BASED DISCOUNT HOOKS
+// ============================================
+
+export function useCreateOutcomeDiscount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: CreateDiscountDto) =>
+      BillingDiscountService.createOutcomeDiscount(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
+      queryClient.invalidateQueries({ queryKey: ['outcome-discounts'] });
+      toast.success('Outcome-based discount created successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create outcome discount');
+    }
+  });
+}
+
+export function useVerifyOutcomeDiscount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      discountId,
+      verifiedBy,
+      evidence
+    }: {
+      discountId: string;
+      verifiedBy: string;
+      evidence: string[];
+    }) =>
+      BillingDiscountService.verifyOutcomeDiscount(
+        discountId,
+        verifiedBy,
+        evidence
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-discount'] });
+      queryClient.invalidateQueries({ queryKey: ['outcome-discounts'] });
+      toast.success('Outcome discount verified successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to verify outcome discount');
+    }
+  });
+}
+
+export function useOutcomeDiscounts(institutionId: string) {
+  return useQuery({
+    queryKey: ['outcome-discounts', institutionId],
+    queryFn: () => BillingDiscountService.getOutcomeDiscounts(institutionId),
+    enabled: !!institutionId
+  });
+}

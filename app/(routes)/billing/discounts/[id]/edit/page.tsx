@@ -28,7 +28,9 @@ import {
 import type {
   DiscountCategory,
   DiscountType,
-  UpdateDiscountDto
+  UpdateDiscountDto,
+  OutcomeCriteria,
+  OutcomeCriteriaType
 } from '@/types/billing-schedule';
 
 export default function EditDiscountPage() {
