@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation';
+import { connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { ClientNav } from '@/components/solutions/portals';
-
-export const dynamic = 'force-dynamic';
 
 export default async function ClientPortalLayout({
   children,
