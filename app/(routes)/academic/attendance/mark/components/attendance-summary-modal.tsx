@@ -23,9 +23,14 @@ import {
   Building2,
   Check,
   X,
-  Loader2
+  Loader2,
+  Sparkles,
+  Star
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import type { LearningBehavior } from '@/types/attendance';
+import { LEARNING_BEHAVIOR_LABELS } from '@/types/attendance';
 
 interface AttendanceSummaryModalProps {
   open: boolean;
@@ -41,6 +46,9 @@ interface AttendanceSummaryModalProps {
   startTime?: string;
   endTime?: string;
   existingAttendance?: any;
+  // P1.5.4 - Engagement data
+  engagementData?: Record<string, { score?: number; behaviors?: LearningBehavior[]; notes?: string }>;
+  isEngagementRequired?: boolean;
 }
 
 export function AttendanceSummaryModal({
