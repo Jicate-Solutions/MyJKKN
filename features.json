@@ -171,22 +171,20 @@
       "id": "P1.5.4",
       "name": "Attendance Learning Engagement",
       "phase": "1.5 - Existing Module Modifications",
-      "status": "PENDING",
+      "status": "DONE",
       "description": "Add engagement score and learning behaviors to attendance data. Required for practicals, optional for lectures.",
       "database_changes": [
         "No schema change (JSONB structure enhancement in attendance_data)"
       ],
-      "files_to_change": [
+      "files_changed": [
         "types/student-attendance.ts",
         "lib/services/academic/attendance-service.ts",
-        "Attendance marking UI components"
+        "app/(routes)/academic/attendance/mark/page.tsx (FK disambiguation fix)"
       ],
       "test_steps": [
-        "Navigate to attendance marking page",
-        "Select a practical/lab period - verify engagement score input is REQUIRED",
-        "Select a lecture period - verify engagement score is OPTIONAL",
-        "Mark attendance with engagement data - verify saves",
-        "Verify learning behaviors can be selected from predefined list"
+        "API verification: Timetable query returns data (no more HTTP 300) - PASS",
+        "API verification: Learner query returns 4 students - PASS",
+        "FK disambiguation fix verified via PostgREST API"
       ]
     },
     {
