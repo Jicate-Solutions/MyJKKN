@@ -236,10 +236,7 @@ export class RevenueSplitService extends BaseService {
     }
 
     const { data, error } = await (this.supabase as any).from('sh_revenue_split_models')
-      .update({
-        ...input,
-        updated_at: new Date().toISOString(),
-      })
+      .update(input)
       .eq('id', id)
       .select()
       .single();
