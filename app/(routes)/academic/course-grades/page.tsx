@@ -264,7 +264,7 @@ export default async function CourseGradesPage({ searchParams }: PageProps) {
               semesters={filterOptions.semesters}
               sections={filterOptions.sections}
               tools={filterOptions.tools}
-              currentFilters={searchParams}
+              currentFilters={resolvedSearchParams}
             />
           </Suspense>
         </CardContent>
