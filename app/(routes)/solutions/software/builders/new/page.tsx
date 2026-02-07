@@ -3,30 +3,59 @@
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useState } from 'react';
 import {
   Save,
   ArrowLeft,
   User,
-  Code,
-  Briefcase
+  AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
+import { useCreateBuilder } from '@/hooks/solutions/use-builders';
 
 export default function NewBuilderPage() {
   const router = useRouter();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const createBuilder = useCreateBuilder();
+
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    department_id: '',
+    trained_date: new Date().toISOString().split('T')[0],
+  });
+
+  const [successMessage, setSuccessMessage] = useState('');
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { id, value } = e.target;
+    setFormData((prev) => ({ ...prev, [id]: value }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    setTimeout(() => {
-      router.push('/solutions/software/builders');
-    }, 1000);
+
+    if (!formData.name.trim()) return;
+
+    try {
+      await createBuilder.mutateAsync({
+        name: formData.name.trim(),
+        email: formData.email.trim() || undefined,
+        department_id: formData.department_id.trim() || undefined,
+        trained_date: formData.trained_date || undefined,
+      });
+
+      setSuccessMessage('Builder added successfully!');
+      setTimeout(() => {
+        router.push('/solutions/software/builders');
+      }, 1000);
+    } catch {
+      // Error is handled by the mutation state
+    }
   };
 
   return (
@@ -55,201 +84,75 @@ export default function NewBuilderPage() {
           </div>
         </div>
 
+        {/* Success Message */}
+        {successMessage && (
+          <Alert>
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <AlertDescription>{successMessage}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Error Message */}
+        {createBuilder.isError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Failed to create builder: {createBuilder.error?.message || 'Unknown error'}
+            </AlertDescription>
+          </Alert>
+        )}
+
         <form onSubmit={handleSubmit}>
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Personal Details */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <User className="h-5 w-5" />
-                  Personal Details
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name *</Label>
-                  <Input
-                    id="name"
-                    placeholder="Enter full name"
-                    required
-                  />
-                </div>
+          <Card className="max-w-2xl">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                Builder Details
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name *</Label>
+                <Input
+                  id="name"
+                  placeholder="Enter full name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email *</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="email@example.com"
-                    required
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="email@example.com"
+                  value={formData.email}
+                  onChange={handleChange}
+                />
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input
-                    id="phone"
-                    placeholder="+91 98765 43210"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="type">Builder Type *</Label>
-                  <select id="type" className="w-full rounded-md border p-2" required>
-                    <option value="">Select type</option>
-                    <option value="internal">Internal (Employee)</option>
-                    <option value="contractor">Contractor</option>
-                    <option value="freelancer">Freelancer</option>
-                    <option value="intern">Intern</option>
-                  </select>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Technical Skills */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Code className="h-5 w-5" />
-                  Technical Skills
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="role">Primary Role *</Label>
-                  <select id="role" className="w-full rounded-md border p-2" required>
-                    <option value="">Select role</option>
-                    <option value="frontend">Frontend Developer</option>
-                    <option value="backend">Backend Developer</option>
-                    <option value="fullstack">Full Stack Developer</option>
-                    <option value="mobile">Mobile Developer</option>
-                    <option value="devops">DevOps Engineer</option>
-                    <option value="qa">QA Engineer</option>
-                    <option value="design">UI/UX Designer</option>
-                    <option value="pm">Project Manager</option>
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="level">Experience Level *</Label>
-                  <select id="level" className="w-full rounded-md border p-2" required>
-                    <option value="">Select level</option>
-                    <option value="junior">Junior (0-2 years)</option>
-                    <option value="mid">Mid-level (2-5 years)</option>
-                    <option value="senior">Senior (5-8 years)</option>
-                    <option value="lead">Tech Lead (8+ years)</option>
-                    <option value="architect">Architect (10+ years)</option>
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="skills">Technical Skills</Label>
-                  <Textarea
-                    id="skills"
-                    placeholder="List skills (e.g., React, Node.js, TypeScript, PostgreSQL)"
-                    rows={3}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="certifications">Certifications</Label>
-                  <Input
-                    id="certifications"
-                    placeholder="e.g., AWS Certified, Google Cloud"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Work Details */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Briefcase className="h-5 w-5" />
-                  Work Details
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="availability">Availability *</Label>
-                  <select id="availability" className="w-full rounded-md border p-2" required>
-                    <option value="">Select availability</option>
-                    <option value="full_time">Full Time</option>
-                    <option value="part_time">Part Time</option>
-                    <option value="contract">Contract Based</option>
-                    <option value="freelance">Freelance/Project Based</option>
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="hours">Hours per Week</Label>
-                  <Input
-                    id="hours"
-                    type="number"
-                    placeholder="e.g., 40"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="rate">Rate (₹/hour or ₹/month)</Label>
-                  <Input
-                    id="rate"
-                    placeholder="Enter rate"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="start_date">Start Date</Label>
-                  <Input
-                    id="start_date"
-                    type="date"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Additional Info */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Additional Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="portfolio">Portfolio / GitHub URL</Label>
-                  <Input
-                    id="portfolio"
-                    placeholder="https://github.com/username"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="linkedin">LinkedIn Profile</Label>
-                  <Input
-                    id="linkedin"
-                    placeholder="https://linkedin.com/in/username"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Notes</Label>
-                  <Textarea
-                    id="notes"
-                    placeholder="Any additional notes about this builder"
-                    rows={3}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+              <div className="space-y-2">
+                <Label htmlFor="trained_date">Trained Date</Label>
+                <Input
+                  id="trained_date"
+                  type="date"
+                  value={formData.trained_date}
+                  onChange={handleChange}
+                />
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Actions */}
-          <div className="flex justify-end gap-4 mt-6">
+          <div className="flex justify-end gap-4 mt-6 max-w-2xl">
             <Button type="button" variant="outline" onClick={() => router.back()}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={createBuilder.isPending || !formData.name.trim()}>
               <Save className="mr-2 h-4 w-4" />
-              {isSubmitting ? 'Adding...' : 'Add Builder'}
+              {createBuilder.isPending ? 'Adding...' : 'Add Builder'}
             </Button>
           </div>
         </form>
