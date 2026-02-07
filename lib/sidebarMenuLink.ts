@@ -393,6 +393,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/okr/elective/[id]': 'okr.elective.view',
   '/okr/elective/[id]/edit': 'okr.elective.edit',
 
+  // Facilitator Development
+  '/facilitator-development': 'facilitator_development.view',
+  '/facilitator-development/records': 'facilitator_development.view',
+  '/facilitator-development/records/new': 'facilitator_development.create',
+  '/facilitator-development/records/[id]': 'facilitator_development.view',
+  '/facilitator-development/immersions': 'facilitator_development.immersions.view',
+
   // Industry Integration
   '/industry': 'industry.view',
   '/industry/partners': 'industry.partners.view',
