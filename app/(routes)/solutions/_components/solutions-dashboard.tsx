@@ -175,7 +175,7 @@ export function SolutionsDashboard() {
                 {buildersLoading ? (
                   <Skeleton className="h-6 w-12" />
                 ) : (
-                  <p className="text-lg font-semibold">{builderStats?.totalBuilders || 0}</p>
+                  <p className="text-lg font-semibold">{builderStats?.total || 0}</p>
                 )}
               </div>
             </div>
