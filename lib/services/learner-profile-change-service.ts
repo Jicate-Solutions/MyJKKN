@@ -96,9 +96,12 @@ export class LearnerProfileChangeService {
         *,
         learner:learners_profiles(
           id, first_name, last_name, roll_number, college_email,
-          institution_id, department_id,
+          institution_id, department_id, degree_id, program_id, semester_id,
           institution:institutions(id, name),
-          department:departments(id, department_name)
+          degree:degrees(id, degree_name),
+          department:departments(id, department_name),
+          program:programs(id, program_name),
+          semester:semesters(id, semester_name)
         ),
         submitter:profiles!submitted_by(id, full_name, email),
         reviewer:profiles!reviewed_by(id, full_name, email)
@@ -212,9 +215,12 @@ export class LearnerProfileChangeService {
         *,
         learner:learners_profiles(
           id, first_name, last_name, roll_number, college_email,
-          institution_id, department_id,
+          institution_id, department_id, degree_id, program_id, semester_id,
           institution:institutions(id, name),
-          department:departments(id, department_name)
+          degree:degrees(id, degree_name),
+          department:departments(id, department_name),
+          program:programs(id, program_name),
+          semester:semesters(id, semester_name)
         ),
         submitter:profiles!submitted_by(id, full_name, email)
       `,
@@ -240,13 +246,14 @@ export class LearnerProfileChangeService {
       query = query.lte('submitted_at', filters.submitted_before);
     }
 
-    // Pagination
-    const page = filters.page || 1;
-    const limit = filters.limit || 20;
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-
-    query = query.range(from, to);
+    // Pagination - skip when no limit specified to fetch all records
+    if (filters.limit) {
+      const page = filters.page || 1;
+      const limit = filters.limit;
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+      query = query.range(from, to);
+    }
 
     const { data, error, count } = await query;
 

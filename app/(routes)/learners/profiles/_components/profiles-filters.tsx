@@ -110,6 +110,12 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
       // Reset to page 1
       params.set('page', '1');
 
+      // Debug: Log the URL being navigated to
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[ProfilesFilters] Search URL:', `/learners/profiles?${params.toString()}`);
+        console.log('[ProfilesFilters] localFilters:', JSON.stringify(localFilters));
+      }
+
       // Navigate with new params
       router.push(`/learners/profiles?${params.toString()}`);
     } finally {
