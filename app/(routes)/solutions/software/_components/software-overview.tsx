@@ -242,7 +242,9 @@ export function SoftwareOverview() {
               {isLoading ? (
                 <Skeleton className="h-8 w-16" />
               ) : (
-                <p className="text-2xl font-bold">{phaseStats?.activePhases || 0}</p>
+                <p className="text-2xl font-bold">
+                  {phaseStats ? phaseStats.total - (phaseStats.byStatus?.completed || 0) - (phaseStats.byStatus?.cancelled || 0) - (phaseStats.byStatus?.on_hold || 0) : 0}
+                </p>
               )}
               <p className="text-sm text-muted-foreground">In Progress</p>
             </div>
