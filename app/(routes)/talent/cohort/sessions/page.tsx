@@ -52,7 +52,7 @@ const ROLE_LABELS: Record<CohortRole, string> = {
 interface AvailableSession {
   id: string;
   title: string;
-  scheduled_at: string;
+  session_date: string;
   program_id: string;
 }
 
