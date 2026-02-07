@@ -241,36 +241,32 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
               <div>
                 <p className="text-sm font-medium text-muted-foreground mb-1">Partner Status</p>
                 <Badge className={partner.color}>{partner.label}</Badge>
-                {client.partner_discount > 0 && (
+                {client.partner_status !== 'standard' && (
                   <span className="ml-2 text-sm text-muted-foreground">
-                    ({(client.partner_discount * 100).toFixed(0)}% discount)
+                    (50% partner discount)
                   </span>
                 )}
               </div>
-              {client.partner_since && (
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground mb-1">Partner Since</p>
-                  <p>{new Date(client.partner_since).toLocaleDateString('en-IN', {
-                    day: '2-digit',
-                    month: 'short',
-                    year: 'numeric',
-                  })}</p>
-                </div>
-              )}
               <div>
                 <p className="text-sm font-medium text-muted-foreground mb-1">Source</p>
                 <p className="capitalize">{client.source_type?.replace('_', ' ') || 'Not specified'}</p>
               </div>
-              {client.source_contact_name && (
+              {client.source_department_id && (
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground mb-1">Source Contact</p>
-                  <p>{client.source_contact_name}</p>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Source Department</p>
+                  <p className="text-sm font-mono">{client.source_department_id}</p>
                 </div>
               )}
               <div>
                 <p className="text-sm font-medium text-muted-foreground mb-1">Referral Count</p>
                 <p>{client.referral_count || 0} referrals</p>
               </div>
+              {client.company_code && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Company Code</p>
+                  <p className="font-mono">{client.company_code}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
