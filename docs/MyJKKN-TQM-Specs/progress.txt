@@ -575,3 +575,68 @@ Applied via Supabase MCP `apply_migration` (name: admission_tqm_integration)
 - All values match DB view query results
 
 ## PHASE 3: TQM Integration ✅ COMPLETE
+
+---
+
+## PHASE 4: Institution Workflow Mapping (2026-02-07)
+
+### Status: BUILD PASSES — Awaiting browser test
+
+### Phase 4A: Database Migration ✅ COMPLETE
+Applied via Supabase MCP `apply_migration` (name: admission_workflow_configs_and_seat_config)
+
+| DB Object | Type | Status |
+|-----------|------|--------|
+| admission_workflow_configs | TABLE | ✅ Created - 20+ columns for workflow config per institution |
+| institution_seat_config | TABLE | ✅ Created - sanctioned seats per program/year |
+| RLS policies | POLICY | ✅ Enabled on both tables via user_institution_access |
+| Unique index | INDEX | ✅ One active config per institution per academic year |
+
+### Phase 4B: Types ✅ COMPLETE
+| File | Purpose |
+|------|---------|
+| types/admission-workflow-config.ts | AdmissionWorkflowConfig, StageConfig, MeritCriteria, SLAConfig, InstitutionSeatConfig, InstitutionAdmissionSummary, GroupDashboardData, CrossCampusDuplicate, ALL_ADMISSION_STAGES (14), COMMON_DOCUMENTS (13) |
+
+### Phase 4C: Services ✅ COMPLETE
+| File | Purpose |
+|------|---------|
+| lib/services/admission/workflow-config-service.ts | CRUD for admission_workflow_configs (getActive, list, upsert, delete) |
+| lib/services/admission/group-dashboard-service.ts | Cross-institution metrics + cross-campus dedup with RPC fallback |
+| lib/services/admission/naac-report-service.ts | NAAC Criteria 2.1.1 enrollment report (5-year, multi-institution) |
+
+### Phase 4D: Hooks ✅ COMPLETE
+| File | Purpose |
+|------|---------|
+| hooks/admission/use-workflow-config.ts | useActiveWorkflowConfig, useWorkflowConfigList, useUpsertWorkflowConfig, useDeleteWorkflowConfig |
+| hooks/admission/use-group-dashboard.ts | useGroupDashboard, useCrossCampusDuplicates |
+| hooks/admission/use-naac-report.ts | useNAACEnrollmentReport |
+
+### Phase 4E: UI Pages ✅ COMPLETE
+| File | Purpose |
+|------|---------|
+| app/(routes)/admission/workflow-config/page.tsx | Main workflow config management page |
+| _components/institution-workflow-form.tsx | Per-institution config editor with all sub-panels |
+| _components/stage-configurator.tsx | Toggle/reorder admission stages |
+| _components/document-requirement-editor.tsx | Set required documents with checkboxes |
+| _components/quota-config-panel.tsx | Quota percentage editor (govt/mgmt/NRI) |
+| _components/sla-config-panel.tsx | SLA threshold editor (hours/days) |
+| app/(routes)/admission/group-dashboard/page.tsx | Cross-institution overview with totals |
+| _components/institution-comparison-table.tsx | Side-by-side institution metrics table |
+| _components/cross-campus-dedup.tsx | Cross-campus duplicate lead detection |
+| _components/seat-fill-tracker.tsx | Visual seat fill progress bars per institution |
+| _components/naac-report-generator.tsx | NAAC Criteria 2.1.1 report with CSV export |
+
+### Phase 4F: Integration ✅ COMPLETE
+| Change | File |
+|--------|------|
+| Route permissions added | sidebarMenuLink.ts: /admission/workflow-config, /admission/group-dashboard |
+| Group Dashboard menu entry | Sidebar: "Group Dashboard" with Building2 icon after Dashboard |
+| Workflow Config submenu | Sidebar: Under Settings → "Workflow Config" |
+
+### Build Status
+- Next.js build: PASSES
+- Routes /admission/workflow-config and /admission/group-dashboard in build output
+- No TypeScript errors in new files
+- Code pushed to omm-dev, Vercel auto-deploying
+
+### Phase 4G: Browser Test — PENDING
