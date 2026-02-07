@@ -17,15 +17,20 @@
   - Service: updateCapabilities, updateCareerAspirations, updateIndustryReadiness methods
   - UI: Capabilities & Career tab in learner detail sidebar
   - Browser tested: Industry readiness (72.5%), competencies, Fink's profile, career aspirations all verified
+- Phase 1.5.3: Staff Facilitator Role - DONE (browser tested on Vercel deployment)
+  - DB migration: 3 new columns on staff (role_type VARCHAR, facilitator_certification JSONB, outcome_metrics JSONB)
+  - Service: updateRoleType, updateFacilitatorCertifications, updateOutcomeMetrics methods
+  - Detail page: Role Type badge, Certifications card (2 certs), Outcome Metrics card (6 metrics)
+  - Create form: Role Type dropdown with 5 options
+  - BUG FIX: Resolved pre-existing staff module failure - duplicate FK constraints caused PostgREST HTTP 300
+  - Browser tested: All features verified on Dr. Priya Sharma test record
 
 ### Blocked
 - Nothing currently blocked
 
 ### Next Up
-1. Phase 1.5.2: Learner Profile Capabilities (IN PROGRESS)
-2. Phase 1.5.3: Staff Facilitator Role
-3. Phase 1.5.4: Attendance Learning Engagement
-4. Phase 1.5.5: Billing Outcome-Linked Discounts
+1. Phase 1.5.4: Attendance Learning Engagement
+2. Phase 1.5.5: Billing Outcome-Linked Discounts
 
 ### Minor Issues to Track
 - LearnerCompetencyProgress.by_type is missing 'metacognitive' type (linter removed it)
