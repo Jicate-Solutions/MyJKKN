@@ -447,6 +447,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/vac/admin/courses/[id]': 'vac.admin.view',
   '/vac/admin/courses/[id]/edit': 'vac.admin.edit',
   '/vac/admin/analytics': 'vac.admin.analytics',
+  '/vac/admin/enrollments': 'vac.admin.view',
   '/vac/[courseId]': 'vac.view',
   '/vac/[courseId]/[lessonId]': 'vac.view',
 
