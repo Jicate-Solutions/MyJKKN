@@ -216,7 +216,7 @@ export interface SHBuilder {
   availability_status: 'available' | 'busy' | 'unavailable'
   phases_completed: number
   total_earnings: number
-  avg_rating: number | null
+  average_rating: number | null
   active_assignments_count: number
   created_at: string
   updated_at: string
