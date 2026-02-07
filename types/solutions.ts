@@ -354,7 +354,7 @@ export interface SHContentDeliverable {
   title: string
   status: DeliverableStatus
   file_url: string | null
-  file_type: string | null
+  file_format: string | null
   revision_count: number
   notes: string | null
   created_at: string
