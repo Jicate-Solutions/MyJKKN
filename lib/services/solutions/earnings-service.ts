@@ -170,24 +170,33 @@ export class EarningsService extends BaseService {
   static async createEarningEntry(input: {
     payment_id: string;
     recipient_type: RecipientType;
-    recipient_name: string;
     recipient_id?: string;
+    builder_id?: string;
+    cohort_member_id?: string;
+    production_learner_id?: string;
     department_id?: string;
+    institution_id?: string;
     amount: number;
     percentage: number;
     status?: EarningsStatus;
   }): Promise<EarningsLedger> {
+    const insertData: Record<string, unknown> = {
+      payment_id: input.payment_id,
+      recipient_type: input.recipient_type,
+      amount: input.amount,
+      percentage: input.percentage,
+      status: input.status || 'calculated',
+    };
+    // Only set optional FK columns if provided
+    if (input.recipient_id) insertData.recipient_id = input.recipient_id;
+    if (input.builder_id) insertData.builder_id = input.builder_id;
+    if (input.cohort_member_id) insertData.cohort_member_id = input.cohort_member_id;
+    if (input.production_learner_id) insertData.production_learner_id = input.production_learner_id;
+    if (input.department_id) insertData.department_id = input.department_id;
+    if (input.institution_id) insertData.institution_id = input.institution_id;
+
     const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
-      .insert({
-        payment_id: input.payment_id,
-        recipient_type: input.recipient_type,
-        recipient_name: input.recipient_name,
-        recipient_id: input.recipient_id,
-        department_id: input.department_id,
-        amount: input.amount,
-        percentage: input.percentage,
-        status: input.status || 'calculated',
-      })
+      .insert(insertData)
       .select()
       .single();
 
