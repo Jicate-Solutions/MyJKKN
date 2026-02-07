@@ -554,11 +554,9 @@ export class BuildersService extends BaseService {
       .eq('is_active', true)
       .order('name', { ascending: true });
 
-    // Filter out assigned builders
+    // Filter out assigned builders using .not('id', 'in', ...) instead of multiple .neq()
     if (assignedBuilderIds.length > 0) {
-      for (const id of assignedBuilderIds) {
-        query = query.neq('id', id);
-      }
+      query = query.not('id', 'in', `(${assignedBuilderIds.join(',')})`);
     }
 
     const { data, error } = await query;
