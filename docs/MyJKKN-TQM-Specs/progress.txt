@@ -515,3 +515,55 @@ A single-page "My Day" command center at `/admission/counselor-view` answering "
 - Next.js build: PASSES
 - Route `/admission/counselor-view` included in build output
 - No TypeScript errors in new files
+
+---
+
+## PHASE 3: TQM Integration (IN PROGRESS)
+
+### Phase 3A: Database Migration ✅ COMPLETE
+Applied via Supabase MCP `apply_migration` (name: admission_tqm_integration)
+
+| DB Object | Type | Status |
+|-----------|------|--------|
+| admission_process_metrics | VIEW | ✅ Created - computes cycle time, SLA, conversion rate, lost rate from admission data |
+| log_admission_copq_on_lead_lost() | FUNCTION | ✅ Created - auto-logs COPQ when hot lead marked lost |
+| trg_admission_copq_lead_lost | TRIGGER | ✅ Active on admission_leads |
+| nps_survey_schedule | TABLE | ✅ Created with 12 columns, RLS enabled |
+| schedule_admission_nps() | FUNCTION | ✅ Created - auto-schedules NPS 7 days post-enrollment |
+| trg_admission_nps_enrollment | TRIGGER | ✅ Active on admission_leads |
+| Offer expired trigger | TRIGGER | ⏭️ Skipped - admission_offer_letters table doesn't exist yet |
+
+**View data verified:** Returns real metrics - 19 leads Feb, 18 Jan, 14 Dec, 2 Nov (1 enrolled, 50% conversion)
+
+### Phase 3A Schema Adaptations
+| Spec Column | Actual DB Column | Adaptation |
+|-------------|-----------------|------------|
+| priority = 'hot' | is_hot_lead (boolean) | OLD.is_hot_lead = true in COPQ trigger |
+| funnel_stage = 'lost' | is_lost (boolean) | NEW.is_lost = true in COPQ trigger |
+| program_interest | interested_programs (text[]) | array_to_string() in trigger descriptions |
+| sub_category, source_module, source_record_id | N/A | Columns don't exist on billing_copq_incidents - info stored in description |
+
+### Phase 3B: Service ✅ COMPLETE
+| File | Purpose |
+|------|---------|
+| lib/services/admission/admission-tqm-metrics-service.ts | Queries admission_process_metrics view + billing_copq_incidents, returns current/previous month + COPQ summary |
+
+### Phase 3C: Hook ✅ COMPLETE
+| File | Purpose |
+|------|---------|
+| hooks/admission/use-admission-tqm-metrics.ts | useAdmissionTQMMetrics (5min stale, refetch on focus) + useAdmissionStageDurations |
+
+### Phase 3D: UI Widget ✅ COMPLETE
+| File | Purpose |
+|------|---------|
+| app/(routes)/process-excellence/_components/admission-quality-card.tsx | 4-metric grid (Conversion, Cycle Time, 1st Contact SLA, Lost Rate) + COPQ summary with delta indicators |
+| app/(routes)/process-excellence/_components/dashboard-content.tsx | MODIFIED - imported and rendered AdmissionQualityCard between summary cards and SLA distribution |
+
+### Phase 3 Build Status
+- TypeScript types regenerated from staging Supabase
+- Next.js build: PASSES
+- All routes compiled including /process-excellence and /admission/counselor-view
+- Code pushed to omm-dev
+
+### Phase 3E: Browser Test
+- PENDING - need to verify widget renders on process-excellence dashboard
