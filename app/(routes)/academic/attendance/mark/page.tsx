@@ -2327,6 +2327,133 @@ export default function AttendanceMarkPage() {
                           </>
                         )}
                       </Button>
+
+                      {/* P1.5.4 - Engagement Score (only for present students) */}
+                      {attendanceData[student.id] === 'Present' && (
+                        <div className='w-full space-y-1.5 pt-1 border-t border-gray-200 dark:border-gray-700'>
+                          <div className='flex items-center justify-between'>
+                            <span className='text-[10px] font-medium text-gray-500 dark:text-gray-400 flex items-center gap-1'>
+                              <Sparkles className='h-3 w-3' />
+                              Engagement
+                              {isEngagementRequired && <span className='text-red-500'>*</span>}
+                            </span>
+                            <div className='flex items-center gap-1'>
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <button
+                                  key={star}
+                                  type='button'
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (!existingAttendance || isEditMode) {
+                                      setEngagementData(prev => ({
+                                        ...prev,
+                                        [student.id]: {
+                                          ...prev[student.id],
+                                          score: prev[student.id]?.score === star ? undefined : star
+                                        }
+                                      }));
+                                    }
+                                  }}
+                                  disabled={existingAttendance && !isEditMode}
+                                  className={cn(
+                                    'transition-colors',
+                                    (engagementData[student.id]?.score || 0) >= star
+                                      ? 'text-amber-400'
+                                      : 'text-gray-300 dark:text-gray-600',
+                                    !(existingAttendance && !isEditMode) && 'hover:text-amber-300'
+                                  )}
+                                >
+                                  <Star className='h-3.5 w-3.5 fill-current' />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Behaviors & Notes Popover */}
+                          {attendanceData[student.id] === 'Present' && engagementData[student.id]?.score && (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type='button'
+                                  onClick={(e) => e.stopPropagation()}
+                                  className='w-full text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center justify-center gap-1'
+                                >
+                                  <MessageSquare className='h-3 w-3' />
+                                  {engagementData[student.id]?.behaviors?.length
+                                    ? `${engagementData[student.id].behaviors!.length} behaviors`
+                                    : 'Add behaviors'}
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent
+                                className='w-72 p-3'
+                                align='center'
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className='space-y-3'>
+                                  <p className='text-xs font-semibold text-gray-700 dark:text-gray-300'>
+                                    Learning Behaviors
+                                  </p>
+                                  <div className='flex flex-wrap gap-1.5'>
+                                    {(Object.keys(LEARNING_BEHAVIOR_LABELS) as LearningBehavior[]).map((behavior) => {
+                                      const isSelected = engagementData[student.id]?.behaviors?.includes(behavior);
+                                      return (
+                                        <button
+                                          key={behavior}
+                                          type='button'
+                                          onClick={() => {
+                                            if (existingAttendance && !isEditMode) return;
+                                            setEngagementData(prev => {
+                                              const current = prev[student.id]?.behaviors || [];
+                                              const updated = isSelected
+                                                ? current.filter(b => b !== behavior)
+                                                : [...current, behavior];
+                                              return {
+                                                ...prev,
+                                                [student.id]: {
+                                                  ...prev[student.id],
+                                                  behaviors: updated
+                                                }
+                                              };
+                                            });
+                                          }}
+                                          disabled={existingAttendance && !isEditMode}
+                                          className={cn(
+                                            'px-2 py-1 rounded-full text-[10px] font-medium border transition-colors',
+                                            isSelected
+                                              ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-600'
+                                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:bg-gray-700'
+                                          )}
+                                        >
+                                          {LEARNING_BEHAVIOR_LABELS[behavior]}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  <div>
+                                    <p className='text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1'>
+                                      Notes
+                                    </p>
+                                    <Textarea
+                                      placeholder='Optional engagement notes...'
+                                      value={engagementData[student.id]?.notes || ''}
+                                      onChange={(e) => {
+                                        setEngagementData(prev => ({
+                                          ...prev,
+                                          [student.id]: {
+                                            ...prev[student.id],
+                                            notes: e.target.value
+                                          }
+                                        }));
+                                      }}
+                                      disabled={existingAttendance && !isEditMode}
+                                      className='h-16 text-xs resize-none'
+                                    />
+                                  </div>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
