@@ -71,8 +71,9 @@ export default function CommunicationsPage() {
   const { data: stats } = useAdminCommunicationStats(institutionId);
   const deleteMutation = useDeleteAdminCommunication();
 
-  const communications = data?.data || [];
-  const metadata = data?.metadata || { total: 0, page: 1, limit: 20, totalPages: 1 };
+  const typedData = data as { data?: unknown[]; metadata?: { total: number; page: number; limit: number; totalPages: number } } | undefined;
+  const communications = typedData?.data || [];
+  const metadata = typedData?.metadata || { total: 0, page: 1, limit: 20, totalPages: 1 };
   const loading = isLoading || institutionsLoading;
 
   const formatDate = (dateStr: string) => {
