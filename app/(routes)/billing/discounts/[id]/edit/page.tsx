@@ -552,15 +552,16 @@ export default function EditDiscountPage() {
                           </Select>
                         </div>
 
-                        {/* Required Level */}
+                        {/* Min Proficiency Level */}
                         <div className='space-y-2'>
-                          <Label htmlFor='minimum_level'>Required Proficiency Level</Label>
+                          <Label htmlFor='min_proficiency'>Min Proficiency Level</Label>
                           <Select
-                            value={outcomeCriteria.minimum_level || 'intermediate'}
+                            value={outcomeCriteria.min_proficiency || outcomeCriteria.minimum_level || 'intermediate'}
                             onValueChange={(value) =>
                               setOutcomeCriteria((prev) => ({
                                 ...prev,
-                                minimum_level: value as 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert'
+                                minimum_level: value as 'beginner' | 'intermediate' | 'advanced' | 'expert',
+                                min_proficiency: value as 'beginner' | 'intermediate' | 'advanced' | 'expert'
                               }))
                             }
                           >
@@ -568,7 +569,6 @@ export default function EditDiscountPage() {
                               <SelectValue placeholder='Select proficiency level' />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value='novice'>Novice</SelectItem>
                               <SelectItem value='beginner'>Beginner</SelectItem>
                               <SelectItem value='intermediate'>Intermediate</SelectItem>
                               <SelectItem value='advanced'>Advanced</SelectItem>
@@ -577,29 +577,48 @@ export default function EditDiscountPage() {
                           </Select>
                         </div>
 
-                        {/* Minimum Score / Threshold */}
-                        {(outcomeCriteria.type === 'attendance' || outcomeCriteria.type === 'cgpa' || outcomeCriteria.type === 'industry_readiness') && (
-                          <div className='space-y-2'>
-                            <Label htmlFor='minimum_percentage'>
-                              Minimum {outcomeCriteria.type === 'cgpa' ? 'CGPA Value' : 'Percentage'} *
-                            </Label>
-                            <Input
-                              id='minimum_percentage'
-                              type='number'
-                              step='0.01'
-                              min='0'
-                              max={outcomeCriteria.type === 'cgpa' ? '10' : '100'}
-                              placeholder={outcomeCriteria.type === 'cgpa' ? '7.5' : '75'}
-                              value={outcomeCriteria.minimum_percentage || ''}
-                              onChange={(e) =>
-                                setOutcomeCriteria((prev) => ({
-                                  ...prev,
-                                  minimum_percentage: parseFloat(e.target.value)
-                                }))
-                              }
-                            />
-                          </div>
-                        )}
+                        {/* Min Score (0-100) */}
+                        <div className='space-y-2'>
+                          <Label htmlFor='min_score'>Min Score (0-100)</Label>
+                          <Input
+                            id='min_score'
+                            type='number'
+                            step='1'
+                            min='0'
+                            max='100'
+                            placeholder='70'
+                            value={outcomeCriteria.min_score ?? ''}
+                            onChange={(e) =>
+                              setOutcomeCriteria((prev) => ({
+                                ...prev,
+                                min_score: parseInt(e.target.value) || 0
+                              }))
+                            }
+                          />
+                        </div>
+
+                        {/* Evaluation Period (Days) */}
+                        <div className='space-y-2'>
+                          <Label htmlFor='evaluation_period_days'>Evaluation Period (days)</Label>
+                          <Input
+                            id='evaluation_period_days'
+                            type='number'
+                            step='1'
+                            min='1'
+                            max='365'
+                            placeholder='90'
+                            value={outcomeCriteria.evaluation_period_days ?? ''}
+                            onChange={(e) =>
+                              setOutcomeCriteria((prev) => ({
+                                ...prev,
+                                evaluation_period_days: parseInt(e.target.value) || 90
+                              }))
+                            }
+                          />
+                          <p className='text-xs text-muted-foreground'>
+                            Number of days over which the outcome is evaluated
+                          </p>
+                        </div>
 
                         {/* Industry Readiness Threshold */}
                         {outcomeCriteria.type === 'industry_readiness' && (
@@ -623,26 +642,28 @@ export default function EditDiscountPage() {
                           </div>
                         )}
 
-                        {/* Competency IDs (text input for now) */}
+                        {/* Competency IDs (multi-select via text input) */}
                         {(outcomeCriteria.type === 'competency_achievement') && (
                           <div className='space-y-2 md:col-span-2'>
-                            <Label htmlFor='required_competencies'>
-                              Required Competency IDs (comma-separated)
+                            <Label htmlFor='competency_ids'>
+                              Competency IDs (comma-separated)
                             </Label>
                             <Input
-                              id='required_competencies'
+                              id='competency_ids'
                               type='text'
                               placeholder='e.g., comp-001, comp-002'
-                              value={(outcomeCriteria.required_competencies || []).join(', ')}
-                              onChange={(e) =>
+                              value={(outcomeCriteria.competency_ids || outcomeCriteria.required_competencies || []).join(', ')}
+                              onChange={(e) => {
+                                const ids = e.target.value
+                                  .split(',')
+                                  .map((s) => s.trim())
+                                  .filter(Boolean);
                                 setOutcomeCriteria((prev) => ({
                                   ...prev,
-                                  required_competencies: e.target.value
-                                    .split(',')
-                                    .map((s) => s.trim())
-                                    .filter(Boolean)
-                                }))
-                              }
+                                  competency_ids: ids,
+                                  required_competencies: ids
+                                }));
+                              }}
                             />
                             <p className='text-xs text-muted-foreground'>
                               Enter competency IDs from the competency catalog
