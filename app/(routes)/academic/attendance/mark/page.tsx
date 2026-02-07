@@ -1288,6 +1288,18 @@ export default function AttendanceMarkPage() {
             marker_email: markerEmail || profile?.email || '',
             marked_at: new Date().toISOString() // Add timestamp when period is marked
           },
+          // P1.5.4 - Period-level engagement metadata
+          engagement_required: isEngagementRequired,
+          ...(Object.keys(engagementData).length > 0 && {
+            average_engagement_score: (() => {
+              const scores = Object.values(engagementData)
+                .map(e => e.score)
+                .filter((s): s is number => s !== undefined && s > 0);
+              return scores.length > 0
+                ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
+                : undefined;
+            })()
+          }),
           // For non-subdivided or fallback, keep original structure
           students: isSubdividedSlot
             ? [] // Empty for subdivided (data is in groups)
@@ -1299,7 +1311,17 @@ export default function AttendanceMarkPage() {
                   effectiveSectionId ||
                   '', // Updated: 2025-10-09 - Ensure section_id is always provided
                 status: attendanceData[student.id] || 'Present',
-                marked_at: new Date().toISOString()
+                marked_at: new Date().toISOString(),
+                // P1.5.4 - Learning engagement data per student
+                ...(engagementData[student.id]?.score && {
+                  engagement_score: engagementData[student.id].score
+                }),
+                ...(engagementData[student.id]?.behaviors && engagementData[student.id].behaviors!.length > 0 && {
+                  learning_behaviors: engagementData[student.id].behaviors
+                }),
+                ...(engagementData[student.id]?.notes && {
+                  engagement_notes: engagementData[student.id].notes
+                })
               }))
         }
       };
