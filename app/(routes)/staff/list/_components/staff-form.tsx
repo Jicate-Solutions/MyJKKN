@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
+import type { FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
@@ -43,6 +44,7 @@ import { StaffService } from '@/lib/services/staff/staff-service';
 import { StaffImageUpload } from '@/components/ImageUpload/staff-image-upload';
 import { DateInput } from '@/components/ui/date-input';
 import { StorageService } from '@/lib/storage/storage-service';
+import { getFirstErrorField } from '@/lib/utils/form-errors';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -89,6 +91,30 @@ interface StaffFormProps {
   staff?: Staff;
   isEditing?: boolean;
 }
+
+const staffFieldOrder: Array<keyof FormValues> = [
+  'first_name',
+  'last_name',
+  'gender',
+  'date_of_birth',
+  'email',
+  'phone',
+  'address',
+  'state',
+  'district',
+  'pincode',
+  'marital_status',
+  'blood_group',
+  'profile_picture',
+  'staff_id',
+  'institution_email',
+  'date_of_joining',
+  'designation',
+  'category_id',
+  'institution_id',
+  'department_id',
+  'is_active'
+];
 
 export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const router = useRouter();
@@ -271,6 +297,36 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     isInitialLoad
   ]);
 
+  const onInvalid = (errors: FieldErrors<FormValues>) => {
+    const firstErrorField = getFirstErrorField(errors, staffFieldOrder);
+    if (!firstErrorField) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      const fieldContainer = document.querySelector(
+        `[data-field="${String(firstErrorField)}"]`
+      );
+      const fallbackTarget = document.querySelector('[aria-invalid="true"]');
+      const target = (fieldContainer || fallbackTarget) as HTMLElement | null;
+
+      if (!target) {
+        return;
+      }
+
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      const focusTarget =
+        target.querySelector<HTMLElement>(
+          'input, button, textarea, select, [tabindex]:not([tabindex="-1"])'
+        ) ?? target;
+
+      if (typeof focusTarget.focus === 'function') {
+        focusTarget.focus({ preventScroll: true });
+      }
+    });
+  };
+
   const onSubmit = async (values: FormValues) => {
     try {
       setIsSubmitting(true);
@@ -358,7 +414,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-8' suppressHydrationWarning>
+      <form
+        onSubmit={form.handleSubmit(onSubmit, onInvalid)}
+        className='space-y-8'
+        suppressHydrationWarning
+      >
         {/* Personal Information */}
         <div className='space-y-4'>
           <h2 className='text-lg font-semibold'>Personal Information</h2>
@@ -367,7 +427,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='first_name'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='first_name'>
                   <FormLabel>First Name</FormLabel>
                   <FormControl>
                     <Input placeholder='Enter first name' {...field} />
@@ -381,7 +441,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='last_name'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='last_name'>
                   <FormLabel>Last Name</FormLabel>
                   <FormControl>
                     <Input placeholder='Enter last name' {...field} />
@@ -395,7 +455,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='gender'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='gender'>
                   <FormLabel>Gender</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
@@ -418,7 +478,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='date_of_birth'
               render={({ field }) => (
-                <FormItem className='flex flex-col'>
+                <FormItem className='flex flex-col' data-field='date_of_birth'>
                   <FormLabel>Date of Birth</FormLabel>
                   <FormControl>
                     <DateInput
@@ -443,7 +503,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='email'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='email'>
                   <FormLabel>Personal Email</FormLabel>
                   <FormControl>
                     <Input
@@ -461,7 +521,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='phone'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='phone'>
                   <FormLabel>Phone</FormLabel>
                   <FormControl>
                     <Input
@@ -479,7 +539,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='address'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='address'>
                   <FormLabel>Address</FormLabel>
                   <FormControl>
                     <Input placeholder='Enter address' {...field} />
@@ -493,7 +553,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='state'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='state'>
                   <FormLabel>State</FormLabel>
                   <FormControl>
                     <Input placeholder='Enter state' {...field} />
@@ -507,7 +567,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='district'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='district'>
                   <FormLabel>District</FormLabel>
                   <FormControl>
                     <Input placeholder='Enter district' {...field} />
@@ -521,7 +581,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='pincode'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='pincode'>
                   <FormLabel>PIN Code</FormLabel>
                   <FormControl>
                     <Input
@@ -545,7 +605,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='marital_status'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='marital_status'>
                   <FormLabel>Marital Status</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
@@ -569,7 +629,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='blood_group'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='blood_group'>
                   <FormLabel>Blood Group</FormLabel>
                   <Select
                     onValueChange={field.onChange}
@@ -602,7 +662,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='profile_picture'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='profile_picture'>
                   <FormLabel>Profile Picture</FormLabel>
                   <FormControl>
                     <StaffImageUpload
@@ -627,7 +687,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='staff_id'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='staff_id'>
                   <FormLabel>Staff ID</FormLabel>
                   <FormControl>
                     <Input placeholder='Enter staff ID' {...field} />
@@ -641,7 +701,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='institution_email'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='institution_email'>
                   <FormLabel>Institution Email</FormLabel>
                   <FormControl>
                     <Input
@@ -660,7 +720,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='date_of_joining'
               render={({ field }) => (
-                <FormItem className='flex flex-col'>
+                <FormItem className='flex flex-col' data-field='date_of_joining'>
                   <FormLabel>Date of Joining</FormLabel>
                   <FormControl>
                     <DateInput
@@ -679,7 +739,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='designation'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='designation'>
                   <FormLabel>Designation</FormLabel>
                   <FormControl>
                     <Input placeholder='Enter designation' {...field} />
@@ -693,7 +753,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='category_id'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='category_id'>
                   <FormLabel>Employment Category</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
@@ -718,7 +778,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='institution_id'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='institution_id'>
                   <FormLabel>Institution</FormLabel>
                   <Select
                     onValueChange={field.onChange}
@@ -752,7 +812,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               control={form.control}
               name='department_id'
               render={({ field }) => (
-                <FormItem>
+                <FormItem data-field='department_id'>
                   <FormLabel>Department</FormLabel>
                   <Select
                     onValueChange={field.onChange}
@@ -790,7 +850,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
             control={form.control}
             name='is_active'
             render={({ field }) => (
-              <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+              <FormItem
+                className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'
+                data-field='is_active'
+              >
                 <div className='space-y-0.5'>
                   <FormLabel>Active Status</FormLabel>
                   <div className='text-sm text-muted-foreground'>

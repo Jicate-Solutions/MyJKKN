@@ -110,6 +110,38 @@ export function usePermissions(
             }
           }
 
+          // Safety net: If the user's profiles.role is not represented in user_roles,
+          // also merge permissions from the profile role's custom_role.
+          // This handles data mismatches where profiles.role = 'hod' but user_roles
+          // links to different custom_roles (e.g., Faculty + COE instead of HOD).
+          const profileRoleKey = userProfile.role;
+          const hasProfileRole = roles.some(
+            (r) => r.role_key === profileRoleKey
+          );
+
+          if (!hasProfileRole && profileRoleKey) {
+            console.warn(
+              `[permissions] profiles.role="${profileRoleKey}" not found in user_roles (has: ${roles.map(r => r.role_key).join(', ')}). Merging profile role permissions as fallback.`
+            );
+            try {
+              const profileRole = await RoleService.getRoleByKey(profileRoleKey);
+              if (profileRole && profileRole.permissions) {
+                for (const [key, value] of Object.entries(profileRole.permissions)) {
+                  if (value === true) {
+                    mergedPermissions[key] = true;
+                  } else if (mergedPermissions[key] !== true) {
+                    mergedPermissions[key] = value as boolean;
+                  }
+                }
+              }
+            } catch (profileRoleError) {
+              console.warn(
+                `[permissions] Failed to fetch profile role "${profileRoleKey}":`,
+                profileRoleError
+              );
+            }
+          }
+
           return {
             permissions: mergedPermissions,
             isSuperAdmin: false,
@@ -145,10 +177,10 @@ export function usePermissions(
       };
     },
     enabled: !!userProfile && !authLoading,
-    staleTime: 10 * 60 * 1000, // 10 minutes cache
-    gcTime: 30 * 60 * 1000,    // 30 minutes garbage collection
+    staleTime: 2 * 60 * 1000, // 2 minutes cache (reduced from 10 to reflect permission changes faster)
+    gcTime: 10 * 60 * 1000,   // 10 minutes garbage collection
     retry: 1,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true, // Re-fetch on window focus to pick up permission changes
   });
 
   const permissions = permissionData?.permissions ?? EMPTY_PERMISSIONS;

@@ -70,6 +70,14 @@ export default function LoginPage() {
         return;
       }
 
+      // If redirected due to profile load failure, show error and let user retry login
+      // Don't auto-redirect even if they have a valid session (profile fetch may still fail)
+      if (params.get('error') === 'profile_load_failed') {
+        console.log('[Login Page] Profile load failed redirect, showing error');
+        setIsCheckingAuth(false);
+        return;
+      }
+
       // Don't redirect if coming from error page
       const redirectedFrom = params.get('redirectedFrom');
       if (
@@ -201,9 +209,23 @@ export default function LoginPage() {
         exchange: 'Error exchanging auth code',
         session: 'Error creating session',
         general: 'An unexpected error occurred',
-        callback: 'Authentication callback failed'
+        callback: 'Authentication callback failed',
+        profile_load_failed: 'Unable to load your profile. This is usually a temporary issue. Please sign in again.'
       };
-      toast.error(errorMessages[error] || `Login error: ${error}`);
+
+      const errorTitles: Record<string, string> = {
+        profile_load_failed: 'Temporary Connection Issue'
+      };
+
+      const message = errorMessages[error] || `Login error: ${error}`;
+
+      // Show as persistent alert for profile_load_failed (not just a toast)
+      if (error === 'profile_load_failed') {
+        setAccessDeniedMessage(message);
+        setAccessDeniedTitle(errorTitles[error] || 'Error');
+      }
+
+      toast.error(message);
     }
 
     if (reason) {

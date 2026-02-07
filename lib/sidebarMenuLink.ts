@@ -63,7 +63,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
-import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
+// FEATURE_FLAGS import removed - not used in sidebar filtering
 
 /**
  * Lightweight interface for role-based page filtering.
@@ -728,12 +728,8 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/learners/profiles',
               label: 'All Profiles',
               active: pathname === '/learners/profiles'
-            },
-            {
-              href: '/learners/profiles/promotion',
-              label: 'Student Promotion',
-              active: pathname.startsWith('/learners/profiles/promotion')
             }
+           
           ]
         },
         {
@@ -1105,6 +1101,17 @@ export function GetRoleBasedPages(
 
   const isStudent = userRole.role_key === 'student';
 
+  // Debug: Log permissions state for troubleshooting
+  if (process.env.NODE_ENV === 'development') {
+    const learnerPerms = Object.entries(userRole.permissions)
+      .filter(([k]) => k.startsWith('learners.'))
+      .filter(([, v]) => v === true)
+      .map(([k]) => k);
+    if (learnerPerms.length > 0) {
+      console.log('[GetRoleBasedPages] Role:', userRole.role_key, '| Learner permissions (true):', learnerPerms);
+    }
+  }
+
   // Filter menus based on permissions
   return allMenus
     .map((group) => {
@@ -1225,6 +1232,14 @@ export function GetRoleBasedPages(
         menus: filteredMenus
       };
     })
-    .filter((group) => group.menus.length > 0); // Remove empty groups
+    .filter((group) => {
+      // Debug: Log when Learners group is filtered out
+      if (process.env.NODE_ENV === 'development' && group.groupLabel === 'Learners') {
+        console.log(`[GetRoleBasedPages] Learners group: ${group.menus.length} items after filtering ->`,
+          group.menus.map(m => m.label)
+        );
+      }
+      return group.menus.length > 0;
+    }); // Remove empty groups
 }
 
