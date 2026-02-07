@@ -362,6 +362,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/scoring-rules': 'admission.scoring_rules.view',
   '/admission/assignment-rules': 'admission.assignment_rules.view',
   '/admission/status': 'admission.status.view',
+  '/admission/workflow-config': 'admission.settings.view',
+  '/admission/group-dashboard': 'admission.dashboard.view',
 
   // Consultant Portal (EC Self-Service)
   '/consultant-portal': 'consultant_portal.view',
