@@ -26,13 +26,13 @@ export const metadata = {
 };
 
 interface PageProps {
-  searchParams: {
+  searchParams: Promise<{
     programId?: string;
     semesterId?: string;
     sectionId?: string;
     toolId?: string;
     resourceLinkId?: string;
-  };
+  }>;
 }
 
 // Type for the grade data returned from Supabase (with arrays from joins)
