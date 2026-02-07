@@ -190,13 +190,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/staff/list': 'staff.view',
   '/staff/dashboard': 'staff.dashboard.view',
 
-  // Facilitator Development
-  '/facilitator-development': 'facilitator_development.view',
-  '/facilitator-development/records': 'facilitator_development.view',
-  '/facilitator-development/records/new': 'facilitator_development.create',
-  '/facilitator-development/records/[id]': 'facilitator_development.view',
-  '/facilitator-development/immersions': 'facilitator_development.view',
-
   // Competency Catalog
   '/competency-catalog': 'competency.catalog.view',
   '/competency-catalog/new': 'competency.catalog.create',
