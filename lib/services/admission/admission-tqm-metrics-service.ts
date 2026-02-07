@@ -105,7 +105,7 @@ export class AdmissionTQMMetricsService {
   }[]> {
     if (!institutionId) return [];
 
-    const { data, error } = await this.supabase.rpc(
+    const { data, error } = await (this.supabase as any).rpc(
       'get_admission_stage_durations',
       { p_institution_id: institutionId }
     );
