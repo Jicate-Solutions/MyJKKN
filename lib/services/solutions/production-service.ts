@@ -27,7 +27,7 @@ export interface ProductionAssignmentWithDetails extends ProductionAssignment {
 export interface ProductionLearnerFilters extends PaginationParams {
   division?: ContentDivision;
   skill_level?: SkillLevel;
-  status?: string;
+  is_active?: boolean;
 }
 
 export interface CreateProductionLearnerInput {
