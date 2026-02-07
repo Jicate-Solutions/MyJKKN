@@ -76,14 +76,14 @@ export function ProductionLearnerCard({ learner }: ProductionLearnerCardProps) {
               </div>
             </div>
             <Badge
-              variant={learner.status === 'active' ? 'default' : 'secondary'}
+              variant={learner.is_active === true ? 'default' : 'secondary'}
               className={
-                learner.status === 'active'
+                learner.is_active === true
                   ? 'bg-green-100 text-green-800'
                   : ''
               }
             >
-              {learner.status}
+              {learner.is_active ? 'active' : 'inactive'}
             </Badge>
           </div>
         </CardHeader>
