@@ -102,10 +102,24 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
     try {
       setIsSubmitting(true);
 
+      // Auto-calculate total learning hours from components
+      const total =
+        (Number(values.theory_hours) || 0) +
+        (Number(values.practical_hours) || 0) +
+        (Number(values.self_study_hours) || 0);
+      const submitData = {
+        ...values,
+        learning_hours_target: total > 0 ? total : null,
+        // Convert empty/0 values to null for clean storage
+        theory_hours: values.theory_hours || null,
+        practical_hours: values.practical_hours || null,
+        self_study_hours: values.self_study_hours || null
+      };
+
       if (isEditing && course) {
-        await CourseService.updateCourse(course.id, values as any);
+        await CourseService.updateCourse(course.id, submitData as any);
       } else {
-        await CourseService.createCourse(values as any);
+        await CourseService.createCourse(submitData as any);
       }
 
       // Invalidate and refetch course queries
