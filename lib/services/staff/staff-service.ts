@@ -295,7 +295,7 @@ export class StaffService {
             name,
             counselling_code
           ),
-          department:departments(
+          department:departments!staff_department_id_fkey(
             id,
             department_name
           )
@@ -437,7 +437,7 @@ export class StaffService {
             name,
             counselling_code
           ),
-          department:departments(
+          department:departments!staff_department_id_fkey(
             id,
             department_name
           )
@@ -537,7 +537,7 @@ export class StaffService {
             name,
             counselling_code
           ),
-          department:departments(
+          department:departments!staff_department_id_fkey(
             id,
             department_name
           )
@@ -1071,7 +1071,7 @@ export class StaffService {
         department_id,
         institution_id,
         is_active,
-        department:departments(id, department_name),
+        department:departments!staff_department_id_fkey(id, department_name),
         institution:institutions!staff_institution_id_fkey(id, name)
       `);
 
@@ -1229,7 +1229,7 @@ export class StaffService {
     let query = (supabase as any).from('staff').select(`
         date_of_joining,
         category:employment_categories(category_name),
-        department:departments(department_name),
+        department:departments!staff_department_id_fkey(department_name),
         institution:institutions!staff_institution_id_fkey(name)
       `);
 
