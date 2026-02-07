@@ -1087,6 +1087,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/staff/list',
           icon: Users,
           submenus: []
+        },
+        {
+          href: '/facilitator-development',
+          label: 'Facilitator Development',
+          active: pathname.startsWith('/facilitator-development'),
+          icon: TrendingUp,
+          submenus: [
+            {
+              href: '/facilitator-development',
+              label: 'Dashboard',
+              active: pathname === '/facilitator-development'
+            },
+            {
+              href: '/facilitator-development/records',
+              label: 'Development Records',
+              active: pathname.startsWith('/facilitator-development/records')
+            },
+            {
+              href: '/facilitator-development/immersions',
+              label: 'Industry Immersions',
+              active: pathname.startsWith('/facilitator-development/immersions')
+            }
+          ]
         }
       ]
     },

@@ -323,6 +323,7 @@ export function DiscountList({
               <TableHead>Value</TableHead>
               <TableHead>Amount</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Outcome</TableHead>
               <TableHead>Effective Date</TableHead>
               <TableHead className='text-right'>Actions</TableHead>
             </TableRow>
@@ -331,7 +332,7 @@ export function DiscountList({
             {discounts.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={canDeleteDiscounts ? 10 : 9}
+                  colSpan={canDeleteDiscounts ? 11 : 10}
                   className='text-center py-8'
                 >
                   <div className='flex flex-col items-center space-y-3'>
