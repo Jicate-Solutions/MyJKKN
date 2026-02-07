@@ -141,22 +141,30 @@
       "id": "P1.5.3",
       "name": "Staff Facilitator Role",
       "phase": "1.5 - Existing Module Modifications",
-      "status": "PENDING",
+      "status": "DONE",
       "description": "Add facilitator role type and outcome metrics to staff profiles.",
       "database_changes": [
         "ALTER staff: add role_type (VARCHAR), facilitator_certification (JSONB), outcome_metrics (JSONB)"
       ],
-      "files_to_change": [
-        "types/staff.ts",
-        "lib/services/staff/staff-service.ts",
-        "Staff profile components"
+      "files_changed": [
+        "types/staff.ts (FacilitatorCertification, OutcomeMetrics, RoleType types added)",
+        "lib/services/staff/staff-service.ts (updateRoleType, updateFacilitatorCertifications, updateOutcomeMetrics + FK disambiguation fix)",
+        "app/(routes)/staff/list/[id]/page.tsx (Role Type badge, Certifications card, Outcome Metrics card)",
+        "app/(routes)/staff/list/_components/staff-form.tsx (Role Type dropdown with 5 options)",
+        "app/(routes)/staff/list/_data/get-staff.ts (FK disambiguation fix)"
+      ],
+      "bugs_fixed": [
+        "CRITICAL: Fixed pre-existing staff module failure - duplicate FK constraints (fk_staff_institution + staff_institution_id_fkey) caused PostgREST HTTP 300. Disambiguated all JOINs with explicit constraint names."
       ],
       "test_steps": [
-        "Apply migration to staging",
-        "Navigate to staff profile edit",
-        "Verify role_type dropdown (teacher, facilitator, trainer, industry_mentor, hybrid)",
-        "Set facilitator certifications - verify saves",
-        "Verify outcome metrics display"
+        "Apply migration to staging - PASS",
+        "Staff detail page: Role Type badge shows 'facilitator' - PASS",
+        "Facilitator Certifications: NBA OBE + NASSCOM Bridge Program visible - PASS",
+        "View Certificate link present - PASS",
+        "Outcome Metrics: All 6 metrics (Learners Mentored, Avg Competency Improvement, Courses Mapped, Industry Projects, Placement Success, Student Satisfaction) - PASS",
+        "Last computed timestamp visible - PASS",
+        "Staff create form: Role Type dropdown with 5 options (Teacher, Facilitator, Trainer, Industry Mentor, Hybrid) - PASS",
+        "Staff list page: Working correctly, shows Dr. Priya Sharma - PASS"
       ]
     },
     {
