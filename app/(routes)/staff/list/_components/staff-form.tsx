@@ -784,6 +784,31 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name='role_type'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Role Type</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select role type' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value='teacher'>Teacher</SelectItem>
+                      <SelectItem value='facilitator'>Facilitator</SelectItem>
+                      <SelectItem value='trainer'>Trainer</SelectItem>
+                      <SelectItem value='industry_mentor'>Industry Mentor</SelectItem>
+                      <SelectItem value='hybrid'>Hybrid</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </div>
         </div>
 
