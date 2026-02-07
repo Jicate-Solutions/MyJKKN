@@ -64,7 +64,9 @@ export function AttendanceSummaryModal({
   date,
   startTime,
   endTime,
-  existingAttendance
+  existingAttendance,
+  engagementData,
+  isEngagementRequired
 }: AttendanceSummaryModalProps) {
   // Calculate stats
   const presentCount = Object.values(attendanceData).filter(
@@ -84,6 +86,25 @@ export function AttendanceSummaryModal({
   const absentStudents = students.filter(
     (student) => attendanceData[student.id] === 'Absent'
   );
+
+  // P1.5.4 - Calculate engagement stats
+  const engagementScores = engagementData
+    ? Object.values(engagementData)
+        .map(e => e.score)
+        .filter((s): s is number => s !== undefined && s > 0)
+    : [];
+  const averageEngagement = engagementScores.length > 0
+    ? Math.round((engagementScores.reduce((a, b) => a + b, 0) / engagementScores.length) * 10) / 10
+    : 0;
+  const allBehaviors = engagementData
+    ? Object.values(engagementData)
+        .flatMap(e => e.behaviors || [])
+    : [];
+  const behaviorCounts: Record<string, number> = {};
+  allBehaviors.forEach(b => {
+    behaviorCounts[b] = (behaviorCounts[b] || 0) + 1;
+  });
+  const hasEngagementData = engagementScores.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
