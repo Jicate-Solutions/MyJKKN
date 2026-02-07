@@ -1,54 +1,26 @@
 # MyJKKN Workshop Alignment Transformation - Progress Tracker
 
-## Current Session: 2026-02-06
+## Current Session: 2026-02-07
 
 ### Working On
-- Phase 1.2: Competency Catalog Module - DONE (browser tested)
+- Phase 1.5.2: Learner Profile Capabilities
 
 ### Completed This Session
-- Phase 1.1: OKR Restrictions - verified DONE (all changes already in place from previous sessions)
-- Phase 1.2: Database tables created and applied to staging Supabase via MCP
-- Phase 1.2: Types, services, hooks verified complete
-- Phase 1.2: UI pages verified (list, create, detail, edit + 5 components)
-- Phase 1.2: Sidebar updated - "Competency & Outcomes" group added
-- Created SPECS.md with full requirements for all 4 phases
-- Created features.json with test_steps for each feature
-- Fixed build error: added counselor_id to CreateLeadInput in types/admission.ts
-- Fixed ALL build errors in competency module (type mismatches between services and types)
-- npm run build passes cleanly - all 4 competency routes compiled
-- Browser tested Competency Catalog: Create, List, Detail, Edit, Archive, Restore all verified working
-- TECH-001 "Python Programming Fundamentals" created and tested end-to-end on Vercel deployment
-
-### Browser Test Results (P1.2)
-- List page: Summary cards (total, active, types), data table with filters - PASS
-- Create: Form with Basic Info, Fink's Taxonomy (6 sliders), Industry Tags, Proficiency Levels, Active status - PASS
-- Validation: "At least one proficiency level required" correctly enforced - PASS
-- Default levels: "Start with Default Levels" adds 5 levels (Novice-Expert) - PASS
-- Detail page: All data displayed, AI-Era Competency Profile chart renders - PASS
-- Edit: Form pre-filled, updated name saved correctly - PASS
-- Archive: Confirmation dialog, status changes to Archived - PASS
-- Restore: Status back to Active - PASS
-- Console: No errors - PASS
+- Phase 1.5.1: Course Enhancements - DONE (browser tested on Vercel deployment)
+  - DB migration: 7 new columns on courses table (hours, competency_coverage, finks_profile, ai_era_value)
+  - Course form: Learning Hours card with auto-calculated total
+  - Detail page: 4 metric boxes + distribution progress bars
+  - Table: Hours column added
+  - Browser tested: Create CSE301, list, detail, edit all verified
 
 ### Blocked
 - Nothing currently blocked
 
-### Decisions Made
-- Phase 1.1 is complete: All deprecation, UI filtering, sidebar cleanup already done in previous sessions
-- Keep 'individual' and 'tier_3' in base OKR enums (for historical data) - only OKRLevelAllowed/OKRTierAllowed exclude them
-- Database migration applied via Supabase MCP (not CLI) due to network timeout
-- Sidebar placement: "Competency & Outcomes" group before "OKR & Performance"
-- Used swarm (8 parallel agents) to build competency module simultaneously
-- Fixed type mismatches by aligning types/competency.ts with service implementations
-- Fixed learning_how_to_learn → learning_to_learn typo in learner-profile-service.ts
-
-### Next Session Should
-1. Start Phase 1.5 (existing module modifications) - 5 sub-features
-2. Phase 1.5.1: Course Enhancements (learning hours breakdown + competency coverage)
-3. Phase 1.5.2: Learner Profile Capabilities
-4. Phase 1.5.3: Staff Facilitator Role
-5. Phase 1.5.4: Attendance Learning Engagement
-6. Phase 1.5.5: Billing Outcome-Linked Discounts
+### Next Up
+1. Phase 1.5.2: Learner Profile Capabilities (IN PROGRESS)
+2. Phase 1.5.3: Staff Facilitator Role
+3. Phase 1.5.4: Attendance Learning Engagement
+4. Phase 1.5.5: Billing Outcome-Linked Discounts
 
 ### Minor Issues to Track
 - LearnerCompetencyProgress.by_type is missing 'metacognitive' type (linter removed it)
