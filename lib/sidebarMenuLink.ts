@@ -1654,8 +1654,18 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/parent-portal'
             },
             {
+              href: '/parent-portal/access',
+              label: 'Access Management',
+              active: pathname.startsWith('/parent-portal/access')
+            },
+            {
+              href: '/parent-portal/communications',
+              label: 'Communications',
+              active: pathname.startsWith('/parent-portal/communications')
+            },
+            {
               href: '/parent-portal/communication',
-              label: 'Communication',
+              label: 'Messages',
               active: pathname === '/parent-portal/communication'
             },
             {
