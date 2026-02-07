@@ -89,7 +89,7 @@ export default function ParentDetailPage() {
     [institutionId, record?.learner_id]
   );
   const { data: commData, isLoading: commLoading } = useAdminCommunications(commFilters);
-  const communications = commData?.data || [];
+  const communications = (commData as { data?: unknown[] } | undefined)?.data || [];
 
   const handleCopyCode = (code: string) => {
     navigator.clipboard.writeText(code);
