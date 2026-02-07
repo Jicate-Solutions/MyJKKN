@@ -47,9 +47,9 @@ export function ContentOverview() {
       completedDate.getFullYear() === now.getFullYear();
   }).length || 0;
 
-  // Queue by division
+  // Queue by division - division is on the order, not the deliverable
   const deliverablesByDivision = deliverablesData?.data?.reduce((acc, d) => {
-    const division = d.division || 'other';
+    const division = d.order?.division || 'other';
     if (d.status === 'pending' || d.status === 'in_progress') {
       acc[division] = (acc[division] || 0) + 1;
     }
