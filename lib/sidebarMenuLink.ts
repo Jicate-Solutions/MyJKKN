@@ -1159,6 +1159,29 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      groupLabel: 'Personalization',
+      menus: [
+        {
+          href: '/learning-paths',
+          label: 'Learning Paths',
+          active: pathname.startsWith('/learning-paths'),
+          icon: Route,
+          submenus: [
+            {
+              href: '/learning-paths',
+              label: 'All Paths',
+              active: pathname === '/learning-paths'
+            },
+            {
+              href: '/learning-paths/new',
+              label: 'Create Path',
+              active: pathname === '/learning-paths/new'
+            }
+          ]
+        }
+      ]
+    },
+    {
       groupLabel: 'OKR & Performance',
       menus: [
         {
