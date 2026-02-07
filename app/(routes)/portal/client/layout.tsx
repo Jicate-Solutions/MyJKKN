@@ -8,6 +8,7 @@ export default async function ClientPortalLayout({
 }: {
   children: React.ReactNode;
 }) {
+  await connection();
   const supabase = await createClient();
 
   const {
