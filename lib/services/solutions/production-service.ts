@@ -216,7 +216,7 @@ export class ProductionService extends BaseService {
         phone: input.phone,
         division: input.division,
         skill_level: input.skill_level ?? 'beginner',
-        status: 'active',
+        is_active: true,
         orders_completed: 0,
         total_earnings: 0,
       })
