@@ -166,6 +166,74 @@ export default function CourseDetailsPage({ params }: CourseDetailsPageProps) {
             </div>
           </CardContent>
         </Card>
+
+        {(course.learning_hours_target || course.theory_hours || course.practical_hours || course.self_study_hours) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Clock className='h-5 w-5' />
+                Learning Hours
+              </CardTitle>
+            </CardHeader>
+            <CardContent className='space-y-6'>
+              <div className='grid gap-4 md:grid-cols-4'>
+                <div className='rounded-lg border p-4 text-center'>
+                  <GraduationCap className='h-5 w-5 mx-auto mb-2 text-blue-500' />
+                  <p className='text-2xl font-bold'>{course.theory_hours ?? '—'}</p>
+                  <p className='text-xs text-muted-foreground'>Theory Hours</p>
+                </div>
+                <div className='rounded-lg border p-4 text-center'>
+                  <FlaskConical className='h-5 w-5 mx-auto mb-2 text-green-500' />
+                  <p className='text-2xl font-bold'>{course.practical_hours ?? '—'}</p>
+                  <p className='text-xs text-muted-foreground'>Practical Hours</p>
+                </div>
+                <div className='rounded-lg border p-4 text-center'>
+                  <BookOpen className='h-5 w-5 mx-auto mb-2 text-purple-500' />
+                  <p className='text-2xl font-bold'>{course.self_study_hours ?? '—'}</p>
+                  <p className='text-xs text-muted-foreground'>Self-Study Hours</p>
+                </div>
+                <div className='rounded-lg border p-4 text-center bg-muted/50'>
+                  <Clock className='h-5 w-5 mx-auto mb-2' />
+                  <p className='text-2xl font-bold'>{course.learning_hours_target ?? '—'}</p>
+                  <p className='text-xs text-muted-foreground'>Total Hours</p>
+                </div>
+              </div>
+
+              {course.learning_hours_target && course.learning_hours_target > 0 && (
+                <div className='space-y-3'>
+                  <p className='text-sm font-medium'>Hours Distribution</p>
+                  {course.theory_hours != null && course.theory_hours > 0 && (
+                    <div className='space-y-1'>
+                      <div className='flex justify-between text-sm'>
+                        <span className='text-muted-foreground'>Theory</span>
+                        <span>{Math.round((course.theory_hours / course.learning_hours_target) * 100)}%</span>
+                      </div>
+                      <Progress value={(course.theory_hours / course.learning_hours_target) * 100} className='h-2' />
+                    </div>
+                  )}
+                  {course.practical_hours != null && course.practical_hours > 0 && (
+                    <div className='space-y-1'>
+                      <div className='flex justify-between text-sm'>
+                        <span className='text-muted-foreground'>Practical</span>
+                        <span>{Math.round((course.practical_hours / course.learning_hours_target) * 100)}%</span>
+                      </div>
+                      <Progress value={(course.practical_hours / course.learning_hours_target) * 100} className='h-2' />
+                    </div>
+                  )}
+                  {course.self_study_hours != null && course.self_study_hours > 0 && (
+                    <div className='space-y-1'>
+                      <div className='flex justify-between text-sm'>
+                        <span className='text-muted-foreground'>Self-Study</span>
+                        <span>{Math.round((course.self_study_hours / course.learning_hours_target) * 100)}%</span>
+                      </div>
+                      <Progress value={(course.self_study_hours / course.learning_hours_target) * 100} className='h-2' />
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </ContentLayout>
   );
