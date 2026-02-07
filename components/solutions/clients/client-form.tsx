@@ -136,14 +136,14 @@ export function ClientForm({ client, onSubmit, isLoading }: ClientFormProps) {
   })
 
   const handleSubmit = async (data: ClientFormValues) => {
-    // Clean up empty strings to null
+    // Clean up empty strings to null/undefined
     const cleanedData = {
       ...data,
-      contact_email: data.contact_email || null,
-      address: data.address || null,
-      city: data.city || null,
-      company_size: data.company_size || null,
-      source_contact_name: data.source_contact_name || null,
+      contact_email: data.contact_email || undefined,
+      address: data.address || undefined,
+      city: data.city || undefined,
+      company_size: data.company_size || undefined,
+      source_department_id: data.source_department_id || undefined,
     }
     await onSubmit(cleanedData as ClientFormValues)
   }
