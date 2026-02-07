@@ -3908,7 +3908,7 @@ export class AttendanceService {
   }> {
     try {
       // Fetch all consolidated attendance records for this section in the date range
-      const { data: records, error } = await this.supabase
+      const { data: records, error } = await (this.supabase as any)
         .from('consolidated_student_attendance')
         .select('attendance_date, attendance_data')
         .eq('section_id', sectionId)
