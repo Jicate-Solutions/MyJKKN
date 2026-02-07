@@ -304,23 +304,12 @@ export class BuildersService extends BaseService {
    * Add a skill to a builder
    */
   static async addBuilderSkill(input: AddSkillInput): Promise<BuilderSkill> {
-    // Check for existing skill and get latest version
-    const { data: existing } = await (this.supabase as any).from('sh_builder_skills')
-      .select('version')
-      .eq('builder_id', input.builder_id)
-      .eq('skill_name', input.skill_name)
-      .order('version', { ascending: false })
-      .limit(1);
-
-    const nextVersion = existing && existing.length > 0 ? existing[0].version + 1 : 1;
-
     const { data, error } = await (this.supabase as any).from('sh_builder_skills')
       .insert({
         builder_id: input.builder_id,
         skill_name: input.skill_name,
         proficiency_level: input.proficiency_level || 1,
-        acquired_date: input.acquired_date || new Date().toISOString().split('T')[0],
-        version: nextVersion,
+        assessed_date: input.assessed_date || new Date().toISOString().split('T')[0],
       })
       .select()
       .single();
