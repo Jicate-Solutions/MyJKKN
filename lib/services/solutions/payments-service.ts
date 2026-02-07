@@ -494,6 +494,7 @@ export class PaymentsService extends BaseService {
     if (input.reference_number !== undefined) updateData.reference_number = input.reference_number;
     if (input.due_date !== undefined) updateData.due_date = input.due_date;
     if (input.paid_at !== undefined) updateData.payment_date = input.paid_at;
+    if (input.payment_date !== undefined) updateData.payment_date = input.payment_date;
     if (input.status !== undefined) updateData.status = input.status;
     if (input.notes !== undefined) updateData.notes = input.notes;
 
