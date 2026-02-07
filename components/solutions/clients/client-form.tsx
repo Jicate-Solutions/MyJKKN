@@ -35,7 +35,7 @@ interface ClientData {
   city?: string | null
   company_size?: string | null
   source_type?: SourceType | null
-  source_contact_name?: string | null
+  source_department_id?: string | null
   partner_status?: PartnerStatus
 }
 
