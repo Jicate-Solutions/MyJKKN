@@ -66,7 +66,7 @@
       ],
       "known_issues": [
         "FIXED: All type mismatches resolved - build passes cleanly",
-        "Needs browser testing to verify CRUD workflow"
+        "DONE: Browser tested - full CRUD workflow verified (create, list, detail, edit, archive, restore)"
       ],
       "test_steps": [
         "Fix build errors and verify npm run build passes",
