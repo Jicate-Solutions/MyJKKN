@@ -248,7 +248,7 @@ export function useDashboardStats(memberId: string) {
       );
 
       const upcoming = upcomingSessions.filter(
-        (s) => s && new Date(s.scheduled_at) > now && s.status !== 'completed'
+        (s) => s && s.session_date && new Date(s.session_date + 'T00:00:00') > now && s.status !== 'completed'
       ).length;
 
       return {
