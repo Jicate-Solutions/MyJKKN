@@ -85,7 +85,9 @@ import {
   Search,
   CreditCard,
   Hammer,
-  Lightbulb
+  Lightbulb,
+  // Personalization Icons
+  Route
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
