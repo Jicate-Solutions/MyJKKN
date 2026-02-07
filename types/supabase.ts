@@ -622,21 +622,27 @@ export type Database = {
           email: string | null
           id: string
           institution_id: string | null
+          is_active: boolean | null
           name: string
+          user_id: string | null
         }
         Insert: {
           created_at?: string | null
           email?: string | null
           id?: string
           institution_id?: string | null
+          is_active?: boolean | null
           name: string
+          user_id?: string | null
         }
         Update: {
           created_at?: string | null
           email?: string | null
           id?: string
           institution_id?: string | null
+          is_active?: boolean | null
           name?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -1104,6 +1110,65 @@ export type Database = {
           },
         ]
       }
+      admission_lead_stage_history: {
+        Row: {
+          changed_by: string | null
+          created_at: string | null
+          from_stage: string | null
+          id: string
+          lead_id: string
+          notes: string | null
+          to_stage: string
+        }
+        Insert: {
+          changed_by?: string | null
+          created_at?: string | null
+          from_stage?: string | null
+          id?: string
+          lead_id: string
+          notes?: string | null
+          to_stage: string
+        }
+        Update: {
+          changed_by?: string | null
+          created_at?: string | null
+          from_stage?: string | null
+          id?: string
+          lead_id?: string
+          notes?: string | null
+          to_stage?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_lead_stage_history_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admission_lead_stage_history_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_lead_stage_history_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "admission_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_lead_stage_history_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_stuck_leads"
+            referencedColumns: ["lead_id"]
+          },
+        ]
+      }
       admission_leads: {
         Row: {
           assigned_at: string | null
@@ -1133,6 +1198,7 @@ export type Database = {
           lost_at: string | null
           lost_reason: string | null
           messages_this_week: number | null
+          next_followup_at: string | null
           ownership_mode:
             | Database["public"]["Enums"]["lead_ownership_mode"]
             | null
@@ -1188,6 +1254,7 @@ export type Database = {
           lost_at?: string | null
           lost_reason?: string | null
           messages_this_week?: number | null
+          next_followup_at?: string | null
           ownership_mode?:
             | Database["public"]["Enums"]["lead_ownership_mode"]
             | null
@@ -1243,6 +1310,7 @@ export type Database = {
           lost_at?: string | null
           lost_reason?: string | null
           messages_this_week?: number | null
+          next_followup_at?: string | null
           ownership_mode?:
             | Database["public"]["Enums"]["lead_ownership_mode"]
             | null
@@ -1469,6 +1537,7 @@ export type Database = {
         Row: {
           category: string
           created_at: string
+          criteria: Json | null
           description: string | null
           field: string
           id: string
@@ -1483,6 +1552,7 @@ export type Database = {
         Insert: {
           category?: string
           created_at?: string
+          criteria?: Json | null
           description?: string | null
           field: string
           id?: string
@@ -1497,6 +1567,7 @@ export type Database = {
         Update: {
           category?: string
           created_at?: string
+          criteria?: Json | null
           description?: string | null
           field?: string
           id?: string
@@ -5593,30 +5664,51 @@ export type Database = {
       }
       courses: {
         Row: {
+          ai_era_strategic_value: number | null
+          competency_coverage: Json | null
           course_code: string
           course_name: string
           created_at: string | null
           id: string
           institution_id: string | null
           is_active: boolean | null
+          learning_hours_target: number | null
+          overall_finks_profile: Json | null
+          practical_hours: number | null
+          self_study_hours: number | null
+          theory_hours: number | null
           updated_at: string | null
         }
         Insert: {
+          ai_era_strategic_value?: number | null
+          competency_coverage?: Json | null
           course_code: string
           course_name: string
           created_at?: string | null
           id?: string
           institution_id?: string | null
           is_active?: boolean | null
+          learning_hours_target?: number | null
+          overall_finks_profile?: Json | null
+          practical_hours?: number | null
+          self_study_hours?: number | null
+          theory_hours?: number | null
           updated_at?: string | null
         }
         Update: {
+          ai_era_strategic_value?: number | null
+          competency_coverage?: Json | null
           course_code?: string
           course_name?: string
           created_at?: string | null
           id?: string
           institution_id?: string | null
           is_active?: boolean | null
+          learning_hours_target?: number | null
+          overall_finks_profile?: Json | null
+          practical_hours?: number | null
+          self_study_hours?: number | null
+          theory_hours?: number | null
           updated_at?: string | null
         }
         Relationships: [
@@ -11534,6 +11626,66 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "nps_surveys"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      nps_survey_schedule: {
+        Row: {
+          context: Json | null
+          created_at: string
+          id: string
+          institution_id: string
+          scheduled_for: string
+          sent_at: string | null
+          stakeholder_type: string
+          status: string
+          survey_type: string
+          target_contact: string | null
+          target_id: string
+          updated_at: string
+        }
+        Insert: {
+          context?: Json | null
+          created_at?: string
+          id?: string
+          institution_id: string
+          scheduled_for: string
+          sent_at?: string | null
+          stakeholder_type: string
+          status?: string
+          survey_type: string
+          target_contact?: string | null
+          target_id: string
+          updated_at?: string
+        }
+        Update: {
+          context?: Json | null
+          created_at?: string
+          id?: string
+          institution_id?: string
+          scheduled_for?: string
+          sent_at?: string | null
+          stakeholder_type?: string
+          status?: string
+          survey_type?: string
+          target_contact?: string | null
+          target_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nps_survey_schedule_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nps_survey_schedule_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
           },
         ]
       }
@@ -21879,6 +22031,35 @@ export type Database = {
         }
         Relationships: []
       }
+      admission_process_metrics: {
+        Row: {
+          avg_cycle_time_hours: number | null
+          avg_first_response_hours: number | null
+          conversion_rate_pct: number | null
+          enrolled_count: number | null
+          first_contact_sla_pct: number | null
+          institution_id: string | null
+          lost_rate_pct: number | null
+          month: string | null
+          total_leads: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_leads_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       billing_copq_summary: {
         Row: {
           avg_time_spent: number | null
@@ -24554,6 +24735,10 @@ export type Database = {
         }
         Returns: Json
       }
+      get_counselor_daily_view: {
+        Args: { p_institution_id: string; p_user_id: string }
+        Returns: Json
+      }
       get_courses_by_department_count: {
         Args: { inst_ids?: string[] }
         Returns: {
@@ -26589,3 +26774,5 @@ export const Constants = {
     },
   },
 } as const
+A new version of Supabase CLI is available: v2.75.0 (currently installed v2.72.7)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
