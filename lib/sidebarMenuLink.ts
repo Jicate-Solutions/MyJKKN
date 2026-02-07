@@ -504,7 +504,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/portal/client': 'portal.client.view',
   '/portal/client/projects': 'portal.client.projects.view',
   '/portal/client/deliverables': 'portal.client.deliverables.view',
-  '/portal/client/invoices': 'portal.client.invoices.view'
+  '/portal/client/invoices': 'portal.client.invoices.view',
+
+  // Alumni Outcomes (Accountability)
+  '/alumni': 'alumni.outcomes.view',
+  '/alumni/outcomes': 'alumni.outcomes.view',
+  '/alumni/outcomes/new': 'alumni.outcomes.create',
+  '/alumni/outcomes/[id]': 'alumni.outcomes.view',
+  '/alumni/effectiveness': 'alumni.effectiveness.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {

@@ -14,7 +14,8 @@ import {
   Eye,
   Check,
   X,
-  FileText
+  FileText,
+  Award
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import type { BillingDiscount } from '@/types/billing-schedule';
