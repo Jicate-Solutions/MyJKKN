@@ -490,4 +490,5 @@ export const earningsService = {
   markEarningsAsPaid: EarningsService.markEarningsAsPaid.bind(EarningsService),
   getDepartmentEarnings: EarningsService.getDepartmentEarnings.bind(EarningsService),
   getMonthlyEarningsReport: EarningsService.getMonthlyEarningsReport.bind(EarningsService),
+  getRecipientDisplayName,
 };
