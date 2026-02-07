@@ -347,7 +347,7 @@ export class TrainingService extends BaseService {
       `,
         { count: 'exact' }
       )
-      .order('scheduled_at', { ascending: true });
+      .order('session_date', { ascending: true });
 
     // Apply filters
     if (filters?.program_id) {
