@@ -248,7 +248,7 @@ export default function PaymentsPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {payment.payment_reference || '-'}
+                          {payment.reference_number || '-'}
                         </TableCell>
                       </TableRow>
                     );
