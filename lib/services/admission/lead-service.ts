@@ -523,16 +523,16 @@ export class LeadService {
   static async scheduleFollowup(leadId: string, followupDate: string, notes?: string): Promise<AdmissionLead> {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
-    // 1. Create a follow-up activity record
+    // 1. Create a follow-up activity record (use actual DB columns: title, performed_by)
     const { error: activityError } = await (this.supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
         activity_type: 'task',
-        subject: 'Follow-up Scheduled',
+        title: 'Follow-up Scheduled',
         description: notes || `Follow-up scheduled for ${new Date(followupDate).toLocaleDateString()}`,
-        scheduled_at: followupDate,
-        created_by: user?.id || null,
+        metadata: { scheduled_at: followupDate },
+        performed_by: user?.id || null,
       });
 
     if (activityError) {
@@ -540,8 +540,9 @@ export class LeadService {
       // Don't throw - still try to update the lead
     }
 
-    // 2. Update the lead's contact timestamp and try next_followup_at if column exists
+    // 2. Update the lead's next_followup_at and contact timestamp
     const updatePayload: any = {
+      next_followup_at: followupDate,
       last_contact_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
