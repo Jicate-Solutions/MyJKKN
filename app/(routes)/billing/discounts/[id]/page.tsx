@@ -418,6 +418,126 @@ export default function DiscountDetailsPage() {
               </CardContent>
             </Card>
 
+            {/* Outcome-Based Discount Details */}
+            {discount.is_outcome_based && (
+              <Card className='border-amber-200'>
+                <CardHeader>
+                  <CardTitle className='flex items-center gap-2'>
+                    <Award className='h-5 w-5 text-amber-600' />
+                    Outcome-Based Criteria
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                    {discount.outcome_criteria?.type && (
+                      <div>
+                        <Label className='text-sm font-medium text-muted-foreground'>
+                          Achievement Type
+                        </Label>
+                        <p className='font-medium capitalize'>
+                          {discount.outcome_criteria.type.replace(/_/g, ' ')}
+                        </p>
+                      </div>
+                    )}
+                    {(discount.outcome_criteria?.min_proficiency || discount.outcome_criteria?.minimum_level) && (
+                      <div>
+                        <Label className='text-sm font-medium text-muted-foreground'>
+                          Min Proficiency Level
+                        </Label>
+                        <p className='font-medium capitalize'>
+                          {discount.outcome_criteria.min_proficiency || discount.outcome_criteria.minimum_level}
+                        </p>
+                      </div>
+                    )}
+                    {discount.outcome_criteria?.min_score !== undefined && discount.outcome_criteria.min_score > 0 && (
+                      <div>
+                        <Label className='text-sm font-medium text-muted-foreground'>
+                          Min Score
+                        </Label>
+                        <p className='font-medium'>
+                          {discount.outcome_criteria.min_score}/100
+                        </p>
+                      </div>
+                    )}
+                    {discount.outcome_criteria?.evaluation_period_days && (
+                      <div>
+                        <Label className='text-sm font-medium text-muted-foreground'>
+                          Evaluation Period
+                        </Label>
+                        <p className='font-medium'>
+                          {discount.outcome_criteria.evaluation_period_days} days
+                        </p>
+                      </div>
+                    )}
+                    {(discount.outcome_criteria?.competency_ids || discount.outcome_criteria?.required_competencies) && (
+                      <div className='md:col-span-2'>
+                        <Label className='text-sm font-medium text-muted-foreground'>
+                          Required Competencies
+                        </Label>
+                        <div className='flex flex-wrap gap-1 mt-1'>
+                          {(discount.outcome_criteria.competency_ids || discount.outcome_criteria.required_competencies || []).map((id: string) => (
+                            <Badge key={id} variant='outline' className='text-xs'>
+                              {id}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  <div>
+                    <Label className='text-sm font-medium text-muted-foreground'>
+                      Verification Status
+                    </Label>
+                    <div className='mt-2'>
+                      {discount.outcome_verification?.status === 'verified' ? (
+                        <Badge className='bg-emerald-100 text-emerald-800 border-emerald-200'>
+                          <Check className='mr-1 h-3 w-3' />
+                          Verified
+                        </Badge>
+                      ) : discount.outcome_verification?.status === 'rejected' ? (
+                        <Badge variant='destructive'>
+                          <X className='mr-1 h-3 w-3' />
+                          Rejected
+                        </Badge>
+                      ) : (
+                        <Badge variant='outline' className='bg-amber-100 text-amber-800 border-amber-200'>
+                          <Award className='mr-1 h-3 w-3' />
+                          Pending Verification
+                        </Badge>
+                      )}
+                    </div>
+                    {discount.outcome_verification?.verified_by && (
+                      <p className='text-sm text-muted-foreground mt-1'>
+                        Verified by: {discount.outcome_verification.verified_by}
+                      </p>
+                    )}
+                    {discount.outcome_verification?.verified_at && (
+                      <p className='text-sm text-muted-foreground'>
+                        Verified at: {formatDate(discount.outcome_verification.verified_at)}
+                      </p>
+                    )}
+                    {discount.outcome_verification?.evidence_urls && discount.outcome_verification.evidence_urls.length > 0 && (
+                      <div className='mt-2'>
+                        <p className='text-sm font-medium text-muted-foreground'>Evidence:</p>
+                        <ul className='list-disc list-inside text-sm'>
+                          {discount.outcome_verification.evidence_urls.map((url: string, i: number) => (
+                            <li key={i}>
+                              <a href={url} target='_blank' rel='noopener noreferrer' className='text-blue-600 hover:underline'>
+                                {url}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Bill Information */}
             {discount.bill && (
               <Card>
