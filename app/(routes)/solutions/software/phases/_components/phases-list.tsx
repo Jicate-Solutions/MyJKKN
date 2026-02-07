@@ -195,7 +195,7 @@ export function PhasesList() {
                         <TableCell className="text-center">
                           <div className="flex items-center justify-center gap-1">
                             <Users className="h-3 w-3" />
-                            {phase.builder_count || 0}
+                            {phase.assignments?.length || 0}
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-medium">
