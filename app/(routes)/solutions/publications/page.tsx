@@ -220,10 +220,10 @@ export default function PublicationsPage() {
                           {pub.solution.solution_code} - {pub.solution.title}
                         </span>
                       )}
-                      {pub.published_date && (
+                      {pub.publication_date && (
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
-                          {format(new Date(pub.published_date), 'MMM yyyy')}
+                          {format(new Date(pub.publication_date), 'MMM yyyy')}
                         </span>
                       )}
                     </div>
