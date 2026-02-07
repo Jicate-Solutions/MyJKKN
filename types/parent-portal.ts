@@ -379,3 +379,140 @@ export function getAttendanceColor(percentage: number): string {
   if (percentage >= 75) return 'text-yellow-600';
   return 'text-red-600';
 }
+
+// ============================================================================
+// PARENT PORTAL ACCESS (Admin Management)
+// ============================================================================
+
+export type AccessRelationship = 'parent' | 'guardian' | 'sponsor';
+export type AccessLevel = 'view' | 'interact';
+export type AdminCommunicationType = 'general' | 'academic' | 'attendance' | 'financial' | 'emergency';
+export type AdminCommunicationPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+export const ACCESS_RELATIONSHIP_LABELS: Record<AccessRelationship, string> = {
+  parent: 'Parent',
+  guardian: 'Guardian',
+  sponsor: 'Sponsor',
+};
+
+export const ACCESS_LEVEL_LABELS: Record<AccessLevel, string> = {
+  view: 'View Only',
+  interact: 'Interactive',
+};
+
+export const ADMIN_COMM_TYPE_LABELS: Record<AdminCommunicationType, string> = {
+  general: 'General',
+  academic: 'Academic',
+  attendance: 'Attendance',
+  financial: 'Financial',
+  emergency: 'Emergency',
+};
+
+export const ADMIN_COMM_PRIORITY_LABELS: Record<AdminCommunicationPriority, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
+  urgent: 'Urgent',
+};
+
+export interface NotificationPreferences {
+  email: boolean;
+  sms: boolean;
+  push: boolean;
+}
+
+export interface ParentPortalAccess {
+  id: string;
+  institution_id: string;
+  learner_id: string;
+  parent_name: string;
+  parent_email: string | null;
+  parent_phone: string | null;
+  relationship: AccessRelationship;
+  access_code: string;
+  access_level: AccessLevel;
+  is_active: boolean;
+  last_login_at: string | null;
+  login_count: number;
+  notification_preferences: NotificationPreferences;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateParentAccessDto {
+  institution_id: string;
+  learner_id: string;
+  parent_name: string;
+  parent_email?: string;
+  parent_phone?: string;
+  relationship?: AccessRelationship;
+  access_level?: AccessLevel;
+  notification_preferences?: Partial<NotificationPreferences>;
+}
+
+export interface UpdateParentAccessDto {
+  parent_name?: string;
+  parent_email?: string;
+  parent_phone?: string;
+  relationship?: AccessRelationship;
+  access_level?: AccessLevel;
+  is_active?: boolean;
+  notification_preferences?: Partial<NotificationPreferences>;
+}
+
+export interface ParentAccessFilters {
+  institution_id: string;
+  search?: string;
+  is_active?: boolean;
+  relationship?: AccessRelationship;
+  learner_id?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface ParentAccessListResponse {
+  data: ParentPortalAccess[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+export interface ParentAccessStats {
+  total_access_records: number;
+  active_count: number;
+  inactive_count: number;
+  by_relationship: Record<AccessRelationship, number>;
+  by_access_level: Record<AccessLevel, number>;
+  recently_active: number;
+}
+
+// Communication status helpers
+export type CommunicationStatus = 'sent' | 'read' | 'acknowledged' | 'responded';
+
+export function getCommunicationStatus(comm: ParentCommunication): CommunicationStatus {
+  if (comm.read_at) return 'read';
+  return 'sent';
+}
+
+export function getCommunicationStatusColor(status: CommunicationStatus): string {
+  const colors: Record<CommunicationStatus, string> = {
+    sent: 'text-gray-500 bg-gray-100',
+    read: 'text-blue-500 bg-blue-100',
+    acknowledged: 'text-green-500 bg-green-100',
+    responded: 'text-purple-500 bg-purple-100',
+  };
+  return colors[status] || colors.sent;
+}
+
+export function getAdminCommPriorityColor(priority: AdminCommunicationPriority): string {
+  const colors: Record<AdminCommunicationPriority, string> = {
+    low: 'text-gray-500 bg-gray-100',
+    normal: 'text-blue-500 bg-blue-100',
+    high: 'text-orange-500 bg-orange-100',
+    urgent: 'text-red-500 bg-red-100',
+  };
+  return colors[priority] || colors.normal;
+}
