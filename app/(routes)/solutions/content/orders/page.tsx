@@ -30,9 +30,11 @@ export default function ContentOrdersPage() {
               All content production orders
             </p>
           </div>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            New Order
+          <Button asChild>
+            <Link href="/solutions/content/orders/new">
+              <Plus className="mr-2 h-4 w-4" />
+              New Order
+            </Link>
           </Button>
         </div>
 
