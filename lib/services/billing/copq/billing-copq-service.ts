@@ -206,7 +206,7 @@ export class BillingCOPQService {
         .select(
           `
           *,
-          bill:billing_bills(id, bill_number),
+          bill:billing_student_bills(id, bill_description),
           learner:learners_profiles(id, name, roll_number),
           reporter:profiles!reported_by(id, full_name)
         `
@@ -253,7 +253,7 @@ export class BillingCOPQService {
         .select(
           `
           *,
-          bill:billing_bills(id, bill_number),
+          bill:billing_student_bills(id, bill_description),
           learner:learners_profiles(id, name, roll_number),
           reporter:profiles!reported_by(id, full_name)
         `,
@@ -374,7 +374,7 @@ export class BillingCOPQService {
         .select(
           `
           *,
-          bill:billing_bills(id, bill_number),
+          bill:billing_student_bills(id, bill_description),
           learner:learners_profiles(id, name, roll_number),
           reporter:profiles!reported_by(id, full_name)
         `
@@ -431,7 +431,7 @@ export class BillingCOPQService {
         .select(
           `
           *,
-          bill:billing_bills(id, bill_number),
+          bill:billing_student_bills(id, bill_description),
           learner:learners_profiles(id, name, roll_number),
           reporter:profiles!reported_by(id, full_name)
         `
@@ -465,7 +465,7 @@ export class BillingCOPQService {
         .select(
           `
           *,
-          bill:billing_bills(id, bill_number),
+          bill:billing_student_bills(id, bill_description),
           learner:learners_profiles(id, name, roll_number),
           reporter:profiles!reported_by(id, full_name)
         `
@@ -550,7 +550,7 @@ export class BillingCOPQService {
           .select(
             `
             *,
-            bill:billing_bills(id, bill_number),
+            bill:billing_student_bills(id, bill_description),
             learner:learners_profiles(id, name, roll_number),
             reporter:profiles!reported_by(id, full_name)
           `
@@ -682,7 +682,7 @@ export class BillingCOPQService {
       .select(
         `
         *,
-        bill:billing_bills(id, bill_number),
+        bill:billing_student_bills(id, bill_description),
         learner:learners_profiles(id, name, roll_number),
         reporter:profiles!reported_by(id, full_name)
       `
