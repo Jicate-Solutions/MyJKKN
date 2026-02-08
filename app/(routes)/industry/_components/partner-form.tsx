@@ -106,8 +106,8 @@ export function PartnerForm({ partner, mode }: PartnerFormProps) {
       contact_phone: partner?.contact_phone || '',
       partnership_start_date: partner?.partnership_start_date || '',
       partnership_end_date: partner?.partnership_end_date || '',
-      description: partner?.company_description || '',
-      website_url: partner?.company_website || '',
+      description: partner?.description || '',
+      website_url: partner?.website_url || '',
       mou_document_url: partner?.mou_document_url || '',
       is_active: partner?.is_active ?? true
     }
