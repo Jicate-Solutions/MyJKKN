@@ -41,7 +41,7 @@ export function ParentLoginClient() {
   const { mutate: verifyOTP, isPending: isVerifyingOTP } = useVerifyOTP();
 
   // Resend cooldown timer
-  React.useEffect(() => {
+  useEffect(() => {
     if (resendCooldown > 0) {
       const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
       return () => clearTimeout(timer);
