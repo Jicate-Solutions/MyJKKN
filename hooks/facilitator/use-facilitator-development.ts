@@ -189,8 +189,10 @@ export function useDeleteFacilitatorDevelopment() {
 
   return useMutation({
     mutationFn: (id: string) => FacilitatorDevelopmentService.deleteDevelopment(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.detail(id) });
+      // Note: Can't invalidate stats without institution_id, will be invalidated on next list fetch
     }
   });
 }
