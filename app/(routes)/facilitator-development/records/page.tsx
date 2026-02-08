@@ -208,8 +208,8 @@ export default function FacilitatorDevelopmentRecordsPage() {
                             </span>
                           ) : '--'}
                         </TableCell>
-                        <TableCell>{record.workshops_attended}</TableCell>
-                        <TableCell>{record.industry_exposure_hours}</TableCell>
+                        <TableCell>{record.workshops_attended ?? 0}</TableCell>
+                        <TableCell>{record.industry_exposure_hours ?? 0}</TableCell>
                         <TableCell>
                           <Badge className={DEVELOPMENT_STATUS_COLORS[record.status]}>
                             {DEVELOPMENT_STATUS_LABELS[record.status]}
