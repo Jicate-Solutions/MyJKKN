@@ -189,31 +189,91 @@ export interface AlumniOutcome {
   learner?: { id: string; first_name: string; last_name: string };  // Add learner join
 }
 
-/** Program-level outcome correlation / effectiveness */
+/** Program-level outcome correlation / effectiveness - MATCHES DATABASE SCHEMA */
 export interface OutcomeProgramCorrelation {
   id: string;
-  institution_id: string;
+
+  // Core relationships
   program_id: string;
-  department_id: string | null;
-  academic_year: string;
+  institution_id: string;
+
+  // Cohort identification
+  cohort_year: number;  // INTEGER in DB, not "academic_year" string
+  cohort_batch_id: string | null;
+
+  // Graduate counts
   total_graduates: number;
-  placed_count: number;
-  higher_studies_count: number;
-  entrepreneur_count: number;
-  average_salary_lpa: number | null;
-  median_salary_lpa: number | null;
-  core_domain_percentage: number | null;
-  average_time_to_placement_days: number | null;
-  top_recruiters: string[];
-  top_competencies: string[];
-  satisfaction_average: number | null;
-  effectiveness_score: number | null;
+  tracked_graduates: number | null;
+  tracking_percentage: number | null;  // Computed column
+
+  // Outcome breakdown (by type)
+  employed_count: number | null;
+  self_employed_count: number | null;
+  entrepreneur_count: number | null;
+  higher_studies_count: number | null;
+  competitive_exams_count: number | null;
+  family_business_count: number | null;
+  seeking_count: number | null;
+  unknown_count: number | null;
+
+  // Computed rates
+  employment_rate: number | null;  // (employed + self_employed) / tracked * 100
+  placement_rate: number | null;  // employed through placement cell / tracked * 100
+  entrepreneurship_rate: number | null;
+  higher_studies_rate: number | null;
+
+  // Salary analytics
+  average_salary_range: SalaryRange | null;  // ENUM, not number!
+  median_salary_range: SalaryRange | null;  // ENUM, not number!
+  salary_distribution: any | null;  // JSONB: { "below_3l": 5, "3l_to_5l": 15, ... }
+
+  // Top performers
+  top_employers: any | null;  // JSONB: [{ "company": "TCS", "count": 15, "avg_package": "5l_to_8l" }]
+  top_sectors: any | null;  // JSONB: [{ "sector": "IT Services", "count": 45, "percentage": 35.5 }]
+  top_roles: any | null;  // JSONB: [{ "role": "Software Engineer", "count": 30 }]
+  top_locations: any | null;  // JSONB: [{ "city": "Chennai", "count": 40 }]
+
+  // Higher studies analytics
+  top_institutions_for_studies: any | null;  // JSONB
+  top_courses_pursued: any | null;  // JSONB
+  scholarship_recipients: number | null;
+
+  // Entrepreneurship analytics
+  startups_founded: number | null;
+  total_funding_raised: string | null;
+  jobs_created: number | null;
+
+  // Program relevance
+  avg_relevance_percentage: number | null;
+  program_satisfaction_avg: number | null;  // 1-10 scale
+  would_recommend_percentage: number | null;
+
+  // Time to outcome
+  avg_days_to_placement: number | null;  // DB field name (not average_time_to_placement_days)
+  placement_before_graduation_count: number | null;
+
+  // Engagement metrics
+  alumni_engaged_count: number | null;
+  mentors_available: number | null;
+  guest_lecturers_available: number | null;
+  potential_recruiters: number | null;
+
+  // Comparison metrics
+  industry_benchmark_employment_rate: number | null;
+  performance_vs_benchmark: string | null;  // 'above', 'at_par', 'below'
+
+  // Computation metadata
   computed_at: string | null;
+  computation_notes: string | null;
+  is_published: boolean | null;
+  published_at: string | null;
+
+  // Audit fields
   created_at: string;
   updated_at: string;
+
   // Joined fields
   program?: { id: string; program_name: string };
-  department?: { id: string; name: string };
 }
 
 // ============================================================================
