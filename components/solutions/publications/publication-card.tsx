@@ -22,6 +22,11 @@ const paperTypeConfig: Record<PaperType, { label: string; color: string }> = {
   technical: { label: 'Technical Paper', color: 'bg-purple-100 text-purple-700' },
   data: { label: 'Data Paper', color: 'bg-green-100 text-green-700' },
   impact: { label: 'Impact Paper', color: 'bg-yellow-100 text-yellow-700' },
+  journal: { label: 'Journal Paper', color: 'bg-teal-100 text-teal-700' },
+  conference: { label: 'Conference Paper', color: 'bg-indigo-100 text-indigo-700' },
+  patent: { label: 'Patent', color: 'bg-amber-100 text-amber-700' },
+  book_chapter: { label: 'Book Chapter', color: 'bg-pink-100 text-pink-700' },
+  case_study: { label: 'Case Study', color: 'bg-slate-100 text-slate-700' },
 }
 
 const journalTypeConfig: Record<JournalType, { label: string; color: string }> = {
