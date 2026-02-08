@@ -80,7 +80,7 @@ export class EarningsService extends BaseService {
   ): Promise<BaseListResponse<EarningsWithPayment>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = (this.supabase as any).from('sh_earnings_ledger')
+    let query = this.supabase.from('sh_earnings_ledger')
       .select(
         `
         *,
@@ -195,7 +195,7 @@ export class EarningsService extends BaseService {
     if (input.department_id) insertData.department_id = input.department_id;
     if (input.institution_id) insertData.institution_id = input.institution_id;
 
-    const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
+    const { data, error } = await this.supabase.from('sh_earnings_ledger')
       .insert(insertData)
       .select()
       .single();
@@ -214,7 +214,7 @@ export class EarningsService extends BaseService {
     this_month_total: number;
     by_recipient_type: Record<string, { calculated: number; approved: number; paid: number }>;
   }> {
-    const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
+    const { data, error } = await this.supabase.from('sh_earnings_ledger')
       .select('amount, status, recipient_type, created_at');
 
     if (error) throw new Error(`Failed to fetch earnings stats: ${error.message}`);
@@ -265,7 +265,7 @@ export class EarningsService extends BaseService {
    * Get earnings summary by recipient type
    */
   static async getEarningsSummary(): Promise<EarningsSummary[]> {
-    const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
+    const { data, error } = await this.supabase.from('sh_earnings_ledger')
       .select('recipient_type, status, amount');
 
     if (error) throw new Error(`Failed to fetch earnings summary: ${error.message}`);
@@ -304,7 +304,7 @@ export class EarningsService extends BaseService {
     recipientType: RecipientType,
     recipientId: string
   ): Promise<RecipientTotalEarnings> {
-    const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
+    const { data, error } = await this.supabase.from('sh_earnings_ledger')
       .select('amount, status')
       .eq('recipient_type', recipientType)
       .eq('recipient_id', recipientId);
@@ -343,7 +343,7 @@ export class EarningsService extends BaseService {
       updateData.paid_at = paidAt;
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
+    const { data, error } = await this.supabase.from('sh_earnings_ledger')
       .update(updateData)
       .eq('id', id)
       .select()
@@ -362,7 +362,7 @@ export class EarningsService extends BaseService {
       updateData.paid_at = new Date().toISOString();
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
+    const { data, error } = await this.supabase.from('sh_earnings_ledger')
       .update(updateData)
       .in('id', ids)
       .select();
@@ -375,7 +375,7 @@ export class EarningsService extends BaseService {
    * Approve all calculated earnings for a payment
    */
   static async approvePaymentEarnings(paymentId: string): Promise<number> {
-    const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
+    const { data, error } = await this.supabase.from('sh_earnings_ledger')
       .update({ status: 'approved' })
       .eq('payment_id', paymentId)
       .eq('status', 'calculated')
@@ -389,7 +389,7 @@ export class EarningsService extends BaseService {
    * Mark earnings as paid
    */
   static async markEarningsAsPaid(ids: string[], paidAt?: string): Promise<number> {
-    const { data, error } = await (this.supabase as any).from('sh_earnings_ledger')
+    const { data, error } = await this.supabase.from('sh_earnings_ledger')
       .update({
         status: 'paid',
         paid_at: paidAt || new Date().toISOString(),
