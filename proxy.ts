@@ -204,6 +204,7 @@ export async function proxy(request: NextRequest) {
       // Parent-facing API routes (dashboard, learners, profile for parents)
       const isParentApiRoute =
         currentPath === '/api/parent-portal/dashboard' ||
+        currentPath.startsWith('/api/parent-portal/learner/') ||
         currentPath.startsWith('/api/parent-portal/learners') ||
         currentPath.startsWith('/api/parent-portal/profile') ||
         currentPath === '/api/parent-portal/auth/logout';
