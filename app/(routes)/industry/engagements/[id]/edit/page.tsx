@@ -77,10 +77,10 @@ export default function EditEngagementPage() {
         status: mappedStatus as EngagementFormValues['status'],
         start_date: engagement.start_date || '',
         expected_end_date: engagement.expected_end_date || '',
-        actual_end_date: engagement.actual_end_date || '',
-        progress_percentage: engagement.progress_percentage,
+        end_date: engagement.end_date || '',
+        hours_completed: engagement.hours_completed || 0,
         certificate_url: engagement.certificate_url || '',
-        status_notes: engagement.status_notes || ''
+        notes: engagement.notes || ''
       });
     }
   }, [engagement, form]);
