@@ -64,8 +64,8 @@ export class IndustryProjectService {
       .from('industry_projects')
       .select(`
         *,
-        partner:industry_partners(id, company_name, industry_sector),
-        mentor:industry_mentors(id, mentor_name, designation)
+        partner:industry_partners!partner_id(id, company_name, industry_sector),
+        mentor:industry_mentors!assigned_mentor_id(id, mentor_name, designation)
       `, { count: 'exact' });
 
     // Apply filters
