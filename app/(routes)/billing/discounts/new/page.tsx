@@ -130,6 +130,8 @@ export default function NewDiscountPage() {
   };
 
   const calculateDiscountAmount = (billAmount: number) => {
+    if (!billAmount || billAmount === 0) return 0;
+
     if (formData.discount_type === 'percentage') {
       return (billAmount * (formData.discount_value || 0)) / 100;
     } else {

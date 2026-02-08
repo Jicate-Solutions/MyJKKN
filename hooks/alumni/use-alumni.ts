@@ -129,39 +129,7 @@ export function useAlumniDashboardStats(
   const { profile, isLoading: authLoading } = useAuth();
 
   const queryFn = useCallback(async () => {
-    try {
-      return await AlumniOutcomeService.getDashboardStats(institutionId);
-    } catch (error) {
-      console.error('[useAlumniDashboardStats] Error:', error);
-      return {
-        total_tracked: 0,
-        by_outcome_type: {
-          employed: 0,
-          self_employed: 0,
-          entrepreneur: 0,
-          higher_studies: 0,
-          competitive_exams: 0,
-          family_business: 0,
-          gap_year: 0,
-          seeking: 0,
-          unknown: 0
-        },
-        employment_percentage: 0,
-        higher_studies_percentage: 0,
-        entrepreneur_percentage: 0,
-        avg_relevance_percentage: 0,
-        average_satisfaction: 0,
-        verified_count: 0,
-        pending_count: 0,
-        by_salary_range: {} as Record<string, number>,
-        by_city: {},
-        engagement_stats: {
-          willing_to_mentor: 0,
-          willing_to_hire: 0,
-          willing_to_guest_lecture: 0
-        }
-      };
-    }
+    return await AlumniOutcomeService.getDashboardStats(institutionId);
   }, [institutionId]);
 
   return useQuery({
