@@ -154,12 +154,8 @@ export class ParentCommunicationService {
           sender_id: input.sender_id || null, // FIXED: DB column is sender_id
           attachments: input.attachments || [],
         })
-        .select(
-          `
-          *,
-          sender:profiles!sent_by(id, name, avatar_url)
-        `
-        )
+        // NOTE: sender_id has NO FK to profiles. Cannot join.
+        .select('*')
         .single();
 
       if (error) throw error;
