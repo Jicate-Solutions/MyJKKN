@@ -311,9 +311,11 @@ ALTER TABLE alumni_outcomes ADD COLUMN data_source_new data_source_enum;
 UPDATE alumni_outcomes SET data_source_new =
   CASE data_source
     WHEN 'self_reported' THEN 'self_reported'::data_source_enum
-    WHEN 'verified' THEN 'document_verified'::data_source_enum  -- map old 'verified' to closest match
-    WHEN 'alumni_survey' THEN 'phone_survey'::data_source_enum
+    WHEN 'verified' THEN 'employer_feedback'::data_source_enum
+    WHEN 'alumni_survey' THEN 'email_survey'::data_source_enum
+    WHEN 'placement_cell' THEN 'placement_cell'::data_source_enum
     WHEN 'linkedin' THEN 'linkedin_scrape'::data_source_enum
+    WHEN 'alumni_meet' THEN 'alumni_meet'::data_source_enum
     ELSE 'manual_entry'::data_source_enum
   END;
 
