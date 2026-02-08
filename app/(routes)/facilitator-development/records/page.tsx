@@ -39,9 +39,12 @@ import {
 } from '@/types/facilitator-development';
 
 export default function FacilitatorDevelopmentRecordsPage() {
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { isSuperAdmin, canAccess, isLoading: permissionsLoading } = usePermissions();
   const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
   const institutionId = institutions?.[0]?.institution_id || '';
+
+  const canView = isSuperAdmin || canAccess('facilitator_development', 'view');
+  const canCreate = isSuperAdmin || canAccess('facilitator_development', 'create');
 
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState<DevelopmentStage | 'all'>('all');
