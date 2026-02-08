@@ -591,8 +591,8 @@ export default function DiscountDetailsPage() {
                               }`.trim()}
                             </p>
                             <p className='text-sm text-muted-foreground'>
-                              {discount.bill.student.roll_number} •{' '}
-                              {discount.bill.student.college_email}
+                              {discount.bill.student.student_id} •{' '}
+                              {discount.bill.student.email}
                             </p>
                           </div>
                         </div>
