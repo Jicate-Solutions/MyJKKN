@@ -229,6 +229,28 @@ export default function NewAlumniOutcomePage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
+                  <Label htmlFor="program-id">Program (Optional)</Label>
+                  <Select
+                    value={programId || 'none'}
+                    onValueChange={(v) => setProgramId(v === 'none' ? '' : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select program" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Not specified</SelectItem>
+                      {programs.map((prog) => (
+                        <SelectItem key={prog.id} value={prog.id}>
+                          {prog.program_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
                   <Label htmlFor="outcome-type">Outcome Type *</Label>
                   <Select
                     value={outcomeType}
