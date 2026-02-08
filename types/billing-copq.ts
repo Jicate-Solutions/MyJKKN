@@ -79,11 +79,12 @@ export interface BillingCOPQIncident {
   // Joined data
   bill?: {
     id: string;
-    bill_number: string;
+    bill_description: string;
   } | null;
   learner?: {
     id: string;
-    name: string;
+    first_name: string;
+    last_name: string;
     roll_number?: string;
   } | null;
   reporter?: {
