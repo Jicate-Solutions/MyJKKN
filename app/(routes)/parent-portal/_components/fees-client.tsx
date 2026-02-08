@@ -11,9 +11,7 @@ export function FeesClient() {
   const { data: dashboardData, isLoading, error } = useParentDashboard();
 
   const handlePayNow = (learnerId: string, amount: number) => {
-    // TODO: Implement payment integration
-    toast.success('Payment integration coming soon!');
-    console.log('Payment requested:', { learnerId, amount });
+    toast.success('Online payment coming soon! Please contact the accounts department.');
   };
 
   if (isLoading) {
