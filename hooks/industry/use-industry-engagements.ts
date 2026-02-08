@@ -233,13 +233,15 @@ export function useAddEngagementFeedback(id: string) {
 }
 
 /**
- * Log hours mutation
+ * Update progress percentage mutation
+ * NOTE: DB tracks progress via progress_percentage (0-100), not hours_completed
  */
-export function useLogEngagementHours(id: string) {
+export function useUpdateEngagementProgress(id: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (hours: number) => IndustryEngagementService.logHours(id, hours),
+    mutationFn: (progressPercentage: number) =>
+      IndustryEngagementService.updateProgress(id, progressPercentage),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: engagementKeys.detail(id) });
     }
