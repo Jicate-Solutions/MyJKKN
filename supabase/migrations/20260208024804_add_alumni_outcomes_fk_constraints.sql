@@ -1,5 +1,5 @@
 -- ============================================================================
--- Add FK constraints to alumni_outcomes for Supabase join support
+-- Add FK constraints to alumni_outcomes and outcome_program_correlation
 -- Without these, PostgREST cannot discover relationships for .select() joins
 -- Fix: program_id -> programs(id), learner_id -> learners_profiles(id)
 -- Created: 2026-02-08
