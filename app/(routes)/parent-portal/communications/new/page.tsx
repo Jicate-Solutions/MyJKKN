@@ -32,6 +32,8 @@ import {
   COMMUNICATION_TYPE_LABELS,
   PRIORITY_LABELS,
 } from '@/types/parent-portal';
+// Note: CommunicationPriority and PRIORITY_LABELS kept for the UI form selector
+// but priority is NOT sent to the DB (CreateCommunicationDto has no priority field)
 
 export default function NewCommunicationPage() {
   const router = useRouter();
