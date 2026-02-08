@@ -525,6 +525,8 @@ export class ParentPortalService {
 
   // ============================================================================
   // ACTIVITY LOG METHODS
+  // ⚠️ WARNING: These methods reference 'parent_activity_log' table which DOES NOT EXIST in DB
+  // These methods will FAIL at runtime until the schema is migrated
   // ============================================================================
 
   static async getActivityLog(filters: ActivityLogFilters) {
