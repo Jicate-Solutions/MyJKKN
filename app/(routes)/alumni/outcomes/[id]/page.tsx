@@ -52,14 +52,19 @@ import {
 import { toast } from 'sonner';
 import { useAlumniOutcome, useDeleteAlumniOutcome, useVerifyAlumniOutcome } from '@/hooks/alumni';
 import { useAuth } from '@/hooks/use-auth';
-import { OUTCOME_TYPE_LABELS, DATA_SOURCE_LABELS } from '@/types/alumni';
-import type { OutcomeType, DataSource } from '@/types/alumni';
+import {
+  OUTCOME_TYPE_LABELS,
+  DATA_SOURCE_LABELS,
+  SALARY_RANGE_LABELS,
+  VERIFICATION_STATUS_LABELS
+} from '@/types/alumni';
+import type { OutcomeType, DataSource, SalaryRange, VerificationStatus } from '@/types/alumni';
 
 const OUTCOME_BADGE_COLORS: Record<OutcomeType, string> = {
   employed: 'bg-green-100 text-green-800',
+  self_employed: 'bg-amber-100 text-amber-800',
   higher_studies: 'bg-blue-100 text-blue-800',
   entrepreneur: 'bg-purple-100 text-purple-800',
-  self_employed: 'bg-amber-100 text-amber-800',
   competitive_exams: 'bg-cyan-100 text-cyan-800',
   family_business: 'bg-orange-100 text-orange-800',
   gap_year: 'bg-slate-100 text-slate-800',
@@ -136,8 +141,16 @@ export default function AlumniOutcomeDetailPage() {
     );
   }
 
+  const displayName = outcome.learner
+    ? `${outcome.learner.first_name} ${outcome.learner.last_name}`
+    : 'Unknown Alumni';
+  const isVerified = outcome.verification_status !== 'pending'
+    && outcome.verification_status !== 'rejected';
+  const locationParts = [outcome.city, outcome.state, outcome.country].filter(Boolean);
+  const locationStr = locationParts.join(', ');
+
   return (
-    <ContentLayout title={outcome.learner ? `${outcome.learner.first_name} ${outcome.learner.last_name}` : 'Alumni Outcome'}>
+    <ContentLayout title={displayName}>
       <div className="space-y-6">
         {/* Breadcrumb */}
         <Breadcrumb>
@@ -155,7 +168,7 @@ export default function AlumniOutcomeDetailPage() {
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>{outcome.name}</BreadcrumbPage>
+              <BreadcrumbPage>{displayName}</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
@@ -173,22 +186,22 @@ export default function AlumniOutcomeDetailPage() {
                 <Badge className={OUTCOME_BADGE_COLORS[outcome.outcome_type as OutcomeType] || 'bg-gray-100'}>
                   {OUTCOME_TYPE_LABELS[outcome.outcome_type as OutcomeType] || outcome.outcome_type}
                 </Badge>
-                {outcome.verified ? (
+                {isVerified ? (
                   <Badge className="bg-green-100 text-green-800">
                     <CheckCircle className="h-3 w-3 mr-1" />
-                    Verified
+                    {VERIFICATION_STATUS_LABELS[outcome.verification_status as VerificationStatus] || 'Verified'}
                   </Badge>
                 ) : (
                   <Badge variant="secondary">
                     <XCircle className="h-3 w-3 mr-1" />
-                    Unverified
+                    {VERIFICATION_STATUS_LABELS[outcome.verification_status as VerificationStatus] || 'Pending'}
                   </Badge>
                 )}
                 <Badge variant="outline">
                   Class of {outcome.graduation_year}
                 </Badge>
               </div>
-              <h1 className="text-2xl font-bold">{outcome.name}</h1>
+              <h1 className="text-2xl font-bold">{displayName}</h1>
               {outcome.program?.program_name && (
                 <p className="text-muted-foreground mt-1">
                   {outcome.program.program_name}
@@ -197,7 +210,7 @@ export default function AlumniOutcomeDetailPage() {
             </div>
           </div>
           <div className="flex gap-2">
-            {!outcome.verified && (
+            {!isVerified && (
               <Button variant="outline" onClick={handleVerify} disabled={verifyMutation.isPending}>
                 <Shield className="h-4 w-4 mr-2" />
                 Verify
@@ -249,45 +262,47 @@ export default function AlumniOutcomeDetailPage() {
                         <p className="font-medium">{outcome.company_name}</p>
                       </div>
                     )}
-                    {outcome.job_title && (
+                    {outcome.designation && (
                       <div>
-                        <p className="text-sm text-muted-foreground">Job Title</p>
-                        <p className="font-medium">{outcome.job_title}</p>
+                        <p className="text-sm text-muted-foreground">Designation</p>
+                        <p className="font-medium">{outcome.designation}</p>
                       </div>
                     )}
-                    {outcome.industry && (
+                    {outcome.industry_sector && (
                       <div>
                         <p className="text-sm text-muted-foreground">Industry</p>
-                        <p className="font-medium">{outcome.industry}</p>
+                        <p className="font-medium">{outcome.industry_sector}</p>
                       </div>
                     )}
-                    {outcome.location && (
+                    {outcome.job_function && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Job Function</p>
+                        <p className="font-medium">{outcome.job_function}</p>
+                      </div>
+                    )}
+                    {locationStr && (
                       <div>
                         <p className="text-sm text-muted-foreground">Location</p>
                         <p className="font-medium flex items-center gap-1">
                           <MapPin className="h-3 w-3" />
-                          {outcome.location}
+                          {locationStr}
                         </p>
                       </div>
                     )}
                     {outcome.salary_range && (
                       <div>
                         <p className="text-sm text-muted-foreground">Salary Range</p>
-                        <p className="font-medium">{outcome.salary_range}</p>
-                      </div>
-                    )}
-                    {outcome.is_core_domain !== null && (
-                      <div>
-                        <p className="text-sm text-muted-foreground">Core Domain</p>
                         <p className="font-medium">
-                          {outcome.is_core_domain ? 'Yes - Same field as degree' : 'No - Different field'}
+                          {SALARY_RANGE_LABELS[outcome.salary_range as SalaryRange] || outcome.salary_range}
                         </p>
                       </div>
                     )}
-                    {outcome.time_to_placement_days !== null && (
+                    {outcome.is_relevant_to_program !== null && (
                       <div>
-                        <p className="text-sm text-muted-foreground">Time to Placement</p>
-                        <p className="font-medium">{outcome.time_to_placement_days} days</p>
+                        <p className="text-sm text-muted-foreground">Relevant to Program</p>
+                        <p className="font-medium">
+                          {outcome.is_relevant_to_program ? 'Yes - Same field as degree' : 'No - Different field'}
+                        </p>
                       </div>
                     )}
                   </div>
@@ -306,16 +321,28 @@ export default function AlumniOutcomeDetailPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 gap-4">
-                    {outcome.higher_study_institution && (
+                    {outcome.institution_name && (
                       <div>
                         <p className="text-sm text-muted-foreground">Institution</p>
-                        <p className="font-medium">{outcome.higher_study_institution}</p>
+                        <p className="font-medium">{outcome.institution_name}</p>
                       </div>
                     )}
-                    {outcome.higher_study_program && (
+                    {outcome.course_name && (
                       <div>
-                        <p className="text-sm text-muted-foreground">Program</p>
-                        <p className="font-medium">{outcome.higher_study_program}</p>
+                        <p className="text-sm text-muted-foreground">Course</p>
+                        <p className="font-medium">{outcome.course_name}</p>
+                      </div>
+                    )}
+                    {outcome.specialization && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Specialization</p>
+                        <p className="font-medium">{outcome.specialization}</p>
+                      </div>
+                    )}
+                    {outcome.is_scholarship !== null && outcome.is_scholarship && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Scholarship</p>
+                        <p className="font-medium">{outcome.scholarship_details || 'Yes'}</p>
                       </div>
                     )}
                   </div>
@@ -329,21 +356,33 @@ export default function AlumniOutcomeDetailPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Lightbulb className="h-5 w-5" />
-                    Startup Details
+                    Business Details
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 gap-4">
-                    {outcome.startup_name && (
+                    {outcome.business_name && (
                       <div>
-                        <p className="text-sm text-muted-foreground">Startup Name</p>
-                        <p className="font-medium">{outcome.startup_name}</p>
+                        <p className="text-sm text-muted-foreground">Business Name</p>
+                        <p className="font-medium">{outcome.business_name}</p>
                       </div>
                     )}
-                    {outcome.startup_industry && (
+                    {outcome.business_sector && (
                       <div>
-                        <p className="text-sm text-muted-foreground">Industry</p>
-                        <p className="font-medium">{outcome.startup_industry}</p>
+                        <p className="text-sm text-muted-foreground">Sector</p>
+                        <p className="font-medium">{outcome.business_sector}</p>
+                      </div>
+                    )}
+                    {outcome.business_type && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Type</p>
+                        <p className="font-medium">{outcome.business_type}</p>
+                      </div>
+                    )}
+                    {outcome.employee_count !== null && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Employees</p>
+                        <p className="font-medium">{outcome.employee_count}</p>
                       </div>
                     )}
                   </div>
@@ -351,16 +390,16 @@ export default function AlumniOutcomeDetailPage() {
               </Card>
             )}
 
-            {/* Competencies */}
-            {outcome.competencies_utilized && outcome.competencies_utilized.length > 0 && (
+            {/* Skills Used */}
+            {outcome.skills_used && outcome.skills_used.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Competencies Utilized</CardTitle>
+                  <CardTitle>Skills Used</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="flex flex-wrap gap-2">
-                    {outcome.competencies_utilized.map((comp) => (
-                      <Badge key={comp} variant="secondary">{comp}</Badge>
+                    {outcome.skills_used.map((skill) => (
+                      <Badge key={skill} variant="secondary">{skill}</Badge>
                     ))}
                   </div>
                 </CardContent>
@@ -403,27 +442,21 @@ export default function AlumniOutcomeDetailPage() {
                 <CardTitle className="text-base">Details</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Data Source</p>
-                  <Badge variant="outline">
-                    {DATA_SOURCE_LABELS[outcome.data_source as DataSource] || outcome.data_source}
-                  </Badge>
-                </div>
-
-                {outcome.linkedin_url && (
+                {outcome.data_source && (
                   <div>
-                    <p className="text-sm text-muted-foreground mb-1">LinkedIn</p>
-                    <a
-                      href={outcome.linkedin_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline flex items-center gap-1 text-sm"
-                    >
-                      View Profile
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
+                    <p className="text-sm text-muted-foreground mb-1">Data Source</p>
+                    <Badge variant="outline">
+                      {DATA_SOURCE_LABELS[outcome.data_source as DataSource] || outcome.data_source}
+                    </Badge>
                   </div>
                 )}
+
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Verification</p>
+                  <Badge variant="outline">
+                    {VERIFICATION_STATUS_LABELS[outcome.verification_status as VerificationStatus] || outcome.verification_status}
+                  </Badge>
+                </div>
 
                 <Separator />
 
