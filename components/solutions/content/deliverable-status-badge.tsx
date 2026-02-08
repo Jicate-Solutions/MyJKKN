@@ -21,6 +21,7 @@ const statusConfig: Record<
   revision: { label: 'Revision', variant: 'secondary' },
   approved: { label: 'Approved', variant: 'default' },
   rejected: { label: 'Rejected', variant: 'destructive' },
+  delivered: { label: 'Delivered', variant: 'default' },
 }
 
 const REVISION_FLAG_THRESHOLD = 3
