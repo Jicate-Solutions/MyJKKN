@@ -212,7 +212,8 @@ export function useUpdateEngagementStatus() {
 
 /**
  * Add feedback to engagement mutation
- * NOTE: DB has separate mentor_feedback and learner_feedback columns
+ * NOTE: DB has a single `feedback` JSONB column (NOT separate columns)
+ * The service merges feedbackType key into the feedback object
  */
 export function useAddEngagementFeedback(id: string) {
   const queryClient = useQueryClient();
@@ -233,15 +234,15 @@ export function useAddEngagementFeedback(id: string) {
 }
 
 /**
- * Update progress percentage mutation
- * NOTE: DB tracks progress via progress_percentage (0-100), not hours_completed
+ * Update hours completed mutation
+ * NOTE: DB has `hours_completed` column (NOT progress_percentage)
  */
-export function useUpdateEngagementProgress(id: string) {
+export function useUpdateEngagementHours(id: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (progressPercentage: number) =>
-      IndustryEngagementService.updateProgress(id, progressPercentage),
+    mutationFn: (hoursCompleted: number) =>
+      IndustryEngagementService.updateHoursCompleted(id, hoursCompleted),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: engagementKeys.detail(id) });
     }
