@@ -44,6 +44,10 @@ export default function ProjectDetailPage() {
     );
   }
 
+  // Extract competencies as displayable items (they are UUID arrays in the type)
+  const requiredCompetencies = project.required_competencies || [];
+  const deliverablesList = Array.isArray(project.deliverables) ? project.deliverables : [];
+
   return (
     <PermissionGuard module="industry.projects" action="view">
       <ContentLayout title={project.project_title}>
@@ -71,7 +75,6 @@ export default function ProjectDetailPage() {
                 <div className="flex items-center gap-2 mt-1">
                   <Badge className={STATUS_COLORS[project.status]}>{project.status.replace('_', ' ')}</Badge>
                   {project.difficulty_level && <Badge variant="outline" className="capitalize">{project.difficulty_level}</Badge>}
-                  {project.is_remote && <Badge variant="outline">Remote</Badge>}
                 </div>
               </div>
             </div>
@@ -86,22 +89,22 @@ export default function ProjectDetailPage() {
                   <CardContent><p className="text-muted-foreground whitespace-pre-wrap">{project.description}</p></CardContent>
                 </Card>
               )}
-              {project.technologies && project.technologies.length > 0 && (
+              {requiredCompetencies.length > 0 && (
                 <Card>
-                  <CardHeader><CardTitle>Technologies</CardTitle></CardHeader>
+                  <CardHeader><CardTitle>Required Competencies</CardTitle></CardHeader>
                   <CardContent>
                     <div className="flex flex-wrap gap-2">
-                      {project.technologies.map((tech) => <Badge key={tech} variant="secondary">{tech}</Badge>)}
+                      {requiredCompetencies.map((comp: string) => <Badge key={comp} variant="secondary">{comp}</Badge>)}
                     </div>
                   </CardContent>
                 </Card>
               )}
-              {project.deliverables && project.deliverables.length > 0 && (
+              {deliverablesList.length > 0 && (
                 <Card>
                   <CardHeader><CardTitle>Deliverables</CardTitle></CardHeader>
                   <CardContent>
                     <ul className="list-disc list-inside space-y-1">
-                      {project.deliverables.map((d, i) => <li key={i} className="text-muted-foreground">{d}</li>)}
+                      {deliverablesList.map((d: any, i: number) => <li key={i} className="text-muted-foreground">{typeof d === 'string' ? d : JSON.stringify(d)}</li>)}
                     </ul>
                   </CardContent>
                 </Card>
@@ -133,7 +136,6 @@ export default function ProjectDetailPage() {
                   {project.stipend_amount && project.stipend_amount > 0 && (
                     <div className="flex justify-between"><span className="text-muted-foreground">Stipend</span><span className="text-green-600 font-medium">{project.stipend_currency} {project.stipend_amount.toLocaleString()}</span></div>
                   )}
-                  {project.location && <div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-muted-foreground" /><span>{project.location}</span></div>}
                 </CardContent>
               </Card>
 
@@ -143,11 +145,11 @@ export default function ProjectDetailPage() {
                   {project.application_deadline && (
                     <div className="flex justify-between"><span className="text-muted-foreground">Apply By</span><span>{new Date(project.application_deadline).toLocaleDateString()}</span></div>
                   )}
-                  {project.start_date && (
-                    <div className="flex justify-between"><span className="text-muted-foreground">Starts</span><span>{new Date(project.start_date).toLocaleDateString()}</span></div>
+                  {project.project_start_date && (
+                    <div className="flex justify-between"><span className="text-muted-foreground">Starts</span><span>{new Date(project.project_start_date).toLocaleDateString()}</span></div>
                   )}
-                  {project.end_date && (
-                    <div className="flex justify-between"><span className="text-muted-foreground">Ends</span><span>{new Date(project.end_date).toLocaleDateString()}</span></div>
+                  {project.project_end_date && (
+                    <div className="flex justify-between"><span className="text-muted-foreground">Ends</span><span>{new Date(project.project_end_date).toLocaleDateString()}</span></div>
                   )}
                 </CardContent>
               </Card>
