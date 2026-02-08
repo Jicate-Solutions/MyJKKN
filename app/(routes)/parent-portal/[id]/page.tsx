@@ -365,8 +365,8 @@ export default function ParentDetailPage() {
                     Last Login
                   </p>
                   <p className="text-sm">
-                    {record.last_access
-                      ? formatDate(record.last_access)
+                    {record.last_login_at
+                      ? formatDate(record.last_login_at)
                       : 'Never'}
                   </p>
                 </div>
