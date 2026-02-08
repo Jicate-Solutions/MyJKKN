@@ -204,6 +204,39 @@ export class FacilitatorDevelopmentService {
         this.validateId(input.mentor_id, 'mentor_id');
       }
 
+      // Validate outcome_score if provided (must be 0-100)
+      if (input.outcome_score !== undefined && input.outcome_score !== null) {
+        const score = Number(input.outcome_score);
+        if (score < 0 || score > 100) {
+          throw new Error('Outcome score must be between 0 and 100');
+        }
+      }
+
+      // Validate student_feedback_average if provided (must be 0-5)
+      if (input.student_feedback_average !== undefined && input.student_feedback_average !== null) {
+        const feedback = Number(input.student_feedback_average);
+        if (feedback < 0 || feedback > 5) {
+          throw new Error('Student feedback average must be between 0 and 5');
+        }
+      }
+
+      // Validate numeric fields are not negative
+      if (input.workshops_attended !== undefined && input.workshops_attended < 0) {
+        throw new Error('Workshops attended cannot be negative');
+      }
+      if (input.workshops_facilitated !== undefined && input.workshops_facilitated < 0) {
+        throw new Error('Workshops facilitated cannot be negative');
+      }
+      if (input.peer_observations_done !== undefined && input.peer_observations_done < 0) {
+        throw new Error('Peer observations done cannot be negative');
+      }
+      if (input.peer_observations_received !== undefined && input.peer_observations_received < 0) {
+        throw new Error('Peer observations received cannot be negative');
+      }
+      if (input.industry_exposure_hours !== undefined && input.industry_exposure_hours < 0) {
+        throw new Error('Industry exposure hours cannot be negative');
+      }
+
       // If stage is being changed, update stage_updated_at
       const updateData: Record<string, unknown> = {
         ...input,
