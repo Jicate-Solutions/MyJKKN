@@ -204,10 +204,10 @@ export default function NewProjectPage() {
                       </FormItem>
                     )} />
                   </div>
-                  <FormField control={form.control} name="detailed_requirements" render={({ field }) => (
+                  <FormField control={form.control} name="technologies" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Requirements / Technologies</FormLabel>
-                      <FormControl><Textarea placeholder="Technologies, tools, and requirements..." className="min-h-[80px]" {...field} /></FormControl>
+                      <FormLabel>Technologies (comma-separated)</FormLabel>
+                      <FormControl><Input placeholder="React, Node.js, PostgreSQL" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
