@@ -33,7 +33,7 @@ export function DashboardOverview({ data }: DashboardOverviewProps) {
     },
     {
       label: 'Overdue Fees',
-      value: data.learners.filter((l) => l.fees.total_overdue > 0).length,
+      value: data.learners.filter((l) => l.fees?.total_overdue > 0).length,
       icon: AlertTriangle,
       color: 'text-red-600',
       bgColor: 'bg-red-100',
