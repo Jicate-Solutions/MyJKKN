@@ -36,7 +36,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const supabase = await createClient();
+    // Use service role client because parent portal uses custom session auth (not Supabase auth)
+    const supabase = createServiceRoleClient();
 
     const { data, error } = await supabase
       .from('parent_learner_links')
@@ -120,7 +121,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const supabase = await createClient();
+    // Use service role client because parent portal uses custom session auth (not Supabase auth)
+    const supabase = createServiceRoleClient();
 
     // First, verify the authenticated parent owns this link
     const { data: existing, error: fetchError } = await supabase
@@ -221,7 +223,8 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const supabase = await createClient();
+    // Use service role client because parent portal uses custom session auth (not Supabase auth)
+    const supabase = createServiceRoleClient();
 
     // First, verify the authenticated parent owns this link
     const { data: existing, error: fetchError } = await supabase
