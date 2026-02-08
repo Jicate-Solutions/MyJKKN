@@ -176,6 +176,7 @@ export function useUpdateFacilitatorDevelopment(id: string) {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.all }); // Invalidate stats
       queryClient.setQueryData(facilitatorDevKeys.detail(id), data);
     }
   });
