@@ -1,8 +1,7 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Temporarily disabled due to Turbopack ENOENT race condition
-  // cacheComponents: true,
+  cacheComponents: true,
 
   experimental: {
   },
