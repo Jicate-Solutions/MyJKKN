@@ -91,7 +91,6 @@ export function ContentOverview() {
     revision: 40,
     approved: 100,
     delivered: 100,
-    rejected: 0,
   };
 
   const totalInQueue = queueByDivision.reduce((sum, d) => sum + d.count, 0) || 1; // Avoid division by zero
