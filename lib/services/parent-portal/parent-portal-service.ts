@@ -464,11 +464,11 @@ export class ParentPortalService {
 
   static async getCommunication(id: string): Promise<ParentCommunication | null> {
     const supabase: any = createClientSupabaseClient();
+    // NOTE: sender_id has NO FK to profiles. Cannot join.
     const { data, error } = await supabase
       .from('parent_communications')
       .select(`
         *,
-        sender:profiles!sent_by(id, name, avatar_url),
         learner:learners_profiles(id, name, enrollment_number)
       `)
       .eq('id', id)
