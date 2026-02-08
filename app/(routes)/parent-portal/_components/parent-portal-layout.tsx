@@ -52,7 +52,6 @@ export function ParentPortalLayout({ children }: ParentPortalLayoutProps) {
   };
 
   const handleViewProfile = () => {
-    // TODO: Implement profile page
     router.push('/parent-portal/profile');
   };
 
