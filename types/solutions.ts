@@ -542,3 +542,55 @@ export interface CalculatedSplit {
   amount: number
   percentage: number
 }
+
+// ============================================
+// RE-EXPORT SERVICE-ONLY TYPES
+// ============================================
+// These types are defined in the service layer and not duplicated here.
+// Import from '@/types/solutions' or '@/lib/services/solutions/types' interchangeably.
+
+export type {
+  BaseEntity,
+  AssignmentStatus,
+  BuilderRole,
+  CohortTrack,
+  ProgramType,
+  NotificationType,
+  Client,
+  ClientReferral,
+  Solution,
+  SolutionPhase,
+  SolutionMou,
+  Builder,
+  BuilderSkill,
+  BuilderAssignment,
+  PrototypeIteration,
+  BugReport,
+  PhaseDeployment,
+  ImplementationUser,
+  TrainingProgram,
+  TrainingSession,
+  CohortMember,
+  CohortAssignment,
+  ContentOrder,
+  ContentDeliverable,
+  ProductionLearner,
+  ProductionAssignment,
+  DiscoveryVisit,
+  ClientCommunication,
+  RevenueSplitModel,
+  Payment,
+  EarningsLedger,
+  Publication,
+  PublicationContributor,
+  AccreditationMetric,
+  JicateSession,
+  Notification,
+  AuditLog,
+  PaginationParams,
+  CreateClientInput,
+  CreateSolutionInput,
+  CreatePhaseInput,
+  CreateBuilderInput,
+  CreatePaymentInput,
+} from '@/lib/services/solutions/types'
