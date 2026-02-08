@@ -246,7 +246,7 @@ export default function NewAlumniOutcomePage() {
           </Card>
 
           {/* Employment Details - shown for employed/freelancer */}
-          {(outcomeType === 'employed' || outcomeType === 'freelancer') && (
+          {(outcomeType === 'employed' || outcomeType === 'self_employed') && (
             <Card>
               <CardHeader>
                 <CardTitle>Employment Details</CardTitle>
