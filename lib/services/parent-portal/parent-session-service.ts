@@ -5,6 +5,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
+import { InputValidator } from '@/lib/utils/input-validator';
 
 // Session configuration constants
 const SESSION_TOKEN_LENGTH = 32; // bytes (produces 64 hex characters)
