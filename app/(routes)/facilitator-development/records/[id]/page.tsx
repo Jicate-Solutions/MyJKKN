@@ -400,7 +400,22 @@ export default function FacilitatorDevelopmentDetailPage() {
         <Card>
           <CardHeader className='flex flex-row items-center justify-between'>
             <CardTitle className='text-lg'>Industry Immersions</CardTitle>
-            <Dialog open={showImmersionDialog} onOpenChange={setShowImmersionDialog}>
+            <Dialog open={showImmersionDialog} onOpenChange={(open) => {
+              setShowImmersionDialog(open);
+              if (!open) {
+                // Reset form when dialog is closed
+                setImmersionForm({
+                  company_name: '',
+                  industry: '',
+                  role_title: '',
+                  duration_days: '',
+                  start_date: '',
+                  end_date: '',
+                  objectives: '',
+                  status: 'planned'
+                });
+              }
+            }}>
               <DialogTrigger asChild>
                 <Button size='sm'>
                   <Plus className='mr-2 h-4 w-4' />
