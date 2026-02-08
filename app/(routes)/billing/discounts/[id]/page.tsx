@@ -439,13 +439,13 @@ export default function DiscountDetailsPage() {
                         </p>
                       </div>
                     )}
-                    {(discount.outcome_criteria?.min_proficiency || discount.outcome_criteria?.minimum_level) && (
+                    {discount.outcome_criteria?.minimum_level && (
                       <div>
                         <Label className='text-sm font-medium text-muted-foreground'>
                           Min Proficiency Level
                         </Label>
                         <p className='font-medium capitalize'>
-                          {discount.outcome_criteria.min_proficiency || discount.outcome_criteria.minimum_level}
+                          {discount.outcome_criteria.minimum_level}
                         </p>
                       </div>
                     )}
