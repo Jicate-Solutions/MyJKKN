@@ -220,7 +220,7 @@ export default function EditEngagementPage() {
                     </FormItem>
                   )} />
 
-                  <FormField control={form.control} name="status_notes" render={({ field }) => (
+                  <FormField control={form.control} name="notes" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Notes</FormLabel>
                       <FormControl><Textarea placeholder="Additional notes..." className="min-h-[100px]" {...field} /></FormControl>
