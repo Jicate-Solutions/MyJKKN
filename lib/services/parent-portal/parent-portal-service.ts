@@ -359,24 +359,33 @@ export class ParentPortalService {
   }
 
   static async getLearnerAttendance(learnerId: string): Promise<LearnerAttendanceSummary> {
-    const supabase: any = createClientSupabaseClient();
-    const { data, error } = await supabase.rpc('get_learner_attendance_for_parent', {
-      p_learner_id: learnerId,
-      p_days: 30,
+    // SECURITY: Route through API endpoint which validates parent session
+    // and verifies parent-learner relationship before returning data
+    const response = await fetch(`/api/parent-portal/learner/${encodeURIComponent(learnerId)}/attendance`, {
+      credentials: 'include', // Include httpOnly session cookie
     });
 
-    if (error) throw error;
-    return data;
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch attendance data');
+    }
+
+    return response.json();
   }
 
   static async getLearnerFees(learnerId: string): Promise<LearnerFeeSummary> {
-    const supabase: any = createClientSupabaseClient();
-    const { data, error } = await supabase.rpc('get_learner_fees_for_parent', {
-      p_learner_id: learnerId,
+    // SECURITY: Route through API endpoint which validates parent session
+    // and verifies parent-learner relationship before returning data
+    const response = await fetch(`/api/parent-portal/learner/${encodeURIComponent(learnerId)}/fees`, {
+      credentials: 'include', // Include httpOnly session cookie
     });
 
-    if (error) throw error;
-    return data;
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch fee data');
+    }
+
+    return response.json();
   }
 
   // ============================================================================
