@@ -68,11 +68,11 @@ export default function EditProjectPage() {
         min_team_size: project.min_team_size || undefined,
         stipend_amount: project.stipend_amount || undefined,
         application_deadline: project.application_deadline || '',
-        project_start_date: project.project_start_date || '',
-        project_end_date: project.project_end_date || '',
-        detailed_requirements: project.detailed_requirements || '',
+        start_date: project.start_date || '',
+        end_date: project.end_date || '',
+        technologies: Array.isArray(project.technologies) ? project.technologies.join(', ') : '',
         deliverables: deliverablesStr,
-        assigned_mentor_id: project.assigned_mentor_id || '',
+        mentor_id: project.mentor_id || '',
         status: project.status
       });
     }
