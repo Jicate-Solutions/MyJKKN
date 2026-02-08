@@ -2,21 +2,42 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { ParentSessionService } from '@/lib/services/parent-portal/parent-session-service';
 import { linkLearnerSchema } from '@/lib/validations/parent-portal';
+import { validateCSRFFromRequest } from '@/lib/utils/csrf';
 import { z } from 'zod';
 
+/**
+ * Get linked learners for the authenticated parent
+ * Requires: Parent authentication
+ */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { searchParams } = new URL(request.url);
-    const parentId = searchParams.get('parent_id');
+    // CRITICAL FIX: Validate parent session - was missing!
+    const authenticatedParentId = await ParentSessionService.getCurrentParentId();
 
-    if (!parentId) {
+    if (!authenticatedParentId) {
       return NextResponse.json(
-        { error: 'parent_id is required' },
-        { status: 400 }
+        { error: 'Authentication required' },
+        { status: 401 }
       );
     }
+
+    const supabase = await createClient();
+    const { searchParams } = new URL(request.url);
+    const requestedParentId = searchParams.get('parent_id');
+
+    // SECURITY: Only allow parents to see their own linked learners
+    // If parent_id is provided, it must match the authenticated parent
+    if (requestedParentId && requestedParentId !== authenticatedParentId) {
+      return NextResponse.json(
+        { error: 'You can only view your own linked learners' },
+        { status: 403 }
+      );
+    }
+
+    // Use authenticated parent ID, not query parameter
+    const parentId = authenticatedParentId;
 
     const { data, error } = await supabase
       .from('parent_learner_links')
@@ -35,7 +56,10 @@ export async function GET(request: NextRequest) {
       .eq('parent_id', parentId)
       .order('is_primary', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      console.error('[parent-portal/learners] Database error:', error);
+      throw error;
+    }
 
     return NextResponse.json(data || []);
   } catch (error) {
@@ -47,16 +71,47 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/**
+ * Link a learner to the authenticated parent
+ * Requires: Parent authentication + CSRF token
+ */
 export async function POST(request: NextRequest) {
   try {
+    // CRITICAL FIX: Validate parent session - was missing!
+    const authenticatedParentId = await ParentSessionService.getCurrentParentId();
+
+    if (!authenticatedParentId) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    // Validate CSRF token for state-changing operation
+    const isValidCSRF = await validateCSRFFromRequest(request);
+
+    if (!isValidCSRF) {
+      return NextResponse.json(
+        { error: 'Invalid CSRF token. Please refresh and try again.' },
+        { status: 403 }
+      );
+    }
+
     const supabase = await createClient();
     const body = await request.json();
 
     const validated = linkLearnerSchema.parse(body);
 
+    // SECURITY: Force the authenticated parent ID, ignore body.parent_id
+    // This prevents a parent from linking learners to other parents' accounts
+    const secureData = {
+      ...validated,
+      parent_id: authenticatedParentId,
+    };
+
     const { data, error } = await supabase
       .from('parent_learner_links')
-      .insert(validated)
+      .insert(secureData)
       .select(
         `
         *,
@@ -72,10 +127,11 @@ export async function POST(request: NextRequest) {
     if (error) {
       if (error.code === '23505') {
         return NextResponse.json(
-          { error: 'This learner is already linked to this parent' },
+          { error: 'This learner is already linked to your account' },
           { status: 409 }
         );
       }
+      console.error('[parent-portal/learners] Insert error:', error);
       throw error;
     }
 
