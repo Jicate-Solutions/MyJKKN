@@ -349,7 +349,7 @@ export class UnifiedEarningsService extends BaseService {
    * Get builder profile by user ID
    */
   private static async getBuilderByUserId(userId: string): Promise<{ id: string } | null> {
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await this.supabase
       .from('sh_builders')
       .select('id')
       .eq('user_id', userId)
@@ -366,7 +366,7 @@ export class UnifiedEarningsService extends BaseService {
    * Get cohort member profile by user ID
    */
   private static async getCohortMemberByUserId(userId: string): Promise<{ id: string } | null> {
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await this.supabase
       .from('sh_cohort_members')
       .select('id')
       .eq('user_id', userId)
@@ -383,7 +383,7 @@ export class UnifiedEarningsService extends BaseService {
    * Get production learner profile by user ID
    */
   private static async getProductionLearnerByUserId(userId: string): Promise<{ id: string } | null> {
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await this.supabase
       .from('sh_production_learners')
       .select('id')
       .eq('user_id', userId)
@@ -403,7 +403,7 @@ export class UnifiedEarningsService extends BaseService {
     builderId: string,
     filters?: UnifiedEarningsFilters
   ): Promise<UnifiedEarningsEntry[]> {
-    let query = (this.supabase as any)
+    let query = this.supabase
       .from('sh_earnings_ledger')
       .select(`
         *,
@@ -468,7 +468,7 @@ export class UnifiedEarningsService extends BaseService {
     cohortMemberId: string,
     filters?: UnifiedEarningsFilters
   ): Promise<UnifiedEarningsEntry[]> {
-    let query = (this.supabase as any)
+    let query = this.supabase
       .from('sh_earnings_ledger')
       .select(`
         *,
@@ -532,7 +532,7 @@ export class UnifiedEarningsService extends BaseService {
     learnerId: string,
     filters?: UnifiedEarningsFilters
   ): Promise<UnifiedEarningsEntry[]> {
-    let query = (this.supabase as any)
+    let query = this.supabase
       .from('sh_earnings_ledger')
       .select(`
         *,

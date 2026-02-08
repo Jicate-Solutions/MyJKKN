@@ -745,6 +745,43 @@ export interface CreateBuilderInput {
   trained_date?: string;
 }
 
+export interface CreateMouInput {
+  solution_id: string;
+  deal_value: number;
+  amc_value?: number;
+  amc_duration_months?: number;
+  amc_start_date?: string;
+  payment_terms?: Record<string, unknown>;
+  signed_date?: string;
+  expiry_date?: string;
+  signatory_client?: string;
+  signatory_jkkn?: string;
+  witness_1?: string;
+  witness_2?: string;
+  terms_and_conditions?: string;
+  notes?: string;
+  mou_document_url?: string;
+  created_by?: string;
+}
+
+export interface UpdateMouInput {
+  deal_value?: number;
+  amc_value?: number;
+  amc_duration_months?: number;
+  amc_start_date?: string;
+  payment_terms?: Record<string, unknown>;
+  status?: MouStatus;
+  signed_date?: string;
+  expiry_date?: string;
+  signatory_client?: string;
+  signatory_jkkn?: string;
+  witness_1?: string;
+  witness_2?: string;
+  terms_and_conditions?: string;
+  notes?: string;
+  mou_document_url?: string;
+}
+
 export interface CreatePaymentInput {
   solution_id?: string;
   phase_id?: string;
