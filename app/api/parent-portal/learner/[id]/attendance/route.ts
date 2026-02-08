@@ -3,7 +3,7 @@
 // SECURITY: Validates parent session AND parent-learner relationship before returning data
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { ParentSessionService } from '@/lib/services/parent-portal/parent-session-service';
 
 type RouteContext = {
