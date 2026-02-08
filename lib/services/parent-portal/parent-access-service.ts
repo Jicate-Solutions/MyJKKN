@@ -23,12 +23,15 @@ export class ParentAccessService {
 
   /**
    * Generate a unique 8-character alphanumeric access code
+   * SECURITY: Uses crypto.randomBytes for cryptographically secure random values
    */
   static generateAccessCode(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I, O, 0, 1 to avoid confusion
+    const crypto = require('crypto');
     let code = '';
+    const randomBytes = crypto.randomBytes(8);
     for (let i = 0; i < 8; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+      code += chars.charAt(randomBytes[i] % chars.length);
     }
     return code;
   }
