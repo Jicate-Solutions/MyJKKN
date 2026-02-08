@@ -87,7 +87,8 @@ import {
   Hammer,
   Lightbulb,
   // Personalization Icons
-  Route
+  Route,
+  KeyRound
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
