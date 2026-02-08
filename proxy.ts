@@ -50,6 +50,30 @@ const PUBLIC_PATHS_SET = new Set([
 // Public path prefixes - paths that start with these are public
 const PUBLIC_PATH_PREFIXES = ['/courses/'];
 
+// SECURITY: Public API routes - only these API routes are accessible without auth
+// All other /api/* routes require authentication
+const PUBLIC_API_ROUTES = new Set([
+  '/api/auth', // Auth endpoints (prefix)
+  '/api/parent-portal/auth/request-otp',
+  '/api/parent-portal/auth/verify-otp',
+  '/api/parent-portal/auth/register',
+  '/api/parent-portal/auth/csrf',
+  '/api/courses', // Public course listings (prefix)
+]);
+
+// Helper to check if API route is public
+const isPublicApiRoute = (path: string): boolean => {
+  // Check exact matches
+  if (PUBLIC_API_ROUTES.has(path)) return true;
+
+  // Check prefix matches (e.g., /api/auth/* routes)
+  for (const route of PUBLIC_API_ROUTES) {
+    if (path.startsWith(route)) return true;
+  }
+
+  return false;
+};
+
 // Regex for static assets - single check instead of multiple endsWith
 const STATIC_ASSET_PATTERN =
   /^\/(_next|icons)|\.(?:js|css|png|ico|svg|json|xml|html|woff2?)$/;
@@ -59,11 +83,16 @@ const isPublicPath = (path: string): boolean => {
   // Fast exact match check (O(1))
   if (PUBLIC_PATHS_SET.has(path)) return true;
 
-  // Single regex check for static assets and API routes
+  // Single regex check for static assets
   if (STATIC_ASSET_PATTERN.test(path)) return true;
 
+  // SECURITY FIX: Only allow specific public API routes, not all /api/* routes
+  if (path.startsWith('/api')) {
+    return isPublicApiRoute(path);
+  }
+
   // Special cases
-  if (path.startsWith('/api') || path.includes('favicon.ico')) return true;
+  if (path.includes('favicon.ico')) return true;
 
   // Check public path prefixes (for nested public routes like /courses/[id])
   for (const prefix of PUBLIC_PATH_PREFIXES) {
