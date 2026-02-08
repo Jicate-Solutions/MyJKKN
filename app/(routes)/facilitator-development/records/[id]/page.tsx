@@ -56,11 +56,17 @@ import {
   type CreateImmersionInput
 } from '@/types/facilitator-development';
 import { toast } from 'react-hot-toast';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function FacilitatorDevelopmentDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
+
+  const { isSuperAdmin, canAccess, isLoading: permissionsLoading } = usePermissions();
+  const canView = isSuperAdmin || canAccess('facilitator_development', 'view');
+  const canEdit = isSuperAdmin || canAccess('facilitator_development', 'edit');
+  const canDelete = isSuperAdmin || canAccess('facilitator_development', 'delete');
 
   const { data: record, isLoading, refetch } = useFacilitatorDevelopment(id);
   const updateMutation = useUpdateFacilitatorDevelopment(id);
