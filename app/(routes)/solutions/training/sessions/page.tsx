@@ -30,6 +30,12 @@ export default function SessionsPage() {
               Schedule and track training sessions
             </p>
           </div>
+          <Button asChild>
+            <Link href="/solutions/training/sessions/new">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Session
+            </Link>
+          </Button>
         </div>
 
         <SessionsList />
