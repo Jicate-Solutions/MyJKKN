@@ -142,7 +142,8 @@ UPDATE alumni_outcomes SET outcome_type_new =
   CASE
     WHEN outcome_type = 'freelancer' THEN 'self_employed'::outcome_type_enum
     WHEN outcome_type = 'unemployed' THEN 'seeking'::outcome_type_enum
-    WHEN outcome_type IN ('employed', 'entrepreneur', 'higher_studies', 'unknown')
+    WHEN outcome_type = 'higher_education' THEN 'higher_studies'::outcome_type_enum
+    WHEN outcome_type IN ('employed', 'entrepreneur', 'higher_studies', 'self_employed', 'competitive_exams', 'family_business', 'gap_year', 'seeking', 'unknown')
       THEN outcome_type::outcome_type_enum
     ELSE 'unknown'::outcome_type_enum
   END;
