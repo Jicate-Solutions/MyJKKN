@@ -89,11 +89,15 @@ export async function POST(request: NextRequest) {
           userAgent
         );
 
+        // Get cookie store ONCE to avoid Next.js 16 deadlock
+        // (multiple await cookies() calls in same request cause hangs)
+        const cookieStore = await cookies();
+
         // Set httpOnly session cookie
-        await ParentSessionService.setSessionCookie(sessionData.sessionToken);
+        await ParentSessionService.setSessionCookie(sessionData.sessionToken, cookieStore);
 
         // Set CSRF token
-        const csrfToken = await setCSRFCookie();
+        const csrfToken = await setCSRFCookie(undefined, cookieStore);
 
         // Log activity via SECURITY DEFINER RPC (bypasses RLS)
         await supabase.rpc('log_parent_activity', {
