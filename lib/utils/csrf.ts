@@ -25,11 +25,11 @@ export function generateCSRFToken(): string {
  * @param token - The CSRF token to set (generates one if not provided)
  * @returns The CSRF token that was set
  */
-export async function setCSRFCookie(token?: string): Promise<string> {
+export async function setCSRFCookie(token?: string, cookieStore?: Awaited<ReturnType<typeof cookies>>): Promise<string> {
   const csrfToken = token || generateCSRFToken();
-  const cookieStore = await cookies();
+  const store = cookieStore ?? await cookies();
 
-  cookieStore.set(CSRF_COOKIE_NAME, csrfToken, {
+  store.set(CSRF_COOKIE_NAME, csrfToken, {
     httpOnly: false, // MUST be false so JavaScript can read it for double-submit pattern
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
