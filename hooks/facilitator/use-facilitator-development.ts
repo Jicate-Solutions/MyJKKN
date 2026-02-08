@@ -192,7 +192,8 @@ export function useDeleteFacilitatorDevelopment() {
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.lists() });
       queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.detail(id) });
-      // Note: Can't invalidate stats without institution_id, will be invalidated on next list fetch
+      queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.all }); // Invalidate stats
+      queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.immersions() }); // Cascade delete cleanup
     }
   });
 }
