@@ -156,25 +156,42 @@ export interface IndustryMentor {
  */
 export interface IndustryProject {
   id: string;
-  partner_id: string;
+  institution_id: string; // REQUIRED - was missing
+  partner_id: string | null; // Nullable in DB
   project_title: string;
+  project_code: string | null;
   description: string | null;
-  required_competencies: string[];  // UUIDs from competency_catalog
+  detailed_requirements: string | null;
+  expected_outcomes: string | null;
+  deliverables: any; // JSONB in DB
+  required_competencies: string[];  // UUID array
+  minimum_competency_level: string | null; // proficiency_level enum
+  competencies_developed: string[]; // UUID array
   difficulty_level: DifficultyLevel | null;
   duration_weeks: number | null;
+  estimated_hours: number | null;
   max_team_size: number | null;
   min_team_size: number | null;
+  eligible_programs: string[]; // UUID array
+  eligible_semesters: string[]; // UUID array
+  prerequisites: string | null;
+  is_paid: boolean;
   stipend_amount: number | null;
   stipend_currency: string;
+  other_benefits: string | null;
   application_deadline: string | null;
-  start_date: string | null;
-  end_date: string | null;
+  project_start_date: string | null; // DB column name
+  project_end_date: string | null; // DB column name
+  max_teams: number;
+  current_teams: number;
   status: ProjectStatus;
-  deliverables: string[];
-  technologies: string[];
-  location: string | null;
-  is_remote: boolean;
-  mentor_id: string | null;
+  published_at: string | null;
+  published_by: string | null;
+  assigned_mentor_id: string | null; // DB column name
+  total_applications: number;
+  total_completions: number;
+  average_rating: number;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 
