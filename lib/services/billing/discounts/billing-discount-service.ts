@@ -651,7 +651,7 @@ export class BillingDiscountService {
         outcome_criteria: discountData.outcome_criteria || {
           type: 'competency_achievement',
           competency_ids: [],
-          min_proficiency: 'intermediate',
+          minimum_level: 'intermediate',
           min_score: 0,
           evaluation_period_days: 90
         }
