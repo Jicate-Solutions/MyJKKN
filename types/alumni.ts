@@ -434,38 +434,143 @@ export interface UpdateAlumniOutcomeInput {
 }
 
 export interface CreateOutcomeCorrelationInput {
+  // Required fields
   institution_id: string;
   program_id: string;
-  department_id?: string;
-  academic_year: string;
+  cohort_year: number;  // INTEGER, not "academic_year" string
+
+  // Optional fields
+  cohort_batch_id?: string;
   total_graduates?: number;
-  placed_count?: number;
-  higher_studies_count?: number;
+  tracked_graduates?: number;
+
+  // Outcome counts
+  employed_count?: number;
+  self_employed_count?: number;
   entrepreneur_count?: number;
-  average_salary_lpa?: number;
-  median_salary_lpa?: number;
-  core_domain_percentage?: number;
-  average_time_to_placement_days?: number;
-  top_recruiters?: string[];
-  top_competencies?: string[];
-  satisfaction_average?: number;
-  effectiveness_score?: number;
+  higher_studies_count?: number;
+  competitive_exams_count?: number;
+  family_business_count?: number;
+  seeking_count?: number;
+  unknown_count?: number;
+
+  // Computed rates
+  employment_rate?: number;
+  placement_rate?: number;
+  entrepreneurship_rate?: number;
+  higher_studies_rate?: number;
+
+  // Salary analytics
+  average_salary_range?: SalaryRange;
+  median_salary_range?: SalaryRange;
+  salary_distribution?: any;
+
+  // Top performers
+  top_employers?: any;
+  top_sectors?: any;
+  top_roles?: any;
+  top_locations?: any;
+
+  // Higher studies
+  top_institutions_for_studies?: any;
+  top_courses_pursued?: any;
+  scholarship_recipients?: number;
+
+  // Entrepreneurship
+  startups_founded?: number;
+  total_funding_raised?: string;
+  jobs_created?: number;
+
+  // Program relevance
+  avg_relevance_percentage?: number;
+  program_satisfaction_avg?: number;
+  would_recommend_percentage?: number;
+
+  // Time to outcome
+  avg_days_to_placement?: number;
+  placement_before_graduation_count?: number;
+
+  // Engagement
+  alumni_engaged_count?: number;
+  mentors_available?: number;
+  guest_lecturers_available?: number;
+  potential_recruiters?: number;
+
+  // Benchmarks
+  industry_benchmark_employment_rate?: number;
+  performance_vs_benchmark?: string;
+
+  // Metadata
+  computation_notes?: string;
+  is_published?: boolean;
 }
 
 export interface UpdateOutcomeCorrelationInput {
   id: string;
+
+  // Can update most computed fields
   total_graduates?: number;
-  placed_count?: number;
-  higher_studies_count?: number;
+  tracked_graduates?: number;
+
+  // Outcome counts
+  employed_count?: number;
+  self_employed_count?: number;
   entrepreneur_count?: number;
-  average_salary_lpa?: number;
-  median_salary_lpa?: number;
-  core_domain_percentage?: number;
-  average_time_to_placement_days?: number;
-  top_recruiters?: string[];
-  top_competencies?: string[];
-  satisfaction_average?: number;
-  effectiveness_score?: number;
+  higher_studies_count?: number;
+  competitive_exams_count?: number;
+  family_business_count?: number;
+  seeking_count?: number;
+  unknown_count?: number;
+
+  // Computed rates
+  employment_rate?: number;
+  placement_rate?: number;
+  entrepreneurship_rate?: number;
+  higher_studies_rate?: number;
+
+  // Salary analytics
+  average_salary_range?: SalaryRange;
+  median_salary_range?: SalaryRange;
+  salary_distribution?: any;
+
+  // Top performers
+  top_employers?: any;
+  top_sectors?: any;
+  top_roles?: any;
+  top_locations?: any;
+
+  // Higher studies
+  top_institutions_for_studies?: any;
+  top_courses_pursued?: any;
+  scholarship_recipients?: number;
+
+  // Entrepreneurship
+  startups_founded?: number;
+  total_funding_raised?: string;
+  jobs_created?: number;
+
+  // Program relevance
+  avg_relevance_percentage?: number;
+  program_satisfaction_avg?: number;
+  would_recommend_percentage?: number;
+
+  // Time to outcome
+  avg_days_to_placement?: number;
+  placement_before_graduation_count?: number;
+
+  // Engagement
+  alumni_engaged_count?: number;
+  mentors_available?: number;
+  guest_lecturers_available?: number;
+  potential_recruiters?: number;
+
+  // Benchmarks
+  industry_benchmark_employment_rate?: number;
+  performance_vs_benchmark?: string;
+
+  // Metadata
+  computation_notes?: string;
+  is_published?: boolean;
 }
 
 // ============================================================================
