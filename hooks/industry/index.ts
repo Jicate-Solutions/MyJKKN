@@ -56,6 +56,6 @@ export {
   useUpdateEngagement,
   useUpdateEngagementStatus,
   useAddEngagementFeedback,
-  useUpdateEngagementProgress,
+  useUpdateEngagementHours,
   useAddDemonstratedCompetency
 } from './use-industry-engagements';
