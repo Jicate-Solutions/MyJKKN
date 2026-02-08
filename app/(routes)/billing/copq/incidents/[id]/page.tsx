@@ -460,7 +460,7 @@ export default function COPQIncidentDetailPage() {
                   </label>
                   {incident.learner ? (
                     <p className='font-medium'>
-                      {incident.learner.name}
+                      {[incident.learner.first_name, incident.learner.last_name].filter(Boolean).join(' ')}
                       {incident.learner.roll_number && (
                         <span className='text-muted-foreground ml-2'>
                           ({incident.learner.roll_number})
