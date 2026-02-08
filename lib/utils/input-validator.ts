@@ -175,7 +175,10 @@ export class InputValidator {
 
     const trimmed = id.trim();
 
-    if (!validator.isUUID(trimmed)) {
+    // Use a permissive UUID regex that matches PostgreSQL's uuid type behavior
+    // (accepts any 32 hex digits in 8-4-4-4-12 format without enforcing RFC 4122 variant bits)
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(trimmed)) {
       throw new Error(`${fieldName} must be a valid UUID`);
     }
 
