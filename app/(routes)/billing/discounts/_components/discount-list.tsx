@@ -366,7 +366,7 @@ export function DiscountList({
                         }`.trim()}
                       </span>
                       <span className='text-sm text-muted-foreground'>
-                        {discount.bill?.student?.roll_number}
+                        {discount.bill?.student?.student_id}
                       </span>
                     </div>
                   </TableCell>
