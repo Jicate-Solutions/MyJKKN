@@ -218,8 +218,15 @@ export class IndustryEngagementService {
       .insert({
         ...dto,
         status: dto.status || 'applied', // Use 'applied' as default (matches DB ENUM)
-        hours_completed: 0,
-        competencies_demonstrated: []
+        competencies_targeted: dto.notes ? [] : [], // Initialize empty array
+        competencies_demonstrated: [],
+        competency_levels_achieved: {},
+        progress_percentage: 0,
+        milestones_completed: [],
+        deliverables_submitted: [],
+        mentor_feedback: {},
+        learner_feedback: {},
+        certificate_issued: false
       })
       .select()
       .single();
