@@ -40,8 +40,8 @@ export function FeesClient() {
   }
 
   const learners = ensureArray(dashboardData.learners, []);
-  const totalPending = learners.reduce((sum, l) => sum + l.fees.total_pending, 0);
-  const totalOverdue = learners.reduce((sum, l) => sum + l.fees.total_overdue, 0);
+  const totalPending = learners.reduce((sum, l) => sum + (l.fees?.total_pending ?? 0), 0);
+  const totalOverdue = learners.reduce((sum, l) => sum + (l.fees?.total_overdue ?? 0), 0);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
