@@ -73,7 +73,7 @@ export type ProgramType =
 
 export type LocationPreference = 'on_site' | 'remote' | 'hybrid';
 
-export type CommunicationType = 'call' | 'email' | 'whatsapp' | 'meeting' | 'note';
+export type CommunicationType = 'email' | 'call' | 'meeting' | 'whatsapp' | 'other';
 
 export type CommunicationDirection = 'inbound' | 'outbound';
 
