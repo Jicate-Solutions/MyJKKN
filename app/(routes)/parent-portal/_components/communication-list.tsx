@@ -80,10 +80,10 @@ export function CommunicationList({
                   <div
                     className={cn(
                       'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full',
-                      getIconBg(comm.type)
+                      getIconBg(comm.communication_type)
                     )}
                   >
-                    {getIcon(comm.type)}
+                    {getIcon(comm.communication_type)}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
@@ -110,9 +110,9 @@ export function CommunicationList({
                         <div className="flex items-center gap-1">
                           <Badge
                             variant="outline"
-                            className={cn('text-xs', getPriorityColor(comm.priority))}
+                            className="text-xs"
                           >
-                            {getCommunicationTypeLabel(comm.type)}
+                            {getCommunicationTypeLabel(comm.communication_type)}
                           </Badge>
                           {!comm.read_at && (
                             <Button
