@@ -263,16 +263,30 @@ export interface SHBuilderAssignmentWithPhase extends SHBuilderAssignment {
 export interface SHTrainingProgram {
   id: string
   solution_id: string
+  program_code: string | null
+  title: string | null
   program_type: TrainingProgramType
   track: TrainingTrack | null
-  topic: string | null
+  description: string | null
   participant_count: number | null
-  scheduled_start: string | null
-  scheduled_end: string | null
+  max_participants: number | null
+  start_date: string | null
+  end_date: string | null
+  total_hours: number | null
+  total_sessions: number | null
+  price_per_participant: number | null
+  total_price: number | null
   location_preference: LocationPreference | null
-  venue_details: string | null
+  venue: string | null
+  materials_included: boolean | null
+  certification_included: boolean | null
+  status: string | null
+  tags: string[] | null
+  notes: string | null
+  metadata: Record<string, unknown> | null
   created_at: string
   updated_at: string
+  created_by: string | null
 }
 
 export interface SHTrainingProgramWithDetails extends SHTrainingProgram {
