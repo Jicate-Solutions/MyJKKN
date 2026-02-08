@@ -266,6 +266,19 @@ export class IndustryEngagementService {
     id: string,
     dto: UpdateLearnerEngagementDTO
   ): Promise<LearnerIndustryEngagement> {
+    this.validateId(id, 'engagement ID');
+
+    // Validate optional UUIDs if provided in update
+    if (dto.project_id) {
+      this.validateId(dto.project_id, 'project_id');
+    }
+    if (dto.mentor_id) {
+      this.validateId(dto.mentor_id, 'mentor_id');
+    }
+    if (dto.partner_id) {
+      this.validateId(dto.partner_id, 'partner_id');
+    }
+
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
