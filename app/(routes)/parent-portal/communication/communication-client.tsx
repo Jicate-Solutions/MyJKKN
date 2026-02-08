@@ -83,7 +83,7 @@ export function CommunicationClient() {
     }
   };
 
-  const getIcon = (type: ParentCommunication['type']) => {
+  const getIcon = (type: ParentCommunication['communication_type']) => {
     switch (type) {
       case 'announcement':
         return <Bell className="h-4 w-4" />;
