@@ -596,7 +596,7 @@ export function useSendClientMessage() {
         .insert({
           client_id: clientId,
           solution_id: solutionId || null,
-          communication_type: 'note',
+          communication_type: 'other',
           source: 'manual',
           direction: 'inbound',
           subject,
