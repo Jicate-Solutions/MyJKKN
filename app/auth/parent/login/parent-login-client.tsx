@@ -27,7 +27,7 @@ import type { RequestOTPInput, VerifyOTPInput } from '@/lib/validations/parent-p
 import Link from 'next/link';
 
 // Default institution ID - in production, this would be determined by subdomain or selection
-const DEFAULT_INSTITUTION_ID = 'demo-institution-id';
+const DEFAULT_INSTITUTION_ID = process.env.NEXT_PUBLIC_DEFAULT_INSTITUTION_ID || 'a1111111-1111-1111-1111-111111111111';
 
 type Step = 'phone' | 'otp';
 
