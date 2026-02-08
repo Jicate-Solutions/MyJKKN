@@ -1,5 +1,9 @@
-// Solutions Hub Types
-// Migrated from JKKN-Solutions-Hub
+// Solutions Hub Types - UI Component Types
+// Canonical service-layer types: @/lib/services/solutions/types.ts
+//
+// This file defines SH-prefixed interfaces used by UI components (components/solutions/*).
+// Enum types are widened to include values from both this file and the service types.
+// Service-only types (interfaces, inputs) are re-exported at the bottom.
 
 // ============================================
 // ENUMS / CONSTANTS
