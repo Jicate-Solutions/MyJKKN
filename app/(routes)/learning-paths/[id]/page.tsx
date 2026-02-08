@@ -707,10 +707,12 @@ export default function LearningPathDetailPage() {
                       Completed: {format(new Date(path.completed_at), 'PPP')}
                     </div>
                   )}
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Calendar className="h-4 w-4" />
-                    Created: {format(new Date(path.created_at), 'PPP')}
-                  </div>
+                  {path.created_at && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Calendar className="h-4 w-4" />
+                      Created: {format(new Date(path.created_at), 'PPP')}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
