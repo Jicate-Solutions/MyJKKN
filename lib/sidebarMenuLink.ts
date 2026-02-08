@@ -248,6 +248,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/system/api-management': 'system.api.view',
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
+  '/bug-leaderboard': 'system.bugs.view',
   '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
 
   // LTI Monitoring
