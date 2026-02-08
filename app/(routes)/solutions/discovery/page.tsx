@@ -176,11 +176,11 @@ export default function DiscoveryPage() {
                       </div>
                       <div>
                         <CardTitle className="text-base">
-                          {visit.client_id}
+                          {(visit as any).client?.name || visit.client_id}
                         </CardTitle>
                         {visit.department_id && (
                           <CardDescription>
-                            Department: {visit.department_id}
+                            Department: {(visit as any).department?.name || visit.department_id}
                           </CardDescription>
                         )}
                       </div>
