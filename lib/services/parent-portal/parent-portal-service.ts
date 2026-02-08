@@ -402,8 +402,8 @@ export class ParentPortalService {
     }
 
     if (filters.parent_id) {
-      // Map parent_id filter to parent_access_id DB column
-      query = query.eq('parent_access_id', filters.parent_id);
+      // FIXED: DB column is parent_id, not parent_access_id
+      query = query.eq('parent_id', filters.parent_id);
     }
 
     if (filters.learner_id) {
@@ -411,11 +411,14 @@ export class ParentPortalService {
     }
 
     if (filters.type) {
-      // Map type filter to communication_type DB column
-      query = query.eq('communication_type', filters.type);
+      // FIXED: DB column is type, not communication_type
+      query = query.eq('type', filters.type);
     }
 
-    // NOTE: DB has no priority column - skip priority filter
+    if (filters.priority) {
+      // FIXED: DB has priority column
+      query = query.eq('priority', filters.priority);
+    }
 
     if (filters.is_read !== undefined) {
       if (filters.is_read) {
