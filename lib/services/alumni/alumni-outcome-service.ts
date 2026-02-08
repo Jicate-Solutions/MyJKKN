@@ -141,7 +141,7 @@ export class AlumniOutcomeService {
 
       const { data, error } = await (this.getSupabase() as any)
         .from('alumni_outcomes')
-        .select('*, program:programs(id, program_name), learner:learners(id, first_name, last_name)')
+        .select('*, program:programs!program_id(id, program_name), learner:learners_profiles!learner_id(id, first_name, last_name)')
         .eq('id', id)
         .maybeSingle();
 
