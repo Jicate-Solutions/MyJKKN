@@ -26,10 +26,10 @@ const engagementSchema = z.object({
   status: z.enum(['applied', 'approved', 'active', 'completed', 'withdrawn', 'terminated'] as const),
   start_date: z.string().optional(),
   expected_end_date: z.string().optional(),
-  actual_end_date: z.string().optional(),
-  progress_percentage: z.coerce.number().min(0).max(100).default(0),
+  end_date: z.string().optional(),
+  hours_completed: z.coerce.number().min(0).default(0),
   certificate_url: z.string().url().optional().or(z.literal('')),
-  status_notes: z.string().optional()
+  notes: z.string().optional()
 });
 
 type EngagementFormValues = z.infer<typeof engagementSchema>;
