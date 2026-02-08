@@ -285,7 +285,7 @@ export default function FacilitatorDevelopmentDetailPage() {
           <Card>
             <CardContent className='p-4 text-center'>
               <div className='text-2xl font-bold'>
-                {record.outcome_score !== null ? Number(record.outcome_score).toFixed(1) : '--'}
+                {record.outcome_score !== null ? `${Number(record.outcome_score).toFixed(1)}/100` : '--'}
               </div>
               <p className='text-xs text-muted-foreground'>Outcome Score</p>
             </CardContent>
