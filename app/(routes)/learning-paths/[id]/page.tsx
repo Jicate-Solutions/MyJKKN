@@ -514,7 +514,7 @@ export default function LearningPathDetailPage() {
                                           {step.estimated_hours}h estimated
                                         </span>
                                       )}
-                                      {step.score !== null && step.score !== undefined && (
+                                      {step.score != null && (
                                         <span>Score: {step.score}</span>
                                       )}
                                       {step.completed_at && (
