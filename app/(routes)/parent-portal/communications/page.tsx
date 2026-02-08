@@ -49,7 +49,6 @@ export default function CommunicationsPage() {
   const institutionId = institutions?.[0]?.institution_id || '';
 
   const [typeFilter, setTypeFilter] = useState<CommunicationType | undefined>(undefined);
-  const [priorityFilter, setPriorityFilter] = useState<CommunicationPriority | undefined>(undefined);
   const [readFilter, setReadFilter] = useState<boolean | undefined>(undefined);
   const [page, setPage] = useState(1);
 
@@ -59,12 +58,12 @@ export default function CommunicationsPage() {
     () => ({
       institution_id: institutionId,
       type: typeFilter,
-      priority: priorityFilter,
+      // NOTE: DB has no priority column - removed from filters
       is_read: readFilter,
       page,
       limit: 20,
     }),
-    [institutionId, typeFilter, priorityFilter, readFilter, page]
+    [institutionId, typeFilter, readFilter, page]
   );
 
   const { data, isLoading } = useAdminCommunications(filters);
