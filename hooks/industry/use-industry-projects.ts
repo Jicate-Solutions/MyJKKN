@@ -180,7 +180,10 @@ export function useCreateProject() {
       IndustryProjectService.createProject(data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: projectKeys.byPartner(data.partner_id) });
+      // Only invalidate partner-specific queries if partner_id exists
+      if (data.partner_id) {
+        queryClient.invalidateQueries({ queryKey: projectKeys.byPartner(data.partner_id) });
+      }
       queryClient.invalidateQueries({ queryKey: projectKeys.options() });
       queryClient.invalidateQueries({ queryKey: projectKeys.summaries() });
     }
