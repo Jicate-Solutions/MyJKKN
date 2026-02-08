@@ -197,9 +197,12 @@ export class IndustryProjectService {
    * Create new industry project
    */
   static async createProject(dto: CreateIndustryProjectDTO): Promise<IndustryProject> {
-    this.validateId(dto.partner_id, 'partner_id');
-    if (dto.mentor_id) {
-      this.validateId(dto.mentor_id, 'mentor_id');
+    this.validateId(dto.institution_id, 'institution_id');
+    if (dto.partner_id) {
+      this.validateId(dto.partner_id, 'partner_id');
+    }
+    if (dto.assigned_mentor_id) {
+      this.validateId(dto.assigned_mentor_id, 'assigned_mentor_id');
     }
     const supabase = createClientSupabaseClient();
 
@@ -208,7 +211,13 @@ export class IndustryProjectService {
       .insert({
         ...dto,
         status: dto.status || 'draft',
-        stipend_currency: dto.stipend_currency || 'INR'
+        stipend_currency: dto.stipend_currency || 'INR',
+        is_paid: dto.is_paid ?? false,
+        max_teams: dto.max_teams || 1,
+        current_teams: 0,
+        total_applications: 0,
+        total_completions: 0,
+        average_rating: 0
       })
       .select()
       .single();
