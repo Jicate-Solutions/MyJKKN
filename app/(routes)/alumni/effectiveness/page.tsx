@@ -86,6 +86,18 @@ export default function ProgramEffectivenessPage() {
     );
   }
 
+  if (!canView) {
+    return (
+      <ContentLayout title="Program Effectiveness">
+        <div className="text-center py-8">
+          <p className="text-destructive">
+            You don&apos;t have permission to view program effectiveness.
+          </p>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   return (
     <ContentLayout title="Program Effectiveness">
       <PageBreadcrumb
