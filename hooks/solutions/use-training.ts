@@ -79,22 +79,20 @@ export interface CreateTrainingProgramInput {
   program_type?: ProgramType;
   track?: CohortTrack;
   participant_count?: number;
-  location?: string;
+  venue?: string;
   location_preference?: LocationPreference;
-  scheduled_start?: string;
-  scheduled_end?: string;
+  start_date?: string;
+  end_date?: string;
 }
 
 export interface UpdateTrainingProgramInput {
   program_type?: ProgramType;
   track?: CohortTrack;
   participant_count?: number;
-  location?: string;
+  venue?: string;
   location_preference?: LocationPreference;
-  scheduled_start?: string;
-  scheduled_end?: string;
-  actual_start?: string;
-  actual_end?: string;
+  start_date?: string;
+  end_date?: string;
 }
 
 export interface CreateTrainingSessionInput {
