@@ -230,8 +230,8 @@ export class IndustryProjectService {
     if (dto.partner_id) {
       this.validateId(dto.partner_id, 'partner_id');
     }
-    if (dto.assigned_mentor_id) {
-      this.validateId(dto.assigned_mentor_id, 'assigned_mentor_id');
+    if (dto.mentor_id) {
+      this.validateId(dto.mentor_id, 'mentor_id');
     }
     const supabase = createClientSupabaseClient();
 
