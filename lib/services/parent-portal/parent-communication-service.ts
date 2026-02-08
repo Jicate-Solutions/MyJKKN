@@ -113,7 +113,7 @@ export class ParentCommunicationService {
         .select(
           `
           *,
-          sender:users_profiles(id, name, avatar_url),
+          sender:profiles!sent_by(id, name, avatar_url),
           learner:learners_profiles(id, name, enrollment_number)
         `
         )
