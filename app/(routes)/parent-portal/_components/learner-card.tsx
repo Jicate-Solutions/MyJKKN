@@ -93,19 +93,19 @@ export function LearnerCard({ data, onViewDetails }: LearnerCardProps) {
             <div className="mt-2">
               <div className="flex items-end justify-between">
                 <span
-                  className={`text-2xl font-bold ${getAttendanceColor(attendance.attendance_percentage)}`}
+                  className={`text-2xl font-bold ${getAttendanceColor(attendance?.attendance_percentage ?? 0)}`}
                 >
-                  {formatAttendancePercentage(attendance.attendance_percentage)}
+                  {formatAttendancePercentage(attendance?.attendance_percentage ?? 0)}
                 </span>
                 <span className="text-xs text-gray-500">Last 30 days</span>
               </div>
               <Progress
-                value={attendance.attendance_percentage}
+                value={attendance?.attendance_percentage ?? 0}
                 className="mt-2 h-2"
               />
               <div className="mt-2 flex justify-between text-xs text-gray-500">
-                <span>Present: {attendance.present_days}</span>
-                <span>Absent: {attendance.absent_days}</span>
+                <span>Present: {attendance?.present_days ?? 0}</span>
+                <span>Absent: {attendance?.absent_days ?? 0}</span>
               </div>
             </div>
           </div>
