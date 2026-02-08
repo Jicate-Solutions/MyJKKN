@@ -39,25 +39,31 @@ export class BillingDiscountService {
         data: { user }
       } = await this.supabase.auth.getUser();
 
+      // Build insert object conditionally to avoid empty JSONB objects
+      const insertData: any = {
+        bill_id: discountData.bill_id,
+        discount_category: discountData.discount_category,
+        discount_type: discountData.discount_type,
+        discount_value: discountData.discount_value,
+        discount_amount: discountAmount,
+        discount_reason: discountData.discount_reason,
+        supporting_documents: discountData.supporting_documents,
+        effective_date: discountData.effective_date,
+        expiry_date: discountData.expiry_date,
+        approval_status: 'pending',
+        created_by: user?.id,
+        is_outcome_based: discountData.is_outcome_based || false
+      };
+
+      // Only add outcome fields if actually outcome-based
+      if (discountData.is_outcome_based && discountData.outcome_criteria) {
+        insertData.outcome_criteria = discountData.outcome_criteria;
+        insertData.outcome_verification = { verified: false, status: 'pending' };
+      }
+
       const { data, error } = await this.supabase
         .from('billing_discounts')
-        .insert({
-          bill_id: discountData.bill_id,
-          discount_category: discountData.discount_category,
-          discount_type: discountData.discount_type,
-          discount_value: discountData.discount_value,
-          discount_amount: discountAmount,
-          discount_reason: discountData.discount_reason,
-          supporting_documents: discountData.supporting_documents,
-          effective_date: discountData.effective_date,
-          expiry_date: discountData.expiry_date,
-          approval_status: 'pending',
-          created_by: user?.id,
-          // Outcome-based discount fields
-          is_outcome_based: discountData.is_outcome_based || false,
-          outcome_criteria: discountData.outcome_criteria || {},
-          outcome_verification: discountData.is_outcome_based ? { verified: false, status: 'pending' } : {}
-        } as any)
+        .insert(insertData)
         .select(
           `
           *,
