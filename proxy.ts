@@ -193,24 +193,38 @@ export async function proxy(request: NextRequest) {
       }
     }
 
-    // SECURITY: Parent portal API routes - require parent session
+    // SECURITY: Parent portal API routes - TWO auth systems
+    // 1. Parent-facing API routes require parent session cookies
+    // 2. Admin API routes require Supabase auth (handled by regular middleware)
     if (
       currentPath.startsWith('/api/parent-portal') &&
       !isPublicApiRoute(currentPath)
     ) {
-      const parentSessionToken = request.cookies.get('parent_session')?.value;
+      // Parent-facing API routes (dashboard, learners, profile for parents)
+      const isParentApiRoute =
+        currentPath === '/api/parent-portal/dashboard' ||
+        currentPath.startsWith('/api/parent-portal/learners') ||
+        currentPath.startsWith('/api/parent-portal/profile') ||
+        currentPath === '/api/parent-portal/auth/logout';
 
-      if (!parentSessionToken) {
-        return NextResponse.json(
-          { error: 'Authentication required' },
-          { status: 401 }
-        );
+      if (isParentApiRoute) {
+        const parentSessionToken = request.cookies.get('parent_session')?.value;
+
+        if (!parentSessionToken) {
+          return NextResponse.json(
+            { error: 'Authentication required' },
+            { status: 401 }
+          );
+        }
+
+        // Parent session exists - allow API access
+        // Actual validation happens in the API route via ParentSessionService
+        const res = NextResponse.next();
+        return res;
       }
 
-      // Parent session exists - allow API access
-      // Actual validation happens in the API route via ParentSessionService
-      const res = NextResponse.next();
-      return res;
+      // Admin API routes - skip here, will be handled by regular Supabase auth below
+      // This includes routes for managing access, communications, etc.
     }
 
     const res = NextResponse.next();
