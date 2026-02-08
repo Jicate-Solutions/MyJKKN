@@ -47,9 +47,10 @@ function getEffectivenessLabel(score: number | null): string {
 }
 
 export default function ProgramEffectivenessPage() {
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
   const institutionId = institutions?.[0]?.institution_id || '';
+  const canView = isSuperAdmin || canAccess('alumni.effectiveness', 'view');
 
   const [cohortYear, setCohortYear] = useState<number | undefined>(undefined);
   const [page, setPage] = useState(1);
