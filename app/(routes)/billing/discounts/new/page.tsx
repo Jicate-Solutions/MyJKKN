@@ -654,7 +654,7 @@ export default function NewDiscountPage() {
                               id='competency_ids'
                               type='text'
                               placeholder='e.g., comp-001, comp-002'
-                              value={(outcomeCriteria.competency_ids || outcomeCriteria.required_competencies || []).join(', ')}
+                              value={(outcomeCriteria.competency_ids || []).join(', ')}
                               onChange={(e) => {
                                 const ids = e.target.value
                                   .split(',')
@@ -662,8 +662,7 @@ export default function NewDiscountPage() {
                                   .filter(Boolean);
                                 setOutcomeCriteria((prev) => ({
                                   ...prev,
-                                  competency_ids: ids,
-                                  required_competencies: ids
+                                  competency_ids: ids
                                 }));
                               }}
                             />

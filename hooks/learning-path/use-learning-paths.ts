@@ -142,8 +142,9 @@ export function useDeleteLearningPath() {
 
   return useMutation({
     mutationFn: (id: string) => LearningPathService.deleteLearningPath(id),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: learningPathKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: learningPathKeys.detail(id) });
     },
   });
 }
