@@ -139,6 +139,7 @@ export const LOCATION_PREFERENCE_LABELS: Record<LocationPreference, string> = {
 
 export const SESSION_STATUS_INFO: Record<SessionStatus, { label: string; color: string }> = {
   scheduled: { label: 'Scheduled', color: 'bg-blue-100 text-blue-800' },
+  in_progress: { label: 'In Progress', color: 'bg-purple-100 text-purple-800' },
   completed: { label: 'Completed', color: 'bg-green-100 text-green-800' },
   cancelled: { label: 'Cancelled', color: 'bg-red-100 text-red-800' },
   rescheduled: { label: 'Rescheduled', color: 'bg-yellow-100 text-yellow-800' },
