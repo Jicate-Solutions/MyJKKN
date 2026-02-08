@@ -34,7 +34,7 @@ export async function setCSRFCookie(token?: string, cookieStore?: Awaited<Return
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     maxAge: 60 * 60 * 24, // 24 hours
-    path: '/parent-portal', // Scope to parent portal only
+    path: '/', // Must be '/' so cookie is sent to both /parent-portal and /api/parent-portal
   });
 
   return csrfToken;
