@@ -286,11 +286,9 @@ export const PUBLICATION_STATUS_CONFIG: Record<
   PublicationStatus,
   { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }
 > = {
-  identified: { label: 'Identified', variant: 'outline' },
-  drafting: { label: 'Drafting', variant: 'secondary' },
+  draft: { label: 'Draft', variant: 'outline' },
   submitted: { label: 'Submitted', variant: 'secondary' },
   under_review: { label: 'Under Review', variant: 'secondary' },
-  revision: { label: 'Revision', variant: 'secondary' },
   accepted: { label: 'Accepted', variant: 'default' },
   published: { label: 'Published', variant: 'default' },
   rejected: { label: 'Rejected', variant: 'destructive' },
