@@ -13,7 +13,7 @@ const SESSION_EXPIRY_DAYS = 7;
 const SESSION_EXPIRY_MS = SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 const SESSION_EXPIRY_SECONDS = SESSION_EXPIRY_DAYS * 24 * 60 * 60; // 7 days in seconds
 const SESSION_COOKIE_NAME = 'parent_session';
-const SESSION_COOKIE_PATH = '/parent-portal'; // Scope to parent portal only
+const SESSION_COOKIE_PATH = '/'; // Must be '/' so cookie is sent to both /parent-portal and /api/parent-portal
 
 // Session token format: 64 hex characters
 const SESSION_TOKEN_PATTERN = /^[0-9a-f]{64}$/i;
