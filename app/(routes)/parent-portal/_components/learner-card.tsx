@@ -147,7 +147,7 @@ export function LearnerCard({ data, onViewDetails }: LearnerCardProps) {
               <span>Performance</span>
             </div>
             <div className="mt-2">
-              {data.grades.current_cgpa ? (
+              {data.grades?.current_cgpa ? (
                 <>
                   <span className="text-2xl font-bold text-purple-600">
                     {data.grades.current_cgpa.toFixed(2)}
