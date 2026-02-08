@@ -997,6 +997,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname.startsWith(
                 '/academic/timetables/faculty-calendar'
               )
+            },
+            {
+              href: '/academic/timetables/conflicts',
+              label: 'Conflict Checker',
+              active: pathname === '/academic/timetables/conflicts'
             }
           ]
         },
