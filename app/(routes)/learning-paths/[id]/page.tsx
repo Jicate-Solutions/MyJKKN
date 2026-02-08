@@ -717,43 +717,33 @@ export default function LearningPathDetailPage() {
                     <Circle className="h-4 w-4 text-muted-foreground" />
                     Pending
                   </span>
-                  <span className="font-medium">
-                    {steps.filter((s) => s.status === 'pending').length}
-                  </span>
+                  <span className="font-medium">{stepStats.pending}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2">
                     <PlayCircle className="h-4 w-4 text-blue-500" />
                     In Progress
                   </span>
-                  <span className="font-medium">
-                    {steps.filter((s) => s.status === 'in_progress').length}
-                  </span>
+                  <span className="font-medium">{stepStats.inProgress}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                     Completed
                   </span>
-                  <span className="font-medium">
-                    {steps.filter((s) => s.status === 'completed').length}
-                  </span>
+                  <span className="font-medium">{stepStats.completed}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2">
                     <SkipForward className="h-4 w-4 text-amber-500" />
                     Skipped
                   </span>
-                  <span className="font-medium">
-                    {steps.filter((s) => s.status === 'skipped').length}
-                  </span>
+                  <span className="font-medium">{stepStats.skipped}</span>
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between text-sm font-medium">
                   <span>Total Hours</span>
-                  <span>
-                    {steps.reduce((sum, s) => sum + (s.estimated_hours || 0), 0)}h
-                  </span>
+                  <span>{stepStats.totalHours}h</span>
                 </div>
               </CardContent>
             </Card>
