@@ -159,24 +159,38 @@ export async function proxy(request: NextRequest) {
       return res;
     }
 
-    // SECURITY: Parent portal authentication - separate auth system
-    // Parent portal uses session cookies, not Supabase auth
+    // SECURITY: Parent portal authentication - TWO auth systems
+    // 1. Admin routes (/parent-portal, /parent-portal/access, /parent-portal/communications) use Supabase auth
+    // 2. Parent routes (/parent-portal/dashboard, /parent-portal/learner/*) use parent session cookies
     if (currentPath.startsWith('/parent-portal')) {
-      const parentSessionToken = request.cookies.get('parent_session')?.value;
+      // Admin routes - these are for staff managing the parent portal
+      const isAdminRoute =
+        currentPath === '/parent-portal' ||
+        currentPath.startsWith('/parent-portal/access') ||
+        currentPath.startsWith('/parent-portal/communications') ||
+        currentPath.startsWith('/parent-portal/feedback');
 
-      // If no parent session, redirect to parent login
-      if (!parentSessionToken) {
-        return NextResponse.redirect(
-          new URL('/auth/parent/login', request.url)
-        );
+      if (isAdminRoute) {
+        // Skip parent auth check - this will fall through to regular Supabase auth below
+        // Do nothing here, let the regular middleware handle it
+      } else {
+        // Parent-facing routes - require parent session
+        const parentSessionToken = request.cookies.get('parent_session')?.value;
+
+        // If no parent session, redirect to parent login
+        if (!parentSessionToken) {
+          return NextResponse.redirect(
+            new URL('/auth/parent/login', request.url)
+          );
+        }
+
+        // Parent session exists - allow access
+        // Session validation happens at API level in ParentSessionService
+        const res = NextResponse.next();
+        res.headers.set('Cache-Control', 'no-store, must-revalidate');
+        res.headers.set('x-parent-session', 'true'); // Marker for debugging
+        return res;
       }
-
-      // Parent session exists - allow access
-      // Session validation happens at API level in ParentSessionService
-      const res = NextResponse.next();
-      res.headers.set('Cache-Control', 'no-store, must-revalidate');
-      res.headers.set('x-parent-session', 'true'); // Marker for debugging
-      return res;
     }
 
     // SECURITY: Parent portal API routes - require parent session
