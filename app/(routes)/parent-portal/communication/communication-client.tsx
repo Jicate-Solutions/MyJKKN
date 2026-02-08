@@ -211,10 +211,10 @@ export function CommunicationClient() {
                         <div
                           className={cn(
                             'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full',
-                            getIconBg(message.communication_type)
+                            getIconBg(message.type)
                           )}
                         >
-                          {getIcon(message.communication_type)}
+                          {getIcon(message.type)}
                         </div>
                         <div className="min-w-0 flex-1">
                           <p
