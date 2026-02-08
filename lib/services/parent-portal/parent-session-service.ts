@@ -126,10 +126,10 @@ export class ParentSessionService {
    * Sets a secure httpOnly cookie with the session token
    * @param sessionToken - The session token to store
    */
-  static async setSessionCookie(sessionToken: string): Promise<void> {
-    const cookieStore = await cookies();
+  static async setSessionCookie(sessionToken: string, cookieStore?: Awaited<ReturnType<typeof cookies>>): Promise<void> {
+    const store = cookieStore ?? await cookies();
 
-    cookieStore.set(SESSION_COOKIE_NAME, sessionToken, {
+    store.set(SESSION_COOKIE_NAME, sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
