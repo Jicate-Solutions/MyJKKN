@@ -274,11 +274,9 @@ export const JOURNAL_TYPE_LABELS: Record<JournalType, string> = {
 };
 
 export const PUBLICATION_STATUS_LABELS: Record<PublicationStatus, string> = {
-  identified: 'Identified',
-  drafting: 'Drafting',
+  draft: 'Draft',
   submitted: 'Submitted',
   under_review: 'Under Review',
-  revision: 'Revision',
   accepted: 'Accepted',
   published: 'Published',
   rejected: 'Rejected',
