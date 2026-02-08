@@ -120,12 +120,12 @@ export class ParentSessionService {
   static async setSessionCookie(sessionToken: string): Promise<void> {
     const cookieStore = await cookies();
 
-    cookieStore.set('parent_session', sessionToken, {
+    cookieStore.set(SESSION_COOKIE_NAME, sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-      path: '/',
+      maxAge: SESSION_EXPIRY_SECONDS,
+      path: SESSION_COOKIE_PATH, // Scoped to parent portal only
     });
   }
 
@@ -135,17 +135,34 @@ export class ParentSessionService {
    */
   static async getSessionToken(): Promise<string | null> {
     const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('parent_session');
+    const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
 
     return sessionCookie?.value || null;
   }
 
   /**
-   * Clears the session cookie
+   * Clears the session cookie AND revokes the session in the database
+   * SECURITY: This prevents stolen cookies from remaining valid after logout
    */
   static async clearSessionCookie(): Promise<void> {
     const cookieStore = await cookies();
-    cookieStore.delete('parent_session');
+
+    // Get token before deleting cookie
+    const token = await this.getSessionToken();
+
+    // Delete the cookie first
+    cookieStore.delete(SESSION_COOKIE_NAME);
+
+    // Revoke session in database if token exists
+    // This prevents stolen cookies from being used after logout
+    if (token) {
+      try {
+        await this.revokeSession(token, 'User logged out');
+      } catch (error) {
+        // Log error but don't throw - cookie is already cleared
+        console.error('[ParentSessionService] Failed to revoke session during logout:', error);
+      }
+    }
   }
 
   /**

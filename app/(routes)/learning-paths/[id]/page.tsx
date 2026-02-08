@@ -226,8 +226,27 @@ export default function LearningPathDetailPage() {
   }
 
   const steps = path.steps || [];
-  const completedSteps = steps.filter((s) => s.status === 'completed').length;
-  const totalSteps = steps.length;
+
+  // Memoize step statistics to avoid recalculating on every render
+  const stepStats = useMemo(() => {
+    const pending = steps.filter((s) => s.status === 'pending').length;
+    const inProgress = steps.filter((s) => s.status === 'in_progress').length;
+    const completed = steps.filter((s) => s.status === 'completed').length;
+    const skipped = steps.filter((s) => s.status === 'skipped').length;
+    const totalHours = steps.reduce((sum, s) => sum + (s.estimated_hours || 0), 0);
+
+    return {
+      pending,
+      inProgress,
+      completed,
+      skipped,
+      totalHours,
+      total: steps.length,
+    };
+  }, [steps]);
+
+  const completedSteps = stepStats.completed;
+  const totalSteps = stepStats.total;
 
   return (
     <ContentLayout title={path.title}>
