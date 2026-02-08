@@ -37,7 +37,6 @@ export function ContentQueueList() {
     revision: { label: 'Revision', color: 'bg-pink-100 text-pink-800' },
     approved: { label: 'Approved', color: 'bg-green-100 text-green-800' },
     delivered: { label: 'Delivered', color: 'bg-emerald-100 text-emerald-800' },
-    rejected: { label: 'Rejected', color: 'bg-red-100 text-red-800' },
   };
 
   // Progress estimation by status
