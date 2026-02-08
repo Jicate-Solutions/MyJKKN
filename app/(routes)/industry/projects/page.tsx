@@ -111,7 +111,7 @@ export default function ProjectsPage() {
                             <div className="flex gap-2 mt-1">
                               <Badge className={STATUS_COLORS[project.status]}>{project.status.replace('_', ' ')}</Badge>
                               {project.difficulty_level && <Badge variant="outline" className="capitalize">{project.difficulty_level}</Badge>}
-                              {project.is_remote && <Badge variant="outline">Remote</Badge>}
+                              {(project as any).is_remote && <Badge variant="outline">Remote</Badge>}
                             </div>
                           </div>
                         </div>
