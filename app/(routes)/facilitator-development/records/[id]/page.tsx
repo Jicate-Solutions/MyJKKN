@@ -105,7 +105,7 @@ export default function FacilitatorDevelopmentDetailPage() {
       const startDate = new Date(immersionForm.start_date);
       const endDate = new Date(immersionForm.end_date);
       if (endDate < startDate) {
-        alert('End date cannot be before start date');
+        toast.error('End date cannot be before start date');
         return;
       }
     }
@@ -113,7 +113,7 @@ export default function FacilitatorDevelopmentDetailPage() {
     // Validate duration is positive
     const duration = parseInt(immersionForm.duration_days, 10);
     if (duration <= 0 || isNaN(duration)) {
-      alert('Duration must be a positive number');
+      toast.error('Duration must be a positive number');
       return;
     }
 
