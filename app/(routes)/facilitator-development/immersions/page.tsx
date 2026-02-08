@@ -70,6 +70,18 @@ export default function ImmersionsListPage() {
     );
   }
 
+  if (!canView) {
+    return (
+      <ContentLayout title='Industry Immersions'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view industry immersions.
+          </p>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   return (
     <ContentLayout title='Industry Immersions'>
       <PageBreadcrumb
