@@ -265,7 +265,7 @@ export interface BugReport extends BaseEntity {
 
 export interface PhaseDeployment extends BaseEntity {
   phase_id: string;
-  environment: 'staging' | 'production';
+  environment: 'development' | 'staging' | 'production';
   version?: string;
   vercel_url?: string;
   supabase_project_id?: string;
