@@ -120,9 +120,9 @@ export function useApproveDiscount() {
 
   return useMutation({
     mutationFn: (id: string) => BillingDiscountService.approveDiscount(id),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
-      queryClient.invalidateQueries({ queryKey: ['billing-discount'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-discount', id] });
       queryClient.invalidateQueries({ queryKey: ['student-billing-summary'] });
       queryClient.invalidateQueries({ queryKey: ['billing-schedule'] });
       toast.success('Discount approved and bill amount updated');
