@@ -302,7 +302,14 @@ export default function LearningPathDetailPage() {
               </Link>
             </Button>
             {path.status !== 'archived' && (
-              <Button variant="outline" onClick={handleArchive}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (confirm(`Archive learning path "${path.title}"? You can restore it later.`)) {
+                    handleArchive();
+                  }
+                }}
+              >
                 <Archive className="h-4 w-4 mr-2" />
                 Archive
               </Button>
