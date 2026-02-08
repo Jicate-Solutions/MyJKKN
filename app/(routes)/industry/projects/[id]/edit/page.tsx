@@ -189,7 +189,7 @@ export default function EditProjectPage() {
                       <FormItem><FormLabel>Stipend (INR)</FormLabel><FormControl><Input type="number" min={0} {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
                   </div>
-                  <FormField control={form.control} name="assigned_mentor_id" render={({ field }) => (
+                  <FormField control={form.control} name="mentor_id" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Assigned Mentor</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
