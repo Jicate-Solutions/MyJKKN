@@ -207,7 +207,7 @@ export default function EditEngagementPage() {
                     <FormField control={form.control} name="expected_end_date" render={({ field }) => (
                       <FormItem><FormLabel>Expected End</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
-                    <FormField control={form.control} name="actual_end_date" render={({ field }) => (
+                    <FormField control={form.control} name="end_date" render={({ field }) => (
                       <FormItem><FormLabel>Actual End</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
                   </div>
