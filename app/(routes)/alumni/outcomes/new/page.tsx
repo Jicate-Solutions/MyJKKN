@@ -53,64 +53,74 @@ export default function NewAlumniOutcomePage() {
 
   const createOutcome = useCreateAlumniOutcome();
 
-  // Form state
-  const [name, setName] = useState('');
-  const [graduationYear, setGraduationYear] = useState(new Date().getFullYear());
+  // Form state - matches CreateAlumniOutcomeInput
+  const [learnerId, setLearnerId] = useState('');
+  const [graduationDate, setGraduationDate] = useState('');
   const [outcomeType, setOutcomeType] = useState<OutcomeType>('employed');
   const [companyName, setCompanyName] = useState('');
-  const [jobTitle, setJobTitle] = useState('');
-  const [industry, setIndustry] = useState('');
-  const [location, setLocation] = useState('');
+  const [designation, setDesignation] = useState('');
+  const [industrySector, setIndustrySector] = useState('');
+  const [jobFunction, setJobFunction] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [country, setCountry] = useState('');
   const [salaryRange, setSalaryRange] = useState<SalaryRange | ''>('');
-  const [isCoreDomain, setIsCoreDomain] = useState<boolean | undefined>(undefined);
-  const [higherStudyInstitution, setHigherStudyInstitution] = useState('');
-  const [higherStudyProgram, setHigherStudyProgram] = useState('');
-  const [startupName, setStartupName] = useState('');
-  const [startupIndustry, setStartupIndustry] = useState('');
-  const [timeToPlacementDays, setTimeToPlacementDays] = useState<number | ''>('');
+  const [isRelevantToProgram, setIsRelevantToProgram] = useState<boolean | undefined>(undefined);
+  const [relevancePercentage, setRelevancePercentage] = useState<number | ''>('');
+  const [institutionName, setInstitutionName] = useState('');
+  const [courseName, setCourseName] = useState('');
+  const [specialization, setSpecialization] = useState('');
+  const [isScholarship, setIsScholarship] = useState<boolean | undefined>(undefined);
+  const [businessName, setBusinessName] = useState('');
+  const [businessSector, setBusinessSector] = useState('');
   const [satisfactionScore, setSatisfactionScore] = useState<number | ''>('');
   const [feedback, setFeedback] = useState('');
-  const [linkedinUrl, setLinkedinUrl] = useState('');
+  const [skillsUsed, setSkillsUsed] = useState('');
   const [dataSource, setDataSource] = useState<DataSource>('self_reported');
-  const [competencies, setCompetencies] = useState('');
-
-  const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from({ length: 20 }, (_, i) => currentYear - i);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!name.trim()) {
-      toast.error('Name is required');
+    if (!learnerId.trim()) {
+      toast.error('Learner ID is required');
+      return;
+    }
+
+    if (!graduationDate) {
+      toast.error('Graduation date is required');
       return;
     }
 
     const input: CreateAlumniOutcomeInput = {
+      learner_id: learnerId.trim(),
       institution_id: institutionId,
-      name: name.trim(),
-      graduation_year: graduationYear,
+      graduation_date: graduationDate,
       outcome_type: outcomeType,
       data_source: dataSource,
-      competencies_utilized: competencies
-        ? competencies.split(',').map(c => c.trim()).filter(Boolean)
+      skills_used: skillsUsed
+        ? skillsUsed.split(',').map(c => c.trim()).filter(Boolean)
         : []
     };
 
     // Add fields based on outcome type
     if (companyName) input.company_name = companyName;
-    if (jobTitle) input.job_title = jobTitle;
-    if (industry) input.industry = industry;
-    if (location) input.location = location;
+    if (designation) input.designation = designation;
+    if (industrySector) input.industry_sector = industrySector;
+    if (jobFunction) input.job_function = jobFunction;
+    if (city) input.city = city;
+    if (state) input.state = state;
+    if (country) input.country = country;
     if (salaryRange) input.salary_range = salaryRange;
-    if (isCoreDomain !== undefined) input.is_core_domain = isCoreDomain;
-    if (higherStudyInstitution) input.higher_study_institution = higherStudyInstitution;
-    if (higherStudyProgram) input.higher_study_program = higherStudyProgram;
-    if (startupName) input.startup_name = startupName;
-    if (startupIndustry) input.startup_industry = startupIndustry;
-    if (typeof timeToPlacementDays === 'number') input.time_to_placement_days = timeToPlacementDays;
+    if (isRelevantToProgram !== undefined) input.is_relevant_to_program = isRelevantToProgram;
+    if (typeof relevancePercentage === 'number') input.relevance_percentage = relevancePercentage;
+    if (institutionName) input.institution_name = institutionName;
+    if (courseName) input.course_name = courseName;
+    if (specialization) input.specialization = specialization;
+    if (isScholarship !== undefined) input.is_scholarship = isScholarship;
+    if (businessName) input.business_name = businessName;
+    if (businessSector) input.business_sector = businessSector;
     if (typeof satisfactionScore === 'number') input.satisfaction_score = satisfactionScore;
     if (feedback) input.feedback = feedback;
-    if (linkedinUrl) input.linkedin_url = linkedinUrl;
 
     try {
       await createOutcome.mutateAsync(input);
@@ -181,30 +191,24 @@ export default function NewAlumniOutcomePage() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Name *</Label>
+                  <Label htmlFor="learner-id">Learner ID *</Label>
                   <Input
-                    id="name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Graduate full name"
+                    id="learner-id"
+                    value={learnerId}
+                    onChange={(e) => setLearnerId(e.target.value)}
+                    placeholder="Enter learner UUID"
                     required
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="graduation-year">Graduation Year *</Label>
-                  <Select
-                    value={graduationYear.toString()}
-                    onValueChange={(v) => setGraduationYear(parseInt(v, 10))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {yearOptions.map((year) => (
-                        <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="graduation-date">Graduation Date *</Label>
+                  <Input
+                    id="graduation-date"
+                    type="date"
+                    value={graduationDate}
+                    onChange={(e) => setGraduationDate(e.target.value)}
+                    required
+                  />
                 </div>
               </div>
 
@@ -245,7 +249,7 @@ export default function NewAlumniOutcomePage() {
             </CardContent>
           </Card>
 
-          {/* Employment Details - shown for employed/freelancer */}
+          {/* Employment Details - shown for employed/self_employed */}
           {(outcomeType === 'employed' || outcomeType === 'self_employed') && (
             <Card>
               <CardHeader>
@@ -264,34 +268,65 @@ export default function NewAlumniOutcomePage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="job-title">Job Title</Label>
+                    <Label htmlFor="designation">Designation</Label>
                     <Input
-                      id="job-title"
-                      value={jobTitle}
-                      onChange={(e) => setJobTitle(e.target.value)}
+                      id="designation"
+                      value={designation}
+                      onChange={(e) => setDesignation(e.target.value)}
                       placeholder="Designation / role"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="industry-sector">Industry Sector</Label>
+                    <Input
+                      id="industry-sector"
+                      value={industrySector}
+                      onChange={(e) => setIndustrySector(e.target.value)}
+                      placeholder="e.g., IT, Healthcare"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="job-function">Job Function</Label>
+                    <Input
+                      id="job-function"
+                      value={jobFunction}
+                      onChange={(e) => setJobFunction(e.target.value)}
+                      placeholder="e.g., Software Development"
                     />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="industry">Industry</Label>
+                    <Label htmlFor="city">City</Label>
                     <Input
-                      id="industry"
-                      value={industry}
-                      onChange={(e) => setIndustry(e.target.value)}
-                      placeholder="e.g., IT, Healthcare"
+                      id="city"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      placeholder="City"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="location">Location</Label>
+                    <Label htmlFor="state">State</Label>
                     <Input
-                      id="location"
-                      value={location}
-                      onChange={(e) => setLocation(e.target.value)}
-                      placeholder="City, Country"
+                      id="state"
+                      value={state}
+                      onChange={(e) => setState(e.target.value)}
+                      placeholder="State"
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="country">Country</Label>
+                    <Input
+                      id="country"
+                      value={country}
+                      onChange={(e) => setCountry(e.target.value)}
+                      placeholder="Country"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="salary-range">Salary Range</Label>
                     <Select
@@ -311,13 +346,11 @@ export default function NewAlumniOutcomePage() {
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="core-domain">Is Core Domain?</Label>
+                    <Label htmlFor="relevant-to-program">Relevant to Program?</Label>
                     <Select
-                      value={isCoreDomain === undefined ? 'unknown' : isCoreDomain ? 'yes' : 'no'}
-                      onValueChange={(v) => setIsCoreDomain(v === 'unknown' ? undefined : v === 'yes')}
+                      value={isRelevantToProgram === undefined ? 'unknown' : isRelevantToProgram ? 'yes' : 'no'}
+                      onValueChange={(v) => setIsRelevantToProgram(v === 'unknown' ? undefined : v === 'yes')}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -328,17 +361,6 @@ export default function NewAlumniOutcomePage() {
                         <SelectItem value="no">No - Different field</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="placement-days">Days to Placement</Label>
-                    <Input
-                      id="placement-days"
-                      type="number"
-                      min={0}
-                      value={timeToPlacementDays}
-                      onChange={(e) => setTimeToPlacementDays(e.target.value ? parseInt(e.target.value, 10) : '')}
-                      placeholder="Days after graduation"
-                    />
                   </div>
                 </div>
               </CardContent>
@@ -357,19 +379,46 @@ export default function NewAlumniOutcomePage() {
                     <Label htmlFor="hs-institution">Institution</Label>
                     <Input
                       id="hs-institution"
-                      value={higherStudyInstitution}
-                      onChange={(e) => setHigherStudyInstitution(e.target.value)}
+                      value={institutionName}
+                      onChange={(e) => setInstitutionName(e.target.value)}
                       placeholder="University / Institution name"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="hs-program">Program</Label>
+                    <Label htmlFor="hs-course">Course</Label>
                     <Input
-                      id="hs-program"
-                      value={higherStudyProgram}
-                      onChange={(e) => setHigherStudyProgram(e.target.value)}
+                      id="hs-course"
+                      value={courseName}
+                      onChange={(e) => setCourseName(e.target.value)}
                       placeholder="e.g., M.Tech, MBA, PhD"
                     />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="hs-specialization">Specialization</Label>
+                    <Input
+                      id="hs-specialization"
+                      value={specialization}
+                      onChange={(e) => setSpecialization(e.target.value)}
+                      placeholder="e.g., Data Science"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="hs-scholarship">Scholarship?</Label>
+                    <Select
+                      value={isScholarship === undefined ? 'unknown' : isScholarship ? 'yes' : 'no'}
+                      onValueChange={(v) => setIsScholarship(v === 'unknown' ? undefined : v === 'yes')}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unknown">Not specified</SelectItem>
+                        <SelectItem value="yes">Yes</SelectItem>
+                        <SelectItem value="no">No</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               </CardContent>
@@ -380,25 +429,25 @@ export default function NewAlumniOutcomePage() {
           {outcomeType === 'entrepreneur' && (
             <Card>
               <CardHeader>
-                <CardTitle>Startup Details</CardTitle>
+                <CardTitle>Business Details</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="startup-name">Startup Name</Label>
+                    <Label htmlFor="business-name">Business Name</Label>
                     <Input
-                      id="startup-name"
-                      value={startupName}
-                      onChange={(e) => setStartupName(e.target.value)}
-                      placeholder="Startup / Business name"
+                      id="business-name"
+                      value={businessName}
+                      onChange={(e) => setBusinessName(e.target.value)}
+                      placeholder="Business / Startup name"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="startup-industry">Industry</Label>
+                    <Label htmlFor="business-sector">Business Sector</Label>
                     <Input
-                      id="startup-industry"
-                      value={startupIndustry}
-                      onChange={(e) => setStartupIndustry(e.target.value)}
+                      id="business-sector"
+                      value={businessSector}
+                      onChange={(e) => setBusinessSector(e.target.value)}
                       placeholder="e.g., EdTech, FinTech"
                     />
                   </div>
@@ -426,22 +475,13 @@ export default function NewAlumniOutcomePage() {
                     placeholder="1 (low) to 10 (high)"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="linkedin">LinkedIn URL</Label>
-                  <Input
-                    id="linkedin"
-                    value={linkedinUrl}
-                    onChange={(e) => setLinkedinUrl(e.target.value)}
-                    placeholder="https://linkedin.com/in/..."
-                  />
-                </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="competencies">Competencies Utilized (comma-separated)</Label>
+                <Label htmlFor="skills-used">Skills Used (comma-separated)</Label>
                 <Input
-                  id="competencies"
-                  value={competencies}
-                  onChange={(e) => setCompetencies(e.target.value)}
+                  id="skills-used"
+                  value={skillsUsed}
+                  onChange={(e) => setSkillsUsed(e.target.value)}
                   placeholder="e.g., Python, Project Management, Data Analysis"
                 />
               </div>
@@ -462,7 +502,7 @@ export default function NewAlumniOutcomePage() {
           <div className="flex gap-3">
             <Button
               type="submit"
-              disabled={createOutcome.isPending || !name.trim()}
+              disabled={createOutcome.isPending || !learnerId.trim() || !graduationDate}
             >
               {createOutcome.isPending ? (
                 <BeatLoader color="#fff" size={8} />
