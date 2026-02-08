@@ -170,12 +170,26 @@ export class ParentSessionService {
    * Uses SECURITY DEFINER RPC to bypass RLS
    */
   static async revokeSession(token: string, reason?: string): Promise<void> {
+    if (!token) {
+      throw new Error('Session token is required for revocation');
+    }
+
+    // Validate token format
+    if (!SESSION_TOKEN_PATTERN.test(token)) {
+      throw new Error('Invalid session token format');
+    }
+
     const supabase = await createClient();
 
-    await supabase.rpc('revoke_parent_session', {
+    const { error } = await supabase.rpc('revoke_parent_session', {
       p_token: token,
-      p_reason: reason || null,
+      p_reason: reason || 'Session revoked',
     });
+
+    if (error) {
+      console.error('[ParentSessionService] Failed to revoke session:', error);
+      throw new Error('Failed to revoke session');
+    }
   }
 
   /**
@@ -183,12 +197,21 @@ export class ParentSessionService {
    * Uses SECURITY DEFINER RPC to bypass RLS
    */
   static async revokeAllSessions(parentId: string, reason?: string): Promise<void> {
+    if (!parentId) {
+      throw new Error('Parent ID is required for revocation');
+    }
+
     const supabase = await createClient();
 
-    await supabase.rpc('revoke_all_parent_sessions', {
+    const { error } = await supabase.rpc('revoke_all_parent_sessions', {
       p_parent_id: parentId,
       p_reason: reason || 'User logged out from all devices',
     });
+
+    if (error) {
+      console.error('[ParentSessionService] Failed to revoke all sessions:', error);
+      throw new Error('Failed to revoke all sessions');
+    }
   }
 
   /**
