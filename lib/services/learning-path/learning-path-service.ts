@@ -174,6 +174,7 @@ export class LearningPathService {
   static async createLearningPath(input: CreateLearningPathInput): Promise<LearningPath> {
     try {
       this.validateId(input.institution_id, 'institution_id');
+      this.validateId(input.learner_id, 'learner_id');
 
       const insertData = {
         institution_id: input.institution_id,
