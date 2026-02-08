@@ -26,7 +26,7 @@ export function CommunicationList({
   onViewAll,
   className,
 }: CommunicationListProps) {
-  const getIcon = (type: ParentCommunication['type']) => {
+  const getIcon = (type: ParentCommunication['communication_type']) => {
     switch (type) {
       case 'announcement':
         return <Bell className="h-4 w-4" />;
@@ -38,7 +38,7 @@ export function CommunicationList({
     }
   };
 
-  const getIconBg = (type: ParentCommunication['type']) => {
+  const getIconBg = (type: ParentCommunication['communication_type']) => {
     switch (type) {
       case 'announcement':
         return 'bg-blue-100 text-blue-600';
