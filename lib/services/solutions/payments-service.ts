@@ -219,7 +219,7 @@ export class PaymentsService extends BaseService {
   ): Promise<BaseListResponse<PaymentWithDetails>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = (this.supabase as any).from('sh_payments')
+    let query = this.supabase.from('sh_payments')
       .select(PAYMENT_SELECT, { count: 'exact' })
       .order('created_at', { ascending: false });
 
@@ -279,9 +279,9 @@ export class PaymentsService extends BaseService {
   static async getPaymentsBySolution(solutionId: string): Promise<PaymentWithDetails[]> {
     // Get all phases, programs, and orders for this solution
     const [phasesResult, programsResult, ordersResult] = await Promise.all([
-      (this.supabase as any).from('sh_solution_phases').select('id').eq('solution_id', solutionId),
-      (this.supabase as any).from('sh_training_programs').select('id').eq('solution_id', solutionId),
-      (this.supabase as any).from('sh_content_orders').select('id').eq('solution_id', solutionId),
+      this.supabase.from('sh_solution_phases').select('id').eq('solution_id', solutionId),
+      this.supabase.from('sh_training_programs').select('id').eq('solution_id', solutionId),
+      this.supabase.from('sh_content_orders').select('id').eq('solution_id', solutionId),
     ]);
 
     const phaseIds = (phasesResult.data || []).map((p: { id: string }) => p.id);
@@ -292,7 +292,7 @@ export class PaymentsService extends BaseService {
       return [];
     }
 
-    let query = (this.supabase as any).from('sh_payments')
+    let query = this.supabase.from('sh_payments')
       .select(PAYMENT_SELECT)
       .order('created_at', { ascending: false });
 
@@ -323,7 +323,7 @@ export class PaymentsService extends BaseService {
    * Get a single payment by ID
    */
   static async getPaymentById(id: string): Promise<PaymentWithDetails | null> {
-    const { data, error } = await (this.supabase as any).from('sh_payments')
+    const { data, error } = await this.supabase.from('sh_payments')
       .select(PAYMENT_SELECT)
       .eq('id', id)
       .single();
@@ -348,7 +348,7 @@ export class PaymentsService extends BaseService {
       splitType = 'software';
     } else if (input.program_id) {
       // Get track to determine split type
-      const { data: program } = await (this.supabase as any).from('sh_training_programs')
+      const { data: program } = await this.supabase.from('sh_training_programs')
         .select('track')
         .eq('id', input.program_id)
         .single();
@@ -360,7 +360,7 @@ export class PaymentsService extends BaseService {
 
     // Get split model ID
     if (splitType) {
-      const { data: model } = await (this.supabase as any).from('sh_revenue_split_models')
+      const { data: model } = await this.supabase.from('sh_revenue_split_models')
         .select('id')
         .eq('solution_type', splitType)
         .single();
@@ -372,27 +372,27 @@ export class PaymentsService extends BaseService {
     let clientId = input.client_id || null;
 
     if (!solutionId && input.phase_id) {
-      const { data: phase } = await (this.supabase as any).from('sh_solution_phases')
+      const { data: phase } = await this.supabase.from('sh_solution_phases')
         .select('solution_id').eq('id', input.phase_id).single();
       solutionId = phase?.solution_id || null;
     }
     if (!solutionId && input.program_id) {
-      const { data: prog } = await (this.supabase as any).from('sh_training_programs')
+      const { data: prog } = await this.supabase.from('sh_training_programs')
         .select('solution_id').eq('id', input.program_id).single();
       solutionId = prog?.solution_id || null;
     }
     if (!solutionId && input.order_id) {
-      const { data: ord } = await (this.supabase as any).from('sh_content_orders')
+      const { data: ord } = await this.supabase.from('sh_content_orders')
         .select('solution_id').eq('id', input.order_id).single();
       solutionId = ord?.solution_id || null;
     }
     if (!clientId && solutionId) {
-      const { data: sol } = await (this.supabase as any).from('sh_solutions')
+      const { data: sol } = await this.supabase.from('sh_solutions')
         .select('client_id').eq('id', solutionId).single();
       clientId = sol?.client_id || null;
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_payments')
+    const { data, error } = await this.supabase.from('sh_payments')
       .insert({
         solution_id: solutionId,
         client_id: clientId,
@@ -429,7 +429,7 @@ export class PaymentsService extends BaseService {
    */
   static async updatePayment(id: string, input: UpdatePaymentInput): Promise<Payment> {
     // Get current payment status
-    const { data: currentPayment } = await (this.supabase as any).from('sh_payments')
+    const { data: currentPayment } = await this.supabase.from('sh_payments')
       .select('status, split_processed')
       .eq('id', id)
       .single();
@@ -448,7 +448,7 @@ export class PaymentsService extends BaseService {
     if (input.status !== undefined) updateData.status = input.status;
     if (input.notes !== undefined) updateData.notes = input.notes;
 
-    const { data, error } = await (this.supabase as any).from('sh_payments')
+    const { data, error } = await this.supabase.from('sh_payments')
       .update(updateData)
       .eq('id', id)
       .select()
@@ -473,9 +473,9 @@ export class PaymentsService extends BaseService {
    */
   static async deletePayment(id: string): Promise<void> {
     // First delete associated earnings
-    await (this.supabase as any).from('sh_earnings_ledger').delete().eq('payment_id', id);
+    await this.supabase.from('sh_earnings_ledger').delete().eq('payment_id', id);
 
-    const { error } = await (this.supabase as any).from('sh_payments').delete().eq('id', id);
+    const { error } = await this.supabase.from('sh_payments').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete payment: ${error.message}`);
   }
@@ -516,7 +516,7 @@ export class PaymentsService extends BaseService {
     this_month_pending: number;
     by_status: Record<PaymentStatus, number>;
   }> {
-    const { data, error } = await (this.supabase as any).from('sh_payments').select('amount, status, created_at');
+    const { data, error } = await this.supabase.from('sh_payments').select('amount, status, created_at');
 
     if (error) throw new Error(`Failed to fetch payment stats: ${error.message}`);
 
@@ -560,12 +560,12 @@ export class PaymentsService extends BaseService {
    * Flag payment for MD review
    */
   static async flagPayment(id: string, reason: string): Promise<Payment> {
-    const { data: payment } = await (this.supabase as any).from('sh_payments')
+    const { data: payment } = await this.supabase.from('sh_payments')
       .select('notes')
       .eq('id', id)
       .single();
 
-    const { data, error } = await (this.supabase as any).from('sh_payments')
+    const { data, error } = await this.supabase.from('sh_payments')
       .update({
         notes: `${payment?.notes || ''}\n[FLAGGED] ${reason}`,
         updated_at: new Date().toISOString(),
@@ -718,7 +718,7 @@ export class PaymentsService extends BaseService {
       department_id: departmentId,
     }));
 
-    const { error: insertError } = await (this.supabase as any).from('sh_earnings_ledger')
+    const { error: insertError } = await this.supabase.from('sh_earnings_ledger')
       .insert(earningsEntries);
 
     if (insertError) {
@@ -726,7 +726,7 @@ export class PaymentsService extends BaseService {
     }
 
     // Mark payment as split_processed
-    await (this.supabase as any).from('sh_payments')
+    await this.supabase.from('sh_payments')
       .update({ split_processed: true })
       .eq('id', paymentId);
 
@@ -737,7 +737,7 @@ export class PaymentsService extends BaseService {
    * Get all revenue split models
    */
   static async getAllSplitModels(): Promise<RevenueSplitModel[]> {
-    const { data, error } = await (this.supabase as any).from('sh_revenue_split_models')
+    const { data, error } = await this.supabase.from('sh_revenue_split_models')
       .select('*')
       .order('solution_type');
 
@@ -758,7 +758,7 @@ export class PaymentsService extends BaseService {
       throw new Error('Revenue split percentages must total 100%');
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_revenue_split_models')
+    const { data, error } = await this.supabase.from('sh_revenue_split_models')
       .update({ split_config: splitConfig })
       .eq('id', id)
       .select()
@@ -776,7 +776,7 @@ export class PaymentsService extends BaseService {
     failed: number;
     errors: string[];
   }> {
-    const { data: payments, error } = await (this.supabase as any).from('sh_payments')
+    const { data: payments, error } = await this.supabase.from('sh_payments')
       .select('id')
       .eq('status', 'completed')
       .eq('split_processed', false);
