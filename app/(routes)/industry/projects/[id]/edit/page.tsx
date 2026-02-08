@@ -202,8 +202,8 @@ export default function EditProjectPage() {
                       <FormMessage />
                     </FormItem>
                   )} />
-                  <FormField control={form.control} name="detailed_requirements" render={({ field }) => (
-                    <FormItem><FormLabel>Requirements / Technologies</FormLabel><FormControl><Textarea placeholder="Technologies, tools, and requirements..." className="min-h-[80px]" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormField control={form.control} name="technologies" render={({ field }) => (
+                    <FormItem><FormLabel>Technologies (comma-separated)</FormLabel><FormControl><Input placeholder="React, Node.js, PostgreSQL" {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
                   <div className="grid gap-4 md:grid-cols-3">
                     <FormField control={form.control} name="application_deadline" render={({ field }) => (
