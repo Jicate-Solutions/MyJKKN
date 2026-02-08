@@ -150,36 +150,40 @@ export default function EngagementDetailPage() {
                 </Card>
               )}
 
-              {(engagement.mentor_feedback || engagement.learner_feedback) && (
+              {engagement.feedback && (
                 <Card>
                   <CardHeader><CardTitle>Feedback</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
-                    {engagement.mentor_feedback && (
+                    {(engagement.feedback as any)?.mentor_feedback && (
                       <div className="p-4 border rounded-lg">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-medium">Mentor Feedback</span>
-                          {engagement.mentor_feedback.given_at && (
+                          {(engagement.feedback as any).mentor_feedback.given_at && (
                             <span className="text-sm text-muted-foreground">
-                              {new Date(engagement.mentor_feedback.given_at).toLocaleDateString()}
+                              {new Date((engagement.feedback as any).mentor_feedback.given_at).toLocaleDateString()}
                             </span>
                           )}
                         </div>
-                        <p className="text-muted-foreground">{engagement.mentor_feedback.comments}</p>
-                        <Badge className="mt-2">{engagement.mentor_feedback.rating}/5</Badge>
+                        <p className="text-muted-foreground">{(engagement.feedback as any).mentor_feedback.comments}</p>
+                        {(engagement.feedback as any).mentor_feedback.rating && (
+                          <Badge className="mt-2">{(engagement.feedback as any).mentor_feedback.rating}/5</Badge>
+                        )}
                       </div>
                     )}
-                    {engagement.learner_feedback && (
+                    {(engagement.feedback as any)?.learner_feedback && (
                       <div className="p-4 border rounded-lg">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-medium">Learner Feedback</span>
-                          {engagement.learner_feedback.given_at && (
+                          {(engagement.feedback as any).learner_feedback.given_at && (
                             <span className="text-sm text-muted-foreground">
-                              {new Date(engagement.learner_feedback.given_at).toLocaleDateString()}
+                              {new Date((engagement.feedback as any).learner_feedback.given_at).toLocaleDateString()}
                             </span>
                           )}
                         </div>
-                        <p className="text-muted-foreground">{engagement.learner_feedback.suggestions}</p>
-                        <Badge className="mt-2">{engagement.learner_feedback.rating}/5</Badge>
+                        <p className="text-muted-foreground">{(engagement.feedback as any).learner_feedback.comments}</p>
+                        {(engagement.feedback as any).learner_feedback.rating && (
+                          <Badge className="mt-2">{(engagement.feedback as any).learner_feedback.rating}/5</Badge>
+                        )}
                       </div>
                     )}
                   </CardContent>
