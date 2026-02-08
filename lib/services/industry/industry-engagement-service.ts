@@ -372,14 +372,14 @@ export class IndustryEngagementService {
   }
 
   /**
-   * Update progress percentage
-   * NOTE: DB doesn't have hours_completed column - tracking is via progress_percentage
+   * Update hours completed
+   * NOTE: DB has `hours_completed` column (NOT progress_percentage)
    */
-  static async updateProgress(id: string, progressPercentage: number): Promise<void> {
+  static async updateHoursCompleted(id: string, hoursCompleted: number): Promise<void> {
     this.validateId(id, 'engagement ID');
 
-    if (progressPercentage < 0 || progressPercentage > 100) {
-      throw new Error('Progress percentage must be between 0 and 100');
+    if (hoursCompleted < 0) {
+      throw new Error('Hours completed must be non-negative');
     }
 
     const supabase = createClientSupabaseClient();
@@ -387,13 +387,13 @@ export class IndustryEngagementService {
     const { error } = await (supabase as any)
       .from('learner_industry_engagements')
       .update({
-        progress_percentage: progressPercentage,
+        hours_completed: hoursCompleted,
         updated_at: new Date().toISOString()
       })
       .eq('id', id);
 
     if (error) {
-      console.error('[IndustryEngagementService] updateProgress error:', error);
+      console.error('[IndustryEngagementService] updateHoursCompleted error:', error);
       throw new Error(error.message);
     }
   }
