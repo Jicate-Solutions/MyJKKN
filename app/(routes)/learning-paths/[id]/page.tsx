@@ -318,7 +318,7 @@ export default function LearningPathDetailPage() {
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium">Overall Progress</span>
               <span className="text-sm font-medium">
-                {completedSteps}/{totalSteps} steps ({path.current_progress?.toFixed(0) || 0}%)
+                {completedSteps}/{totalSteps} steps ({Math.round(path.current_progress ?? 0)}%)
               </span>
             </div>
             <Progress value={path.current_progress || 0} className="h-3" />
