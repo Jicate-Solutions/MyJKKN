@@ -164,11 +164,23 @@ export default function FacilitatorDevelopmentDetailPage() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || permissionsLoading) {
     return (
       <ContentLayout title='Development Detail'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (!canView) {
+    return (
+      <ContentLayout title='Development Detail'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view development details.
+          </p>
         </div>
       </ContentLayout>
     );
