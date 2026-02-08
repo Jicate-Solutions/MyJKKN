@@ -54,8 +54,17 @@ export default function NewAlumniOutcomePage() {
 
   const createOutcome = useCreateAlumniOutcome();
 
+  // Fetch programs for selection
+  const { data: programsData } = usePrograms({
+    institution_id: institutionId,
+    page: 1,
+    limit: 100
+  });
+  const programs = programsData?.data || [];
+
   // Form state - matches CreateAlumniOutcomeInput
   const [learnerId, setLearnerId] = useState('');
+  const [programId, setProgramId] = useState('');
   const [graduationDate, setGraduationDate] = useState('');
   const [outcomeType, setOutcomeType] = useState<OutcomeType>('employed');
   const [companyName, setCompanyName] = useState('');
