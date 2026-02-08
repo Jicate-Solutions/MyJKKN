@@ -200,13 +200,21 @@ export interface SolutionPhase extends BaseEntity {
 export interface SolutionMou extends BaseEntity {
   solution_id: string;
   mou_number?: string;
-  deal_value?: number;
+  deal_value: number;
   amc_value?: number;
+  amc_duration_months?: number;
+  amc_start_date?: string;
   payment_terms?: Record<string, unknown>;
-  status: string;
+  status: MouStatus;
   mou_document_url?: string;
   signed_date?: string;
   expiry_date?: string;
+  signatory_client?: string;
+  signatory_jkkn?: string;
+  witness_1?: string;
+  witness_2?: string;
+  terms_and_conditions?: string;
+  notes?: string;
   created_by?: string;
 }
 
