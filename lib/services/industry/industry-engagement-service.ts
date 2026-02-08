@@ -305,9 +305,9 @@ export class IndustryEngagementService {
       updated_at: new Date().toISOString()
     };
 
-    // Set actual_end_date if completing or terminating (DB column name)
+    // Set end_date if completing or terminating (DB column: end_date)
     if (['completed', 'terminated', 'withdrawn'].includes(status)) {
-      updateData.actual_end_date = endDate || new Date().toISOString().split('T')[0];
+      updateData.end_date = endDate || new Date().toISOString().split('T')[0];
     }
 
     const { error } = await (supabase as any)
