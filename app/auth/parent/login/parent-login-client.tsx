@@ -35,9 +35,18 @@ export function ParentLoginClient() {
   const router = useRouter();
   const [step, setStep] = useState<Step>('phone');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const { mutate: requestOTP, isPending: isRequestingOTP } = useRequestOTP();
   const { mutate: verifyOTP, isPending: isVerifyingOTP } = useVerifyOTP();
+
+  // Resend cooldown timer
+  React.useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCooldown]);
 
   // Phone form
   const phoneForm = useForm<RequestOTPInput>({

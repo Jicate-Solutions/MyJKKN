@@ -60,8 +60,93 @@ CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_dev ON facilitator_industry
 ALTER TABLE facilitator_development ENABLE ROW LEVEL SECURITY;
 ALTER TABLE facilitator_industry_immersion ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow all for authenticated" ON facilitator_development FOR ALL USING (auth.role() = 'authenticated');
-CREATE POLICY "Allow all for authenticated" ON facilitator_industry_immersion FOR ALL USING (auth.role() = 'authenticated');
+-- RLS Policies for facilitator_development
+-- Users can only access records from their institution
+CREATE POLICY "Users can view facilitator_development from their institution"
+  ON facilitator_development FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_institution_access uia
+      WHERE uia.user_id = auth.uid()
+      AND uia.institution_id = facilitator_development.institution_id
+    )
+  );
+
+CREATE POLICY "Users can create facilitator_development for their institution"
+  ON facilitator_development FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM user_institution_access uia
+      WHERE uia.user_id = auth.uid()
+      AND uia.institution_id = facilitator_development.institution_id
+    )
+  );
+
+CREATE POLICY "Users can update facilitator_development from their institution"
+  ON facilitator_development FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_institution_access uia
+      WHERE uia.user_id = auth.uid()
+      AND uia.institution_id = facilitator_development.institution_id
+    )
+  );
+
+CREATE POLICY "Users can delete facilitator_development from their institution"
+  ON facilitator_development FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_institution_access uia
+      WHERE uia.user_id = auth.uid()
+      AND uia.institution_id = facilitator_development.institution_id
+    )
+  );
+
+-- RLS Policies for facilitator_industry_immersion
+-- Users can only access immersions linked to development records from their institution
+CREATE POLICY "Users can view immersions from their institution"
+  ON facilitator_industry_immersion FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM facilitator_development fd
+      JOIN user_institution_access uia ON uia.institution_id = fd.institution_id
+      WHERE fd.id = facilitator_industry_immersion.development_id
+      AND uia.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can create immersions for their institution"
+  ON facilitator_industry_immersion FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM facilitator_development fd
+      JOIN user_institution_access uia ON uia.institution_id = fd.institution_id
+      WHERE fd.id = facilitator_industry_immersion.development_id
+      AND uia.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can update immersions from their institution"
+  ON facilitator_industry_immersion FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM facilitator_development fd
+      JOIN user_institution_access uia ON uia.institution_id = fd.institution_id
+      WHERE fd.id = facilitator_industry_immersion.development_id
+      AND uia.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can delete immersions from their institution"
+  ON facilitator_industry_immersion FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM facilitator_development fd
+      JOIN user_institution_access uia ON uia.institution_id = fd.institution_id
+      WHERE fd.id = facilitator_industry_immersion.development_id
+      AND uia.user_id = auth.uid()
+    )
+  );
 
 -- Updated_at triggers
 CREATE OR REPLACE TRIGGER update_facilitator_dev_updated_at BEFORE UPDATE ON facilitator_development FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
