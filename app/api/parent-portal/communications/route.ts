@@ -21,7 +21,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const supabase = await createClient();
+    // Use service role client because parent portal uses custom session auth (not Supabase auth)
+    const supabase = createServiceRoleClient();
     const { searchParams } = new URL(request.url);
 
     const filters = communicationFiltersSchema.parse({
@@ -141,7 +142,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = await createClient();
+    // Use service role client because parent portal uses custom session auth (not Supabase auth)
+    const supabase = createServiceRoleClient();
     const body = await request.json();
 
     const validated = createCommunicationSchema.parse(body);
