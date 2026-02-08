@@ -212,6 +212,7 @@ export function useUpdateEngagementStatus() {
 
 /**
  * Add feedback to engagement mutation
+ * NOTE: DB has separate mentor_feedback and learner_feedback columns
  */
 export function useAddEngagementFeedback(id: string) {
   const queryClient = useQueryClient();
@@ -221,8 +222,8 @@ export function useAddEngagementFeedback(id: string) {
       feedbackType,
       feedback
     }: {
-      feedbackType: 'mentor_feedback' | 'learner_feedback' | 'supervisor_feedback';
-      feedback: EngagementFeedback[typeof feedbackType];
+      feedbackType: 'mentor_feedback' | 'learner_feedback';
+      feedback: any; // JSONB - can be any structure
     }) => IndustryEngagementService.addFeedback(id, feedbackType, feedback),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: engagementKeys.detail(id) });
