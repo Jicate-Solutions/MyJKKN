@@ -556,14 +556,13 @@ export default function NewDiscountPage() {
 
                         {/* Min Proficiency Level */}
                         <div className='space-y-2'>
-                          <Label htmlFor='min_proficiency'>Min Proficiency Level</Label>
+                          <Label htmlFor='minimum_level'>Min Proficiency Level</Label>
                           <Select
-                            value={outcomeCriteria.min_proficiency || outcomeCriteria.minimum_level || 'intermediate'}
+                            value={outcomeCriteria.minimum_level || 'intermediate'}
                             onValueChange={(value) =>
                               setOutcomeCriteria((prev) => ({
                                 ...prev,
-                                minimum_level: value as 'beginner' | 'intermediate' | 'advanced' | 'expert',
-                                min_proficiency: value as 'beginner' | 'intermediate' | 'advanced' | 'expert'
+                                minimum_level: value as 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert'
                               }))
                             }
                           >
@@ -571,6 +570,7 @@ export default function NewDiscountPage() {
                               <SelectValue placeholder='Select proficiency level' />
                             </SelectTrigger>
                             <SelectContent>
+                              <SelectItem value='novice'>Novice</SelectItem>
                               <SelectItem value='beginner'>Beginner</SelectItem>
                               <SelectItem value='intermediate'>Intermediate</SelectItem>
                               <SelectItem value='advanced'>Advanced</SelectItem>
