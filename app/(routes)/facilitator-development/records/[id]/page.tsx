@@ -319,7 +319,7 @@ export default function FacilitatorDevelopmentDetailPage() {
         <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
           <Card>
             <CardContent className='p-4 text-center'>
-              <div className='text-2xl font-bold'>{record.workshops_facilitated}</div>
+              <div className='text-2xl font-bold'>{record.workshops_facilitated ?? 0}</div>
               <p className='text-xs text-muted-foreground'>Workshops Facilitated</p>
             </CardContent>
           </Card>
