@@ -30,6 +30,12 @@ export default function ProgramsPage() {
               All training programs across solutions
             </p>
           </div>
+          <Button asChild>
+            <Link href="/solutions/training/programs/new">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Program
+            </Link>
+          </Button>
         </div>
 
         <ProgramsList />
