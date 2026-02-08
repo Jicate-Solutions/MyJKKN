@@ -60,11 +60,12 @@ export default function NewMentorPage() {
   const onSubmit = async (values: MentorFormValues) => {
     try {
       await createMutation.mutateAsync({
+        institution_id: institutionId,
         partner_id: values.partner_id,
         mentor_name: values.mentor_name,
         designation: values.designation,
         expertise_areas: values.expertise_areas ? values.expertise_areas.split(',').map(s => s.trim()) : [],
-        email: values.email || undefined,
+        email: values.email || '',
         phone: values.phone,
         linkedin_url: values.linkedin_url || undefined,
         bio: values.bio,
