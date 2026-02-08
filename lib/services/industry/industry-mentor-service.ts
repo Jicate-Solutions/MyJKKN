@@ -159,7 +159,11 @@ export class IndustryMentorService {
    * Create new industry mentor
    */
   static async createMentor(dto: CreateIndustryMentorDTO): Promise<IndustryMentor> {
-    this.validateId(dto.partner_id, 'partner_id');
+    this.validateId(dto.institution_id, 'institution_id');
+    // partner_id is optional - mentor may be independent
+    if (dto.partner_id) {
+      this.validateId(dto.partner_id, 'partner_id');
+    }
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
