@@ -108,16 +108,17 @@ export interface LearnerBasicInfo {
 export interface ParentCommunication {
   id: string;
   institution_id: string;
-  parent_id: string | null;
-  learner_id: string | null;
-  type: CommunicationType;
+  parent_access_id: string | null; // DB column is parent_access_id, not parent_id
+  learner_id: string;
+  communication_type: CommunicationType; // DB column is communication_type, not type
   subject: string;
   content: string;
-  priority: CommunicationPriority;
+  // NOTE: DB has no priority column - priority is not stored
   read_at: string | null;
-  sender_id: string | null;
-  attachments: CommunicationAttachment[];
+  sent_by: string | null; // DB column is sent_by, not sender_id
+  attachments: CommunicationAttachment[]; // DB stores as JSONB
   created_at: string;
+  updated_at: string;
 
   // Joined data
   sender?: {
