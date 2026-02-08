@@ -128,10 +128,10 @@ export function ProgramsList() {
                     </span>
                   )}
                 </div>
-                {program.location && (
+                {program.venue && (
                   <div className="flex items-center gap-1 text-muted-foreground">
                     <MapPin className="h-3 w-3" />
-                    {program.location}
+                    {program.venue}
                     {program.location_preference && (
                       <span className="ml-1">
                         ({LOCATION_PREFERENCE_LABELS[program.location_preference]})
@@ -139,12 +139,12 @@ export function ProgramsList() {
                     )}
                   </div>
                 )}
-                {program.scheduled_start && (
+                {program.start_date && (
                   <div className="flex items-center gap-1 text-muted-foreground">
                     <Calendar className="h-3 w-3" />
-                    {format(new Date(program.scheduled_start), 'dd MMM yyyy')}
-                    {program.scheduled_end && (
-                      <span> - {format(new Date(program.scheduled_end), 'dd MMM yyyy')}</span>
+                    {format(new Date(program.start_date), 'dd MMM yyyy')}
+                    {program.end_date && (
+                      <span> - {format(new Date(program.end_date), 'dd MMM yyyy')}</span>
                     )}
                   </div>
                 )}
