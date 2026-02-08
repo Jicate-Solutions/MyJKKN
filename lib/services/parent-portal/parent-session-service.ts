@@ -87,6 +87,11 @@ export class ParentSessionService {
       return { valid: false, error: 'No session token provided' };
     }
 
+    // Validate token format before database lookup to prevent wasted queries
+    if (!SESSION_TOKEN_PATTERN.test(token)) {
+      return { valid: false, error: 'Invalid token format' };
+    }
+
     const supabase = await createClient();
 
     const { data, error } = await supabase.rpc('validate_parent_session', {
@@ -99,7 +104,7 @@ export class ParentSessionService {
     }
 
     if (!data?.valid) {
-      return { valid: false, error: data?.error || 'Invalid session' };
+      return { valid: false, error: 'Invalid session' };
     }
 
     return {
