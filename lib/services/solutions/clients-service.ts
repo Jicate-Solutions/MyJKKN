@@ -34,7 +34,6 @@ export interface UpdateClientInput {
   source_type?: SourceType;
   source_department_id?: string;
   partner_status?: PartnerStatus;
-  partner_since?: string;
   is_active?: boolean;
 }
 
