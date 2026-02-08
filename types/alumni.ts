@@ -86,6 +86,27 @@ export const VERIFICATION_STATUS_LABELS: Record<VerificationStatus, string> = {
   rejected: 'Rejected'
 };
 
+export type DataSource =
+  | 'self_reported'       // Alumni filled form themselves
+  | 'phone_survey'        // Data collected via phone call
+  | 'email_survey'        // Data collected via email survey
+  | 'linkedin_scrape'     // Auto-collected from LinkedIn
+  | 'placement_cell'      // Entered by placement officer
+  | 'employer_feedback'   // Provided by employer
+  | 'alumni_meet'         // Collected at alumni gathering
+  | 'manual_entry';       // Admin manual entry
+
+export const DATA_SOURCE_LABELS: Record<DataSource, string> = {
+  self_reported: 'Self Reported',
+  phone_survey: 'Phone Survey',
+  email_survey: 'Email Survey',
+  linkedin_scrape: 'LinkedIn',
+  placement_cell: 'Placement Cell',
+  employer_feedback: 'Employer Feedback',
+  alumni_meet: 'Alumni Meet',
+  manual_entry: 'Manual Entry'
+};
+
 // ============================================================================
 // CORE ENTITIES
 // ============================================================================
