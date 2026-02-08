@@ -113,19 +113,21 @@ export default function EngagementDetailPage() {
                   </div>
                   <Progress value={progress} />
                   <div className="grid gap-4 md:grid-cols-2 pt-4">
-                    <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
-                      <Clock className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm text-muted-foreground">Progress</p>
-                        <p className="text-lg font-semibold">{engagement.progress_percentage}%</p>
+                    {engagement.hours_completed != null && engagement.hours_completed > 0 && (
+                      <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
+                        <Clock className="h-5 w-5 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm text-muted-foreground">Hours Completed</p>
+                          <p className="text-lg font-semibold">{engagement.hours_completed}</p>
+                        </div>
                       </div>
-                    </div>
-                    {engagement.mentor_feedback?.rating && (
+                    )}
+                    {(engagement.feedback as any)?.mentor_feedback?.rating && (
                       <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
                         <Star className="h-5 w-5 text-yellow-500" />
                         <div>
                           <p className="text-sm text-muted-foreground">Mentor Rating</p>
-                          <p className="text-lg font-semibold">{engagement.mentor_feedback.rating}/5</p>
+                          <p className="text-lg font-semibold">{(engagement.feedback as any).mentor_feedback.rating}/5</p>
                         </div>
                       </div>
                     )}
