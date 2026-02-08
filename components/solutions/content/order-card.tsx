@@ -20,6 +20,10 @@ const typeConfig: Record<ContentOrderType, { icon: React.ElementType; label: str
   branding: { icon: Palette, label: 'Branding', color: 'text-purple-600' },
   podcast: { icon: Mic, label: 'Podcast', color: 'text-green-600' },
   package: { icon: Package, label: 'Package', color: 'text-gray-600' },
+  graphic: { icon: Palette, label: 'Graphic', color: 'text-indigo-600' },
+  document: { icon: FileText, label: 'Document', color: 'text-teal-600' },
+  animation: { icon: FileVideo, label: 'Animation', color: 'text-amber-600' },
+  other: { icon: Package, label: 'Other', color: 'text-gray-500' },
 }
 
 const divisionConfig: Record<ContentDivision, { label: string; color: string }> = {
