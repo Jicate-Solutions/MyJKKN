@@ -121,23 +121,7 @@ export function useFacilitatorDevelopmentStats(
   const { profile, isLoading: authLoading } = useAuth();
 
   const queryFn = useCallback(async () => {
-    try {
-      return await FacilitatorDevelopmentService.getDevelopmentStats(institutionId);
-    } catch (error) {
-      console.error('[useFacilitatorDevStats] Error:', error);
-      return {
-        total_records: 0,
-        by_stage: { teacher: 0, transitioning: 0, facilitator: 0, master_facilitator: 0 },
-        by_status: { active: 0, paused: 0, completed: 0 },
-        active_count: 0,
-        completed_count: 0,
-        avg_outcome_score: 0,
-        total_immersions: 0,
-        total_industry_hours: 0,
-        avg_workshops_attended: 0,
-        avg_peer_observations: 0
-      };
-    }
+    return await FacilitatorDevelopmentService.getDevelopmentStats(institutionId);
   }, [institutionId]);
 
   return useQuery({
