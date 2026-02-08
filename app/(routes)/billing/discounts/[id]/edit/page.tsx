@@ -167,10 +167,11 @@ export default function EditDiscountPage() {
   };
 
   const calculateDiscountAmount = () => {
-    if (!discount?.bill?.total_amount || !formData.discount_value) return 0;
+    const billAmount = discount?.bill?.total_amount || 0;
+    if (!billAmount || billAmount === 0 || !formData.discount_value) return 0;
 
     if (formData.discount_type === 'percentage') {
-      return (discount.bill.total_amount * formData.discount_value) / 100;
+      return (billAmount * formData.discount_value) / 100;
     } else {
       return formData.discount_value;
     }
