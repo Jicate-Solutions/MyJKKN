@@ -111,8 +111,7 @@ export class LearningPathStepService {
         estimated_hours: input.estimated_hours || null,
         status: 'pending' as const,
         is_required: input.is_required ?? true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        // created_at and updated_at are handled by database defaults
       };
 
       const { data, error } = await (this.getSupabase() as any)
