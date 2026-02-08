@@ -233,14 +233,26 @@ export function PartnerTable() {
               <DropdownMenuSeparator />
               {row.original.is_active ? (
                 <DropdownMenuItem
-                  onClick={() => handleArchive(row.original.id)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (confirm(`Archive "${row.original.company_name}"? This will mark it as inactive.`)) {
+                      handleArchive(row.original.id);
+                    }
+                  }}
                   className="text-destructive"
                 >
                   <Archive className="h-4 w-4 mr-2" />
                   Archive
                 </DropdownMenuItem>
               ) : (
-                <DropdownMenuItem onClick={() => handleRestore(row.original.id)}>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (confirm(`Restore "${row.original.company_name}"? This will mark it as active.`)) {
+                      handleRestore(row.original.id);
+                    }
+                  }}
+                >
                   <RotateCcw className="h-4 w-4 mr-2" />
                   Restore
                 </DropdownMenuItem>
