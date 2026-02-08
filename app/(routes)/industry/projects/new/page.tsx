@@ -29,11 +29,11 @@ const projectSchema = z.object({
   min_team_size: z.coerce.number().min(1).optional(),
   stipend_amount: z.coerce.number().min(0).optional(),
   application_deadline: z.string().optional(),
-  project_start_date: z.string().optional(),
-  project_end_date: z.string().optional(),
-  detailed_requirements: z.string().optional(),
+  start_date: z.string().optional(),
+  end_date: z.string().optional(),
+  technologies: z.string().optional(),
   deliverables: z.string().optional(),
-  assigned_mentor_id: z.string().optional()
+  mentor_id: z.string().optional()
 });
 
 type ProjectFormValues = z.infer<typeof projectSchema>;
