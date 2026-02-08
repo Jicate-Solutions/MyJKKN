@@ -39,6 +39,8 @@ const locationLabels: Record<LocationPreference, string> = {
   jkkn_campus: 'JKKN Campus',
   online: 'Online',
   hybrid: 'Hybrid',
+  on_site: 'On-site',
+  remote: 'Remote',
 }
 
 export function ProgramCard({ program }: ProgramCardProps) {
