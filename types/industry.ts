@@ -489,15 +489,29 @@ export interface CreateLearnerEngagementDTO {
  */
 export interface UpdateLearnerEngagementDTO {
   engagement_type?: EngagementType;
+  project_id?: string | null;
+  mentor_id?: string | null;
+  partner_id?: string | null;
+  team_id?: string | null;
+  team_role?: string;
+  approved_at?: string;
+  approved_by?: string;
   start_date?: string;
-  end_date?: string;
   expected_end_date?: string;
+  actual_end_date?: string; // DB column name
   status?: EngagementStatus;
+  status_notes?: string;
+  competencies_targeted?: string[];
   competencies_demonstrated?: string[];
-  feedback?: EngagementFeedback;
-  hours_completed?: number;
+  competency_levels_achieved?: any;
+  progress_percentage?: number;
+  milestones_completed?: any;
+  deliverables_submitted?: any;
+  mentor_feedback?: any; // Separate column in DB
+  learner_feedback?: any; // Separate column in DB
+  certificate_issued?: boolean;
   certificate_url?: string;
-  notes?: string;
+  certificate_issued_at?: string;
 }
 
 // ============================================================================
