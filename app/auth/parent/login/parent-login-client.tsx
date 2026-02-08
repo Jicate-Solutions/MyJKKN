@@ -103,7 +103,11 @@ export function ParentLoginClient() {
   };
 
   const handleResendOTP = () => {
-    requestOTP({ phone: phoneNumber, institution_id: DEFAULT_INSTITUTION_ID });
+    requestOTP({ phone: phoneNumber, institution_id: DEFAULT_INSTITUTION_ID }, {
+      onSuccess: () => {
+        setResendCooldown(30); // 30 second cooldown before next resend
+      },
+    });
   };
 
   return (
