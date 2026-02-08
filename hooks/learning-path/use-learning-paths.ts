@@ -83,7 +83,7 @@ export function useLearningPaths(
   return useQuery({
     queryKey,
     queryFn,
-    enabled: !authLoading && !!profile && !!filters.institution_id,
+    enabled: !authLoading && !!profile && !!filters.institution_id && filters.institution_id !== '',
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
