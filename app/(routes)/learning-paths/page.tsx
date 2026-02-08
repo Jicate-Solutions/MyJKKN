@@ -403,7 +403,7 @@ export default function LearningPathsPage() {
                         <div className="flex items-center justify-between text-sm mb-1">
                           <span className="text-muted-foreground">Progress</span>
                           <span className="font-medium">
-                            {path.current_progress?.toFixed(0) || 0}%
+                            {Math.round(path.current_progress ?? 0)}%
                           </span>
                         </div>
                         <Progress value={path.current_progress || 0} className="h-2" />
