@@ -8,7 +8,6 @@ import { ParentSessionService } from '@/lib/services/parent-portal/parent-sessio
 import { setCSRFCookie } from '@/lib/utils/csrf';
 import { checkRateLimit, clearRateLimit, RateLimitConfig } from '@/lib/utils/rate-limiter';
 import { z } from 'zod';
-import crypto from 'crypto';
 
 // Fixed delay to prevent timing attacks
 const VERIFICATION_DELAY_MS = 200;
