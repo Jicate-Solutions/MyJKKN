@@ -31,8 +31,6 @@ import {
 import { cn } from '@/lib/utils';
 import {
   getCommunicationTypeLabel,
-  getPriorityColor,
-  getPriorityLabel,
 } from '@/types/parent-portal';
 import type { ParentCommunication, CommunicationType } from '@/types/parent-portal';
 
