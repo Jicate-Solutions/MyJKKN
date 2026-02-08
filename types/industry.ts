@@ -107,33 +107,24 @@ export interface MentorAvailability {
 
 /**
  * Industry Mentor - Professional providing mentorship
+ * VERIFIED against DB: 2026-02-08 (18 columns)
  */
 export interface IndustryMentor {
   id: string;
-  institution_id: string; // REQUIRED in DB - was missing
-  partner_id: string | null; // Nullable in DB
+  institution_id: string;
+  partner_id: string | null;
   mentor_name: string;
   designation: string | null;
-  company_name: string | null; // If not linked to partner
-  profile_photo_url: string | null; // DB column name
-  bio: string | null;
-  linkedin_url: string | null;
-  email: string;
+  expertise_areas: string[] | null; // ARRAY, nullable in DB
+  email: string | null; // Nullable in DB
   phone: string | null;
-  preferred_contact_method: string | null;
-  expertise_areas: string[];
-  industry_experience_years: number | null;
-  competencies_can_mentor: string[]; // UUID array
+  linkedin_url: string | null;
+  bio: string | null;
+  photo_url: string | null; // DB column: photo_url (NOT profile_photo_url)
   availability: MentorAvailability | null;
-  max_mentees: number;
-  current_mentees: number; // DB column name (not current_mentees_count)
-  total_mentees_all_time: number;
-  average_rating: number;
-  total_sessions_conducted: number;
+  max_mentees: number | null; // Nullable in DB
+  current_mentees_count: number | null; // DB column: current_mentees_count (NOT current_mentees)
   is_active: boolean;
-  is_verified: boolean;
-  verified_by: string | null;
-  verified_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
