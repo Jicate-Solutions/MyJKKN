@@ -169,7 +169,7 @@ export function StepList({ steps, onUpdateStatus, onDeleteStep, isUpdating }: St
                   )}
 
                   {/* Score */}
-                  {step.score !== null && step.score !== undefined && (
+                  {step.score != null && (
                     <div>
                       <span className='text-xs font-medium text-muted-foreground'>Score</span>
                       <p className='text-sm font-medium'>{step.score}/100</p>
