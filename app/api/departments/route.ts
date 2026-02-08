@@ -1,8 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/client';
 
 
 export async function GET(request: Request) {
+  await connection();
   try {
     const supabase = createAdminClient();
     const { searchParams } = new URL(request.url);
