@@ -35,7 +35,7 @@ export class NotificationsService extends BaseService {
   ): Promise<BaseListResponse<Notification>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = (this.supabase as any).from('sh_notifications')
+    let query = this.supabase.from('sh_notifications')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false });
 
@@ -77,7 +77,7 @@ export class NotificationsService extends BaseService {
    * Get unread notifications for a user
    */
   static async getUnreadNotifications(limit: number = 50): Promise<Notification[]> {
-    const { data, error } = await (this.supabase as any).from('sh_notifications')
+    const { data, error } = await this.supabase.from('sh_notifications')
       .select('*')
       .eq('read', false)
       .order('created_at', { ascending: false })
@@ -91,7 +91,7 @@ export class NotificationsService extends BaseService {
    * Get unread notification count
    */
   static async getUnreadCount(): Promise<number> {
-    const { count, error } = await (this.supabase as any).from('sh_notifications')
+    const { count, error } = await this.supabase.from('sh_notifications')
       .select('*', { count: 'exact', head: true })
       .eq('read', false);
 
@@ -103,7 +103,7 @@ export class NotificationsService extends BaseService {
    * Get a single notification by ID
    */
   static async getNotificationById(id: string): Promise<Notification | null> {
-    const { data, error } = await (this.supabase as any).from('sh_notifications')
+    const { data, error } = await this.supabase.from('sh_notifications')
       .select('*')
       .eq('id', id)
       .single();
@@ -120,7 +120,7 @@ export class NotificationsService extends BaseService {
    * Create a new notification
    */
   static async createNotification(input: CreateNotificationInput): Promise<Notification> {
-    const { data, error } = await (this.supabase as any).from('sh_notifications')
+    const { data, error } = await this.supabase.from('sh_notifications')
       .insert({
         user_id: input.user_id,
         type: input.type,
@@ -152,7 +152,7 @@ export class NotificationsService extends BaseService {
       read: false,
     }));
 
-    const { data, error } = await (this.supabase as any).from('sh_notifications')
+    const { data, error } = await this.supabase.from('sh_notifications')
       .insert(notifications)
       .select();
 
@@ -164,7 +164,7 @@ export class NotificationsService extends BaseService {
    * Mark a notification as read
    */
   static async markAsRead(id: string): Promise<Notification> {
-    const { data, error } = await (this.supabase as any).from('sh_notifications')
+    const { data, error } = await this.supabase.from('sh_notifications')
       .update({ read: true })
       .eq('id', id)
       .select()
@@ -178,7 +178,7 @@ export class NotificationsService extends BaseService {
    * Mark all notifications as read
    */
   static async markAllAsRead(): Promise<void> {
-    const { error } = await (this.supabase as any).from('sh_notifications')
+    const { error } = await this.supabase.from('sh_notifications')
       .update({ read: true })
       .eq('read', false);
 
@@ -189,7 +189,7 @@ export class NotificationsService extends BaseService {
    * Delete a notification
    */
   static async deleteNotification(id: string): Promise<void> {
-    const { error } = await (this.supabase as any).from('sh_notifications').delete().eq('id', id);
+    const { error } = await this.supabase.from('sh_notifications').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete notification: ${error.message}`);
   }
@@ -201,7 +201,7 @@ export class NotificationsService extends BaseService {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysOld);
 
-    const { data, error } = await (this.supabase as any).from('sh_notifications')
+    const { data, error } = await this.supabase.from('sh_notifications')
       .delete()
       .eq('read', true)
       .lt('created_at', cutoffDate.toISOString())
@@ -219,7 +219,7 @@ export class NotificationsService extends BaseService {
    * Notify when payment is received
    */
   static async notifyPaymentReceived(paymentId: string): Promise<void> {
-    const { data: payment, error: paymentError } = await (this.supabase as any).from('sh_payments')
+    const { data: payment, error: paymentError } = await this.supabase.from('sh_payments')
       .select(
         `
         id,
@@ -288,7 +288,7 @@ export class NotificationsService extends BaseService {
     deliverableId: string,
     status: 'approved' | 'revision'
   ): Promise<void> {
-    const { data: deliverable, error } = await (this.supabase as any).from('sh_content_deliverables')
+    const { data: deliverable, error } = await this.supabase.from('sh_content_deliverables')
       .select(
         `
         id,
@@ -305,7 +305,7 @@ export class NotificationsService extends BaseService {
     if (error || !deliverable) return;
 
     // Get assigned learners
-    const { data: assignments } = await (this.supabase as any).from('sh_production_assignments')
+    const { data: assignments } = await this.supabase.from('sh_production_assignments')
       .select(
         `
         id,
@@ -355,7 +355,7 @@ export class NotificationsService extends BaseService {
     assignmentId: string
   ): Promise<void> {
     if (assignmentType === 'builder') {
-      const { data: assignment, error } = await (this.supabase as any).from('sh_builder_assignments')
+      const { data: assignment, error } = await this.supabase.from('sh_builder_assignments')
         .select(
           `
           id,
@@ -394,7 +394,7 @@ export class NotificationsService extends BaseService {
    * Notify when MoU is expiring
    */
   static async notifyMouExpiring(mouId: string, daysUntilExpiry: number): Promise<void> {
-    const { data: mou, error } = await (this.supabase as any).from('sh_solution_mous')
+    const { data: mou, error } = await this.supabase.from('sh_solution_mous')
       .select(
         `
         id,
