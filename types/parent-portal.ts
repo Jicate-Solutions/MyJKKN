@@ -432,8 +432,8 @@ export interface ParentPortalAccess {
   access_code: string;
   access_level: AccessLevel;
   is_active: boolean;
-  last_login_at: string | null;
-  login_count: number;
+  last_access: string | null; // DB column is last_access, not last_login_at
+  access_count: number; // DB column is access_count, not login_count
   notification_preferences: NotificationPreferences;
   created_at: string;
   updated_at: string;
