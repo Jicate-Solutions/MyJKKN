@@ -398,12 +398,30 @@ export interface CohortAssignment extends BaseEntity {
 
 export interface ContentOrder extends BaseEntity {
   solution_id: string;
+  order_code?: string;
+  title?: string;
   order_type?: ContentOrderType;
-  quantity: number;
-  brand_guidelines_url?: string;
   division?: ContentDivision;
-  due_date?: string;
+  description?: string;
+  requirements?: string;
+  brand_guidelines_url?: string;
+  reference_files?: string[];
+  quantity: number;
+  duration_minutes?: number;
+  dimensions?: string;
+  format?: string;
   revision_rounds: number;
+  revisions_used?: number;
+  due_date?: string;
+  priority?: number;
+  estimated_hours?: number;
+  actual_hours?: number;
+  price?: number;
+  status?: string;
+  tags?: string[];
+  notes?: string;
+  metadata?: Record<string, unknown>;
+  created_by?: string;
 }
 
 export interface ContentDeliverable extends BaseEntity {
