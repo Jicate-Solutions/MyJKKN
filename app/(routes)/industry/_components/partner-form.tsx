@@ -137,8 +137,8 @@ export function PartnerForm({ partner, mode }: PartnerFormProps) {
           contact_phone: cleanedValues.contact_phone,
           partnership_start_date: cleanedValues.partnership_start_date,
           partnership_end_date: cleanedValues.partnership_end_date,
-          company_description: cleanedValues.description,
-          company_website: cleanedValues.website_url,
+          description: cleanedValues.description,
+          website_url: cleanedValues.website_url,
           mou_document_url: cleanedValues.mou_document_url,
           is_active: cleanedValues.is_active
         });
@@ -158,8 +158,8 @@ export function PartnerForm({ partner, mode }: PartnerFormProps) {
           contact_phone,
           partnership_start_date,
           partnership_end_date,
-          company_description: description,
-          company_website: website_url,
+          description,
+          website_url,
           mou_document_url,
           is_active
         });
