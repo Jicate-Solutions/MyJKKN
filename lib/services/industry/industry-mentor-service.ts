@@ -285,7 +285,7 @@ export class IndustryMentorService {
       designation: m.designation,
       partner_name: m.partner?.company_name || '',
       expertise_areas: m.expertise_areas || [],
-      available_slots: (m.max_mentees || 5) - (m.current_mentees_count || 0)
+      available_slots: (m.max_mentees || 5) - (m.current_mentees || 0) // DB column name
     }));
   }
 }
