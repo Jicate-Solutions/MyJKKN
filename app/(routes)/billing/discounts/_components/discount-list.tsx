@@ -587,6 +587,49 @@ export function DiscountList({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk delete confirmation dialog */}
+      <AlertDialog
+        open={showBulkDeleteDialog}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Scholarships?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete {selectedDiscounts.length} scholarship(s).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                try {
+                  setIsLoading(true);
+                  await Promise.all(
+                    selectedDiscounts.map((id) =>
+                      BillingDiscountService.deleteBillingDiscount(id)
+                    )
+                  );
+                  toast.success(`${selectedDiscounts.length} discount(s) deleted successfully`);
+                  setSelectedDiscounts([]);
+                  onRefresh();
+                } catch (error) {
+                  console.error('Error deleting discounts:', error);
+                  toast.error('Failed to delete some discounts');
+                } finally {
+                  setIsLoading(false);
+                  setShowBulkDeleteDialog(false);
+                }
+              }}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading ? 'Deleting...' : 'Delete All'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
