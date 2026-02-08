@@ -82,11 +82,9 @@ export type PaperType = 'journal' | 'conference' | 'patent' | 'book_chapter' | '
 export type JournalType = 'scopus' | 'wos' | 'ugc' | 'other';
 
 export type PublicationStatus =
-  | 'identified'
-  | 'drafting'
+  | 'draft'
   | 'submitted'
   | 'under_review'
-  | 'revision'
   | 'accepted'
   | 'published'
   | 'rejected';
