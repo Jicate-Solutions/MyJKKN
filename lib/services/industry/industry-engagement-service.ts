@@ -206,12 +206,22 @@ export class IndustryEngagementService {
   static async createEngagement(
     dto: CreateLearnerEngagementDTO
   ): Promise<LearnerIndustryEngagement> {
-    const supabase = createClientSupabaseClient();
+    // Validate required fields
+    this.validateId(dto.learner_id, 'learner_id');
+    this.validateId(dto.institution_id, 'institution_id');
 
-    // Validate required institution_id
-    if (!dto.institution_id) {
-      throw new Error('institution_id is required');
+    // Validate optional UUIDs if provided
+    if (dto.project_id) {
+      this.validateId(dto.project_id, 'project_id');
     }
+    if (dto.mentor_id) {
+      this.validateId(dto.mentor_id, 'mentor_id');
+    }
+    if (dto.partner_id) {
+      this.validateId(dto.partner_id, 'partner_id');
+    }
+
+    const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
       .from('learner_industry_engagements')
