@@ -119,8 +119,12 @@ export interface StudentBill {
     first_name: string;
     last_name: string;
     roll_number?: string;
-    college_email: string;
-    student_mobile: string;
+    student_id?: string;
+    college_email?: string;
+    student_email?: string;
+    email?: string;
+    student_mobile?: string;
+    phone?: string;
     degree?: {
       id: string;
       degree_name: string;
