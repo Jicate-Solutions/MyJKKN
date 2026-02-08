@@ -57,7 +57,7 @@ export class MouService extends BaseService {
   ): Promise<BaseListResponse<MouWithSolution>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = (this.supabase as any).from('sh_solution_mous')
+    let query = this.supabase.from('sh_solution_mous')
       .select(
         `
         *,
@@ -106,7 +106,7 @@ export class MouService extends BaseService {
    * Get a single MOU by ID
    */
   static async getById(id: string): Promise<MouWithSolution | null> {
-    const { data, error } = await (this.supabase as any).from('sh_solution_mous')
+    const { data, error } = await this.supabase.from('sh_solution_mous')
       .select(
         `
         *,
@@ -133,7 +133,7 @@ export class MouService extends BaseService {
    * Get MOU by solution ID (one MOU per solution)
    */
   static async getBySolutionId(solutionId: string): Promise<MouWithSolution | null> {
-    const { data, error } = await (this.supabase as any).from('sh_solution_mous')
+    const { data, error } = await this.supabase.from('sh_solution_mous')
       .select(
         `
         *,
@@ -161,7 +161,7 @@ export class MouService extends BaseService {
    * Create a new MOU
    */
   static async create(input: CreateMouInput): Promise<SolutionMou> {
-    const { data, error } = await (this.supabase as any).from('sh_solution_mous')
+    const { data, error } = await this.supabase.from('sh_solution_mous')
       .insert({
         solution_id: input.solution_id,
         deal_value: input.deal_value,
@@ -192,7 +192,7 @@ export class MouService extends BaseService {
    * Update an existing MOU
    */
   static async update(id: string, input: UpdateMouInput): Promise<SolutionMou> {
-    const { data, error } = await (this.supabase as any).from('sh_solution_mous')
+    const { data, error } = await this.supabase.from('sh_solution_mous')
       .update({
         ...input,
         updated_at: new Date().toISOString(),
@@ -209,7 +209,7 @@ export class MouService extends BaseService {
    * Update MOU status
    */
   static async updateStatus(id: string, status: MouStatus): Promise<SolutionMou> {
-    const { data, error } = await (this.supabase as any).from('sh_solution_mous')
+    const { data, error } = await this.supabase.from('sh_solution_mous')
       .update({
         status,
         updated_at: new Date().toISOString(),
@@ -226,7 +226,7 @@ export class MouService extends BaseService {
    * Delete an MOU
    */
   static async delete(id: string): Promise<void> {
-    const { error } = await (this.supabase as any).from('sh_solution_mous').delete().eq('id', id);
+    const { error } = await this.supabase.from('sh_solution_mous').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete MOU: ${error.message}`);
   }
