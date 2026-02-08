@@ -264,7 +264,9 @@ export function DiscountList({
       }
     };
 
-    const config = statusConfig[verificationStatus as keyof typeof statusConfig] || statusConfig.pending;
+    const config = statusConfig[verificationStatus as keyof typeof statusConfig];
+    if (!config) return null;
+
     return (
       <Badge variant='outline' className={config.className}>
         <Award className='mr-1 h-3 w-3' />
