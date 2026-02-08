@@ -258,12 +258,9 @@ export function CommunicationClient() {
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-500">
                           <Badge
                             variant="outline"
-                            className={cn('text-xs', getPriorityColor(selectedMessage.priority))}
+                            className="text-xs"
                           >
-                            {getCommunicationTypeLabel(selectedMessage.type)}
-                          </Badge>
-                          <Badge variant="secondary" className="text-xs">
-                            {getPriorityLabel(selectedMessage.priority)}
+                            {getCommunicationTypeLabel(selectedMessage.communication_type)}
                           </Badge>
                           <span>
                             {new Date(
