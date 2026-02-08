@@ -32,3 +32,17 @@ BEGIN
       FOREIGN KEY (learner_id) REFERENCES learners_profiles(id) ON DELETE SET NULL;
   END IF;
 END $$;
+
+-- Add FK for outcome_program_correlation.program_id -> programs
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'outcome_program_correlation_program_id_fkey'
+      AND table_name = 'outcome_program_correlation'
+  ) THEN
+    ALTER TABLE outcome_program_correlation
+      ADD CONSTRAINT outcome_program_correlation_program_id_fkey
+      FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE CASCADE;
+  END IF;
+END $$;
