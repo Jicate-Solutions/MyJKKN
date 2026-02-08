@@ -235,9 +235,11 @@ export function ParentLoginClient() {
                       variant="ghost"
                       size="sm"
                       onClick={handleResendOTP}
-                      disabled={isRequestingOTP}
+                      disabled={isRequestingOTP || resendCooldown > 0}
                     >
-                      Resend OTP
+                      {resendCooldown > 0
+                        ? `Resend in ${resendCooldown}s`
+                        : 'Resend OTP'}
                     </Button>
                   </div>
                 </div>
