@@ -351,6 +351,29 @@ export {
 } from './use-production-portal';
 
 // ============================================
+// MOU HOOKS
+// ============================================
+
+export {
+  // MOUs
+  useMous,
+  useMou,
+  useMouBySolution,
+  useCreateMou,
+  useUpdateMou,
+  useDeleteMou,
+  useUpdateMouStatus,
+  // Constants
+  MOU_STATUS_LABELS,
+  // Types
+  type MouStatus,
+  type MouFilters,
+  type MouWithSolution,
+  type CreateMouInput,
+  type UpdateMouInput,
+} from './use-mous';
+
+// ============================================
 // DISCOVERY HOOKS
 // ============================================
 
