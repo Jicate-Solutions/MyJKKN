@@ -105,9 +105,9 @@ export async function validateCSRFFromRequest(request: Request): Promise<boolean
 /**
  * Clears the CSRF cookie
  */
-export async function clearCSRFCookie(): Promise<void> {
-  const cookieStore = await cookies();
-  cookieStore.delete(CSRF_COOKIE_NAME);
+export async function clearCSRFCookie(cookieStore?: Awaited<ReturnType<typeof cookies>>): Promise<void> {
+  const store = cookieStore ?? await cookies();
+  store.delete(CSRF_COOKIE_NAME);
 }
 
 /**
