@@ -303,15 +303,20 @@ export interface UpdateIndustryPartnerDTO {
  * Create industry mentor
  */
 export interface CreateIndustryMentorDTO {
-  partner_id: string;
+  institution_id: string; // REQUIRED - was missing
+  partner_id?: string | null; // Optional - mentor may be independent
   mentor_name: string;
   designation?: string;
-  expertise_areas?: string[];
-  email?: string;
-  phone?: string;
-  linkedin_url?: string;
+  company_name?: string; // If not linked to partner
+  profile_photo_url?: string; // DB column name
   bio?: string;
-  photo_url?: string;
+  linkedin_url?: string;
+  email: string; // REQUIRED in DB
+  phone?: string;
+  preferred_contact_method?: string;
+  expertise_areas?: string[];
+  industry_experience_years?: number;
+  competencies_can_mentor?: string[];
   availability?: MentorAvailability;
   max_mentees?: number;
   is_active?: boolean;
