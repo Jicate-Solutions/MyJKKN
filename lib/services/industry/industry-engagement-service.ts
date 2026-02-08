@@ -307,38 +307,26 @@ export class IndustryEngagementService {
 
   /**
    * Add feedback to engagement
+   * NOTE: DB has separate mentor_feedback and learner_feedback columns (JSONB)
+   * not a nested feedback object
    */
   static async addFeedback(
     id: string,
-    feedbackType: 'mentor_feedback' | 'learner_feedback' | 'supervisor_feedback',
-    feedback: EngagementFeedback[typeof feedbackType]
+    feedbackType: 'mentor_feedback' | 'learner_feedback',
+    feedback: any
   ): Promise<LearnerIndustryEngagement> {
+    this.validateId(id, 'engagement ID');
     const supabase = createClientSupabaseClient();
 
-    // First get existing feedback
-    const { data: existing, error: fetchError } = await (supabase as any)
-      .from('learner_industry_engagements')
-      .select('feedback')
-      .eq('id', id)
-      .single();
-
-    if (fetchError) {
-      console.error('[IndustryEngagementService] addFeedback fetch error:', fetchError);
-      throw new Error(fetchError.message);
-    }
-
-    const currentFeedback = existing?.feedback || {};
-    const updatedFeedback = {
-      ...currentFeedback,
-      [feedbackType]: feedback
+    // Update the specific feedback column directly
+    const updateData: Record<string, any> = {
+      [feedbackType]: feedback,
+      updated_at: new Date().toISOString()
     };
 
     const { data, error } = await (supabase as any)
       .from('learner_industry_engagements')
-      .update({
-        feedback: updatedFeedback,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
