@@ -210,7 +210,33 @@ export interface IndustryProject {
 // ============================================================================
 
 /**
- * Feedback structure for engagements
+ * Mentor Feedback structure (stored in mentor_feedback JSONB column)
+ */
+export interface MentorFeedback {
+  rating: number;  // 0-5
+  strengths: string[];
+  areas_for_improvement: string[];
+  comments: string;
+  recommend_for_placement: boolean;
+  given_at: string;
+}
+
+/**
+ * Learner Feedback structure (stored in learner_feedback JSONB column)
+ */
+export interface LearnerFeedback {
+  rating: number; // 0-5
+  experience_highlights: string[];
+  challenges_faced: string[];
+  suggestions: string;
+  would_recommend: boolean;
+  given_at: string;
+}
+
+/**
+ * Legacy feedback structure - kept for backward compatibility
+ * NOTE: DB now uses separate mentor_feedback and learner_feedback columns
+ * @deprecated Use MentorFeedback and LearnerFeedback instead
  */
 export interface EngagementFeedback {
   mentor_feedback?: {
