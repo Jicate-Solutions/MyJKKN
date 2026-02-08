@@ -89,6 +89,18 @@ export default function AlumniOutcomesPage() {
     );
   }
 
+  if (!canView) {
+    return (
+      <ContentLayout title="Alumni Outcomes">
+        <div className="text-center py-8">
+          <p className="text-destructive">
+            You don&apos;t have permission to view alumni outcomes.
+          </p>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   return (
     <ContentLayout title="Alumni Outcomes">
       <PageBreadcrumb
