@@ -12,8 +12,30 @@ import type {
   OutcomeCorrelationFilters,
   CreateOutcomeCorrelationInput,
   UpdateOutcomeCorrelationInput,
-  OutcomeType
+  OutcomeType,
+  SalaryRange
 } from '@/types/alumni';
+
+// Ordinal mapping for SalaryRange to compute average/median
+const SALARY_ORDINALS: Record<string, number> = {
+  'below_3l': 1,
+  '3l_to_5l': 2,
+  '5l_to_8l': 3,
+  '8l_to_12l': 4,
+  '12l_to_20l': 5,
+  '20l_to_35l': 6,
+  'above_35l': 7,
+};
+
+const ORDINAL_TO_SALARY: SalaryRange[] = [
+  'below_3l',   // index 0 -> ordinal 1
+  '3l_to_5l',   // index 1 -> ordinal 2
+  '5l_to_8l',   // index 2 -> ordinal 3
+  '8l_to_12l',  // index 3 -> ordinal 4
+  '12l_to_20l', // index 4 -> ordinal 5
+  '20l_to_35l', // index 5 -> ordinal 6
+  'above_35l',  // index 6 -> ordinal 7
+];
 
 export class OutcomeCorrelationService {
   private static getSupabase() {
@@ -60,7 +82,7 @@ export class OutcomeCorrelationService {
 
       let query = (this.getSupabase() as any)
         .from('outcome_program_correlation')
-        .select('*, program:programs(id, program_name), department:departments(id, name)', { count: 'exact' });
+        .select('*, program:programs(id, program_name)', { count: 'exact' });
 
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
@@ -68,14 +90,17 @@ export class OutcomeCorrelationService {
       if (filters.program_id) {
         query = query.eq('program_id', filters.program_id);
       }
-      if (filters.department_id) {
-        query = query.eq('department_id', filters.department_id);
+      if (filters.cohort_year) {
+        query = query.eq('cohort_year', filters.cohort_year);
       }
-      if (filters.academic_year) {
-        query = query.eq('academic_year', filters.academic_year);
+      if (filters.cohort_batch_id) {
+        query = query.eq('cohort_batch_id', filters.cohort_batch_id);
+      }
+      if (filters.is_published !== undefined) {
+        query = query.eq('is_published', filters.is_published);
       }
 
-      query = query.order('effectiveness_score', { ascending: false, nullsFirst: false });
+      query = query.order('employment_rate', { ascending: false, nullsFirst: false });
 
       const page = filters.page || 1;
       const limit = filters.limit || 20;
@@ -110,7 +135,7 @@ export class OutcomeCorrelationService {
 
       const { data, error } = await (this.getSupabase() as any)
         .from('outcome_program_correlation')
-        .select('*, program:programs(id, program_name), department:departments(id, name)')
+        .select('*, program:programs(id, program_name)')
         .eq('id', id)
         .maybeSingle();
 
@@ -134,8 +159,10 @@ export class OutcomeCorrelationService {
 
       const upsertData = {
         ...input,
-        top_recruiters: input.top_recruiters || [],
-        top_competencies: input.top_competencies || [],
+        top_employers: input.top_employers || [],
+        top_sectors: input.top_sectors || [],
+        top_roles: input.top_roles || [],
+        top_locations: input.top_locations || [],
         computed_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -143,7 +170,7 @@ export class OutcomeCorrelationService {
       const { data, error } = await (this.getSupabase() as any)
         .from('outcome_program_correlation')
         .upsert(upsertData, {
-          onConflict: 'program_id,academic_year'
+          onConflict: 'program_id,cohort_year'
         })
         .select()
         .single();
@@ -191,26 +218,16 @@ export class OutcomeCorrelationService {
   }
 
   /**
-   * Compute correlation from alumni outcome data for a program + academic year
+   * Compute correlation from alumni outcome data for a program + cohort year
    */
   static async computeCorrelation(
     institutionId: string,
     programId: string,
-    academicYear: string
+    cohortYear: number
   ): Promise<OutcomeProgramCorrelation> {
     try {
       this.validateId(institutionId, 'institution_id');
       this.validateId(programId, 'program_id');
-
-      // Parse year from academic year string (e.g., '2024-25' -> graduation year 2025)
-      const yearParts = academicYear.split('-');
-      let graduationYear: number;
-      if (yearParts.length === 2) {
-        const centuryPrefix = yearParts[0].substring(0, 2);
-        graduationYear = parseInt(centuryPrefix + yearParts[1], 10);
-      } else {
-        graduationYear = parseInt(academicYear, 10);
-      }
 
       // Fetch all outcomes for this program + graduation year
       const { data: outcomes, error } = await (this.getSupabase() as any)
@@ -218,7 +235,7 @@ export class OutcomeCorrelationService {
         .select('*')
         .eq('institution_id', institutionId)
         .eq('program_id', programId)
-        .eq('graduation_year', graduationYear);
+        .eq('graduation_year', cohortYear);
 
       if (error) throw error;
 
@@ -230,125 +247,201 @@ export class OutcomeCorrelationService {
         return this.upsertCorrelation({
           institution_id: institutionId,
           program_id: programId,
-          academic_year: academicYear,
+          cohort_year: cohortYear,
           total_graduates: 0
         });
       }
 
       // Compute stats
-      let placedCount = 0;
+      let employedCount = 0;
+      let selfEmployedCount = 0;
       let higherStudiesCount = 0;
       let entrepreneurCount = 0;
-      let coreDomainCount = 0;
-      let coreDomainTotal = 0;
+      let competitiveExamsCount = 0;
+      let familyBusinessCount = 0;
+      let seekingCount = 0;
+      let unknownCount = 0;
+      let relevantCount = 0;
+      let relevantTotal = 0;
       let satisfactionSum = 0;
       let satisfactionCount = 0;
       let placementDaysSum = 0;
       let placementDaysCount = 0;
-      const recruiterCounts: Record<string, number> = {};
-      const competencyCounts: Record<string, number> = {};
-      const salaryValues: number[] = [];
+      let placementBeforeGradCount = 0;
+      let wouldRecommendCount = 0;
+      let wouldRecommendTotal = 0;
+      let mentorsAvailable = 0;
+      let guestLecturersAvailable = 0;
+      let potentialRecruiters = 0;
+      const employerCounts: Record<string, number> = {};
+      const sectorCounts: Record<string, number> = {};
+      const roleCounts: Record<string, number> = {};
+      const locationCounts: Record<string, number> = {};
+      const salaryOrdinals: number[] = [];
 
       all.forEach((o: any) => {
-        if (o.outcome_type === 'employed' || o.outcome_type === 'freelancer') {
-          placedCount++;
+        // Count by outcome type
+        switch (o.outcome_type) {
+          case 'employed': employedCount++; break;
+          case 'self_employed': selfEmployedCount++; break;
+          case 'higher_studies': higherStudiesCount++; break;
+          case 'entrepreneur': entrepreneurCount++; break;
+          case 'competitive_exams': competitiveExamsCount++; break;
+          case 'family_business': familyBusinessCount++; break;
+          case 'seeking': seekingCount++; break;
+          case 'unknown': unknownCount++; break;
         }
-        if (o.outcome_type === 'higher_studies') higherStudiesCount++;
-        if (o.outcome_type === 'entrepreneur') entrepreneurCount++;
 
-        if (o.is_core_domain !== null) {
-          coreDomainTotal++;
-          if (o.is_core_domain) coreDomainCount++;
+        // Program relevance
+        if (o.is_relevant_to_program !== null && o.is_relevant_to_program !== undefined) {
+          relevantTotal++;
+          if (o.is_relevant_to_program) relevantCount++;
         }
 
+        // Satisfaction
         if (typeof o.satisfaction_score === 'number') {
           satisfactionSum += o.satisfaction_score;
           satisfactionCount++;
         }
 
-        if (typeof o.time_to_placement_days === 'number') {
-          placementDaysSum += o.time_to_placement_days;
-          placementDaysCount++;
+        // Would recommend
+        if (o.would_recommend_program !== null && o.would_recommend_program !== undefined) {
+          wouldRecommendTotal++;
+          if (o.would_recommend_program) wouldRecommendCount++;
         }
 
-        if (o.company_name) {
-          recruiterCounts[o.company_name] = (recruiterCounts[o.company_name] || 0) + 1;
-        }
-
-        if (o.competencies_utilized && Array.isArray(o.competencies_utilized)) {
-          o.competencies_utilized.forEach((c: string) => {
-            competencyCounts[c] = (competencyCounts[c] || 0) + 1;
-          });
-        }
-
-        // Estimate salary from range for average
-        if (o.salary_range) {
-          const salaryMap: Record<string, number> = {
-            'below_3_lpa': 2,
-            '3-5 LPA': 4,
-            '5-8 LPA': 6.5,
-            '8-12 LPA': 10,
-            '12+ LPA': 15
-          };
-          if (salaryMap[o.salary_range]) {
-            salaryValues.push(salaryMap[o.salary_range]);
+        // Placement timing (using outcome_start_date vs graduation_date)
+        if (o.outcome_start_date && o.graduation_date) {
+          const gradDate = new Date(o.graduation_date);
+          const startDate = new Date(o.outcome_start_date);
+          const daysDiff = Math.round((startDate.getTime() - gradDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysDiff >= 0) {
+            placementDaysSum += daysDiff;
+            placementDaysCount++;
           }
+          if (daysDiff < 0) {
+            placementBeforeGradCount++;
+          }
+        }
+
+        // Employer tracking
+        if (o.company_name) {
+          employerCounts[o.company_name] = (employerCounts[o.company_name] || 0) + 1;
+        }
+
+        // Sector tracking
+        if (o.industry_sector) {
+          sectorCounts[o.industry_sector] = (sectorCounts[o.industry_sector] || 0) + 1;
+        }
+
+        // Role tracking
+        if (o.designation) {
+          roleCounts[o.designation] = (roleCounts[o.designation] || 0) + 1;
+        }
+
+        // Location tracking
+        if (o.city) {
+          locationCounts[o.city] = (locationCounts[o.city] || 0) + 1;
+        }
+
+        // Salary range ordinals (skip not_applicable and undisclosed)
+        if (o.salary_range && SALARY_ORDINALS[o.salary_range]) {
+          salaryOrdinals.push(SALARY_ORDINALS[o.salary_range]);
+        }
+
+        // Engagement
+        if (o.is_willing_to_mentor) mentorsAvailable++;
+        if (o.is_willing_to_guest_lecture) guestLecturersAvailable++;
+        if (o.is_willing_to_hire) potentialRecruiters++;
+      });
+
+      // Compute salary ranges
+      let averageSalaryRange: SalaryRange | undefined;
+      let medianSalaryRange: SalaryRange | undefined;
+      if (salaryOrdinals.length > 0) {
+        const avgOrdinal = Math.round(salaryOrdinals.reduce((a, b) => a + b, 0) / salaryOrdinals.length);
+        averageSalaryRange = ORDINAL_TO_SALARY[Math.max(0, Math.min(avgOrdinal - 1, 6))];
+
+        const sorted = [...salaryOrdinals].sort((a, b) => a - b);
+        const medianOrdinal = sorted[Math.floor(sorted.length / 2)];
+        medianSalaryRange = ORDINAL_TO_SALARY[Math.max(0, Math.min(medianOrdinal - 1, 6))];
+      }
+
+      // Build salary distribution
+      const salaryDistribution: Record<string, number> = {};
+      all.forEach((o: any) => {
+        if (o.salary_range) {
+          salaryDistribution[o.salary_range] = (salaryDistribution[o.salary_range] || 0) + 1;
         }
       });
 
-      // Sort and get top recruiters/competencies
-      const topRecruiters = Object.entries(recruiterCounts)
+      // Sort and get top employers/sectors/roles/locations
+      const topEmployers = Object.entries(employerCounts)
         .sort(([, a], [, b]) => b - a)
         .slice(0, 10)
-        .map(([name]) => name);
+        .map(([company, count]) => ({ company, count }));
 
-      const topCompetencies = Object.entries(competencyCounts)
+      const topSectors = Object.entries(sectorCounts)
         .sort(([, a], [, b]) => b - a)
         .slice(0, 10)
-        .map(([name]) => name);
+        .map(([sector, count]) => ({
+          sector,
+          count,
+          percentage: total > 0 ? Math.round((count / total) * 1000) / 10 : 0
+        }));
 
-      // Calculate salary stats
-      const avgSalary = salaryValues.length > 0
-        ? salaryValues.reduce((a, b) => a + b, 0) / salaryValues.length
-        : null;
-      const sortedSalaries = [...salaryValues].sort((a, b) => a - b);
-      const medianSalary = sortedSalaries.length > 0
-        ? sortedSalaries[Math.floor(sortedSalaries.length / 2)]
-        : null;
+      const topRoles = Object.entries(roleCounts)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 10)
+        .map(([role, count]) => ({ role, count }));
 
-      // Calculate effectiveness score (composite)
-      // Placement % * 0.3 + Core domain % * 0.2 + Satisfaction * 0.2 + Speed * 0.15 + Higher Studies * 0.15
-      const placementPct = total > 0 ? (placedCount / total) * 100 : 0;
-      const coreDomainPct = coreDomainTotal > 0 ? (coreDomainCount / coreDomainTotal) * 100 : 0;
-      const satisfactionNorm = satisfactionCount > 0 ? ((satisfactionSum / satisfactionCount) / 10) * 100 : 0;
-      const speedScore = placementDaysCount > 0
-        ? Math.max(0, 100 - (placementDaysSum / placementDaysCount) / 3.65) // 365 days = 0, 0 days = 100
-        : 50; // default neutral
-      const higherStudiesPct = total > 0 ? (higherStudiesCount / total) * 100 : 0;
+      const topLocations = Object.entries(locationCounts)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 10)
+        .map(([city, count]) => ({ city, count }));
 
-      const effectivenessScore =
-        placementPct * 0.3 +
-        coreDomainPct * 0.2 +
-        satisfactionNorm * 0.2 +
-        speedScore * 0.15 +
-        higherStudiesPct * 0.15;
+      // Compute rates
+      const tracked = total;
+      const totalEmployed = employedCount + selfEmployedCount;
+      const employmentRate = tracked > 0 ? Math.round((totalEmployed / tracked) * 10000) / 100 : undefined;
+      const entrepreneurshipRate = tracked > 0 ? Math.round((entrepreneurCount / tracked) * 10000) / 100 : undefined;
+      const higherStudiesRate = tracked > 0 ? Math.round((higherStudiesCount / tracked) * 10000) / 100 : undefined;
 
       return this.upsertCorrelation({
         institution_id: institutionId,
         program_id: programId,
-        academic_year: academicYear,
+        cohort_year: cohortYear,
         total_graduates: total,
-        placed_count: placedCount,
+        tracked_graduates: tracked,
+        employed_count: employedCount,
+        self_employed_count: selfEmployedCount,
         higher_studies_count: higherStudiesCount,
         entrepreneur_count: entrepreneurCount,
-        average_salary_lpa: avgSalary ? Math.round(avgSalary * 100) / 100 : undefined,
-        median_salary_lpa: medianSalary ? Math.round(medianSalary * 100) / 100 : undefined,
-        core_domain_percentage: coreDomainTotal > 0 ? Math.round((coreDomainCount / coreDomainTotal) * 10000) / 100 : undefined,
-        average_time_to_placement_days: placementDaysCount > 0 ? Math.round(placementDaysSum / placementDaysCount) : undefined,
-        top_recruiters: topRecruiters,
-        top_competencies: topCompetencies,
-        satisfaction_average: satisfactionCount > 0 ? Math.round((satisfactionSum / satisfactionCount) * 10) / 10 : undefined,
-        effectiveness_score: Math.round(effectivenessScore * 100) / 100
+        competitive_exams_count: competitiveExamsCount,
+        family_business_count: familyBusinessCount,
+        seeking_count: seekingCount,
+        unknown_count: unknownCount,
+        employment_rate: employmentRate,
+        entrepreneurship_rate: entrepreneurshipRate,
+        higher_studies_rate: higherStudiesRate,
+        average_salary_range: averageSalaryRange,
+        median_salary_range: medianSalaryRange,
+        salary_distribution: Object.keys(salaryDistribution).length > 0 ? salaryDistribution : undefined,
+        top_employers: topEmployers.length > 0 ? topEmployers : undefined,
+        top_sectors: topSectors.length > 0 ? topSectors : undefined,
+        top_roles: topRoles.length > 0 ? topRoles : undefined,
+        top_locations: topLocations.length > 0 ? topLocations : undefined,
+        avg_relevance_percentage: relevantTotal > 0 ? Math.round((relevantCount / relevantTotal) * 10000) / 100 : undefined,
+        program_satisfaction_avg: satisfactionCount > 0 ? Math.round((satisfactionSum / satisfactionCount) * 10) / 10 : undefined,
+        would_recommend_percentage: wouldRecommendTotal > 0 ? Math.round((wouldRecommendCount / wouldRecommendTotal) * 10000) / 100 : undefined,
+        avg_days_to_placement: placementDaysCount > 0 ? Math.round(placementDaysSum / placementDaysCount) : undefined,
+        placement_before_graduation_count: placementBeforeGradCount > 0 ? placementBeforeGradCount : undefined,
+        mentors_available: mentorsAvailable > 0 ? mentorsAvailable : undefined,
+        guest_lecturers_available: guestLecturersAvailable > 0 ? guestLecturersAvailable : undefined,
+        potential_recruiters: potentialRecruiters > 0 ? potentialRecruiters : undefined,
+        alumni_engaged_count: (mentorsAvailable + guestLecturersAvailable + potentialRecruiters) > 0
+          ? mentorsAvailable + guestLecturersAvailable + potentialRecruiters
+          : undefined,
       });
     } catch (error) {
       console.error('[OutcomeCorrelation] Error computing correlation:', this.formatError(error));
