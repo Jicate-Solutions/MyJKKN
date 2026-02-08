@@ -82,7 +82,7 @@ export class OutcomeCorrelationService {
 
       let query = (this.getSupabase() as any)
         .from('outcome_program_correlation')
-        .select('*, program:programs(id, program_name)', { count: 'exact' });
+        .select('*, program:programs!program_id(id, program_name)', { count: 'exact' });
 
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
