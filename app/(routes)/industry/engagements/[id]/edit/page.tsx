@@ -192,10 +192,10 @@ export default function EditEngagementPage() {
                     )} />
                   </div>
 
-                  <FormField control={form.control} name="progress_percentage" render={({ field }) => (
+                  <FormField control={form.control} name="hours_completed" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Progress (%)</FormLabel>
-                      <FormControl><Input type="number" min={0} max={100} {...field} /></FormControl>
+                      <FormLabel>Hours Completed</FormLabel>
+                      <FormControl><Input type="number" min={0} {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
