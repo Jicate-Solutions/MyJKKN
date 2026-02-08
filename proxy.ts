@@ -486,6 +486,9 @@ export const config = {
     '/students/:path*',
     '/guest/:path*',
     '/driver/:path*',
+    // SECURITY: Parent portal routes (uses separate auth system)
+    '/parent-portal/:path*',
+    '/api/parent-portal/:path*',
     // Match all paths except public ones
     '/((?!_next/static|_next/image|favicon.ico|auth|icons|pwa-test.html).*)'
   ]
