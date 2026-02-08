@@ -157,8 +157,9 @@ export function useArchiveLearningPath() {
 
   return useMutation({
     mutationFn: (id: string) => LearningPathService.archiveLearningPath(id),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: learningPathKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: learningPathKeys.detail(id) });
     },
   });
 }
