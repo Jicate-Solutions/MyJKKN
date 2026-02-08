@@ -67,11 +67,29 @@ export async function validateCSRFToken(headerToken: string | null): Promise<boo
     return false;
   }
 
-  // Use timing-safe comparison to prevent timing attacks
-  return crypto.timingSafeEqual(
-    Buffer.from(headerToken),
-    Buffer.from(cookieToken)
-  );
+  // Validate token format (should be 64 hex characters)
+  const tokenPattern = /^[0-9a-f]{64}$/i;
+  if (!tokenPattern.test(headerToken) || !tokenPattern.test(cookieToken)) {
+    return false;
+  }
+
+  // Check buffer lengths match before timing-safe comparison
+  // crypto.timingSafeEqual throws an error if lengths differ
+  const headerBuffer = Buffer.from(headerToken, 'utf8');
+  const cookieBuffer = Buffer.from(cookieToken, 'utf8');
+
+  if (headerBuffer.length !== cookieBuffer.length) {
+    return false;
+  }
+
+  try {
+    // Use timing-safe comparison to prevent timing attacks
+    return crypto.timingSafeEqual(headerBuffer, cookieBuffer);
+  } catch (error) {
+    // Catch any unexpected errors during comparison
+    console.error('[CSRF] Token comparison error:', error);
+    return false;
+  }
 }
 
 /**
