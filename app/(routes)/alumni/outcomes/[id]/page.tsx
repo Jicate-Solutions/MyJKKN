@@ -233,7 +233,7 @@ export default function AlumniOutcomeDetailPage() {
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             {/* Employment/Outcome Details */}
-            {(outcome.outcome_type === 'employed' || outcome.outcome_type === 'freelancer') && (
+            {(outcome.outcome_type === 'employed' || outcome.outcome_type === 'self_employed') && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
