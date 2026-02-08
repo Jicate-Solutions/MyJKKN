@@ -78,6 +78,10 @@ export function ParentLoginClient() {
         } else if (result.success && result.is_new) {
           // New parent - redirect to registration
           router.push(`/auth/parent/register?phone=${encodeURIComponent(phoneNumber)}`);
+        } else if (result.success) {
+          // Edge case: success but no parent_id or is_new flag - shouldn't happen
+          console.error('[parent-login] Unexpected response:', result);
+          router.push('/auth/parent/register?phone=' + encodeURIComponent(phoneNumber));
         }
       },
     });
