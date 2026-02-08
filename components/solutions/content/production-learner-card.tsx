@@ -18,6 +18,11 @@ const divisionConfig: Record<ContentDivision, { label: string; color: string }> 
   education: { label: 'Education', color: 'bg-green-100 text-green-800' },
   translation: { label: 'Translation', color: 'bg-yellow-100 text-yellow-800' },
   research: { label: 'Research', color: 'bg-gray-100 text-gray-800' },
+  design: { label: 'Design', color: 'bg-indigo-100 text-indigo-800' },
+  writing: { label: 'Writing', color: 'bg-teal-100 text-teal-800' },
+  animation: { label: 'Animation', color: 'bg-amber-100 text-amber-800' },
+  social: { label: 'Social', color: 'bg-pink-100 text-pink-800' },
+  other: { label: 'Other', color: 'bg-slate-100 text-slate-800' },
 }
 
 const skillLevelConfig: Record<SkillLevel, { label: string; color: string }> = {
