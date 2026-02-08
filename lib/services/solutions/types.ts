@@ -308,15 +308,30 @@ export interface ImplementationUser extends BaseEntity {
 
 export interface TrainingProgram extends BaseEntity {
   solution_id: string;
+  program_code?: string;
+  title?: string;
   program_type?: ProgramType;
-  track?: CohortTrack;
+  track?: string;
+  description?: string;
+  objectives?: string[];
+  prerequisites?: string[];
   participant_count?: number;
-  location?: string;
-  location_preference?: LocationPreference;
-  scheduled_start?: string;
-  scheduled_end?: string;
-  actual_start?: string;
-  actual_end?: string;
+  max_participants?: number;
+  location_preference?: string;
+  venue?: string;
+  start_date?: string;
+  end_date?: string;
+  total_hours?: number;
+  total_sessions?: number;
+  price_per_participant?: number;
+  total_price?: number;
+  materials_included?: boolean;
+  certification_included?: boolean;
+  status?: string;
+  tags?: string[];
+  notes?: string;
+  metadata?: Record<string, unknown>;
+  created_by?: string;
 }
 
 export interface TrainingSession extends BaseEntity {
