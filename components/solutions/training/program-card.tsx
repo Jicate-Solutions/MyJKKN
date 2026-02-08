@@ -99,19 +99,19 @@ export function ProgramCard({ program }: ProgramCardProps) {
               </div>
             )}
 
-            {program.scheduled_start && (
+            {program.start_date && (
               <div className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
-                <span>{format(new Date(program.scheduled_start), 'MMM dd, yyyy')}</span>
+                <span>{format(new Date(program.start_date), 'MMM dd, yyyy')}</span>
               </div>
             )}
           </div>
 
           {/* Duration */}
-          {program.scheduled_start && program.scheduled_end && (
+          {program.start_date && program.end_date && (
             <div className="text-xs text-muted-foreground">
-              {format(new Date(program.scheduled_start), 'MMM dd')} -{' '}
-              {format(new Date(program.scheduled_end), 'MMM dd, yyyy')}
+              {format(new Date(program.start_date), 'MMM dd')} -{' '}
+              {format(new Date(program.end_date), 'MMM dd, yyyy')}
             </div>
           )}
 
