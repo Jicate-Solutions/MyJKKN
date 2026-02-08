@@ -42,9 +42,10 @@ const OUTCOME_BADGE_COLORS: Record<OutcomeType, string> = {
 };
 
 export default function AlumniOutcomesPage() {
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
   const institutionId = institutions?.[0]?.institution_id || '';
+  const canView = isSuperAdmin || canAccess('alumni.outcomes', 'view');
 
   // Filter state
   const [search, setSearch] = useState('');
