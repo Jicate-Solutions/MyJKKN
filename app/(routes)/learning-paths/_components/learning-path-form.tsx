@@ -35,6 +35,9 @@ interface LearningPathFormProps {
   isSubmitting: boolean;
 }
 
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function LearningPathForm({
   institutionId,
   learnerId,
@@ -61,6 +64,7 @@ export function LearningPathForm({
   );
   const [status, setStatus] = useState<LearningPathStatus>(path?.status || 'active');
   const [learnerIdInput, setLearnerIdInput] = useState(path?.learner_id || learnerId || '');
+  const [learnerIdError, setLearnerIdError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
