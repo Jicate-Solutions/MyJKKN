@@ -493,10 +493,8 @@ export class ParentPortalService {
         sender_id: input.sender_id || null, // FIXED: DB column is sender_id
         attachments: input.attachments || [],
       })
-      .select(`
-        *,
-        sender:profiles!sender_id(id, name, avatar_url)
-      `)
+      // NOTE: sender_id has NO FK to profiles. Cannot join.
+      .select('*')
       .single();
 
     if (error) throw error;
