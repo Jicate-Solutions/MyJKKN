@@ -132,7 +132,7 @@ export function ParentLoginClient() {
         </CardHeader>
         <CardContent>
           {step === 'phone' ? (
-            <Form {...phoneForm}>
+            <Form key="phone-form" {...phoneForm}>
               <form
                 onSubmit={phoneForm.handleSubmit(handlePhoneSubmit)}
                 className="space-y-4"
@@ -172,7 +172,7 @@ export function ParentLoginClient() {
               </form>
             </Form>
           ) : (
-            <Form {...otpForm}>
+            <Form key="otp-form" {...otpForm}>
               <form
                 onSubmit={otpForm.handleSubmit(handleOTPSubmit)}
                 className="space-y-6"
