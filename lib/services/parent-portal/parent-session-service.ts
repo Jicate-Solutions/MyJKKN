@@ -153,14 +153,14 @@ export class ParentSessionService {
    * Clears the session cookie AND revokes the session in the database
    * SECURITY: This prevents stolen cookies from remaining valid after logout
    */
-  static async clearSessionCookie(): Promise<void> {
-    const cookieStore = await cookies();
+  static async clearSessionCookie(cookieStore?: Awaited<ReturnType<typeof cookies>>): Promise<void> {
+    const store = cookieStore ?? await cookies();
 
     // Get token before deleting cookie
-    const token = await this.getSessionToken();
+    const token = await this.getSessionToken(store);
 
     // Delete the cookie first
-    cookieStore.delete(SESSION_COOKIE_NAME);
+    store.delete(SESSION_COOKIE_NAME);
 
     // Revoke session in database if token exists
     // This prevents stolen cookies from being used after logout
