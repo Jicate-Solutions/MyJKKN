@@ -271,10 +271,10 @@ export default function EngagementDetailPage() {
                       <span>{new Date(engagement.expected_end_date).toLocaleDateString()}</span>
                     </div>
                   )}
-                  {engagement.actual_end_date && (
+                  {engagement.end_date && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Actual End</span>
-                      <span>{new Date(engagement.actual_end_date).toLocaleDateString()}</span>
+                      <span>{new Date(engagement.end_date).toLocaleDateString()}</span>
                     </div>
                   )}
                 </CardContent>
