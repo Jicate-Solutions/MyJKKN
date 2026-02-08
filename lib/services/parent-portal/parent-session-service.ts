@@ -245,11 +245,24 @@ export class ParentSessionService {
   }
 
   /**
-   * Clean up expired sessions (should be run periodically)
+   * Clean up expired sessions (should be run periodically via cron job)
+   * @returns Number of sessions cleaned up
    */
-  static async cleanupExpiredSessions(): Promise<void> {
+  static async cleanupExpiredSessions(): Promise<number> {
     const supabase = await createClient();
 
-    await supabase.rpc('cleanup_expired_parent_sessions');
+    const { data, error } = await supabase.rpc('cleanup_expired_parent_sessions');
+
+    if (error) {
+      console.error('[ParentSessionService] Failed to cleanup expired sessions:', error);
+      throw new Error('Failed to cleanup expired sessions');
+    }
+
+    const cleanedCount = data?.count || 0;
+    if (cleanedCount > 0) {
+      console.log(`[ParentSessionService] Cleaned up ${cleanedCount} expired sessions`);
+    }
+
+    return cleanedCount;
   }
 }

@@ -527,9 +527,9 @@ export default function LearningPathDetailPage() {
                                     {step.target_competencies &&
                                       step.target_competencies.length > 0 && (
                                         <div className="flex flex-wrap gap-1 mt-2">
-                                          {step.target_competencies.map((comp) => (
+                                          {step.target_competencies.map((comp, idx) => (
                                             <Badge
-                                              key={comp}
+                                              key={`${step.id}-comp-${idx}`}
                                               variant="secondary"
                                               className="text-xs"
                                             >

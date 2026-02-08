@@ -475,17 +475,18 @@ export class ParentPortalService {
       .from('parent_communications')
       .insert({
         institution_id: input.institution_id,
-        parent_access_id: input.parent_access_id || null,
+        parent_id: input.parent_id || null, // FIXED: DB column is parent_id
         learner_id: input.learner_id,
-        communication_type: input.communication_type,
+        type: input.type, // FIXED: DB column is type
         subject: input.subject,
         content: input.content,
-        sent_by: input.sent_by || null,
+        priority: input.priority || 'normal', // FIXED: DB has priority column
+        sender_id: input.sender_id || null, // FIXED: DB column is sender_id
         attachments: input.attachments || [],
       })
       .select(`
         *,
-        sender:profiles!sent_by(id, name, avatar_url)
+        sender:profiles!sender_id(id, name, avatar_url)
       `)
       .single();
 
