@@ -579,25 +579,29 @@ export interface UpdateOutcomeCorrelationInput {
 
 export interface AlumniOutcomeFilters {
   institution_id?: string;
-  search?: string;
+  search?: string;  // Search across learner name, company_name, designation, industry_sector
   outcome_type?: OutcomeType;
   graduation_year?: number;
   program_id?: string;
-  department_id?: string;
-  verified?: boolean;
-  data_source?: DataSource;
-  is_core_domain?: boolean;
+  batch_id?: string;
+  verification_status?: VerificationStatus;  // Not just boolean verified
+  is_relevant_to_program?: boolean;  // Not is_core_domain
+  city?: string;
+  state?: string;
+  country?: string;
+  salary_range?: SalaryRange;
   page?: number;
   limit?: number;
-  sort_by?: 'name' | 'graduation_year' | 'created_at' | 'outcome_type';
+  sort_by?: 'graduation_date' | 'graduation_year' | 'created_at' | 'outcome_type' | 'satisfaction_score';
   sort_order?: 'asc' | 'desc';
 }
 
 export interface OutcomeCorrelationFilters {
   institution_id?: string;
   program_id?: string;
-  department_id?: string;
-  academic_year?: string;
+  cohort_year?: number;  // INTEGER, not "academic_year" string
+  cohort_batch_id?: string;
+  is_published?: boolean;
   page?: number;
   limit?: number;
 }
