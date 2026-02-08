@@ -2205,6 +2205,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/bug-leaderboard',
+          label: 'Bug Leaderboard',
+          active: pathname === '/bug-leaderboard',
+          icon: Trophy,
+          submenus: []
+        },
+        {
           href: '/admin/ai-query-tools',
           label: 'AI Query Tools',
           active: pathname.startsWith('/admin/ai-query-tools'),
