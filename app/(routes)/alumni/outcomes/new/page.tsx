@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useCreateAlumniOutcome } from '@/hooks/alumni';
+import { usePrograms } from '@/hooks/organization/use-programs';
 import {
   OUTCOME_TYPE_LABELS,
   SALARY_RANGE_OPTIONS,
