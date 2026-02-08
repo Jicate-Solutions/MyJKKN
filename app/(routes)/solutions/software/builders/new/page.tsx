@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
+import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
