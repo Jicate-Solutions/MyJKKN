@@ -29,13 +29,11 @@ const projectSchema = z.object({
   min_team_size: z.coerce.number().min(1).optional(),
   stipend_amount: z.coerce.number().min(0).optional(),
   application_deadline: z.string().optional(),
-  start_date: z.string().optional(),
-  end_date: z.string().optional(),
-  technologies: z.string().optional(),
+  project_start_date: z.string().optional(),
+  project_end_date: z.string().optional(),
+  detailed_requirements: z.string().optional(),
   deliverables: z.string().optional(),
-  location: z.string().optional(),
-  is_remote: z.boolean().default(false),
-  mentor_id: z.string().optional()
+  assigned_mentor_id: z.string().optional()
 });
 
 type ProjectFormValues = z.infer<typeof projectSchema>;
@@ -62,13 +60,11 @@ export default function NewProjectPage() {
       min_team_size: 1,
       stipend_amount: undefined,
       application_deadline: '',
-      start_date: '',
-      end_date: '',
-      technologies: '',
+      project_start_date: '',
+      project_end_date: '',
+      detailed_requirements: '',
       deliverables: '',
-      location: '',
-      is_remote: false,
-      mentor_id: ''
+      assigned_mentor_id: ''
     }
   });
 
@@ -78,6 +74,7 @@ export default function NewProjectPage() {
   const onSubmit = async (values: ProjectFormValues) => {
     try {
       await createMutation.mutateAsync({
+        institution_id: institutionId,
         partner_id: values.partner_id,
         project_title: values.project_title,
         description: values.description,
@@ -87,13 +84,11 @@ export default function NewProjectPage() {
         min_team_size: values.min_team_size,
         stipend_amount: values.stipend_amount,
         application_deadline: values.application_deadline || undefined,
-        start_date: values.start_date || undefined,
-        end_date: values.end_date || undefined,
-        technologies: values.technologies ? values.technologies.split(',').map(s => s.trim()) : [],
+        project_start_date: values.project_start_date || undefined,
+        project_end_date: values.project_end_date || undefined,
+        detailed_requirements: values.detailed_requirements,
         deliverables: values.deliverables ? values.deliverables.split(',').map(s => s.trim()) : [],
-        location: values.location,
-        is_remote: values.is_remote,
-        mentor_id: values.mentor_id || undefined
+        assigned_mentor_id: values.assigned_mentor_id || undefined
       });
       toast({ title: 'Project created successfully' });
       router.push('/industry/projects');
@@ -134,7 +129,7 @@ export default function NewProjectPage() {
                         <FormMessage />
                       </FormItem>
                     )} />
-                    <FormField control={form.control} name="mentor_id" render={({ field }) => (
+                    <FormField control={form.control} name="assigned_mentor_id" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Assigned Mentor</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
@@ -209,10 +204,10 @@ export default function NewProjectPage() {
                       </FormItem>
                     )} />
                   </div>
-                  <FormField control={form.control} name="technologies" render={({ field }) => (
+                  <FormField control={form.control} name="detailed_requirements" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Technologies (comma-separated)</FormLabel>
-                      <FormControl><Input placeholder="React, Node.js, PostgreSQL" {...field} /></FormControl>
+                      <FormLabel>Requirements / Technologies</FormLabel>
+                      <FormControl><Textarea placeholder="Technologies, tools, and requirements..." className="min-h-[80px]" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -227,22 +222,11 @@ export default function NewProjectPage() {
                     <FormField control={form.control} name="application_deadline" render={({ field }) => (
                       <FormItem><FormLabel>Application Deadline</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
-                    <FormField control={form.control} name="start_date" render={({ field }) => (
+                    <FormField control={form.control} name="project_start_date" render={({ field }) => (
                       <FormItem><FormLabel>Start Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
-                    <FormField control={form.control} name="end_date" render={({ field }) => (
+                    <FormField control={form.control} name="project_end_date" render={({ field }) => (
                       <FormItem><FormLabel>End Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
-                    )} />
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FormField control={form.control} name="location" render={({ field }) => (
-                      <FormItem><FormLabel>Location</FormLabel><FormControl><Input placeholder="City, State" {...field} /></FormControl><FormMessage /></FormItem>
-                    )} />
-                    <FormField control={form.control} name="is_remote" render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                        <div><FormLabel>Remote Work</FormLabel><FormDescription>Allow remote participation</FormDescription></div>
-                        <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                      </FormItem>
                     )} />
                   </div>
                 </CardContent>
