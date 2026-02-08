@@ -13,7 +13,9 @@ import type {
   CreateAlumniOutcomeInput,
   UpdateAlumniOutcomeInput,
   AlumniDashboardStats,
-  OutcomeType
+  OutcomeType,
+  SalaryRange,
+  VerificationStatus
 } from '@/types/alumni';
 
 export class AlumniOutcomeService {
@@ -61,7 +63,7 @@ export class AlumniOutcomeService {
 
       let query = (this.getSupabase() as any)
         .from('alumni_outcomes')
-        .select('*, program:programs(id, program_name), department:departments(id, name)', { count: 'exact' });
+        .select('*, program:programs(id, program_name), learner:learners(id, first_name, last_name)', { count: 'exact' });
 
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
@@ -75,21 +77,30 @@ export class AlumniOutcomeService {
       if (filters.program_id) {
         query = query.eq('program_id', filters.program_id);
       }
-      if (filters.department_id) {
-        query = query.eq('department_id', filters.department_id);
+      if (filters.batch_id) {
+        query = query.eq('batch_id', filters.batch_id);
       }
-      if (filters.verified !== undefined) {
-        query = query.eq('verified', filters.verified);
+      if (filters.verification_status) {
+        query = query.eq('verification_status', filters.verification_status);
       }
-      if (filters.data_source) {
-        query = query.eq('data_source', filters.data_source);
+      if (filters.is_relevant_to_program !== undefined) {
+        query = query.eq('is_relevant_to_program', filters.is_relevant_to_program);
       }
-      if (filters.is_core_domain !== undefined) {
-        query = query.eq('is_core_domain', filters.is_core_domain);
+      if (filters.city) {
+        query = query.eq('city', filters.city);
+      }
+      if (filters.state) {
+        query = query.eq('state', filters.state);
+      }
+      if (filters.country) {
+        query = query.eq('country', filters.country);
+      }
+      if (filters.salary_range) {
+        query = query.eq('salary_range', filters.salary_range);
       }
       if (filters.search) {
         query = query.or(
-          `name.ilike.%${filters.search}%,company_name.ilike.%${filters.search}%,job_title.ilike.%${filters.search}%,industry.ilike.%${filters.search}%`
+          `company_name.ilike.%${filters.search}%,designation.ilike.%${filters.search}%,industry_sector.ilike.%${filters.search}%`
         );
       }
 
@@ -130,7 +141,7 @@ export class AlumniOutcomeService {
 
       const { data, error } = await (this.getSupabase() as any)
         .from('alumni_outcomes')
-        .select('*, program:programs(id, program_name), department:departments(id, name)')
+        .select('*, program:programs(id, program_name), learner:learners(id, first_name, last_name)')
         .eq('id', id)
         .maybeSingle();
 
@@ -153,8 +164,9 @@ export class AlumniOutcomeService {
 
       const insertData = {
         ...input,
-        competencies_utilized: input.competencies_utilized || [],
+        skills_used: input.skills_used || [],
         data_source: input.data_source || 'self_reported',
+        verification_status: input.verification_status || 'pending',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -231,7 +243,7 @@ export class AlumniOutcomeService {
   }
 
   /**
-   * Verify alumni outcome
+   * Verify alumni outcome (set verification_status to document_verified)
    */
   static async verifyOutcome(id: string, verifiedBy: string): Promise<AlumniOutcome> {
     try {
@@ -240,7 +252,7 @@ export class AlumniOutcomeService {
       const { data, error } = await (this.getSupabase() as any)
         .from('alumni_outcomes')
         .update({
-          verified: true,
+          verification_status: 'document_verified' as VerificationStatus,
           verified_by: verifiedBy,
           verified_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -269,7 +281,7 @@ export class AlumniOutcomeService {
 
       const { data: outcomes, error } = await (this.getSupabase() as any)
         .from('alumni_outcomes')
-        .select('outcome_type, salary_range, is_core_domain, satisfaction_score, verified, time_to_placement_days')
+        .select('outcome_type, salary_range, is_relevant_to_program, satisfaction_score, verification_status, city, is_willing_to_mentor, is_willing_to_hire, is_willing_to_guest_lecture')
         .eq('institution_id', institutionId);
 
       if (error) throw error;
@@ -277,23 +289,29 @@ export class AlumniOutcomeService {
       const all = outcomes || [];
       const total = all.length;
 
-      // Count by outcome type
+      // Count by outcome type (all 9 types)
       const byType: Record<OutcomeType, number> = {
         employed: 0,
-        higher_studies: 0,
+        self_employed: 0,
         entrepreneur: 0,
-        freelancer: 0,
-        unemployed: 0,
+        higher_studies: 0,
+        competitive_exams: 0,
+        family_business: 0,
+        gap_year: 0,
+        seeking: 0,
         unknown: 0
       };
-      const bySalary: Record<string, number> = {};
-      let coreDomainCount = 0;
-      let coreDomainTotal = 0;
+      const bySalary: Record<string, number> = {} as Record<SalaryRange, number>;
+      const byCity: Record<string, number> = {};
+      let relevantCount = 0;
+      let relevantTotal = 0;
       let satisfactionSum = 0;
       let satisfactionCount = 0;
       let verifiedCount = 0;
-      let placementDaysSum = 0;
-      let placementDaysCount = 0;
+      let pendingCount = 0;
+      let willingToMentor = 0;
+      let willingToHire = 0;
+      let willingToGuestLecture = 0;
 
       all.forEach((o: any) => {
         if (o.outcome_type && byType[o.outcome_type as OutcomeType] !== undefined) {
@@ -302,35 +320,46 @@ export class AlumniOutcomeService {
         if (o.salary_range) {
           bySalary[o.salary_range] = (bySalary[o.salary_range] || 0) + 1;
         }
-        if (o.is_core_domain !== null) {
-          coreDomainTotal++;
-          if (o.is_core_domain) coreDomainCount++;
+        if (o.city) {
+          byCity[o.city] = (byCity[o.city] || 0) + 1;
+        }
+        if (o.is_relevant_to_program !== null && o.is_relevant_to_program !== undefined) {
+          relevantTotal++;
+          if (o.is_relevant_to_program) relevantCount++;
         }
         if (typeof o.satisfaction_score === 'number') {
           satisfactionSum += o.satisfaction_score;
           satisfactionCount++;
         }
-        if (o.verified) verifiedCount++;
-        if (typeof o.time_to_placement_days === 'number') {
-          placementDaysSum += o.time_to_placement_days;
-          placementDaysCount++;
+        if (o.verification_status === 'pending') {
+          pendingCount++;
+        } else {
+          verifiedCount++;
         }
+        if (o.is_willing_to_mentor) willingToMentor++;
+        if (o.is_willing_to_hire) willingToHire++;
+        if (o.is_willing_to_guest_lecture) willingToGuestLecture++;
       });
 
-      const placedCount = byType.employed + byType.freelancer;
+      const employedCount = byType.employed + byType.self_employed;
 
       return {
         total_tracked: total,
         by_outcome_type: byType,
-        placement_percentage: total > 0 ? Math.round((placedCount / total) * 100) : 0,
+        employment_percentage: total > 0 ? Math.round((employedCount / total) * 100) : 0,
         higher_studies_percentage: total > 0 ? Math.round((byType.higher_studies / total) * 100) : 0,
         entrepreneur_percentage: total > 0 ? Math.round((byType.entrepreneur / total) * 100) : 0,
-        core_domain_percentage: coreDomainTotal > 0 ? Math.round((coreDomainCount / coreDomainTotal) * 100) : 0,
+        avg_relevance_percentage: relevantTotal > 0 ? Math.round((relevantCount / relevantTotal) * 100) : 0,
         average_satisfaction: satisfactionCount > 0 ? Math.round((satisfactionSum / satisfactionCount) * 10) / 10 : 0,
         verified_count: verifiedCount,
-        unverified_count: total - verifiedCount,
-        average_time_to_placement_days: placementDaysCount > 0 ? Math.round(placementDaysSum / placementDaysCount) : 0,
-        by_salary_range: bySalary
+        pending_count: pendingCount,
+        by_salary_range: bySalary as Record<SalaryRange, number>,
+        by_city: byCity,
+        engagement_stats: {
+          willing_to_mentor: willingToMentor,
+          willing_to_hire: willingToHire,
+          willing_to_guest_lecture: willingToGuestLecture
+        }
       };
     } catch (error) {
       console.error('[Alumni] Error fetching dashboard stats:', this.formatError(error));
