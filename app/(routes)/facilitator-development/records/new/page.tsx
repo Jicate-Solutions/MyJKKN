@@ -54,12 +54,12 @@ export default function NewDevelopmentPlanPage() {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
     if (!uuidRegex.test(staffId.trim())) {
-      alert('Staff ID must be a valid UUID');
+      toast.error('Staff ID must be a valid UUID');
       return;
     }
 
     if (mentorId.trim() && !uuidRegex.test(mentorId.trim())) {
-      alert('Mentor ID must be a valid UUID');
+      toast.error('Mentor ID must be a valid UUID');
       return;
     }
 
