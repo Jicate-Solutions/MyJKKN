@@ -73,6 +73,7 @@ export function ParentLoginClient() {
         setPhoneNumber(data.phone!);
         otpForm.setValue('phone', data.phone!);
         setStep('otp');
+        setResendCooldown(30); // 30 second cooldown before resend
       },
     });
   };

@@ -250,6 +250,28 @@ export default function NewDiscountPage() {
           </div>
         </div>
 
+        {/* Empty State - No Bills Selected */}
+        {!isLoadingBills && selectedBills.length === 0 && !billId && !billIds && (
+          <Card>
+            <CardContent className='py-12'>
+              <div className='text-center space-y-4'>
+                <div className='flex justify-center'>
+                  <Percent className='h-12 w-12 text-muted-foreground' />
+                </div>
+                <div>
+                  <h3 className='font-semibold text-lg'>No Bills Selected</h3>
+                  <p className='text-sm text-muted-foreground mt-2'>
+                    To apply a scholarship, first select one or more bills from the Billing Schedule.
+                  </p>
+                </div>
+                <Button variant='outline' onClick={() => router.push('/billing/schedule')}>
+                  Go to Billing Schedule
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Selected Bills Section */}
         {isLoadingBills ? (
           <Card>
