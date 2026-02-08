@@ -130,7 +130,7 @@ export class PhasesService extends BaseService {
   static async getPhases(filters?: PhaseFilters): Promise<BaseListResponse<PhaseWithDetails>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = (this.supabase as any).from('sh_solution_phases')
+    let query = this.supabase.from('sh_solution_phases')
       .select(
         `
         *,
@@ -195,7 +195,7 @@ export class PhasesService extends BaseService {
    * Get a single phase by ID with all related data
    */
   static async getPhaseById(id: string): Promise<PhaseWithDetails | null> {
-    const { data, error } = await (this.supabase as any).from('sh_solution_phases')
+    const { data, error } = await this.supabase.from('sh_solution_phases')
       .select(
         `
         *,
@@ -216,7 +216,7 @@ export class PhasesService extends BaseService {
     }
 
     // Get assignments with builder info
-    const { data: assignments } = await (this.supabase as any).from('sh_builder_assignments')
+    const { data: assignments } = await this.supabase.from('sh_builder_assignments')
       .select(
         `
         *,
@@ -227,13 +227,13 @@ export class PhasesService extends BaseService {
       .order('created_at', { ascending: false });
 
     // Get iterations
-    const { data: iterations } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data: iterations } = await this.supabase.from('sh_prototype_iterations')
       .select('*')
       .eq('phase_id', id)
       .order('version', { ascending: false });
 
     // Get deployments
-    const { data: deployments } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data: deployments } = await this.supabase.from('sh_phase_deployments')
       .select('*')
       .eq('phase_id', id)
       .order('deployed_date', { ascending: false });
@@ -266,7 +266,7 @@ export class PhasesService extends BaseService {
       phaseNumber = await this.getNextPhaseNumber(input.solution_id);
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_solution_phases')
+    const { data, error } = await this.supabase.from('sh_solution_phases')
       .insert({
         solution_id: input.solution_id,
         phase_number: phaseNumber,
@@ -289,7 +289,7 @@ export class PhasesService extends BaseService {
    * Update an existing phase
    */
   static async updatePhase(id: string, input: UpdatePhaseInput): Promise<SolutionPhase> {
-    const { data, error } = await (this.supabase as any).from('sh_solution_phases')
+    const { data, error } = await this.supabase.from('sh_solution_phases')
       .update({
         ...input,
         updated_at: new Date().toISOString(),
@@ -306,7 +306,7 @@ export class PhasesService extends BaseService {
    * Delete a phase
    */
   static async deletePhase(id: string): Promise<void> {
-    const { error } = await (this.supabase as any).from('sh_solution_phases').delete().eq('id', id);
+    const { error } = await this.supabase.from('sh_solution_phases').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete phase: ${error.message}`);
   }
@@ -315,7 +315,7 @@ export class PhasesService extends BaseService {
    * Get next available phase number for a solution
    */
   static async getNextPhaseNumber(solutionId: string): Promise<number> {
-    const { data, error } = await (this.supabase as any).from('sh_solution_phases')
+    const { data, error } = await this.supabase.from('sh_solution_phases')
       .select('phase_number')
       .eq('solution_id', solutionId)
       .order('phase_number', { ascending: false })
@@ -340,7 +340,7 @@ export class PhasesService extends BaseService {
       updateData.completion_date = new Date().toISOString().split('T')[0];
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_solution_phases')
+    const { data, error } = await this.supabase.from('sh_solution_phases')
       .update(updateData)
       .eq('id', id)
       .select()
@@ -358,7 +358,7 @@ export class PhasesService extends BaseService {
     byStatus: Record<PhaseStatus, number>;
     totalValue: number;
   }> {
-    const { data, error } = await (this.supabase as any).from('sh_solution_phases')
+    const { data, error } = await this.supabase.from('sh_solution_phases')
       .select('status, estimated_value');
 
     if (error) throw new Error(`Failed to fetch phase stats: ${error.message}`);
@@ -412,7 +412,7 @@ export class PhasesService extends BaseService {
    */
   static async createIteration(input: CreateIterationInput): Promise<PrototypeIteration> {
     // Get next version number
-    const { data: existing } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data: existing } = await this.supabase.from('sh_prototype_iterations')
       .select('version')
       .eq('phase_id', input.phase_id)
       .order('version', { ascending: false })
@@ -420,7 +420,7 @@ export class PhasesService extends BaseService {
 
     const nextVersion = existing && existing.length > 0 ? existing[0].version + 1 : 1;
 
-    const { data, error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data, error } = await this.supabase.from('sh_prototype_iterations')
       .insert({
         phase_id: input.phase_id,
         version: nextVersion,
@@ -443,7 +443,7 @@ export class PhasesService extends BaseService {
     id: string,
     input: Partial<Pick<PrototypeIteration, 'feedback' | 'client_approved'>>
   ): Promise<PrototypeIteration> {
-    const { data, error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data, error } = await this.supabase.from('sh_prototype_iterations')
       .update(input)
       .eq('id', id)
       .select()
@@ -457,7 +457,7 @@ export class PhasesService extends BaseService {
    * Get iterations for a phase
    */
   static async getPhaseIterations(phaseId: string): Promise<PrototypeIteration[]> {
-    const { data, error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data, error } = await this.supabase.from('sh_prototype_iterations')
       .select('*')
       .eq('phase_id', phaseId)
       .order('version', { ascending: false });
@@ -474,7 +474,7 @@ export class PhasesService extends BaseService {
    * Create a bug report
    */
   static async createBugReport(input: CreateBugReportInput): Promise<BugReport> {
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .insert({
         iteration_id: input.iteration_id,
         reported_by: input.reported_by,
@@ -502,7 +502,7 @@ export class PhasesService extends BaseService {
       updateData.resolved_at = new Date().toISOString();
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .update(updateData)
       .eq('id', id)
       .select()
@@ -516,7 +516,7 @@ export class PhasesService extends BaseService {
    * Get bug reports for an iteration
    */
   static async getIterationBugs(iterationId: string): Promise<BugReport[]> {
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .select('*')
       .eq('iteration_id', iterationId)
       .order('created_at', { ascending: false });
@@ -533,7 +533,7 @@ export class PhasesService extends BaseService {
    * Create a deployment record
    */
   static async createDeployment(input: CreateDeploymentInput): Promise<PhaseDeployment> {
-    const { data, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data, error } = await this.supabase.from('sh_phase_deployments')
       .insert({
         phase_id: input.phase_id,
         environment: input.environment,
@@ -556,7 +556,7 @@ export class PhasesService extends BaseService {
    * Get deployments for a phase
    */
   static async getPhaseDeployments(phaseId: string): Promise<PhaseDeployment[]> {
-    const { data, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data, error } = await this.supabase.from('sh_phase_deployments')
       .select('*')
       .eq('phase_id', phaseId)
       .order('deployed_date', { ascending: false });
@@ -579,7 +579,7 @@ export class PhasesService extends BaseService {
     trained_date?: string;
     notes?: string;
   }): Promise<ImplementationUser> {
-    const { data, error } = await (this.supabase as any).from('sh_implementation_users')
+    const { data, error } = await this.supabase.from('sh_implementation_users')
       .insert({
         phase_id: input.phase_id,
         user_name: input.user_name,
@@ -599,7 +599,7 @@ export class PhasesService extends BaseService {
    * Get implementation users for a phase
    */
   static async getPhaseImplementationUsers(phaseId: string): Promise<ImplementationUser[]> {
-    const { data, error } = await (this.supabase as any).from('sh_implementation_users')
+    const { data, error } = await this.supabase.from('sh_implementation_users')
       .select('*')
       .eq('phase_id', phaseId)
       .order('created_at', { ascending: true });
@@ -615,7 +615,7 @@ export class PhasesService extends BaseService {
     id: string,
     status: 'pending' | 'active' | 'inactive'
   ): Promise<ImplementationUser> {
-    const { data, error } = await (this.supabase as any).from('sh_implementation_users')
+    const { data, error } = await this.supabase.from('sh_implementation_users')
       .update({ usage_status: status })
       .eq('id', id)
       .select()
