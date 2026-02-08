@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -9,12 +8,11 @@ import {
   GraduationCap,
   Loader2,
   TrendingUp,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useLearnerAttendance, useLearnerFees } from '@/hooks/parent-portal';
 import {
@@ -28,20 +26,14 @@ interface LearnerDetailClientProps {
 
 export function LearnerDetailClient({ learnerId }: LearnerDetailClientProps) {
   const router = useRouter();
-  const [parentId, setParentId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const storedParentId = localStorage.getItem('parent_portal_id');
-    if (!storedParentId) {
-      router.push('/auth/parent/login');
-      return;
-    }
-    setParentId(storedParentId);
-  }, [router]);
-
-  const { data: attendance, isLoading: loadingAttendance } =
+  // Auth is now handled server-side via httpOnly session cookies.
+  // The API routes (/api/parent-portal/learner/[id]/attendance and /fees)
+  // validate the session and parent-learner relationship.
+  // If the session is invalid, the API returns 401 and the hooks will error.
+  const { data: attendance, isLoading: loadingAttendance, error: attendanceError } =
     useLearnerAttendance(learnerId);
-  const { data: fees, isLoading: loadingFees } = useLearnerFees(learnerId);
+  const { data: fees, isLoading: loadingFees, error: feesError } = useLearnerFees(learnerId);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -51,10 +43,39 @@ export function LearnerDetailClient({ learnerId }: LearnerDetailClientProps) {
     }).format(amount);
   };
 
-  if (!parentId) {
+  // Handle auth errors from API (401 = session expired/invalid)
+  const authError = attendanceError?.message?.includes('Authentication required') ||
+    feesError?.message?.includes('Authentication required');
+
+  if (authError) {
+    router.push('/auth/parent/login');
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Handle access denied (parent not linked to this learner)
+  const accessDenied = attendanceError?.message?.includes('Access denied') ||
+    feesError?.message?.includes('Access denied');
+
+  if (accessDenied) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="text-center">
+          <AlertTriangle className="mx-auto h-12 w-12 text-red-500" />
+          <p className="mt-4 text-lg font-medium text-gray-900">Access Denied</p>
+          <p className="mt-1 text-sm text-gray-500">
+            This learner is not linked to your account
+          </p>
+          <Button
+            onClick={() => router.push('/parent-portal/dashboard')}
+            className="mt-4"
+          >
+            Return to Dashboard
+          </Button>
+        </div>
       </div>
     );
   }
