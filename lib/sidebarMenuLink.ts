@@ -2081,6 +2081,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/billing/receipts',
               label: 'All Receipts',
               active: pathname === '/billing/receipts'
+            },
+            {
+              href: '/billing/receipts/templates',
+              label: 'Receipt Templates',
+              active: pathname === '/billing/receipts/templates'
             }
           ]
         },
