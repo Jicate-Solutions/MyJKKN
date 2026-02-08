@@ -262,7 +262,7 @@ export class IndustryMentorService {
         designation,
         expertise_areas,
         max_mentees,
-        current_mentees,
+        current_mentees_count,
         partner:industry_partners(company_name)
       `)
       .eq('is_active', true);
