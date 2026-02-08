@@ -154,7 +154,7 @@ export default function ImmersionsListPage() {
                         <TableCell>
                           <div className='flex items-center gap-1'>
                             <Clock className='h-3 w-3' />
-                            {imm.duration_days}d
+                            {imm.duration_days ?? 0}d
                           </div>
                         </TableCell>
                         <TableCell>
