@@ -64,7 +64,6 @@ export function useIndustryProjects(
     filters.status,
     filters.difficulty_level,
     filters.required_competency,
-    filters.is_remote,
     filters.has_stipend,
     filters.search,
     filters.page,
