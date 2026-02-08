@@ -300,6 +300,7 @@ export function useDeleteImmersion() {
     mutationFn: (id: string) => FacilitatorImmersionService.deleteImmersion(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.immersions() });
+      queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.all }); // Invalidate stats (total_immersions count)
     }
   });
 }
