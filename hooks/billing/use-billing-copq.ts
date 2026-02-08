@@ -39,6 +39,7 @@ export function useBillingCOPQIncidents(initialFilters: COPQFilters) {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: copqKeys.incidents(filters),
     queryFn: () => BillingCOPQService.getIncidents(filters),
+    enabled: !!filters.institution_id,
     placeholderData: (previousData) => previousData
   });
 
