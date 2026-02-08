@@ -36,8 +36,10 @@ import {
 } from '@/types/facilitator-development';
 
 export default function ImmersionsListPage() {
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { isSuperAdmin, canAccess, isLoading: permissionsLoading } = usePermissions();
   const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
+
+  const canView = isSuperAdmin || canAccess('facilitator_development', 'view');
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ImmersionStatus | 'all'>('all');
