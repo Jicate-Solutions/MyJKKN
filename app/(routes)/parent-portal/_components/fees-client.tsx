@@ -139,7 +139,7 @@ export function FeesClient() {
                 onPayNow={() =>
                   handlePayNow(
                     learnerData.learner.id,
-                    learnerData.fees.total_pending
+                    learnerData.fees?.total_pending ?? 0
                   )
                 }
               />
