@@ -101,7 +101,7 @@ const commTypeIcons: Record<string, React.ElementType> = {
   email: Mail,
   whatsapp: MessageSquare,
   meeting: ClipboardList,
-  note: StickyNote,
+  other: StickyNote,
 };
 
 function formatCurrency(amount: number | null | undefined): string {
