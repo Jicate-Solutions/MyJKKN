@@ -54,11 +54,11 @@ export async function POST(request: NextRequest) {
       // Set CSRF token
       const csrfToken = await setCSRFCookie();
 
-      // Log activity
-      await supabase.from('parent_activity_log').insert({
-        parent_id: data.parent_id,
-        activity_type: 'login',
-        description: 'Logged in via OTP verification',
+      // Log activity via SECURITY DEFINER RPC (bypasses RLS)
+      await supabase.rpc('log_parent_activity', {
+        p_parent_id: data.parent_id,
+        p_activity_type: 'login',
+        p_description: 'Logged in via OTP verification',
       });
 
       return NextResponse.json({
