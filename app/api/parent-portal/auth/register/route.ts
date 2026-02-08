@@ -85,8 +85,10 @@ async function registerHandler(
         userAgent
       );
 
-      await ParentSessionService.setSessionCookie(sessionData.sessionToken);
-      const csrfToken = await setCSRFCookie();
+      // Get cookie store ONCE to avoid Next.js 16 deadlock
+      const cookieStore = await cookies();
+      await ParentSessionService.setSessionCookie(sessionData.sessionToken, cookieStore);
+      const csrfToken = await setCSRFCookie(undefined, cookieStore);
 
       return NextResponse.json({
         success: true,
