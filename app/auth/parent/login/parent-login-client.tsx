@@ -71,11 +71,11 @@ export function ParentLoginClient() {
   const handleOTPSubmit = (data: VerifyOTPInput) => {
     verifyOTP(data as any, {
       onSuccess: (result) => {
-        if (result.success && result.parent) {
+        if (result.success && result.parent_id) {
           // Session is now stored securely in httpOnly cookie
           // No need to store in localStorage - this is now handled server-side
           router.push('/parent-portal');
-        } else if (!result.parent) {
+        } else if (result.success && result.is_new) {
           // New parent - redirect to registration
           router.push(`/auth/parent/register?phone=${encodeURIComponent(phoneNumber)}`);
         }
