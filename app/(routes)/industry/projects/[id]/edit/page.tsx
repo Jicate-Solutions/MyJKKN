@@ -47,7 +47,7 @@ export default function EditProjectPage() {
 
   const { data: project, isLoading } = useIndustryProject(id);
   const updateMutation = useUpdateProject(id);
-  const { data: mentors } = useMentorOptions(project?.partner_id);
+  const { data: mentors } = useMentorOptions(project?.partner_id ?? undefined);
 
   const form = useForm<ProjectFormValues>({
     resolver: zodResolver(projectSchema),
