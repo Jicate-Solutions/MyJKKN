@@ -22,11 +22,7 @@ export function useBillingDiscounts(initialFilters: DiscountFilters = {}) {
   const { data, isLoading, error } = useQuery({
     queryKey: ['billing-discounts', filters],
     queryFn: () => BillingDiscountService.getBillingDiscounts(filters),
-    placeholderData: (previousData) => previousData,
-    onError: (err: Error) => {
-      console.error('[billing/discounts] Failed to fetch discounts:', err);
-      toast.error('Failed to load discounts');
-    }
+    placeholderData: (previousData) => previousData
   });
 
   const updateFilters = useCallback((newFilters: Partial<DiscountFilters>) => {
