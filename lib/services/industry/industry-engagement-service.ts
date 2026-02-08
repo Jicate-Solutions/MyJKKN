@@ -340,33 +340,28 @@ export class IndustryEngagementService {
   }
 
   /**
-   * Log hours for engagement
+   * Update progress percentage
+   * NOTE: DB doesn't have hours_completed column - tracking is via progress_percentage
    */
-  static async logHours(id: string, hours: number): Promise<void> {
-    const supabase = createClientSupabaseClient();
+  static async updateProgress(id: string, progressPercentage: number): Promise<void> {
+    this.validateId(id, 'engagement ID');
 
-    // Get current hours
-    const { data: existing, error: fetchError } = await (supabase as any)
-      .from('learner_industry_engagements')
-      .select('hours_completed')
-      .eq('id', id)
-      .single();
-
-    if (fetchError) {
-      console.error('[IndustryEngagementService] logHours fetch error:', fetchError);
-      throw new Error(fetchError.message);
+    if (progressPercentage < 0 || progressPercentage > 100) {
+      throw new Error('Progress percentage must be between 0 and 100');
     }
+
+    const supabase = createClientSupabaseClient();
 
     const { error } = await (supabase as any)
       .from('learner_industry_engagements')
       .update({
-        hours_completed: (existing?.hours_completed || 0) + hours,
+        progress_percentage: progressPercentage,
         updated_at: new Date().toISOString()
       })
       .eq('id', id);
 
     if (error) {
-      console.error('[IndustryEngagementService] logHours error:', error);
+      console.error('[IndustryEngagementService] updateProgress error:', error);
       throw new Error(error.message);
     }
   }

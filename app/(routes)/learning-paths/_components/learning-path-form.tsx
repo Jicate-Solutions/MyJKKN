@@ -71,6 +71,12 @@ export function LearningPathForm({
 
     if (!title.trim()) return;
 
+    // Validate learner_id is a valid UUID when creating
+    if (!isEditing && !UUID_REGEX.test(learnerIdInput.trim())) {
+      setLearnerIdError('Please enter a valid UUID');
+      return;
+    }
+
     const competenciesArray = targetCompetencies
       .split(',')
       .map((c) => c.trim())
