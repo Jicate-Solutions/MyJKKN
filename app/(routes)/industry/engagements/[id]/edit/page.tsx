@@ -56,10 +56,10 @@ export default function EditEngagementPage() {
       status: 'applied',
       start_date: '',
       expected_end_date: '',
-      actual_end_date: '',
-      progress_percentage: 0,
+      end_date: '',
+      hours_completed: 0,
       certificate_url: '',
-      status_notes: ''
+      notes: ''
     }
   });
 
