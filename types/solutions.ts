@@ -47,7 +47,7 @@ export type CohortMemberLevel = 0 | 1 | 2 | 3
 
 export type CohortRole = 'observer' | 'support' | 'co_lead' | 'lead'
 
-export type ContentOrderType = 'video' | 'social_media' | 'presentation' | 'writing' | 'branding' | 'podcast' | 'package'
+export type ContentOrderType = 'video' | 'social_media' | 'presentation' | 'writing' | 'branding' | 'podcast' | 'package' | 'graphic' | 'document' | 'animation' | 'other'
 
 export type ContentDivision = 'video' | 'graphics' | 'content' | 'education' | 'translation' | 'research'
 
