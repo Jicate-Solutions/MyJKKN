@@ -88,9 +88,9 @@ export function useUpdateBillingDiscount() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateDiscountDto }) =>
       BillingDiscountService.updateBillingDiscount(id, data),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
-      queryClient.invalidateQueries({ queryKey: ['billing-discount'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-discount', variables.id] });
       toast.success('Discount updated successfully');
     },
     onError: (error: Error) => {
