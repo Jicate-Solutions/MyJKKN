@@ -22,11 +22,12 @@ export function LearnerCard({ data, onViewDetails }: LearnerCardProps) {
   const { learner, link, attendance, fees } = data;
 
   const initials = learner.name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+    ? learner.name.split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2)
+    : 'L';
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
