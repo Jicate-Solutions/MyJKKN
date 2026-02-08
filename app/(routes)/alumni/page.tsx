@@ -17,14 +17,14 @@ import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useAlumniDashboardStats } from '@/hooks/alumni';
-import { OUTCOME_TYPE_LABELS } from '@/types/alumni';
-import type { OutcomeType } from '@/types/alumni';
+import { OUTCOME_TYPE_LABELS, SALARY_RANGE_LABELS } from '@/types/alumni';
+import type { OutcomeType, SalaryRange } from '@/types/alumni';
 
 const OUTCOME_ICONS: Record<OutcomeType, React.ReactNode> = {
   employed: <Briefcase className="h-4 w-4" />,
-  higher_studies: <GraduationCap className="h-4 w-4" />,
-  entrepreneur: <Lightbulb className="h-4 w-4" />,
   self_employed: <Target className="h-4 w-4" />,
+  entrepreneur: <Lightbulb className="h-4 w-4" />,
+  higher_studies: <GraduationCap className="h-4 w-4" />,
   competitive_exams: <GraduationCap className="h-4 w-4" />,
   family_business: <Briefcase className="h-4 w-4" />,
   gap_year: <Clock className="h-4 w-4" />,
@@ -34,9 +34,9 @@ const OUTCOME_ICONS: Record<OutcomeType, React.ReactNode> = {
 
 const OUTCOME_COLORS: Record<OutcomeType, string> = {
   employed: 'bg-green-100 text-green-800',
-  higher_studies: 'bg-blue-100 text-blue-800',
-  entrepreneur: 'bg-purple-100 text-purple-800',
   self_employed: 'bg-amber-100 text-amber-800',
+  entrepreneur: 'bg-purple-100 text-purple-800',
+  higher_studies: 'bg-blue-100 text-blue-800',
   competitive_exams: 'bg-cyan-100 text-cyan-800',
   family_business: 'bg-orange-100 text-orange-800',
   gap_year: 'bg-slate-100 text-slate-800',
@@ -116,7 +116,7 @@ export default function AlumniDashboardPage() {
                 <CardContent>
                   <div className="text-2xl font-bold">{stats?.total_tracked || 0}</div>
                   <p className="text-xs text-muted-foreground">
-                    {stats?.verified_count || 0} verified, {stats?.unverified_count || 0} unverified
+                    {stats?.verified_count || 0} verified, {stats?.pending_count || 0} pending
                   </p>
                 </CardContent>
               </Card>
@@ -124,16 +124,16 @@ export default function AlumniDashboardPage() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">
-                    Placement Rate
+                    Employment Rate
                   </CardTitle>
                   <Briefcase className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold text-green-600">
-                    {stats?.placement_percentage || 0}%
+                    {stats?.employment_percentage || 0}%
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Employed + Freelancer
+                    Employed + Self-Employed
                   </p>
                 </CardContent>
               </Card>
@@ -141,13 +141,13 @@ export default function AlumniDashboardPage() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">
-                    Core Domain
+                    Program Relevance
                   </CardTitle>
                   <Target className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold text-blue-600">
-                    {stats?.core_domain_percentage || 0}%
+                    {stats?.avg_relevance_percentage || 0}%
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Working in their field of study
@@ -167,7 +167,7 @@ export default function AlumniDashboardPage() {
                     {stats?.average_satisfaction || 0}/10
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Avg time to placement: {stats?.average_time_to_placement_days || '--'} days
+                    Alumni satisfaction score
                   </p>
                 </CardContent>
               </Card>
@@ -212,7 +212,9 @@ export default function AlumniDashboardPage() {
                         : 0;
                       return (
                         <div key={range} className="flex items-center gap-4">
-                          <div className="w-28 text-sm font-medium">{range}</div>
+                          <div className="w-28 text-sm font-medium">
+                            {SALARY_RANGE_LABELS[range as SalaryRange] || range}
+                          </div>
                           <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden">
                             <div
                               className="h-full bg-blue-500 rounded-full transition-all"
