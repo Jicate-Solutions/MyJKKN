@@ -1,4 +1,7 @@
 // lib/services/parent-portal/parent-session-service.ts
+// ⚠️ WARNING: This service references 'parent_sessions' table which DOES NOT EXIST in DB
+// All methods in this service will FAIL at runtime until the schema is migrated
+// The table needs to be created before this service can be used
 
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
