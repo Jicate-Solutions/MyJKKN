@@ -60,11 +60,11 @@ export default function NewProjectPage() {
       min_team_size: 1,
       stipend_amount: undefined,
       application_deadline: '',
-      project_start_date: '',
-      project_end_date: '',
-      detailed_requirements: '',
+      start_date: '',
+      end_date: '',
+      technologies: '',
       deliverables: '',
-      assigned_mentor_id: ''
+      mentor_id: ''
     }
   });
 
