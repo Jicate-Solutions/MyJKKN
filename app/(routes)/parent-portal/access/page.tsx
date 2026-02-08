@@ -301,7 +301,7 @@ export default function ParentAccessPage() {
                             {record.is_active ? 'Active' : 'Inactive'}
                           </Badge>
                         </TableCell>
-                        <TableCell>{record.access_count}</TableCell>
+                        <TableCell>{record.login_count}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
                             <Button
