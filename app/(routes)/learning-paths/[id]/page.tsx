@@ -26,7 +26,6 @@ import {
   Calendar,
   Briefcase,
   Tag,
-  GripVertical,
   Loader2,
 } from 'lucide-react';
 
