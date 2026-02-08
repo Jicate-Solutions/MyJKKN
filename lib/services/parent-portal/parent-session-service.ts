@@ -40,6 +40,14 @@ export class ParentSessionService {
     ipAddress?: string,
     userAgent?: string
   ): Promise<SessionData> {
+    // Validate parent ID is a valid UUID
+    try {
+      InputValidator.uuid(parentId, 'Parent ID');
+    } catch (error) {
+      console.error('[ParentSessionService] Invalid parent ID:', error);
+      throw new Error('Invalid parent ID');
+    }
+
     const supabase = await createClient();
 
     // Generate cryptographically secure session token
