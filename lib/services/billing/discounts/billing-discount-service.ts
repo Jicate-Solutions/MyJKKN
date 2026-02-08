@@ -184,9 +184,8 @@ export class BillingDiscountService {
 
       // Apply filters
       if (filters.search) {
-        query = query.or(
-          `discount_reason.ilike.%${filters.search}%,bill.student.first_name.ilike.%${filters.search}%,bill.student.last_name.ilike.%${filters.search}%`
-        );
+        // Search only in discount_reason as nested relation search doesn't work in or() clause
+        query = query.ilike('discount_reason', `%${filters.search}%`);
       }
 
       if (filters.bill_id) {
