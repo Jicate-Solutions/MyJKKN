@@ -190,8 +190,7 @@ export class LearningPathService {
         target_completion_date: input.target_completion_date || null,
         is_ai_generated: input.is_ai_generated || false,
         metadata: input.metadata || {},
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        // created_at and updated_at are handled by database defaults
       };
 
       const { data, error } = await (this.getSupabase() as any)
