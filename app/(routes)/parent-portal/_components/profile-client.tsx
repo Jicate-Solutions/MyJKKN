@@ -90,7 +90,8 @@ export function ProfileClient() {
 
   const initials = parent.name
     .split(' ')
-    .map((n) => n[0])
+    .filter((n: string) => n.length > 0)
+    .map((n: string) => n[0])
     .join('')
     .toUpperCase()
     .slice(0, 2);
