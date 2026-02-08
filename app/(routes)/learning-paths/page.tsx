@@ -337,9 +337,11 @@ export default function LearningPathsPage() {
                             {path.estimated_duration_weeks && (
                               <span>{path.estimated_duration_weeks} weeks</span>
                             )}
-                            <span>
-                              Created {format(new Date(path.created_at), 'MMM d, yyyy')}
-                            </span>
+                            {path.created_at && (
+                              <span>
+                                Created {format(new Date(path.created_at), 'MMM d, yyyy')}
+                              </span>
+                            )}
                           </div>
                         </div>
 
