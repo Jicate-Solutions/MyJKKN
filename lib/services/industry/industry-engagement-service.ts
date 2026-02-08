@@ -281,6 +281,7 @@ export class IndustryEngagementService {
     status: LearnerIndustryEngagement['status'],
     endDate?: string
   ): Promise<void> {
+    this.validateId(id, 'engagement ID');
     const supabase = createClientSupabaseClient();
 
     const updateData: Record<string, any> = {
@@ -288,9 +289,9 @@ export class IndustryEngagementService {
       updated_at: new Date().toISOString()
     };
 
-    // Set end_date if completing or terminating
+    // Set actual_end_date if completing or terminating (DB column name)
     if (['completed', 'terminated', 'withdrawn'].includes(status)) {
-      updateData.end_date = endDate || new Date().toISOString().split('T')[0];
+      updateData.actual_end_date = endDate || new Date().toISOString().split('T')[0];
     }
 
     const { error } = await (supabase as any)
