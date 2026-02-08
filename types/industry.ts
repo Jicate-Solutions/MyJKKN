@@ -58,29 +58,25 @@ export type DifficultyLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert
 
 /**
  * Industry Partner - Company or organization partnering with institution
+ * VERIFIED against DB: 2026-02-08 (19 columns)
  */
 export interface IndustryPartner {
   id: string;
   institution_id: string;
   company_name: string;
-  company_logo_url: string | null;
   industry_sector: string | null;
-  company_size: string | null;
-  company_website: string | null;
-  company_description: string | null;
-  partnership_type: PartnershipType | null;
+  partnership_type: PartnershipType; // NOT NULL in DB
+  contact_person: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
   partnership_start_date: string | null;
   partnership_end_date: string | null;
   mou_document_url: string | null;
-  partnership_value: string | null;
-  contact_person: string | null;
-  contact_designation: string | null;
-  contact_email: string | null;
-  contact_phone: string | null;
+  description: string | null; // DB column: description (NOT company_description)
+  website_url: string | null; // DB column: website_url (NOT company_website)
+  logo_url: string | null; // DB column: logo_url (NOT company_logo_url)
   is_active: boolean;
-  is_verified: boolean;
-  verified_by: string | null;
-  verified_at: string | null;
+  notes: string | null; // DB column exists
   created_by: string | null;
   created_at: string;
   updated_at: string;
