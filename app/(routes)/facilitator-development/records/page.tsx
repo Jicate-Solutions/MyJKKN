@@ -123,12 +123,14 @@ export default function FacilitatorDevelopmentRecordsPage() {
               All facilitator development plans and progress
             </p>
           </div>
-          <Button asChild>
-            <Link href='/facilitator-development/records/new'>
-              <Plus className='mr-2 h-4 w-4' />
-              New Plan
-            </Link>
-          </Button>
+          {canCreate && (
+            <Button asChild>
+              <Link href='/facilitator-development/records/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                New Plan
+              </Link>
+            </Button>
+          )}
         </div>
 
         {/* Filters */}
