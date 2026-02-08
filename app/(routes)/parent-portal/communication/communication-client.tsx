@@ -258,7 +258,7 @@ export function CommunicationClient() {
                             variant="outline"
                             className="text-xs"
                           >
-                            {getCommunicationTypeLabel(selectedMessage.communication_type)}
+                            {getCommunicationTypeLabel(selectedMessage.type)}
                           </Badge>
                           <span>
                             {new Date(
