@@ -32,7 +32,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const supabase = await createClient();
+    // Use service role client because parent portal uses custom session auth (not Supabase auth)
+    // RLS policies check auth.uid() which is null for parent portal requests
+    const supabase = createServiceRoleClient();
 
     // SECURITY: Verify parent-learner relationship before returning data
     const { data: link, error: linkError } = await supabase
