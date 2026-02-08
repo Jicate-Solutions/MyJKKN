@@ -64,7 +64,7 @@ export class IndustryProjectService {
       .select(`
         *,
         partner:industry_partners!partner_id(id, company_name, industry_sector),
-        mentor:industry_mentors!assigned_mentor_id(id, mentor_name, designation)
+        mentor:industry_mentors!mentor_id(id, mentor_name, designation)
       `, { count: 'exact' });
 
     // Apply filters
@@ -141,7 +141,7 @@ export class IndustryProjectService {
       .select(`
         *,
         partner:industry_partners!partner_id(id, company_name, industry_sector, contact_person, contact_email),
-        mentor:industry_mentors!assigned_mentor_id(id, mentor_name, designation, email, expertise_areas),
+        mentor:industry_mentors!mentor_id(id, mentor_name, designation, email, expertise_areas),
         engagements:learner_industry_engagements(count)
       `)
       .eq('id', id)
@@ -166,7 +166,7 @@ export class IndustryProjectService {
       .from('industry_projects')
       .select(`
         *,
-        mentor:industry_mentors!assigned_mentor_id(id, mentor_name)
+        mentor:industry_mentors!mentor_id(id, mentor_name)
       `)
       .eq('partner_id', partnerId)
       .order('created_at', { ascending: false });
