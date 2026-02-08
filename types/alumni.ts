@@ -116,12 +116,12 @@ export interface AlumniOutcome {
   id: string;
 
   // Core relationships
-  learner_id: string;  // NOT NULL in DB
+  learner_id: string | null;  // NULLABLE in DB (verified 2026-02-08)
   institution_id: string;  // NOT NULL in DB
   program_id: string | null;
 
   // Graduation info
-  graduation_date: string;  // DATE NOT NULL - CRITICAL FIELD
+  graduation_date: string | null;  // NULLABLE in DB (verified 2026-02-08)
   graduation_year: number;  // Auto-computed from graduation_date
   batch_id: string | null;
 
