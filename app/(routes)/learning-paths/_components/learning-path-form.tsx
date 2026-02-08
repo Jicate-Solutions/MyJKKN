@@ -128,13 +128,22 @@ export function LearningPathForm({
               <Input
                 id="learner_id"
                 value={learnerIdInput}
-                onChange={(e) => setLearnerIdInput(e.target.value)}
-                placeholder="UUID of the learner"
+                onChange={(e) => {
+                  setLearnerIdInput(e.target.value);
+                  setLearnerIdError(''); // Clear error when user types
+                }}
+                placeholder="UUID of the learner (e.g., 123e4567-e89b-12d3-a456-426614174000)"
                 required
+                className={learnerIdError ? 'border-destructive' : ''}
               />
-              <p className="text-xs text-muted-foreground">
-                The ID of the learner this path is for
-              </p>
+              {learnerIdError && (
+                <p className="text-xs text-destructive">{learnerIdError}</p>
+              )}
+              {!learnerIdError && (
+                <p className="text-xs text-muted-foreground">
+                  The UUID of the learner this path is for
+                </p>
+              )}
             </div>
           )}
 
