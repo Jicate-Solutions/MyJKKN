@@ -138,13 +138,13 @@ export default function PartnerDetailPage() {
             {/* Main Info */}
             <div className="md:col-span-2 space-y-6">
               {/* Description */}
-              {partner.description && (
+              {partner.company_description && (
                 <Card>
                   <CardHeader>
                     <CardTitle>About</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-muted-foreground whitespace-pre-wrap">{partner.description}</p>
+                    <p className="text-muted-foreground whitespace-pre-wrap">{partner.company_description}</p>
                   </CardContent>
                 </Card>
               )}
