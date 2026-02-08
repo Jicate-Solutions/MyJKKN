@@ -267,7 +267,7 @@ export class FacilitatorDevelopmentService {
 
       const { data: records, error } = await (this.getSupabase() as any)
         .from('facilitator_development')
-        .select('id, current_stage, status, outcome_score, industry_exposure_hours, workshops_attended, peer_observations_done, peer_observations_received')
+        .select('id, current_stage, status, outcome_score, industry_exposure_hours, workshops_attended, peer_observations_done, peer_observations_received, workshops_facilitated')
         .eq('institution_id', institutionId);
 
       if (error) throw error;
