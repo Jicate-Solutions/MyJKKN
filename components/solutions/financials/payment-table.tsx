@@ -55,6 +55,9 @@ const statusColors: Record<PaymentStatus, string> = {
   received: 'bg-green-100 text-green-800',
   overdue: 'bg-red-100 text-red-800',
   failed: 'bg-gray-100 text-gray-800',
+  processing: 'bg-purple-100 text-purple-800',
+  completed: 'bg-green-100 text-green-800',
+  refunded: 'bg-orange-100 text-orange-800',
 }
 
 const paymentTypeLabels: Record<PaymentType, string> = {
