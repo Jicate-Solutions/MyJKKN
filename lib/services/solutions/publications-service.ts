@@ -137,7 +137,7 @@ export class PublicationsService extends BaseService {
   ): Promise<BaseListResponse<PublicationWithSolution>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = (this.supabase as any).from('sh_publications')
+    let query = this.supabase.from('sh_publications')
       .select(
         `
         *,
@@ -202,7 +202,7 @@ export class PublicationsService extends BaseService {
    * Get a single publication by ID
    */
   static async getPublicationById(id: string): Promise<PublicationWithSolution | null> {
-    const { data, error } = await (this.supabase as any).from('sh_publications')
+    const { data, error } = await this.supabase.from('sh_publications')
       .select(
         `
         *,
@@ -224,7 +224,7 @@ export class PublicationsService extends BaseService {
    * Create a new publication
    */
   static async createPublication(input: CreatePublicationInput): Promise<Publication> {
-    const { data, error } = await (this.supabase as any).from('sh_publications')
+    const { data, error } = await this.supabase.from('sh_publications')
       .insert({
         solution_id: input.solution_id,
         phase_id: input.phase_id,
@@ -251,7 +251,7 @@ export class PublicationsService extends BaseService {
    * Update a publication
    */
   static async updatePublication(id: string, input: UpdatePublicationInput): Promise<Publication> {
-    const { data, error } = await (this.supabase as any).from('sh_publications')
+    const { data, error } = await this.supabase.from('sh_publications')
       .update({
         ...input,
         updated_at: new Date().toISOString(),
@@ -268,7 +268,7 @@ export class PublicationsService extends BaseService {
    * Delete a publication
    */
   static async deletePublication(id: string): Promise<void> {
-    const { error } = await (this.supabase as any).from('sh_publications').delete().eq('id', id);
+    const { error } = await this.supabase.from('sh_publications').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete publication: ${error.message}`);
   }
@@ -277,7 +277,7 @@ export class PublicationsService extends BaseService {
    * Get publications for a specific solution
    */
   static async getPublicationsBySolution(solutionId: string): Promise<Publication[]> {
-    const { data, error } = await (this.supabase as any).from('sh_publications')
+    const { data, error } = await this.supabase.from('sh_publications')
       .select('*')
       .eq('solution_id', solutionId)
       .order('created_at', { ascending: false });
@@ -294,7 +294,7 @@ export class PublicationsService extends BaseService {
    * Get contributors for a publication
    */
   static async getContributors(publicationId: string): Promise<PublicationContributor[]> {
-    const { data, error } = await (this.supabase as any).from('sh_publication_contributors')
+    const { data, error } = await this.supabase.from('sh_publication_contributors')
       .select('*')
       .eq('publication_id', publicationId)
       .order('created_at', { ascending: true });
@@ -307,7 +307,7 @@ export class PublicationsService extends BaseService {
    * Add a contributor to a publication
    */
   static async addContributor(input: AddContributorInput): Promise<PublicationContributor> {
-    const { data, error } = await (this.supabase as any).from('sh_publication_contributors')
+    const { data, error } = await this.supabase.from('sh_publication_contributors')
       .insert({
         publication_id: input.publication_id,
         builder_id: input.builder_id,
@@ -327,7 +327,7 @@ export class PublicationsService extends BaseService {
    * Remove a contributor
    */
   static async removeContributor(id: string): Promise<void> {
-    const { error } = await (this.supabase as any).from('sh_publication_contributors').delete().eq('id', id);
+    const { error } = await this.supabase.from('sh_publication_contributors').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to remove contributor: ${error.message}`);
   }
@@ -340,7 +340,7 @@ export class PublicationsService extends BaseService {
    * Get publication statistics
    */
   static async getPublicationStats(): Promise<PublicationStats> {
-    const { data, error } = await (this.supabase as any).from('sh_publications')
+    const { data, error } = await this.supabase.from('sh_publications')
       .select('paper_type, journal_type, status, nirf_category, naac_criterion');
 
     if (error) throw new Error(`Failed to fetch publication stats: ${error.message}`);
@@ -409,7 +409,7 @@ export class PublicationsService extends BaseService {
     const pubStats = await this.getPublicationStats();
 
     // Get consultancy projects (completed solutions)
-    const { data: solutions } = await (this.supabase as any).from('sh_solutions')
+    const { data: solutions } = await this.supabase.from('sh_solutions')
       .select('id')
       .eq('status', 'completed');
 
@@ -485,7 +485,7 @@ export class PublicationsService extends BaseService {
    * Get all accreditation metrics
    */
   static async getAccreditationMetrics(type?: 'nirf' | 'naac'): Promise<AccreditationMetric[]> {
-    let query = (this.supabase as any).from('sh_accreditation_metrics')
+    let query = this.supabase.from('sh_accreditation_metrics')
       .select('*')
       .eq('is_active', true)
       .order('metric_code', { ascending: true });
