@@ -2,11 +2,21 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ParentSessionService } from '@/lib/services/parent-portal/parent-session-service';
-import { clearCSRFCookie } from '@/lib/utils/csrf';
+import { clearCSRFCookie, validateCSRFFromRequest } from '@/lib/utils/csrf';
 import { createClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
+    // Validate CSRF token - logout is a state-changing operation
+    const isValidCSRF = await validateCSRFFromRequest(request);
+
+    if (!isValidCSRF) {
+      return NextResponse.json(
+        { error: 'Invalid CSRF token. Please refresh and try again.' },
+        { status: 403 }
+      );
+    }
+
     // Get the session token
     const sessionToken = await ParentSessionService.getSessionToken();
 
@@ -17,13 +27,13 @@ export async function POST(request: NextRequest) {
       // Revoke the session
       await ParentSessionService.revokeSession(sessionToken, 'User logout');
 
-      // Log the logout activity
+      // Log the logout activity using RPC (consistent with login)
       if (parentId) {
         const supabase = await createClient();
-        await supabase.from('parent_activity_log').insert({
-          parent_id: parentId,
-          activity_type: 'logout',
-          description: 'Logged out',
+        await supabase.rpc('log_parent_activity', {
+          p_parent_id: parentId,
+          p_activity_type: 'logout',
+          p_description: 'Logged out',
         });
       }
     }
