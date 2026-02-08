@@ -306,7 +306,7 @@ export default function FacilitatorDevelopmentDetailPage() {
             <CardContent className='p-4 text-center'>
               <div className='text-2xl font-bold'>
                 {record.student_feedback_average !== null
-                  ? Number(record.student_feedback_average).toFixed(1)
+                  ? `${Number(record.student_feedback_average).toFixed(1)}/5`
                   : '--'}
               </div>
               <p className='text-xs text-muted-foreground'>Student Feedback</p>
