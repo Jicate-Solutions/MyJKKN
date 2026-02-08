@@ -142,9 +142,9 @@ export class ParentSessionService {
    * Gets the session token from the httpOnly cookie
    * @returns The session token or null if not found
    */
-  static async getSessionToken(): Promise<string | null> {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
+  static async getSessionToken(cookieStore?: Awaited<ReturnType<typeof cookies>>): Promise<string | null> {
+    const store = cookieStore ?? await cookies();
+    const sessionCookie = store.get(SESSION_COOKIE_NAME);
 
     return sessionCookie?.value || null;
   }
