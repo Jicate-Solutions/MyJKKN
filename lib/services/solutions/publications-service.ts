@@ -387,7 +387,7 @@ export class PublicationsService extends BaseService {
         stats.byStatus[pub.status as PublicationStatus]++;
         if (pub.status === 'published') {
           stats.publishedCount++;
-        } else if (['drafting', 'submitted', 'under_review', 'revision'].includes(pub.status)) {
+        } else if (['draft', 'submitted', 'under_review'].includes(pub.status)) {
           stats.inProgressCount++;
         }
       }
