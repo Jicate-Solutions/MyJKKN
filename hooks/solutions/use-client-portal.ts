@@ -418,7 +418,7 @@ export function useClientPayments(clientId: string) {
         payment_type: p.payment_type,
         status: p.status,
         due_date: p.due_date,
-        received_date: p.received_date,
+        received_date: p.payment_date,
         invoice_url: p.invoice_url,
         created_at: p.created_at,
         solution: solutionMap.get(p.solution_id),
