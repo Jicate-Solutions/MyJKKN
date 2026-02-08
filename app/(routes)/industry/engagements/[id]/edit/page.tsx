@@ -91,11 +91,11 @@ export default function EditEngagementPage() {
         engagement_type: values.engagement_type,
         start_date: values.start_date || undefined,
         expected_end_date: values.expected_end_date || undefined,
-        actual_end_date: values.actual_end_date || undefined,
+        end_date: values.end_date || undefined,
         status: values.status,
-        progress_percentage: values.progress_percentage,
+        hours_completed: values.hours_completed,
         certificate_url: values.certificate_url || undefined,
-        status_notes: values.status_notes
+        notes: values.notes
       });
       toast({ title: 'Engagement updated successfully' });
       router.push(`/industry/engagements/${id}`);
