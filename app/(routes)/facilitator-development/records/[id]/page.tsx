@@ -55,6 +55,7 @@ import {
   type ImmersionStatus,
   type CreateImmersionInput
 } from '@/types/facilitator-development';
+import { toast } from 'react-hot-toast';
 
 export default function FacilitatorDevelopmentDetailPage() {
   const params = useParams();
