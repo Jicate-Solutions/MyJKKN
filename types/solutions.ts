@@ -35,7 +35,7 @@ export type PhaseStatus =
 
 export type MouStatus = 'draft' | 'sent' | 'signed' | 'active' | 'expired' | 'renewed'
 
-export type SessionStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled'
+export type SessionStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'rescheduled'
 
 export type TrainingProgramType = 'workshop' | 'seminar' | 'bootcamp' | 'certification' | 'transformation'
 
