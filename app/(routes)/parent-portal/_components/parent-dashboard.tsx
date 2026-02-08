@@ -179,7 +179,7 @@ export function ParentDashboardClient() {
                       {activity.description}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {new Date(activity.created_at).toLocaleString()}
+                      {activity.created_at ? new Date(activity.created_at).toLocaleString() : 'N/A'}
                     </p>
                   </div>
                 </div>
