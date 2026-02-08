@@ -451,7 +451,7 @@ export interface IndustryProjectFilters {
   status?: ProjectStatus | ProjectStatus[];
   difficulty_level?: DifficultyLevel | DifficultyLevel[];
   required_competency?: string;
-  // Note: is_remote field removed - not in database schema
+  is_remote?: boolean; // DB column exists
   has_stipend?: boolean;
   search?: string;
   page?: number;
