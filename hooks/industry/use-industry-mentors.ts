@@ -135,7 +135,10 @@ export function useCreateMentor() {
       IndustryMentorService.createMentor(data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: mentorKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: mentorKeys.byPartner(data.partner_id) });
+      // Only invalidate partner-specific queries if partner_id exists
+      if (data.partner_id) {
+        queryClient.invalidateQueries({ queryKey: mentorKeys.byPartner(data.partner_id) });
+      }
       queryClient.invalidateQueries({ queryKey: mentorKeys.options() });
     }
   });
