@@ -97,6 +97,18 @@ export default function NewDevelopmentPlanPage() {
     );
   }
 
+  if (!canCreate) {
+    return (
+      <ContentLayout title='New Development Plan'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to create development plans.
+          </p>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   return (
     <ContentLayout title='New Development Plan'>
       <PageBreadcrumb
