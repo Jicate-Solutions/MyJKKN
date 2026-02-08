@@ -207,7 +207,7 @@ export class BillingCOPQService {
           `
           *,
           bill:billing_student_bills(id, bill_description),
-          learner:learners_profiles(id, name, roll_number),
+          learner:learners_profiles(id, first_name, last_name, roll_number),
           reporter:profiles!reported_by(id, full_name)
         `
         )
@@ -254,7 +254,7 @@ export class BillingCOPQService {
           `
           *,
           bill:billing_student_bills(id, bill_description),
-          learner:learners_profiles(id, name, roll_number),
+          learner:learners_profiles(id, first_name, last_name, roll_number),
           reporter:profiles!reported_by(id, full_name)
         `,
           { count: 'exact' }
@@ -375,7 +375,7 @@ export class BillingCOPQService {
           `
           *,
           bill:billing_student_bills(id, bill_description),
-          learner:learners_profiles(id, name, roll_number),
+          learner:learners_profiles(id, first_name, last_name, roll_number),
           reporter:profiles!reported_by(id, full_name)
         `
         )
@@ -432,7 +432,7 @@ export class BillingCOPQService {
           `
           *,
           bill:billing_student_bills(id, bill_description),
-          learner:learners_profiles(id, name, roll_number),
+          learner:learners_profiles(id, first_name, last_name, roll_number),
           reporter:profiles!reported_by(id, full_name)
         `
         )
@@ -466,7 +466,7 @@ export class BillingCOPQService {
           `
           *,
           bill:billing_student_bills(id, bill_description),
-          learner:learners_profiles(id, name, roll_number),
+          learner:learners_profiles(id, first_name, last_name, roll_number),
           reporter:profiles!reported_by(id, full_name)
         `
         )
@@ -551,7 +551,7 @@ export class BillingCOPQService {
             `
             *,
             bill:billing_student_bills(id, bill_description),
-            learner:learners_profiles(id, name, roll_number),
+            learner:learners_profiles(id, first_name, last_name, roll_number),
             reporter:profiles!reported_by(id, full_name)
           `
           )
@@ -683,7 +683,7 @@ export class BillingCOPQService {
         `
         *,
         bill:billing_student_bills(id, bill_description),
-        learner:learners_profiles(id, name, roll_number),
+        learner:learners_profiles(id, first_name, last_name, roll_number),
         reporter:profiles!reported_by(id, full_name)
       `
       )
