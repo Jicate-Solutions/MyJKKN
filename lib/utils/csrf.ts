@@ -15,7 +15,13 @@ export function generateCSRFToken(): string {
 }
 
 /**
- * Sets a CSRF token in an httpOnly cookie
+ * Sets a CSRF token in a cookie (NOT httpOnly so client can read it)
+ * SECURITY: CSRF tokens must be readable by JavaScript to send in request headers
+ * The double-submit cookie pattern protects against CSRF attacks because:
+ * 1. Attacker cannot read the cookie from a different origin (Same-Origin Policy)
+ * 2. Attacker cannot set a cookie on our domain
+ * 3. Validation checks that cookie value matches header value
+ *
  * @param token - The CSRF token to set (generates one if not provided)
  * @returns The CSRF token that was set
  */
@@ -24,11 +30,11 @@ export async function setCSRFCookie(token?: string): Promise<string> {
   const cookieStore = await cookies();
 
   cookieStore.set(CSRF_COOKIE_NAME, csrfToken, {
-    httpOnly: true,
+    httpOnly: false, // MUST be false so JavaScript can read it for double-submit pattern
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     maxAge: 60 * 60 * 24, // 24 hours
-    path: '/',
+    path: '/parent-portal', // Scope to parent portal only
   });
 
   return csrfToken;
