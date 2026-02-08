@@ -204,7 +204,7 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
         summary: commSummary,
       });
       toast.success('Communication logged');
-      setCommType('note');
+      setCommType('other');
       setCommSubject('');
       setCommSummary('');
       setCommDialogOpen(false);
