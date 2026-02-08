@@ -109,7 +109,7 @@ export class DeploymentsService extends BaseService {
   static async getDeployments(filters?: DeploymentFilters): Promise<BaseListResponse<DeploymentWithPhase>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = (this.supabase as any).from('sh_phase_deployments')
+    let query = this.supabase.from('sh_phase_deployments')
       .select(
         `
         *,
@@ -170,7 +170,7 @@ export class DeploymentsService extends BaseService {
    * Get a single deployment by ID
    */
   static async getDeploymentById(id: string): Promise<DeploymentWithPhase | null> {
-    const { data, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data, error } = await this.supabase.from('sh_phase_deployments')
       .select(
         `
         *,
@@ -201,7 +201,7 @@ export class DeploymentsService extends BaseService {
    * Get deployments by phase ID
    */
   static async getDeploymentsByPhase(phaseId: string): Promise<PhaseDeployment[]> {
-    const { data, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data, error } = await this.supabase.from('sh_phase_deployments')
       .select('*')
       .eq('phase_id', phaseId)
       .order('deployed_date', { ascending: false });
@@ -217,7 +217,7 @@ export class DeploymentsService extends BaseService {
     phaseId: string,
     environment: DeploymentEnvironment
   ): Promise<PhaseDeployment | null> {
-    const { data, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data, error } = await this.supabase.from('sh_phase_deployments')
       .select('*')
       .eq('phase_id', phaseId)
       .eq('environment', environment)
@@ -234,13 +234,13 @@ export class DeploymentsService extends BaseService {
    */
   static async createDeployment(input: CreateDeploymentInput): Promise<PhaseDeployment> {
     // Deactivate previous active deployments in same environment
-    await (this.supabase as any).from('sh_phase_deployments')
+    await this.supabase.from('sh_phase_deployments')
       .update({ status: 'inactive' })
       .eq('phase_id', input.phase_id)
       .eq('environment', input.environment)
       .eq('status', 'active');
 
-    const { data, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data, error } = await this.supabase.from('sh_phase_deployments')
       .insert({
         phase_id: input.phase_id,
         environment: input.environment,
@@ -259,7 +259,7 @@ export class DeploymentsService extends BaseService {
 
     // Update phase status to 'live' if this is a production deployment
     if (input.environment === 'production') {
-      await (this.supabase as any).from('sh_solution_phases')
+      await this.supabase.from('sh_solution_phases')
         .update({
           status: 'live',
           updated_at: new Date().toISOString(),
@@ -274,7 +274,7 @@ export class DeploymentsService extends BaseService {
    * Update a deployment record
    */
   static async updateDeployment(id: string, input: UpdateDeploymentInput): Promise<PhaseDeployment> {
-    const { data, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data, error } = await this.supabase.from('sh_phase_deployments')
       .update(input)
       .eq('id', id)
       .select()
@@ -288,7 +288,7 @@ export class DeploymentsService extends BaseService {
    * Deactivate a deployment
    */
   static async deactivateDeployment(id: string): Promise<PhaseDeployment> {
-    const { data, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data, error } = await this.supabase.from('sh_phase_deployments')
       .update({ status: 'inactive' })
       .eq('id', id)
       .select()
@@ -313,14 +313,14 @@ export class DeploymentsService extends BaseService {
     }
 
     // Deactivate current active deployment
-    await (this.supabase as any).from('sh_phase_deployments')
+    await this.supabase.from('sh_phase_deployments')
       .update({ status: 'inactive' })
       .eq('phase_id', phaseId)
       .eq('environment', environment)
       .eq('status', 'active');
 
     // Reactivate target deployment
-    const { data, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data, error } = await this.supabase.from('sh_phase_deployments')
       .update({ status: 'active' })
       .eq('id', targetDeploymentId)
       .select()
@@ -337,7 +337,7 @@ export class DeploymentsService extends BaseService {
    * Delete a deployment record
    */
   static async deleteDeployment(id: string): Promise<void> {
-    const { error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { error } = await this.supabase.from('sh_phase_deployments')
       .delete()
       .eq('id', id);
 
@@ -354,7 +354,7 @@ export class DeploymentsService extends BaseService {
     activeProduction: number;
     deploymentsThisMonth: number;
   }> {
-    const { data, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data, error } = await this.supabase.from('sh_phase_deployments')
       .select('environment, status, deployed_date');
 
     if (error) throw new Error(`Failed to fetch deployment stats: ${error.message}`);
@@ -408,7 +408,7 @@ export class DeploymentsService extends BaseService {
     phaseId: string,
     environment: DeploymentEnvironment
   ): Promise<string | null> {
-    const { data, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { data, error } = await this.supabase.from('sh_phase_deployments')
       .select('custom_domain, vercel_url')
       .eq('phase_id', phaseId)
       .eq('environment', environment)
@@ -426,7 +426,7 @@ export class DeploymentsService extends BaseService {
    * Check if phase has any active deployments
    */
   static async hasActiveDeployments(phaseId: string): Promise<boolean> {
-    const { count, error } = await (this.supabase as any).from('sh_phase_deployments')
+    const { count, error } = await this.supabase.from('sh_phase_deployments')
       .select('*', { count: 'exact', head: true })
       .eq('phase_id', phaseId)
       .eq('status', 'active');
