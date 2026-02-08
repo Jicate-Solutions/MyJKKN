@@ -135,7 +135,7 @@ export class OutcomeCorrelationService {
 
       const { data, error } = await (this.getSupabase() as any)
         .from('outcome_program_correlation')
-        .select('*, program:programs(id, program_name)')
+        .select('*, program:programs!program_id(id, program_name)')
         .eq('id', id)
         .maybeSingle();
 
