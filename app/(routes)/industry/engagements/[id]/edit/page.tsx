@@ -77,7 +77,7 @@ export default function EditEngagementPage() {
         status: mappedStatus as EngagementFormValues['status'],
         start_date: engagement.start_date || '',
         expected_end_date: engagement.expected_end_date || '',
-        end_date: engagement.end_date || '',
+        end_date: engagement.actual_end_date || '',
         hours_completed: engagement.hours_completed,
         certificate_url: engagement.certificate_url || '',
         notes: engagement.notes || ''
