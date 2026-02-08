@@ -570,12 +570,12 @@ export class ContentService extends BaseService {
   }
 
   /**
-   * Reject deliverable
+   * Reject deliverable (sends back for revision)
    */
   static async rejectDeliverable(id: string, notes?: string): Promise<ContentDeliverable> {
     const { data, error } = await (this.supabase as any).from('sh_content_deliverables')
       .update({
-        status: 'rejected' as DeliverableStatus,
+        status: 'revision' as DeliverableStatus,
         notes: notes,
       })
       .eq('id', id)
