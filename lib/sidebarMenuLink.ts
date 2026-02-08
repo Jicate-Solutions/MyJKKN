@@ -243,6 +243,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Notification Management
   '/admin/notifications': 'notifications.view',
   '/admin/notifications/new': 'notifications.create',
+  '/admin/reset-driver-passwords': 'system.admin.view',
 
   // System Management
   '/system/api-management': 'system.api.view',
