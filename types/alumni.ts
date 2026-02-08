@@ -4,29 +4,38 @@
 // ============================================================================
 
 // ============================================================================
-// ENUMS
+// ENUMS (MUST match database ENUMs exactly!)
 // ============================================================================
 
 export type OutcomeType =
-  | 'employed'
-  | 'higher_studies'
-  | 'entrepreneur'
-  | 'freelancer'
-  | 'unemployed'
-  | 'unknown';
+  | 'employed'           // Working in a company
+  | 'self_employed'      // Freelance/consulting (was 'freelancer' - WRONG)
+  | 'entrepreneur'       // Started own business
+  | 'higher_studies'     // Pursuing further education
+  | 'competitive_exams'  // Preparing for govt/competitive exams
+  | 'family_business'    // Joined family business
+  | 'gap_year'          // Taking planned break
+  | 'seeking'           // Actively job seeking
+  | 'unknown';          // Lost contact/no update
 
 export type SalaryRange =
-  | 'below_3_lpa'
-  | '3-5 LPA'
-  | '5-8 LPA'
-  | '8-12 LPA'
-  | '12+ LPA';
+  | 'below_3l'          // Below 3 LPA
+  | '3l_to_5l'          // 3-5 LPA
+  | '5l_to_8l'          // 5-8 LPA
+  | '8l_to_12l'         // 8-12 LPA
+  | '12l_to_20l'        // 12-20 LPA
+  | '20l_to_35l'        // 20-35 LPA
+  | 'above_35l'         // Above 35 LPA
+  | 'not_applicable'    // For non-employed outcomes
+  | 'undisclosed';      // Chose not to share
 
-export type DataSource =
-  | 'self_reported'
-  | 'verified'
-  | 'alumni_survey'
-  | 'linkedin';
+export type VerificationStatus =
+  | 'pending'            // Not yet verified
+  | 'self_reported'      // Reported by alumni, not verified
+  | 'document_verified'  // Verified with offer letter/ID
+  | 'employer_confirmed' // Confirmed by employer
+  | 'linkedin_verified'  // Verified via LinkedIn
+  | 'rejected';          // Verification failed
 
 // ============================================================================
 // OUTCOME TYPE LABELS (for UI)
