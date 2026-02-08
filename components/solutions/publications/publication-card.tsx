@@ -33,6 +33,8 @@ const journalTypeConfig: Record<JournalType, { label: string; color: string }> =
   scopus: { label: 'Scopus', color: 'bg-orange-100 text-orange-700' },
   ugc_care: { label: 'UGC-CARE', color: 'bg-indigo-100 text-indigo-700' },
   other: { label: 'Other', color: 'bg-gray-100 text-gray-700' },
+  wos: { label: 'Web of Science', color: 'bg-teal-100 text-teal-700' },
+  ugc: { label: 'UGC', color: 'bg-purple-100 text-purple-700' },
 }
 
 const statusConfig: Record<PublicationStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
