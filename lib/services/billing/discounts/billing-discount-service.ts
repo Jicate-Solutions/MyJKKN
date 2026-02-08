@@ -306,6 +306,15 @@ export class BillingDiscountService {
       // First get the discount details to access bill_id and discount_amount
       const discountData = await this.getBillingDiscount(id);
 
+      // Validate discount hasn't expired
+      if (discountData.expiry_date) {
+        const expiryDate = new Date(discountData.expiry_date);
+        const today = new Date();
+        if (expiryDate < today) {
+          throw new Error('Cannot approve an expired discount');
+        }
+      }
+
       // Get current user
       const {
         data: { user }
