@@ -10,7 +10,7 @@ import type { LearnerFeeSummary } from '@/types/parent-portal';
 interface FeeStatusProps {
   learnerName: string;
   learnerPhoto?: string | null;
-  fees: LearnerFeeSummary;
+  fees?: LearnerFeeSummary;
   onPayNow?: () => void;
 }
 
