@@ -94,6 +94,18 @@ export default function FacilitatorDevelopmentRecordsPage() {
     );
   }
 
+  if (!canView) {
+    return (
+      <ContentLayout title='Development Records'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view facilitator development records.
+          </p>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   return (
     <ContentLayout title='Development Records'>
       <PageBreadcrumb
