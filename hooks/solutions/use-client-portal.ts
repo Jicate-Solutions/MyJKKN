@@ -296,7 +296,7 @@ export function useClientSolution(solutionId: string, clientId: string) {
       // Fetch payments
       const { data: payments } = await (supabase as any)
         .from('sh_payments')
-        .select('id, amount, payment_type, status, due_date, received_date, invoice_url')
+        .select('id, amount, payment_type, status, due_date, payment_date, invoice_url')
         .eq('solution_id', solutionId)
         .order('created_at', { ascending: false });
       result.payments = payments || [];
