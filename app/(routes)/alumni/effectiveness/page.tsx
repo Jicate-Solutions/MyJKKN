@@ -309,8 +309,8 @@ function ProgramCard({ correlation }: { correlation: OutcomeProgramCorrelation }
               <div className="mt-3">
                 <p className="text-xs text-muted-foreground mb-1">Key Roles</p>
                 <div className="flex flex-wrap gap-1">
-                  {c.top_roles.slice(0, 5).map((role: any) => (
-                    <Badge key={role.role || role} variant="outline" className="text-xs">
+                  {c.top_roles.slice(0, 5).map((role: any, idx: number) => (
+                    <Badge key={`role-${idx}-${role.role || role}`} variant="outline" className="text-xs">
                       {role.role || role}
                     </Badge>
                   ))}
