@@ -282,6 +282,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/receipts/[id]': 'billing.receipts.view',
   '/billing/receipts/[id]/edit': 'billing.receipts.edit',
   '/billing/receipts/generate': 'billing.receipts.generate',
+  '/billing/receipts/templates': 'billing.receipts.view',
   '/billing/discounts': 'billing.discounts.view',
   '/billing/discounts/new': 'billing.discounts.create',
   '/billing/discounts/[id]': 'billing.discounts.view',
