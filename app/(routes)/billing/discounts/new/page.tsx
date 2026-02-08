@@ -249,7 +249,21 @@ export default function NewDiscountPage() {
         </div>
 
         {/* Selected Bills Section */}
-        {selectedBills.length > 0 && (
+        {isLoadingBills ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Percent className='h-5 w-5' />
+                Loading Bills...
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className='flex justify-center items-center p-8'>
+                <BeatLoader color='#00e902' />
+              </div>
+            </CardContent>
+          </Card>
+        ) : selectedBills.length > 0 ? (
           <Card>
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
