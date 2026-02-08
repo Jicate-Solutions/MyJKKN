@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,15 +11,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollText, Calendar, DollarSign, Upload, FileText, AlertTriangle, Loader2 } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { toast } from 'sonner';
-
-// TODO: Replace with real hooks after service migration
-// import { useMouBySolution, useCreateMou, useUpdateMou } from '@/hooks/solutions/use-mous';
+import { useMouBySolution, useCreateMou, useUpdateMou, MOU_STATUS_LABELS } from '@/hooks/solutions/use-mous';
 
 interface MouManagementProps {
   solutionId: string;
 }
 
-function formatCurrency(amount: number | null): string {
+function formatCurrency(amount: number | null | undefined): string {
   if (!amount) return '-';
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
@@ -30,11 +28,13 @@ function formatCurrency(amount: number | null): string {
 
 export function MouManagement({ solutionId }: MouManagementProps) {
   const [isEditing, setIsEditing] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Placeholder - no MoU exists yet
-  const mou = null;
-  const isLoading = false;
+  // Real hooks
+  const { data: mou, isLoading } = useMouBySolution(solutionId);
+  const createMou = useCreateMou();
+  const updateMou = useUpdateMou();
+
+  const isSubmitting = createMou.isPending || updateMou.isPending;
 
   // Form state for creating/editing
   const [dealValue, setDealValue] = useState('');
@@ -43,22 +43,59 @@ export function MouManagement({ solutionId }: MouManagementProps) {
   const [expiryDate, setExpiryDate] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
 
+  // Populate form when editing existing MOU
+  useEffect(() => {
+    if (isEditing && mou) {
+      setDealValue(mou.deal_value?.toString() || '');
+      setAmcValue(mou.amc_value?.toString() || '');
+      setSignedDate(mou.signed_date || '');
+      setExpiryDate(mou.expiry_date || '');
+      setPaymentTerms(
+        mou.payment_terms
+          ? typeof mou.payment_terms === 'string'
+            ? mou.payment_terms
+            : JSON.stringify(mou.payment_terms)
+          : ''
+      );
+    }
+  }, [isEditing, mou]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
+
+    const paymentTermsValue = paymentTerms
+      ? { description: paymentTerms }
+      : undefined;
+
     try {
-      // TODO: Implement with actual mutation
-      console.log('Creating/updating MoU:', {
-        deal_value: dealValue,
-        amc_value: amcValue,
-        signed_date: signedDate,
-        expiry_date: expiryDate,
-        payment_terms: paymentTerms,
-      });
-      toast.success(mou ? 'MoU updated' : 'MoU created');
+      if (mou) {
+        // Update existing MOU
+        await updateMou.mutateAsync({
+          id: mou.id,
+          input: {
+            deal_value: Number(dealValue),
+            amc_value: amcValue ? Number(amcValue) : undefined,
+            signed_date: signedDate || undefined,
+            expiry_date: expiryDate || undefined,
+            payment_terms: paymentTermsValue,
+          },
+        });
+        toast.success('MoU updated');
+      } else {
+        // Create new MOU
+        await createMou.mutateAsync({
+          solution_id: solutionId,
+          deal_value: Number(dealValue),
+          amc_value: amcValue ? Number(amcValue) : undefined,
+          signed_date: signedDate || undefined,
+          expiry_date: expiryDate || undefined,
+          payment_terms: paymentTermsValue,
+        });
+        toast.success('MoU created');
+      }
       setIsEditing(false);
-    } finally {
-      setIsSubmitting(false);
+    } catch {
+      toast.error(mou ? 'Failed to update MoU' : 'Failed to create MoU');
     }
   };
 
@@ -230,8 +267,8 @@ export function MouManagement({ solutionId }: MouManagementProps) {
               Memorandum of Understanding for this solution
             </CardDescription>
           </div>
-          <Badge variant={mou?.status === 'signed' ? 'default' : 'secondary'}>
-            {mou?.status || 'Draft'}
+          <Badge variant={mou?.status === 'active' ? 'default' : 'secondary'}>
+            {mou?.status ? MOU_STATUS_LABELS[mou.status] : 'Draft'}
           </Badge>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -275,7 +312,13 @@ export function MouManagement({ solutionId }: MouManagementProps) {
               <p className="text-sm font-medium text-muted-foreground mb-1">
                 Payment Terms
               </p>
-              <p className="text-sm">{mou.payment_terms}</p>
+              <p className="text-sm">
+                {typeof mou.payment_terms === 'string'
+                  ? mou.payment_terms
+                  : (mou.payment_terms as Record<string, unknown>)?.description
+                    ? String((mou.payment_terms as Record<string, unknown>).description)
+                    : JSON.stringify(mou.payment_terms)}
+              </p>
             </div>
           )}
 
