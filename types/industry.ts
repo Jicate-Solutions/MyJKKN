@@ -273,48 +273,44 @@ export interface LearnerIndustryEngagement {
 // ============================================================================
 
 /**
- * Create industry partner
+ * Create industry partner - VERIFIED against DB: 2026-02-08
  */
 export interface CreateIndustryPartnerDTO {
   institution_id: string;
   company_name: string;
-  company_logo_url?: string;
   industry_sector?: string;
-  company_size?: string;
-  company_website?: string;
-  company_description?: string;
-  partnership_type?: PartnershipType;
+  partnership_type: PartnershipType; // NOT NULL in DB
+  contact_person?: string;
+  contact_email?: string;
+  contact_phone?: string;
   partnership_start_date?: string;
   partnership_end_date?: string;
   mou_document_url?: string;
-  partnership_value?: string;
-  contact_person?: string;
-  contact_designation?: string;
-  contact_email?: string;
-  contact_phone?: string;
+  description?: string;
+  website_url?: string;
+  logo_url?: string;
   is_active?: boolean;
+  notes?: string;
 }
 
 /**
- * Update industry partner
+ * Update industry partner - VERIFIED against DB: 2026-02-08
  */
 export interface UpdateIndustryPartnerDTO {
   company_name?: string;
-  company_logo_url?: string;
   industry_sector?: string;
-  company_size?: string;
-  company_website?: string;
-  company_description?: string;
   partnership_type?: PartnershipType;
+  contact_person?: string;
+  contact_email?: string;
+  contact_phone?: string;
   partnership_start_date?: string;
   partnership_end_date?: string;
   mou_document_url?: string;
-  partnership_value?: string;
-  contact_person?: string;
-  contact_designation?: string;
-  contact_email?: string;
-  contact_phone?: string;
+  description?: string;
+  website_url?: string;
+  logo_url?: string;
   is_active?: boolean;
+  notes?: string;
 }
 
 /**
