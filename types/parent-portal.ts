@@ -235,9 +235,10 @@ export interface OTPResponse {
 
 export interface ParentAuthResult {
   success: boolean;
-  parent?: ParentProfile;
-  token?: string;
+  parent_id?: string; // UUID of parent if exists
+  is_new?: boolean; // True if this is a new parent (needs registration)
   message: string;
+  csrf_token?: string; // CSRF token for authenticated requests
 }
 
 // ============================================================================
