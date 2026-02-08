@@ -469,13 +469,13 @@ export default function DiscountDetailsPage() {
                         </p>
                       </div>
                     )}
-                    {(discount.outcome_criteria?.competency_ids || discount.outcome_criteria?.required_competencies) && (
+                    {discount.outcome_criteria?.competency_ids && discount.outcome_criteria.competency_ids.length > 0 && (
                       <div className='md:col-span-2'>
                         <Label className='text-sm font-medium text-muted-foreground'>
                           Required Competencies
                         </Label>
                         <div className='flex flex-wrap gap-1 mt-1'>
-                          {(discount.outcome_criteria.competency_ids || discount.outcome_criteria.required_competencies || []).map((id: string) => (
+                          {discount.outcome_criteria.competency_ids.map((id: string) => (
                             <Badge key={id} variant='outline' className='text-xs'>
                               {id}
                             </Badge>
