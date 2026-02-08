@@ -118,7 +118,7 @@ export interface ParentCommunication {
   sender_id: string | null; // FIXED: DB column is sender_id
   attachments: CommunicationAttachment[]; // DB stores as JSONB
   created_at: string;
-  updated_at: string;
+  // NOTE: DB does NOT have updated_at column on parent_communications
 
   // Joined data
   sender?: {
