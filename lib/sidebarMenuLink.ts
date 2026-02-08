@@ -220,6 +220,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/timetables/templates': 'academic.timetables.templates.view',
   '/academic/timetables/templates/analytics': 'academic.timetables.templates.analytics',
   '/academic/timetables/templates/[id]': 'academic.timetables.templates.view',
+  '/academic/timetables/conflicts': 'academic.timetables.view',
   '/academic/timetables/new': 'academic.timetables.create',
   '/academic/timetables/[id]': 'academic.timetables.view',
   '/academic/timetables/[id]/edit': 'academic.timetables.edit',
