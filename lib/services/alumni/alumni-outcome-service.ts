@@ -63,7 +63,7 @@ export class AlumniOutcomeService {
 
       let query = (this.getSupabase() as any)
         .from('alumni_outcomes')
-        .select('*, program:programs(id, program_name), learner:learners(id, first_name, last_name)', { count: 'exact' });
+        .select('*, program:programs!program_id(id, program_name), learner:learners_profiles!learner_id(id, first_name, last_name)', { count: 'exact' });
 
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
