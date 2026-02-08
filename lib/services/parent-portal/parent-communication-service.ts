@@ -112,12 +112,12 @@ export class ParentCommunicationService {
   ): Promise<ParentCommunication | null> {
     try {
       const supabase: any = this.getSupabase();
+      // NOTE: sender_id has NO FK to profiles. Cannot join.
       const { data, error } = await supabase
         .from('parent_communications')
         .select(
           `
           *,
-          sender:profiles!sent_by(id, name, avatar_url),
           learner:learners_profiles(id, name, enrollment_number)
         `
         )
