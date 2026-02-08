@@ -450,7 +450,7 @@ export class ParentPortalService {
       .from('parent_communications')
       .select(`
         *,
-        sender:users_profiles(id, name, avatar_url),
+        sender:profiles!sent_by(id, name, avatar_url),
         learner:learners_profiles(id, name, enrollment_number)
       `)
       .eq('id', id)
@@ -464,10 +464,19 @@ export class ParentPortalService {
     const supabase: any = createClientSupabaseClient();
     const { data, error } = await supabase
       .from('parent_communications')
-      .insert(input)
+      .insert({
+        institution_id: input.institution_id,
+        parent_access_id: input.parent_access_id || null,
+        learner_id: input.learner_id,
+        communication_type: input.communication_type,
+        subject: input.subject,
+        content: input.content,
+        sent_by: input.sent_by || null,
+        attachments: input.attachments || [],
+      })
       .select(`
         *,
-        sender:users_profiles(id, name, avatar_url)
+        sender:profiles!sent_by(id, name, avatar_url)
       `)
       .single();
 
