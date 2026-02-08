@@ -314,15 +314,14 @@ export class LearningPathService {
       ).length;
 
       const progress = totalRequired > 0
-        ? Math.round((completedRequired / totalRequired) * 100 * 100) / 100
+        ? Math.round((completedRequired / totalRequired) * 100)
         : 0;
 
-      // Update the path's current_progress
+      // Update the path's current_progress (updated_at handled by trigger)
       await (this.getSupabase() as any)
         .from('learning_paths')
         .update({
           current_progress: progress,
-          updated_at: new Date().toISOString(),
         })
         .eq('id', pathId);
 
