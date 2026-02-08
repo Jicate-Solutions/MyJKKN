@@ -484,7 +484,7 @@ export default function ParentDetailPage() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">
-                          {COMMUNICATION_TYPE_LABELS[comm.communication_type] || comm.communication_type}
+                          {COMMUNICATION_TYPE_LABELS[comm.type] || comm.type}
                         </Badge>
                       </TableCell>
                       <TableCell>
