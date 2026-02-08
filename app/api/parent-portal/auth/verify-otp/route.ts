@@ -1,6 +1,7 @@
 // app/api/parent-portal/auth/verify-otp/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { verifyOTPSchema } from '@/lib/validations/parent-portal';
 import { ParentSessionService } from '@/lib/services/parent-portal/parent-session-service';
