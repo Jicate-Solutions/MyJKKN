@@ -123,8 +123,8 @@ export default function MentorDetailPage() {
                 <CardHeader><CardTitle className="text-base">Capacity</CardTitle></CardHeader>
                 <CardContent>
                   <p>Max Mentees: <span className="font-medium">{mentor.max_mentees}</span></p>
-                  <p>Current: <span className="font-medium">{mentor.current_mentees_count || 0}</span></p>
-                  <p>Available Slots: <span className="font-medium text-green-600">{mentor.max_mentees - (mentor.current_mentees_count || 0)}</span></p>
+                  <p>Current: <span className="font-medium">{mentor.current_mentees || 0}</span></p>
+                  <p>Available Slots: <span className="font-medium text-green-600">{mentor.max_mentees - (mentor.current_mentees || 0)}</span></p>
                 </CardContent>
               </Card>
             </div>
