@@ -26,17 +26,17 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useAlumniOutcomes } from '@/hooks/alumni';
-import { OUTCOME_TYPE_LABELS } from '@/types/alumni';
-import type { OutcomeType, AlumniOutcomeFilters } from '@/types/alumni';
+import { OUTCOME_TYPE_LABELS, SALARY_RANGE_LABELS } from '@/types/alumni';
+import type { OutcomeType, AlumniOutcomeFilters, SalaryRange } from '@/types/alumni';
 
 const OUTCOME_BADGE_COLORS: Record<OutcomeType, string> = {
   employed: 'bg-green-100 text-green-800',
+  self_employed: 'bg-amber-100 text-amber-800',
   higher_studies: 'bg-blue-100 text-blue-800',
   entrepreneur: 'bg-purple-100 text-purple-800',
-  self_employed: 'bg-amber-100 text-amber-800',
   competitive_exams: 'bg-cyan-100 text-cyan-800',
   family_business: 'bg-orange-100 text-orange-800',
-  gap_year: 'bg-slate-100 text-slate-800',
+  gap_year: 'bg-yellow-100 text-yellow-800',
   seeking: 'bg-red-100 text-red-800',
   unknown: 'bg-gray-100 text-gray-800'
 };
@@ -121,7 +121,7 @@ export default function AlumniOutcomesPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by name, company, job title..."
+                  placeholder="Search by company, designation, industry..."
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                   className="pl-10"
@@ -192,63 +192,71 @@ export default function AlumniOutcomesPage() {
             ) : (
               <>
                 <div className="space-y-3">
-                  {outcomes.map((outcome) => (
-                    <Link
-                      key={outcome.id}
-                      href={`/alumni/outcomes/${outcome.id}`}
-                      className="block"
-                    >
-                      <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-medium truncate">{outcome.name}</span>
-                            {outcome.verified ? (
-                              <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
-                            ) : (
-                              <XCircle className="h-4 w-4 text-muted-foreground shrink-0" />
-                            )}
+                  {outcomes.map((outcome) => {
+                    const displayName = outcome.learner
+                      ? `${outcome.learner.first_name} ${outcome.learner.last_name}`
+                      : 'Unknown Alumni';
+                    const isVerified = outcome.verification_status !== 'pending'
+                      && outcome.verification_status !== 'rejected';
+
+                    return (
+                      <Link
+                        key={outcome.id}
+                        href={`/alumni/outcomes/${outcome.id}`}
+                        className="block"
+                      >
+                        <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium truncate">{displayName}</span>
+                              {isVerified ? (
+                                <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+                              ) : (
+                                <XCircle className="h-4 w-4 text-muted-foreground shrink-0" />
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                              <span>Class of {outcome.graduation_year}</span>
+                              {outcome.program?.program_name && (
+                                <>
+                                  <span className="text-muted-foreground/50">|</span>
+                                  <span className="truncate">{outcome.program.program_name}</span>
+                                </>
+                              )}
+                              {outcome.company_name && (
+                                <>
+                                  <span className="text-muted-foreground/50">|</span>
+                                  <span className="truncate">{outcome.company_name}</span>
+                                </>
+                              )}
+                              {outcome.designation && (
+                                <>
+                                  <span className="text-muted-foreground/50">-</span>
+                                  <span className="truncate">{outcome.designation}</span>
+                                </>
+                              )}
+                              {outcome.institution_name && (
+                                <>
+                                  <span className="text-muted-foreground/50">|</span>
+                                  <span className="truncate">{outcome.institution_name}</span>
+                                </>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                            <span>Class of {outcome.graduation_year}</span>
-                            {outcome.program?.program_name && (
-                              <>
-                                <span className="text-muted-foreground/50">|</span>
-                                <span className="truncate">{outcome.program.program_name}</span>
-                              </>
+                          <div className="flex items-center gap-2 ml-4 shrink-0">
+                            {outcome.salary_range && (
+                              <Badge variant="outline" className="text-xs">
+                                {SALARY_RANGE_LABELS[outcome.salary_range as SalaryRange] || outcome.salary_range}
+                              </Badge>
                             )}
-                            {outcome.company_name && (
-                              <>
-                                <span className="text-muted-foreground/50">|</span>
-                                <span className="truncate">{outcome.company_name}</span>
-                              </>
-                            )}
-                            {outcome.job_title && (
-                              <>
-                                <span className="text-muted-foreground/50">-</span>
-                                <span className="truncate">{outcome.job_title}</span>
-                              </>
-                            )}
-                            {outcome.higher_study_institution && (
-                              <>
-                                <span className="text-muted-foreground/50">|</span>
-                                <span className="truncate">{outcome.higher_study_institution}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 ml-4 shrink-0">
-                          {outcome.salary_range && (
-                            <Badge variant="outline" className="text-xs">
-                              {outcome.salary_range}
+                            <Badge className={OUTCOME_BADGE_COLORS[outcome.outcome_type as OutcomeType] || 'bg-gray-100 text-gray-800'}>
+                              {OUTCOME_TYPE_LABELS[outcome.outcome_type as OutcomeType] || outcome.outcome_type}
                             </Badge>
-                          )}
-                          <Badge className={OUTCOME_BADGE_COLORS[outcome.outcome_type as OutcomeType] || 'bg-gray-100 text-gray-800'}>
-                            {OUTCOME_TYPE_LABELS[outcome.outcome_type as OutcomeType] || outcome.outcome_type}
-                          </Badge>
+                          </div>
                         </div>
-                      </div>
-                    </Link>
-                  ))}
+                      </Link>
+                    );
+                  })}
                 </div>
 
                 {/* Pagination */}
