@@ -151,6 +151,15 @@ export type {
 } from './production-service';
 
 // ============================================
+// MOU SERVICES
+// ============================================
+export { mouService, MouService, MOU_STATUS_LABELS } from './mou-service';
+export type {
+  MouWithSolution,
+  MouFilters,
+} from './mou-service';
+
+// ============================================
 // SUPPORT SERVICES
 // ============================================
 export {
