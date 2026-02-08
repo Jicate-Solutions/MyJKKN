@@ -113,8 +113,8 @@ export default function EngagementsPage() {
                             <p className="text-sm text-muted-foreground">{engagement.engagement_type} - {(engagement.partner as any)?.company_name}</p>
                             <div className="flex gap-2 mt-1">
                               <Badge className={getStatusColor(engagement.status as string)}>{(engagement.status as string) === 'pending' ? 'applied' : engagement.status}</Badge>
-                              {engagement.hours_completed > 0 && (
-                                <Badge variant="outline">{engagement.hours_completed} hrs</Badge>
+                              {engagement.progress_percentage > 0 && (
+                                <Badge variant="outline">{engagement.progress_percentage}%</Badge>
                               )}
                             </div>
                           </div>
