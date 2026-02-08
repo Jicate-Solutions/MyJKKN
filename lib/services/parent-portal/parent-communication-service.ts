@@ -199,7 +199,7 @@ export class ParentCommunicationService {
 
       const { data, error } = await supabase
         .from('parent_communications')
-        .select('type, priority, read_at')
+        .select('communication_type, read_at')
         .eq('institution_id', institutionId);
 
       if (error) throw error;
@@ -211,20 +211,14 @@ export class ParentCommunicationService {
         read: records.filter((r: any) => r.read_at).length,
         by_type: records.reduce(
           (acc: Record<string, number>, r: any) => {
-            const t = r.type || 'general';
+            const t = r.communication_type || 'general';
             acc[t] = (acc[t] || 0) + 1;
             return acc;
           },
           {} as Record<string, number>
         ),
-        by_priority: records.reduce(
-          (acc: Record<string, number>, r: any) => {
-            const p = r.priority || 'normal';
-            acc[p] = (acc[p] || 0) + 1;
-            return acc;
-          },
-          {} as Record<string, number>
-        ),
+        // NOTE: DB has no priority column - return empty object
+        by_priority: {},
       };
     } catch (error) {
       console.error('[parent-portal/communication] Error fetching stats:', error);
