@@ -80,10 +80,10 @@ export function CommunicationList({
                   <div
                     className={cn(
                       'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full',
-                      getIconBg(comm.communication_type)
+                      getIconBg(comm.type)
                     )}
                   >
-                    {getIcon(comm.communication_type)}
+                    {getIcon(comm.type)}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
