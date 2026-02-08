@@ -190,11 +190,11 @@ export default function EngagementDetailPage() {
                 </Card>
               )}
 
-              {engagement.status_notes && (
+              {engagement.notes && (
                 <Card>
                   <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
                   <CardContent>
-                    <p className="text-muted-foreground whitespace-pre-wrap">{engagement.status_notes}</p>
+                    <p className="text-muted-foreground whitespace-pre-wrap">{engagement.notes}</p>
                   </CardContent>
                 </Card>
               )}
