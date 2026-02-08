@@ -93,9 +93,8 @@ export class IndustryProjectService {
       query = query.contains('required_competencies', [required_competency]);
     }
 
-    if (typeof is_remote === 'boolean') {
-      query = query.eq('is_remote', is_remote);
-    }
+    // Note: is_remote field removed - not in database schema
+    // If needed, add is_remote column to industry_projects table first
 
     if (has_stipend) {
       query = query.gt('stipend_amount', 0);
