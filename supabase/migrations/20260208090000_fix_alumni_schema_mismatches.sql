@@ -171,13 +171,18 @@ CREATE TYPE salary_range_enum AS ENUM (
 -- Migrate salary_range to ENUM
 ALTER TABLE alumni_outcomes ADD COLUMN salary_range_new salary_range_enum;
 
--- Simple mapping of old salary_range text to new ENUM
+-- Map old salary_range text to new ENUM (covering all known values)
 UPDATE alumni_outcomes SET salary_range_new =
   CASE salary_range
     WHEN '3-5 LPA' THEN '3l_to_5l'::salary_range_enum
+    WHEN '4-6 LPA' THEN '3l_to_5l'::salary_range_enum
+    WHEN '5-7 LPA' THEN '5l_to_8l'::salary_range_enum
     WHEN '5-8 LPA' THEN '5l_to_8l'::salary_range_enum
+    WHEN '6-8 LPA' THEN '5l_to_8l'::salary_range_enum
     WHEN '8-12 LPA' THEN '8l_to_12l'::salary_range_enum
-    WHEN '12+ LPA' THEN 'above_35l'::salary_range_enum
+    WHEN '12-20 LPA' THEN '12l_to_20l'::salary_range_enum
+    WHEN '12+ LPA' THEN '12l_to_20l'::salary_range_enum
+    WHEN '20+ LPA' THEN '20l_to_35l'::salary_range_enum
     ELSE NULL
   END;
 
