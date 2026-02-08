@@ -112,7 +112,7 @@ export function CommunicationList({
                             variant="outline"
                             className="text-xs"
                           >
-                            {getCommunicationTypeLabel(comm.communication_type)}
+                            {getCommunicationTypeLabel(comm.type)}
                           </Badge>
                           {!comm.read_at && (
                             <Button

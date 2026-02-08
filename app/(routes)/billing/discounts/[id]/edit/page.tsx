@@ -77,7 +77,7 @@ export default function EditDiscountPage() {
         setOutcomeCriteria(discount.outcome_criteria);
       }
     }
-  }, [discount]);
+  }, [discount?.id, discount?.discount_category, discount?.discount_type, discount?.discount_value, discount?.discount_reason, discount?.effective_date, discount?.expiry_date, discount?.is_outcome_based, discount?.outcome_criteria]);
 
   // Show loading state while permissions are loading
   if (permissionsLoading || isLoading) {
