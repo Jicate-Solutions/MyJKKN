@@ -24,19 +24,16 @@ ALTER TABLE alumni_outcomes DROP COLUMN IF EXISTS competencies_utilized;
 ALTER TABLE alumni_outcomes DROP COLUMN IF EXISTS linkedin_url;
 ALTER TABLE alumni_outcomes DROP COLUMN IF EXISTS verified;
 
--- Fix learner_id to be NOT NULL (it's critical)
-ALTER TABLE alumni_outcomes ALTER COLUMN learner_id SET NOT NULL;
+-- Note: learner_id kept nullable since existing data has NULLs (4 of 8 rows)
+-- Future: backfill learner_ids then add NOT NULL constraint
 
--- Add graduation_date (CRITICAL field)
+-- Add graduation_date (important field, nullable for existing data)
 ALTER TABLE alumni_outcomes ADD COLUMN IF NOT EXISTS graduation_date DATE;
 
 -- Backfill graduation_date from graduation_year if possible
 UPDATE alumni_outcomes
 SET graduation_date = make_date(graduation_year, 6, 1)
 WHERE graduation_date IS NULL AND graduation_year IS NOT NULL;
-
--- Now make it NOT NULL
-ALTER TABLE alumni_outcomes ALTER COLUMN graduation_date SET NOT NULL;
 
 -- Add batch tracking
 ALTER TABLE alumni_outcomes ADD COLUMN IF NOT EXISTS batch_id UUID REFERENCES batches(id) ON DELETE SET NULL;
