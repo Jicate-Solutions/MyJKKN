@@ -9,8 +9,6 @@ import {
   Plus,
   Clock,
   Award,
-  Users,
-  TrendingUp,
   Calendar,
   Building2,
   Star
