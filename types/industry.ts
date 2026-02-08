@@ -239,19 +239,32 @@ export interface EngagementFeedback {
 export interface LearnerIndustryEngagement {
   id: string;
   learner_id: string;
+  institution_id: string; // REQUIRED in DB
   engagement_type: EngagementType;
   project_id: string | null;
   mentor_id: string | null;
   partner_id: string | null;
+  team_id: string | null;
+  team_role: string | null;
+  applied_at: string;
+  approved_at: string | null;
+  approved_by: string | null;
   start_date: string | null;
-  end_date: string | null;
   expected_end_date: string | null;
+  actual_end_date: string | null; // DB column name (not end_date)
   status: EngagementStatus;
-  competencies_demonstrated: string[];  // UUIDs from competency_catalog
-  feedback: EngagementFeedback | null;
-  hours_completed: number;
+  status_notes: string | null;
+  competencies_targeted: string[]; // UUID array
+  competencies_demonstrated: string[];  // UUID array
+  competency_levels_achieved: any; // JSONB
+  progress_percentage: number;
+  milestones_completed: any; // JSONB
+  deliverables_submitted: any; // JSONB
+  mentor_feedback: any; // JSONB (not nested in feedback object)
+  learner_feedback: any; // JSONB (not nested in feedback object)
+  certificate_issued: boolean;
   certificate_url: string | null;
-  notes: string | null;
+  certificate_issued_at: string | null;
   created_at: string;
   updated_at: string;
 
