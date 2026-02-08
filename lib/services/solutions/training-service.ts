@@ -280,10 +280,10 @@ export class TrainingService extends BaseService {
         program_type: input.program_type,
         track: input.track,
         participant_count: input.participant_count,
-        location: input.location,
+        venue: input.venue,
         location_preference: input.location_preference,
-        scheduled_start: input.scheduled_start,
-        scheduled_end: input.scheduled_end,
+        start_date: input.start_date,
+        end_date: input.end_date,
       })
       .select()
       .single();
