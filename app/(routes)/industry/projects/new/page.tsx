@@ -84,11 +84,11 @@ export default function NewProjectPage() {
         min_team_size: values.min_team_size,
         stipend_amount: values.stipend_amount,
         application_deadline: values.application_deadline || undefined,
-        project_start_date: values.project_start_date || undefined,
-        project_end_date: values.project_end_date || undefined,
-        detailed_requirements: values.detailed_requirements,
+        start_date: values.start_date || undefined,
+        end_date: values.end_date || undefined,
+        technologies: values.technologies ? values.technologies.split(',').map(s => s.trim()) : undefined,
         deliverables: values.deliverables ? values.deliverables.split(',').map(s => s.trim()) : [],
-        assigned_mentor_id: values.assigned_mentor_id || undefined
+        mentor_id: values.mentor_id || undefined
       });
       toast({ title: 'Project created successfully' });
       router.push('/industry/projects');
