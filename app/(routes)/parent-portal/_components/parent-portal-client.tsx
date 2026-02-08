@@ -84,8 +84,7 @@ export function ParentPortalClient() {
   };
 
   const handleViewProfile = () => {
-    // TODO: Implement profile page
-    toast.success('Profile settings coming soon');
+    router.push('/parent-portal/profile');
   };
 
   const handleViewLearnerDetails = (learnerId: string) => {
