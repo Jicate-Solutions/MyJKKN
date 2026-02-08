@@ -90,40 +90,103 @@ export const VERIFICATION_STATUS_LABELS: Record<VerificationStatus, string> = {
 // CORE ENTITIES
 // ============================================================================
 
-/** Individual alumni outcome record */
+/** Individual alumni outcome record - MATCHES DATABASE SCHEMA */
 export interface AlumniOutcome {
   id: string;
-  institution_id: string;
-  learner_id: string | null;
-  name: string;
-  graduation_year: number;
+
+  // Core relationships
+  learner_id: string;  // NOT NULL in DB
+  institution_id: string;  // NOT NULL in DB
   program_id: string | null;
-  department_id: string | null;
+
+  // Graduation info
+  graduation_date: string;  // DATE NOT NULL - CRITICAL FIELD
+  graduation_year: number;  // Auto-computed from graduation_date
+  batch_id: string | null;
+
+  // Outcome details
   outcome_type: OutcomeType;
+  outcome_start_date: string | null;  // When they started job/business/studies
+
+  // Employment details (when outcome_type = 'employed' or 'self_employed')
   company_name: string | null;
-  job_title: string | null;
-  industry: string | null;
-  location: string | null;
-  salary_range: string | null;
-  is_core_domain: boolean | null;
-  higher_study_institution: string | null;
-  higher_study_program: string | null;
-  startup_name: string | null;
-  startup_industry: string | null;
-  time_to_placement_days: number | null;
-  competencies_utilized: string[];
-  satisfaction_score: number | null;
+  company_website: string | null;
+  designation: string | null;  // DB field name (not job_title)
+  department: string | null;
+  industry_sector: string | null;  // DB field name (not industry)
+  job_function: string | null;  // e.g., "Software Development", "Data Analytics"
+
+  // Location
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  is_remote: boolean | null;
+
+  // Compensation
+  salary_range: SalaryRange | null;
+  has_equity: boolean | null;
+  other_benefits: string | null;
+
+  // Program relevance
+  is_relevant_to_program: boolean | null;  // DB field name (not is_core_domain)
+  relevance_percentage: number | null;  // 0-100
+  skills_used: string[] | null;  // DB field name (not competencies_utilized)
+
+  // Higher studies details (when outcome_type = 'higher_studies')
+  institution_name: string | null;  // DB field name (not higher_study_institution)
+  course_name: string | null;  // DB field name (not higher_study_program)
+  specialization: string | null;
+  is_scholarship: boolean | null;
+  scholarship_details: string | null;
+
+  // Entrepreneurship details (when outcome_type = 'entrepreneur')
+  business_name: string | null;  // DB field name (not startup_name)
+  business_type: string | null;
+  business_sector: string | null;  // DB field name (not startup_industry)
+  funding_raised: string | null;
+  employee_count: number | null;
+
+  // Satisfaction and feedback
+  satisfaction_score: number | null;  // 1-10
+  would_recommend_program: boolean | null;
   feedback: string | null;
-  linkedin_url: string | null;
-  verified: boolean;
+  suggestions: string | null;
+  testimonial: string | null;
+  testimonial_approved: boolean | null;
+
+  // Verification
+  verification_status: VerificationStatus;  // ENUM, not boolean
   verified_by: string | null;
   verified_at: string | null;
-  data_source: DataSource;
+  verification_notes: string | null;
+  verification_documents: any | null;  // JSONB
+
+  // Contact preferences
+  is_contactable: boolean | null;
+  preferred_contact_method: string | null;
+  contact_frequency: string | null;
+
+  // Engagement
+  is_willing_to_mentor: boolean | null;
+  is_willing_to_hire: boolean | null;
+  is_willing_to_guest_lecture: boolean | null;
+  last_engagement_date: string | null;
+  engagement_notes: string | null;
+
+  // Tracking
+  reported_at: string | null;
+  last_updated_at: string | null;
+  update_count: number | null;
+  data_source: string | null;  // VARCHAR in DB
+
+  // Audit fields
+  created_by: string | null;
   created_at: string;
   updated_at: string;
+
   // Joined fields (populated by service)
   program?: { id: string; program_name: string };
-  department?: { id: string; name: string };
+  learner?: { id: string; first_name: string; last_name: string };  // Add learner join
 }
 
 /** Program-level outcome correlation / effectiveness */
