@@ -286,7 +286,7 @@ export class NotificationsService extends BaseService {
    */
   static async notifyDeliverableStatus(
     deliverableId: string,
-    status: 'approved' | 'rejected' | 'revision'
+    status: 'approved' | 'revision'
   ): Promise<void> {
     const { data: deliverable, error } = await (this.supabase as any).from('sh_content_deliverables')
       .select(
