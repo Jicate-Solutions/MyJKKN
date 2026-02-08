@@ -214,11 +214,29 @@ export interface SolutionMou extends BaseEntity {
 
 export interface Builder extends BaseEntity {
   user_id?: string;
+  learner_id?: string;
+  staff_id?: string;
+  builder_code?: string;
   name: string;
   email?: string;
+  phone?: string;
   department_id?: string;
+  institution_id?: string;
   trained_date?: string;
+  specialization?: string;
+  bio?: string;
+  portfolio_url?: string;
+  github_url?: string;
+  linkedin_url?: string;
+  hourly_rate?: number;
+  total_earnings?: number;
+  projects_completed?: number;
+  average_rating?: number;
+  is_internal?: boolean;
   is_active: boolean;
+  availability_status?: string;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface BuilderSkill extends BaseEntity {
