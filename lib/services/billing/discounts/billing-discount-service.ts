@@ -75,8 +75,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              roll_number,
-              student_email
+              student_id,
+              email
             )
           ),
           authorizer:profiles (
@@ -117,8 +117,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              roll_number,
-              student_email
+              student_id,
+              email
             )
           ),
           authorizer:profiles (
@@ -170,8 +170,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              roll_number,
-              student_email
+              student_id,
+              email
             )
           ),
           authorizer:profiles (
@@ -256,8 +256,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              roll_number,
-              student_email
+              student_id,
+              email
             )
           ),
           authorizer:profiles (
@@ -348,8 +348,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              roll_number,
-              student_email
+              student_id,
+              email
             )
           ),
           authorizer:profiles (
@@ -429,8 +429,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              roll_number,
-              student_email
+              student_id,
+              email
             )
           ),
           authorizer:profiles (
@@ -510,8 +510,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              roll_number,
-              student_email
+              student_id,
+              email
             )
           ),
           authorizer:profiles (
@@ -712,8 +712,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              roll_number,
-              student_email
+              student_id,
+              email
             )
           ),
           authorizer:profiles (
@@ -766,8 +766,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              roll_number,
-              student_email
+              student_id,
+              email
             )
           ),
           authorizer:profiles (
@@ -808,8 +808,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              roll_number,
-              student_email
+              student_id,
+              email
             )
           ),
           authorizer:profiles (
