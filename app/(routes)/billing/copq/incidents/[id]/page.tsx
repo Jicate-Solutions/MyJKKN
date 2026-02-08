@@ -448,7 +448,7 @@ export default function COPQIncidentDetailPage() {
                       href={`/billing/schedule/${incident.bill.id}`}
                       className='block font-medium text-blue-600 hover:underline'
                     >
-                      {incident.bill.bill_number}
+                      {incident.bill.bill_description || 'Bill'}
                     </Link>
                   ) : (
                     <p className='text-muted-foreground italic'>No bill linked</p>
