@@ -127,39 +127,28 @@ export class ParentSessionService {
 
   /**
    * Revokes a session (logout)
-   * @param token - The session token to revoke
-   * @param reason - Reason for revocation (optional)
+   * Uses SECURITY DEFINER RPC to bypass RLS
    */
   static async revokeSession(token: string, reason?: string): Promise<void> {
     const supabase = await createClient();
 
-    await supabase
-      .from('parent_sessions')
-      .update({
-        revoked: true,
-        revoked_at: new Date().toISOString(),
-        revoked_reason: reason,
-      })
-      .eq('session_token', token);
+    await supabase.rpc('revoke_parent_session', {
+      p_token: token,
+      p_reason: reason || null,
+    });
   }
 
   /**
    * Revokes all sessions for a parent (logout from all devices)
-   * @param parentId - The parent's UUID
-   * @param reason - Reason for revocation (optional)
+   * Uses SECURITY DEFINER RPC to bypass RLS
    */
   static async revokeAllSessions(parentId: string, reason?: string): Promise<void> {
     const supabase = await createClient();
 
-    await supabase
-      .from('parent_sessions')
-      .update({
-        revoked: true,
-        revoked_at: new Date().toISOString(),
-        revoked_reason: reason || 'User logged out from all devices',
-      })
-      .eq('parent_id', parentId)
-      .eq('revoked', false);
+    await supabase.rpc('revoke_all_parent_sessions', {
+      p_parent_id: parentId,
+      p_reason: reason || 'User logged out from all devices',
+    });
   }
 
   /**
