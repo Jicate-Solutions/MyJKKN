@@ -278,7 +278,7 @@ export class LearningPathService {
         .from('learning_paths')
         .update({
           status: 'archived',
-          updated_at: new Date().toISOString(),
+          // updated_at is handled by database trigger
         })
         .eq('id', id);
 
