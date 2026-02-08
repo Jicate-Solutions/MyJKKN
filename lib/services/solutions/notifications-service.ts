@@ -334,7 +334,6 @@ export class NotificationsService extends BaseService {
 
     const statusLabels: Record<string, { title: string; action: string }> = {
       approved: { title: 'Deliverable Approved', action: 'approved' },
-      rejected: { title: 'Deliverable Rejected', action: 'rejected' },
       revision: { title: 'Revision Requested', action: 'needs revision' },
     };
 
