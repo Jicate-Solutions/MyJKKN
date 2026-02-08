@@ -16,6 +16,24 @@ export class BillingDiscountService {
     discountData: CreateDiscountDto
   ): Promise<BillingDiscount> {
     try {
+      // Validate discount value
+      if (discountData.discount_value <= 0) {
+        throw new Error('Discount value must be greater than 0');
+      }
+
+      if (discountData.discount_type === 'percentage' && discountData.discount_value > 100) {
+        throw new Error('Percentage discount cannot exceed 100%');
+      }
+
+      // Validate dates
+      if (discountData.expiry_date) {
+        const effectiveDate = new Date(discountData.effective_date);
+        const expiryDate = new Date(discountData.expiry_date);
+        if (expiryDate <= effectiveDate) {
+          throw new Error('Expiry date must be after effective date');
+        }
+      }
+
       // Calculate discount amount based on type and value
       const billQuery = await this.supabase
         .from('billing_student_bills')
@@ -32,6 +50,11 @@ export class BillingDiscountService {
         discountAmount = (billAmount * discountData.discount_value) / 100;
       } else {
         discountAmount = discountData.discount_value;
+      }
+
+      // Validate discount doesn't exceed bill amount
+      if (discountAmount > billAmount) {
+        throw new Error('Discount amount cannot exceed bill amount');
       }
 
       // Get current user for created_by field
