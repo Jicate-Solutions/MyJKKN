@@ -2177,6 +2177,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/audit-trail'),
           icon: History,
           submenus: []
+        },
+        {
+          href: '/admin/reset-driver-passwords',
+          label: 'Reset Driver Passwords',
+          active: pathname === '/admin/reset-driver-passwords',
+          icon: KeyRound,
+          submenus: []
         }
       ]
     },
