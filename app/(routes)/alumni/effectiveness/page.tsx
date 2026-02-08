@@ -27,7 +27,8 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useOutcomeCorrelations } from '@/hooks/alumni';
-import type { OutcomeCorrelationFilters, OutcomeProgramCorrelation } from '@/types/alumni';
+import { SALARY_RANGE_LABELS } from '@/types/alumni';
+import type { OutcomeCorrelationFilters, OutcomeProgramCorrelation, SalaryRange } from '@/types/alumni';
 
 function getEffectivenessColor(score: number | null): string {
   if (!score) return 'text-muted-foreground';
@@ -50,22 +51,18 @@ export default function ProgramEffectivenessPage() {
   const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
   const institutionId = institutions?.[0]?.institution_id || '';
 
-  const [academicYear, setAcademicYear] = useState<string | undefined>(undefined);
+  const [cohortYear, setCohortYear] = useState<number | undefined>(undefined);
   const [page, setPage] = useState(1);
 
-  // Generate academic year options
   const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from({ length: 10 }, (_, i) => {
-    const y = currentYear - i;
-    return `${y - 1}-${String(y).slice(-2)}`;
-  });
+  const yearOptions = Array.from({ length: 10 }, (_, i) => currentYear - i);
 
   const filters: OutcomeCorrelationFilters = useMemo(() => ({
     institution_id: institutionId,
-    academic_year: academicYear,
+    cohort_year: cohortYear,
     page,
     limit: 20
-  }), [institutionId, academicYear, page]);
+  }), [institutionId, cohortYear, page]);
 
   const {
     data,
@@ -115,16 +112,16 @@ export default function ProgramEffectivenessPage() {
           </div>
           <div className="flex gap-2">
             <Select
-              value={academicYear || 'all'}
-              onValueChange={(v) => { setAcademicYear(v === 'all' ? undefined : v); setPage(1); }}
+              value={cohortYear ? String(cohortYear) : 'all'}
+              onValueChange={(v) => { setCohortYear(v === 'all' ? undefined : Number(v)); setPage(1); }}
             >
               <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="Academic Year" />
+                <SelectValue placeholder="Cohort Year" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Years</SelectItem>
                 {yearOptions.map((year) => (
-                  <SelectItem key={year} value={year}>{year}</SelectItem>
+                  <SelectItem key={year} value={String(year)}>{year}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -204,15 +201,19 @@ export default function ProgramEffectivenessPage() {
 
 function ProgramCard({ correlation }: { correlation: OutcomeProgramCorrelation }) {
   const c = correlation;
+  const employedCount = (c.employed_count ?? 0) + (c.self_employed_count ?? 0);
   const placementPct = c.total_graduates > 0
-    ? Math.round(((c.employed_count ?? 0) / c.total_graduates) * 100)
+    ? Math.round((employedCount / c.total_graduates) * 100)
     : 0;
   const higherStudiesPct = c.total_graduates > 0
-    ? Math.round((c.higher_studies_count / c.total_graduates) * 100)
+    ? Math.round(((c.higher_studies_count ?? 0) / c.total_graduates) * 100)
     : 0;
   const entrepreneurPct = c.total_graduates > 0
-    ? Math.round((c.entrepreneur_count / c.total_graduates) * 100)
+    ? Math.round(((c.entrepreneur_count ?? 0) / c.total_graduates) * 100)
     : 0;
+
+  // Compute a simple effectiveness score from available data
+  const effectivenessScore = c.employment_rate ?? (placementPct + higherStudiesPct + entrepreneurPct);
 
   return (
     <Card>
@@ -226,7 +227,7 @@ function ProgramCard({ correlation }: { correlation: OutcomeProgramCorrelation }
                   {c.program?.program_name || 'Unknown Program'}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  {c.academic_year} &middot; {c.total_graduates} graduates
+                  Cohort {c.cohort_year} &middot; {c.total_graduates} graduates
                 </p>
               </div>
             </div>
@@ -239,7 +240,7 @@ function ProgramCard({ correlation }: { correlation: OutcomeProgramCorrelation }
                   Placed
                 </div>
                 <p className="text-xl font-bold text-green-600">{placementPct}%</p>
-                <p className="text-xs text-muted-foreground">{c.placed_count} of {c.total_graduates}</p>
+                <p className="text-xs text-muted-foreground">{employedCount} of {c.total_graduates}</p>
               </div>
               <div className="space-y-1">
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -247,15 +248,15 @@ function ProgramCard({ correlation }: { correlation: OutcomeProgramCorrelation }
                   Higher Studies
                 </div>
                 <p className="text-xl font-bold text-blue-600">{higherStudiesPct}%</p>
-                <p className="text-xs text-muted-foreground">{c.higher_studies_count} of {c.total_graduates}</p>
+                <p className="text-xs text-muted-foreground">{c.higher_studies_count ?? 0} of {c.total_graduates}</p>
               </div>
               <div className="space-y-1">
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Target className="h-3 w-3" />
-                  Core Domain
+                  Program Relevance
                 </div>
                 <p className="text-xl font-bold text-purple-600">
-                  {c.core_domain_percentage !== null ? `${c.core_domain_percentage}%` : '--'}
+                  {c.avg_relevance_percentage !== null ? `${c.avg_relevance_percentage}%` : '--'}
                 </p>
               </div>
               <div className="space-y-1">
@@ -263,51 +264,55 @@ function ProgramCard({ correlation }: { correlation: OutcomeProgramCorrelation }
                   Avg Salary
                 </div>
                 <p className="text-xl font-bold">
-                  {c.average_salary_lpa !== null ? `${c.average_salary_lpa} LPA` : '--'}
+                  {c.average_salary_range ? SALARY_RANGE_LABELS[c.average_salary_range] : '--'}
                 </p>
-                {c.median_salary_lpa !== null && (
-                  <p className="text-xs text-muted-foreground">Median: {c.median_salary_lpa} LPA</p>
+                {c.median_salary_range && (
+                  <p className="text-xs text-muted-foreground">Median: {SALARY_RANGE_LABELS[c.median_salary_range]}</p>
                 )}
               </div>
             </div>
 
             {/* Additional stats */}
             <div className="mt-4 flex flex-wrap gap-4 text-sm text-muted-foreground">
-              {c.average_time_to_placement_days !== null && (
-                <span>Avg placement time: {c.average_time_to_placement_days} days</span>
+              {c.avg_days_to_placement !== null && (
+                <span>Avg placement time: {c.avg_days_to_placement} days</span>
               )}
-              {c.satisfaction_average !== null && (
-                <span>Satisfaction: {c.satisfaction_average}/10</span>
+              {c.program_satisfaction_avg !== null && (
+                <span>Satisfaction: {c.program_satisfaction_avg}/10</span>
               )}
-              {c.entrepreneur_count > 0 && (
+              {(c.entrepreneur_count ?? 0) > 0 && (
                 <span>Entrepreneurs: {c.entrepreneur_count}</span>
               )}
             </div>
 
-            {/* Top Recruiters */}
-            {c.top_recruiters && c.top_recruiters.length > 0 && (
+            {/* Top Employers */}
+            {c.top_employers && Array.isArray(c.top_employers) && c.top_employers.length > 0 && (
               <div className="mt-4">
-                <p className="text-xs text-muted-foreground mb-1">Top Recruiters</p>
+                <p className="text-xs text-muted-foreground mb-1">Top Employers</p>
                 <div className="flex flex-wrap gap-1">
-                  {c.top_recruiters.slice(0, 5).map((r) => (
-                    <Badge key={r} variant="secondary" className="text-xs">{r}</Badge>
+                  {c.top_employers.slice(0, 5).map((r: any) => (
+                    <Badge key={r.company || r} variant="secondary" className="text-xs">
+                      {r.company || r}
+                    </Badge>
                   ))}
-                  {c.top_recruiters.length > 5 && (
+                  {c.top_employers.length > 5 && (
                     <Badge variant="outline" className="text-xs">
-                      +{c.top_recruiters.length - 5} more
+                      +{c.top_employers.length - 5} more
                     </Badge>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Top Competencies */}
-            {c.top_competencies && c.top_competencies.length > 0 && (
+            {/* Top Roles */}
+            {c.top_roles && Array.isArray(c.top_roles) && c.top_roles.length > 0 && (
               <div className="mt-3">
-                <p className="text-xs text-muted-foreground mb-1">Key Competencies</p>
+                <p className="text-xs text-muted-foreground mb-1">Key Roles</p>
                 <div className="flex flex-wrap gap-1">
-                  {c.top_competencies.slice(0, 5).map((comp) => (
-                    <Badge key={comp} variant="outline" className="text-xs">{comp}</Badge>
+                  {c.top_roles.slice(0, 5).map((role: any) => (
+                    <Badge key={role.role || role} variant="outline" className="text-xs">
+                      {role.role || role}
+                    </Badge>
                   ))}
                 </div>
               </div>
@@ -317,20 +322,20 @@ function ProgramCard({ correlation }: { correlation: OutcomeProgramCorrelation }
           {/* Effectiveness Score */}
           <div className="flex flex-col items-center justify-center lg:border-l lg:pl-6 min-w-[140px]">
             <p className="text-xs text-muted-foreground mb-2">Effectiveness Score</p>
-            <div className={`text-4xl font-bold ${getEffectivenessColor(c.effectiveness_score ? Number(c.effectiveness_score) : null)}`}>
-              {c.effectiveness_score !== null ? Number(c.effectiveness_score).toFixed(0) : '--'}
+            <div className={`text-4xl font-bold ${getEffectivenessColor(effectivenessScore)}`}>
+              {effectivenessScore > 0 ? effectivenessScore.toFixed(0) : '--'}
             </div>
             <p className="text-xs mt-1">
               <Badge
                 variant="outline"
-                className={getEffectivenessColor(c.effectiveness_score ? Number(c.effectiveness_score) : null)}
+                className={getEffectivenessColor(effectivenessScore > 0 ? effectivenessScore : null)}
               >
-                {getEffectivenessLabel(c.effectiveness_score ? Number(c.effectiveness_score) : null)}
+                {getEffectivenessLabel(effectivenessScore > 0 ? effectivenessScore : null)}
               </Badge>
             </p>
-            {c.effectiveness_score !== null && (
+            {effectivenessScore > 0 && (
               <div className="w-full mt-3">
-                <Progress value={Number(c.effectiveness_score)} className="h-2" />
+                <Progress value={Math.min(effectivenessScore, 100)} className="h-2" />
               </div>
             )}
           </div>
