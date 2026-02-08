@@ -1,7 +1,7 @@
 // app/api/parent-portal/learners/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { ParentSessionService } from '@/lib/services/parent-portal/parent-session-service';
 import { linkLearnerSchema } from '@/lib/validations/parent-portal';
 import { validateCSRFFromRequest } from '@/lib/utils/csrf';
