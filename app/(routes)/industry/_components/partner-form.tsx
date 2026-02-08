@@ -147,7 +147,12 @@ export function PartnerForm({ partner, mode }: PartnerFormProps) {
           description: 'The industry partner has been created successfully.'
         });
       } else {
-        await updateMutation.mutateAsync(cleanedValues);
+        const { description, website_url, ...rest } = cleanedValues;
+        await updateMutation.mutateAsync({
+          ...rest,
+          company_description: description,
+          company_website: website_url
+        });
         toast({
           title: 'Partner updated',
           description: 'The industry partner has been updated successfully.'
