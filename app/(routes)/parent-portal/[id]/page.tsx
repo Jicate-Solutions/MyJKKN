@@ -358,7 +358,7 @@ export default function ParentDetailPage() {
                   <p className="text-sm font-medium text-muted-foreground">
                     Total Logins
                   </p>
-                  <p className="text-lg font-bold">{record.login_count}</p>
+                  <p className="text-lg font-bold">{record.access_count}</p>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">
