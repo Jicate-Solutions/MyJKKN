@@ -5,7 +5,7 @@
 // Shows path details with step timeline, progress, and management
 // ============================================================================
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { format } from 'date-fns';
