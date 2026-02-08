@@ -67,7 +67,8 @@ const isPublicApiRoute = (path: string): boolean => {
   if (PUBLIC_API_ROUTES.has(path)) return true;
 
   // Check prefix matches (e.g., /api/auth/* routes)
-  for (const route of PUBLIC_API_ROUTES) {
+  const routes = Array.from(PUBLIC_API_ROUTES);
+  for (const route of routes) {
     if (path.startsWith(route)) return true;
   }
 
