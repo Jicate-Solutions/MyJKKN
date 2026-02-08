@@ -137,7 +137,7 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
   const [phaseDescription, setPhaseDescription] = useState('');
 
   // Communication form state
-  const [commType, setCommType] = useState<CommunicationType>('note');
+  const [commType, setCommType] = useState<CommunicationType>('other');
   const [commSubject, setCommSubject] = useState('');
   const [commSummary, setCommSummary] = useState('');
 
