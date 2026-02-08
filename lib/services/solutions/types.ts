@@ -52,7 +52,7 @@ export type BuilderRole = 'lead' | 'contributor';
 
 export type CohortTrack = 'track_a' | 'track_b' | 'both';
 
-export type SessionStatus = 'scheduled' | 'completed' | 'cancelled' | 'rescheduled';
+export type SessionStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'rescheduled';
 
 export type ContentDivision = 'video' | 'design' | 'writing' | 'animation' | 'social' | 'other';
 
