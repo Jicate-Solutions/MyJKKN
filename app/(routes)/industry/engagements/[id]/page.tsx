@@ -105,7 +105,7 @@ export default function EngagementDetailPage() {
           <div className="grid gap-6 md:grid-cols-3">
             <div className="md:col-span-2 space-y-6">
               <Card>
-                <CardHeader><CardTitle>Progress & Hours</CardTitle></CardHeader>
+                <CardHeader><CardTitle>Progress</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Status Progress</span>
@@ -116,16 +116,16 @@ export default function EngagementDetailPage() {
                     <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
                       <Clock className="h-5 w-5 text-muted-foreground" />
                       <div>
-                        <p className="text-sm text-muted-foreground">Hours Completed</p>
-                        <p className="text-lg font-semibold">{engagement.hours_completed}</p>
+                        <p className="text-sm text-muted-foreground">Progress</p>
+                        <p className="text-lg font-semibold">{engagement.progress_percentage}%</p>
                       </div>
                     </div>
-                    {engagement.feedback?.mentor_feedback?.rating && (
+                    {engagement.mentor_feedback?.rating && (
                       <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
                         <Star className="h-5 w-5 text-yellow-500" />
                         <div>
                           <p className="text-sm text-muted-foreground">Mentor Rating</p>
-                          <p className="text-lg font-semibold">{engagement.feedback.mentor_feedback.rating}/5</p>
+                          <p className="text-lg font-semibold">{engagement.mentor_feedback.rating}/5</p>
                         </div>
                       </div>
                     )}
@@ -148,61 +148,47 @@ export default function EngagementDetailPage() {
                 </Card>
               )}
 
-              {engagement.feedback && (
+              {(engagement.mentor_feedback || engagement.learner_feedback) && (
                 <Card>
                   <CardHeader><CardTitle>Feedback</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
-                    {engagement.feedback.mentor_feedback && (
+                    {engagement.mentor_feedback && (
                       <div className="p-4 border rounded-lg">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-medium">Mentor Feedback</span>
-                          {engagement.feedback.mentor_feedback.date && (
+                          {engagement.mentor_feedback.given_at && (
                             <span className="text-sm text-muted-foreground">
-                              {new Date(engagement.feedback.mentor_feedback.date).toLocaleDateString()}
+                              {new Date(engagement.mentor_feedback.given_at).toLocaleDateString()}
                             </span>
                           )}
                         </div>
-                        <p className="text-muted-foreground">{engagement.feedback.mentor_feedback.comments}</p>
-                        <Badge className="mt-2">{engagement.feedback.mentor_feedback.rating}/5</Badge>
+                        <p className="text-muted-foreground">{engagement.mentor_feedback.comments}</p>
+                        <Badge className="mt-2">{engagement.mentor_feedback.rating}/5</Badge>
                       </div>
                     )}
-                    {engagement.feedback.learner_feedback && (
+                    {engagement.learner_feedback && (
                       <div className="p-4 border rounded-lg">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-medium">Learner Feedback</span>
-                          {engagement.feedback.learner_feedback.date && (
+                          {engagement.learner_feedback.given_at && (
                             <span className="text-sm text-muted-foreground">
-                              {new Date(engagement.feedback.learner_feedback.date).toLocaleDateString()}
+                              {new Date(engagement.learner_feedback.given_at).toLocaleDateString()}
                             </span>
                           )}
                         </div>
-                        <p className="text-muted-foreground">{engagement.feedback.learner_feedback.comments}</p>
-                        <Badge className="mt-2">{engagement.feedback.learner_feedback.rating}/5</Badge>
-                      </div>
-                    )}
-                    {engagement.feedback.supervisor_feedback && (
-                      <div className="p-4 border rounded-lg">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium">Supervisor Feedback</span>
-                          {engagement.feedback.supervisor_feedback.date && (
-                            <span className="text-sm text-muted-foreground">
-                              {new Date(engagement.feedback.supervisor_feedback.date).toLocaleDateString()}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-muted-foreground">{engagement.feedback.supervisor_feedback.comments}</p>
-                        <Badge className="mt-2">{engagement.feedback.supervisor_feedback.rating}/5</Badge>
+                        <p className="text-muted-foreground">{engagement.learner_feedback.suggestions}</p>
+                        <Badge className="mt-2">{engagement.learner_feedback.rating}/5</Badge>
                       </div>
                     )}
                   </CardContent>
                 </Card>
               )}
 
-              {engagement.notes && (
+              {engagement.status_notes && (
                 <Card>
                   <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
                   <CardContent>
-                    <p className="text-muted-foreground whitespace-pre-wrap">{engagement.notes}</p>
+                    <p className="text-muted-foreground whitespace-pre-wrap">{engagement.status_notes}</p>
                   </CardContent>
                 </Card>
               )}
@@ -279,10 +265,10 @@ export default function EngagementDetailPage() {
                       <span>{new Date(engagement.expected_end_date).toLocaleDateString()}</span>
                     </div>
                   )}
-                  {engagement.end_date && (
+                  {engagement.actual_end_date && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Actual End</span>
-                      <span>{new Date(engagement.end_date).toLocaleDateString()}</span>
+                      <span>{new Date(engagement.actual_end_date).toLocaleDateString()}</span>
                     </div>
                   )}
                 </CardContent>
