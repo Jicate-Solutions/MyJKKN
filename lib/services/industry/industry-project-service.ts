@@ -168,7 +168,7 @@ export class IndustryProjectService {
       .from('industry_projects')
       .select(`
         *,
-        mentor:industry_mentors(id, mentor_name)
+        mentor:industry_mentors!assigned_mentor_id(id, mentor_name)
       `)
       .eq('partner_id', partnerId)
       .order('created_at', { ascending: false });
