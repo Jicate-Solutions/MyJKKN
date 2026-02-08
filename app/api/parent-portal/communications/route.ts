@@ -130,6 +130,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate CSRF token for state-changing operation
+    const { validateCSRFFromRequest } = await import('@/lib/utils/csrf');
+    const isValidCSRF = await validateCSRFFromRequest(request);
+
+    if (!isValidCSRF) {
+      return NextResponse.json(
+        { error: 'Invalid CSRF token. Please refresh and try again.' },
+        { status: 403 }
+      );
+    }
+
     const supabase = await createClient();
     const body = await request.json();
 
@@ -146,7 +157,10 @@ export async function POST(request: NextRequest) {
       )
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[parent-portal/communications] Insert error:', error);
+      throw error;
+    }
 
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
