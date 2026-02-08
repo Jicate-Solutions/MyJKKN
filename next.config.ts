@@ -1,9 +1,8 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Enable Cache Components for server-side caching (Next.js 16.1.1)
-  // In 16.1.1, this is at root level (no longer experimental)
-  cacheComponents: true,
+  // Temporarily disabled due to Turbopack ENOENT race condition
+  // cacheComponents: true,
 
   experimental: {
   },
