@@ -75,6 +75,9 @@ export class ParentPortalService {
 
   // ============================================================================
   // PARENT PROFILE METHODS
+  // ⚠️ WARNING: These methods reference 'parent_profiles' table which DOES NOT EXIST in DB
+  // The actual DB uses 'parent_portal_access' table instead
+  // These methods will FAIL at runtime until the schema is migrated
   // ============================================================================
 
   static async getParentProfile(userId: string, institutionId?: string): Promise<ParentProfile | null> {
