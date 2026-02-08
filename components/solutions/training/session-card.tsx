@@ -20,6 +20,7 @@ const sessionStatusConfig: Record<SessionStatus, { label: string; color: string 
   in_progress: { label: 'In Progress', color: 'bg-yellow-100 text-yellow-800' },
   completed: { label: 'Completed', color: 'bg-green-100 text-green-800' },
   cancelled: { label: 'Cancelled', color: 'bg-red-100 text-red-800' },
+  rescheduled: { label: 'Rescheduled', color: 'bg-orange-100 text-orange-800' },
 }
 
 export function SessionCard({
