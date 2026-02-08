@@ -144,10 +144,10 @@ export class LearningPathStepService {
     try {
       this.validateId(id, 'step ID');
 
-      const updateData = {
-        ...input,
-        updated_at: new Date().toISOString(),
-      };
+      // Filter out undefined values
+      const updateData: Record<string, any> = Object.fromEntries(
+        Object.entries(input).filter(([_, value]) => value !== undefined)
+      );
 
       // If marking as in_progress, set started_at
       if (input.status === 'in_progress' && !input.started_at) {
@@ -158,6 +158,8 @@ export class LearningPathStepService {
       if (input.status === 'completed' && !input.completed_at) {
         updateData.completed_at = new Date().toISOString();
       }
+
+      // updated_at is handled by database trigger
 
       const { data, error } = await (this.getSupabase() as any)
         .from('learning_path_steps')
