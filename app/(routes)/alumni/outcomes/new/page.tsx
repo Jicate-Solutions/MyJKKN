@@ -157,6 +157,18 @@ export default function NewAlumniOutcomePage() {
     );
   }
 
+  if (!canCreate) {
+    return (
+      <ContentLayout title="Record Outcome">
+        <div className="text-center py-8">
+          <p className="text-destructive">
+            You don&apos;t have permission to create alumni outcomes.
+          </p>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   return (
     <ContentLayout title="Record Alumni Outcome">
       <div className="space-y-6">
