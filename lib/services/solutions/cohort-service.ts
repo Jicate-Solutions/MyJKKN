@@ -88,7 +88,7 @@ export class CohortService extends BaseService {
   ): Promise<BaseListResponse<CohortMemberWithDetails>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = (this.supabase as any).from('sh_cohort_members')
+    let query = this.supabase.from('sh_cohort_members')
       .select(
         `
         *,
@@ -145,7 +145,7 @@ export class CohortService extends BaseService {
    * Get a single cohort member by ID
    */
   static async getCohortMemberById(id: string): Promise<CohortMemberWithDetails | null> {
-    const { data, error } = await (this.supabase as any).from('sh_cohort_members')
+    const { data, error } = await this.supabase.from('sh_cohort_members')
       .select(
         `
         *,
@@ -168,7 +168,7 @@ export class CohortService extends BaseService {
    * Get cohort member by user ID
    */
   static async getCohortMemberByUserId(userId: string): Promise<CohortMemberWithDetails | null> {
-    const { data, error } = await (this.supabase as any).from('sh_cohort_members')
+    const { data, error } = await this.supabase.from('sh_cohort_members')
       .select(
         `
         *,
@@ -190,7 +190,7 @@ export class CohortService extends BaseService {
    * Create a new cohort member
    */
   static async createCohortMember(input: CreateCohortMemberInput): Promise<CohortMember> {
-    const { data, error } = await (this.supabase as any).from('sh_cohort_members')
+    const { data, error } = await this.supabase.from('sh_cohort_members')
       .insert({
         user_id: input.user_id,
         name: input.name,
@@ -219,7 +219,7 @@ export class CohortService extends BaseService {
     id: string,
     input: UpdateCohortMemberInput
   ): Promise<CohortMember> {
-    const { data, error } = await (this.supabase as any).from('sh_cohort_members')
+    const { data, error } = await this.supabase.from('sh_cohort_members')
       .update({
         ...input,
         updated_at: new Date().toISOString(),
@@ -236,7 +236,7 @@ export class CohortService extends BaseService {
    * Delete a cohort member
    */
   static async deleteCohortMember(id: string): Promise<void> {
-    const { error } = await (this.supabase as any).from('sh_cohort_members').delete().eq('id', id);
+    const { error } = await this.supabase.from('sh_cohort_members').delete().eq('id', id);
 
     if (error) throw new Error(`Failed to delete cohort member: ${error.message}`);
   }
@@ -246,7 +246,7 @@ export class CohortService extends BaseService {
    */
   static async levelUpCohortMember(id: string): Promise<CohortMember> {
     // Get current level
-    const { data: member, error: fetchError } = await (this.supabase as any).from('sh_cohort_members')
+    const { data: member, error: fetchError } = await this.supabase.from('sh_cohort_members')
       .select('level')
       .eq('id', id)
       .single();
@@ -259,7 +259,7 @@ export class CohortService extends BaseService {
       throw new Error('Already at maximum level');
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_cohort_members')
+    const { data, error } = await this.supabase.from('sh_cohort_members')
       .update({
         level: currentLevel + 1,
         updated_at: new Date().toISOString(),
@@ -276,7 +276,7 @@ export class CohortService extends BaseService {
    * Update cohort member earnings
    */
   static async addEarnings(id: string, amount: number): Promise<CohortMember> {
-    const { data: member, error: fetchError } = await (this.supabase as any).from('sh_cohort_members')
+    const { data: member, error: fetchError } = await this.supabase.from('sh_cohort_members')
       .select('total_earnings')
       .eq('id', id)
       .single();
@@ -285,7 +285,7 @@ export class CohortService extends BaseService {
 
     const currentEarnings = member?.total_earnings || 0;
 
-    const { data, error } = await (this.supabase as any).from('sh_cohort_members')
+    const { data, error } = await this.supabase.from('sh_cohort_members')
       .update({
         total_earnings: currentEarnings + amount,
         updated_at: new Date().toISOString(),
@@ -307,7 +307,7 @@ export class CohortService extends BaseService {
     byTrack: Record<string, number>;
     activeMembers: number;
   }> {
-    const { data, error } = await (this.supabase as any).from('sh_cohort_members')
+    const { data, error } = await this.supabase.from('sh_cohort_members')
       .select('level, track, status');
 
     if (error) throw new Error(`Failed to fetch cohort stats: ${error.message}`);
@@ -371,7 +371,7 @@ export class CohortService extends BaseService {
     memberId: string
   ): Promise<Array<{ id: string; title: string; session_date: string; program_id: string }>> {
     // Get member's track
-    const { data: member } = await (this.supabase as any).from('sh_cohort_members')
+    const { data: member } = await this.supabase.from('sh_cohort_members')
       .select('track')
       .eq('id', memberId)
       .single();
@@ -379,7 +379,7 @@ export class CohortService extends BaseService {
     if (!member) return [];
 
     // Get sessions that are scheduled and in the future
-    const { data: sessions, error } = await (this.supabase as any).from('sh_training_sessions')
+    const { data: sessions, error } = await this.supabase.from('sh_training_sessions')
       .select(
         `
         id,
@@ -396,7 +396,7 @@ export class CohortService extends BaseService {
     if (error) throw new Error(`Failed to fetch sessions: ${error.message}`);
 
     // Get member's existing assignments
-    const { data: existingAssignments } = await (this.supabase as any).from('sh_cohort_assignments')
+    const { data: existingAssignments } = await this.supabase.from('sh_cohort_assignments')
       .select('session_id')
       .eq('cohort_member_id', memberId);
 
@@ -423,7 +423,7 @@ export class CohortService extends BaseService {
    * Get cohort assignment details
    */
   static async getAssignmentsByMemberId(memberId: string): Promise<CohortAssignment[]> {
-    const { data, error } = await (this.supabase as any).from('sh_cohort_assignments')
+    const { data, error } = await this.supabase.from('sh_cohort_assignments')
       .select('*')
       .eq('cohort_member_id', memberId)
       .order('created_at', { ascending: false });
@@ -443,7 +443,7 @@ export class CohortService extends BaseService {
       feedback?: string;
     }
   ): Promise<CohortAssignment> {
-    const { data, error } = await (this.supabase as any).from('sh_cohort_assignments')
+    const { data, error } = await this.supabase.from('sh_cohort_assignments')
       .update(input)
       .eq('id', id)
       .select()
