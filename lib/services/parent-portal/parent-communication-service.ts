@@ -144,13 +144,13 @@ export class ParentCommunicationService {
         .from('parent_communications')
         .insert({
           institution_id: input.institution_id,
-          parent_access_id: input.parent_access_id || null,
+          parent_id: input.parent_id || null, // FIXED: DB column is parent_id
           learner_id: input.learner_id,
-          communication_type: input.communication_type || 'announcement',
+          type: input.type || 'announcement', // FIXED: DB column is type
           subject: input.subject,
           content: input.content,
-          // NOTE: DB has no priority column - do not include
-          sent_by: input.sent_by || null,
+          priority: input.priority || 'normal', // FIXED: DB has priority column
+          sender_id: input.sender_id || null, // FIXED: DB column is sender_id
           attachments: input.attachments || [],
         })
         .select(
