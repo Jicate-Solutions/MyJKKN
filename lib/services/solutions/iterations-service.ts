@@ -57,7 +57,7 @@ export class IterationsService extends BaseService {
   static async getIterations(filters?: IterationFilters): Promise<BaseListResponse<IterationWithBugs>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = (this.supabase as any).from('sh_prototype_iterations')
+    let query = this.supabase.from('sh_prototype_iterations')
       .select(
         `
         *,
@@ -106,7 +106,7 @@ export class IterationsService extends BaseService {
    * Get a single iteration by ID with bugs
    */
   static async getIterationById(id: string): Promise<IterationWithBugs | null> {
-    const { data, error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data, error } = await this.supabase.from('sh_prototype_iterations')
       .select(
         `
         *,
@@ -127,7 +127,7 @@ export class IterationsService extends BaseService {
     }
 
     // Get bugs for this iteration
-    const { data: bugs } = await (this.supabase as any).from('sh_bug_reports')
+    const { data: bugs } = await this.supabase.from('sh_bug_reports')
       .select('*')
       .eq('iteration_id', id)
       .order('created_at', { ascending: false });
@@ -142,7 +142,7 @@ export class IterationsService extends BaseService {
    * Get iterations by phase ID
    */
   static async getIterationsByPhase(phaseId: string): Promise<PrototypeIteration[]> {
-    const { data, error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data, error } = await this.supabase.from('sh_prototype_iterations')
       .select('*')
       .eq('phase_id', phaseId)
       .order('version', { ascending: false });
@@ -158,7 +158,7 @@ export class IterationsService extends BaseService {
     // Get next version number
     const nextVersion = await this.getNextVersionNumber(input.phase_id);
 
-    const { data, error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data, error } = await this.supabase.from('sh_prototype_iterations')
       .insert({
         phase_id: input.phase_id,
         version: nextVersion,
@@ -173,7 +173,7 @@ export class IterationsService extends BaseService {
     if (error) throw new Error(`Failed to create iteration: ${error.message}`);
 
     // Update phase prototype URL
-    await (this.supabase as any).from('sh_solution_phases')
+    await this.supabase.from('sh_solution_phases')
       .update({
         prototype_url: input.prototype_url,
         updated_at: new Date().toISOString(),
@@ -187,7 +187,7 @@ export class IterationsService extends BaseService {
    * Update an iteration
    */
   static async updateIteration(id: string, input: UpdateIterationInput): Promise<PrototypeIteration> {
-    const { data, error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data, error } = await this.supabase.from('sh_prototype_iterations')
       .update(input)
       .eq('id', id)
       .select()
@@ -201,7 +201,7 @@ export class IterationsService extends BaseService {
    * Complete an iteration (mark as client approved)
    */
   static async completeIteration(id: string, feedback?: string): Promise<PrototypeIteration> {
-    const { data, error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data, error } = await this.supabase.from('sh_prototype_iterations')
       .update({
         client_approved: true,
         feedback: feedback,
@@ -214,7 +214,7 @@ export class IterationsService extends BaseService {
 
     // Update phase status to approved if iteration is approved
     if (data?.phase_id) {
-      await (this.supabase as any).from('sh_solution_phases')
+      await this.supabase.from('sh_solution_phases')
         .update({
           status: 'approved',
           updated_at: new Date().toISOString(),
@@ -230,11 +230,11 @@ export class IterationsService extends BaseService {
    */
   static async deleteIteration(id: string): Promise<void> {
     // First delete all bugs associated with this iteration
-    await (this.supabase as any).from('sh_bug_reports')
+    await this.supabase.from('sh_bug_reports')
       .delete()
       .eq('iteration_id', id);
 
-    const { error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { error } = await this.supabase.from('sh_prototype_iterations')
       .delete()
       .eq('id', id);
 
@@ -245,7 +245,7 @@ export class IterationsService extends BaseService {
    * Get next version number for a phase
    */
   static async getNextVersionNumber(phaseId: string): Promise<number> {
-    const { data, error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data, error } = await this.supabase.from('sh_prototype_iterations')
       .select('version')
       .eq('phase_id', phaseId)
       .order('version', { ascending: false })
@@ -259,7 +259,7 @@ export class IterationsService extends BaseService {
    * Get latest iteration for a phase
    */
   static async getLatestIteration(phaseId: string): Promise<PrototypeIteration | null> {
-    const { data, error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data, error } = await this.supabase.from('sh_prototype_iterations')
       .select('*')
       .eq('phase_id', phaseId)
       .order('version', { ascending: false })
@@ -279,7 +279,7 @@ export class IterationsService extends BaseService {
     pending: number;
     averageVersionsPerPhase: number;
   }> {
-    const { data, error } = await (this.supabase as any).from('sh_prototype_iterations')
+    const { data, error } = await this.supabase.from('sh_prototype_iterations')
       .select('phase_id, client_approved');
 
     if (error) throw new Error(`Failed to fetch iteration stats: ${error.message}`);
