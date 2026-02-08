@@ -214,6 +214,8 @@ export class LearningPathStepService {
 
   /**
    * Reorder steps - update step_numbers for a path
+   * WARNING: This is not atomic - if it fails partway, step numbers may be inconsistent
+   * TODO: Consider using a Postgres function for atomic reordering
    */
   static async reorderSteps(
     pathId: string,
@@ -223,12 +225,13 @@ export class LearningPathStepService {
       this.validateId(pathId, 'path ID');
 
       // Update each step with its new step_number
+      // Note: Sequential updates are not atomic
       for (let i = 0; i < stepIds.length; i++) {
         const { error } = await (this.getSupabase() as any)
           .from('learning_path_steps')
           .update({
             step_number: i + 1,
-            updated_at: new Date().toISOString(),
+            // updated_at is handled by database trigger
           })
           .eq('id', stepIds[i])
           .eq('path_id', pathId);
