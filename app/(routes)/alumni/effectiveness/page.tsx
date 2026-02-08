@@ -205,7 +205,7 @@ export default function ProgramEffectivenessPage() {
 function ProgramCard({ correlation }: { correlation: OutcomeProgramCorrelation }) {
   const c = correlation;
   const placementPct = c.total_graduates > 0
-    ? Math.round((c.placed_count / c.total_graduates) * 100)
+    ? Math.round(((c.employed_count ?? 0) / c.total_graduates) * 100)
     : 0;
   const higherStudiesPct = c.total_graduates > 0
     ? Math.round((c.higher_studies_count / c.total_graduates) * 100)
