@@ -314,45 +314,37 @@ export interface UpdateIndustryPartnerDTO {
 }
 
 /**
- * Create industry mentor
+ * Create industry mentor - VERIFIED against DB: 2026-02-08
  */
 export interface CreateIndustryMentorDTO {
-  institution_id: string; // REQUIRED - was missing
-  partner_id?: string | null; // Optional - mentor may be independent
+  institution_id: string;
+  partner_id?: string | null;
   mentor_name: string;
   designation?: string;
-  company_name?: string; // If not linked to partner
-  profile_photo_url?: string; // DB column name
-  bio?: string;
-  linkedin_url?: string;
-  email: string; // REQUIRED in DB
-  phone?: string;
-  preferred_contact_method?: string;
   expertise_areas?: string[];
-  industry_experience_years?: number;
-  competencies_can_mentor?: string[];
+  email?: string;
+  phone?: string;
+  linkedin_url?: string;
+  bio?: string;
+  photo_url?: string; // DB column: photo_url
   availability?: MentorAvailability;
   max_mentees?: number;
   is_active?: boolean;
 }
 
 /**
- * Update industry mentor
+ * Update industry mentor - VERIFIED against DB: 2026-02-08
  */
 export interface UpdateIndustryMentorDTO {
   partner_id?: string | null;
   mentor_name?: string;
   designation?: string;
-  company_name?: string;
-  profile_photo_url?: string;
-  bio?: string;
-  linkedin_url?: string;
+  expertise_areas?: string[];
   email?: string;
   phone?: string;
-  preferred_contact_method?: string;
-  expertise_areas?: string[];
-  industry_experience_years?: number;
-  competencies_can_mentor?: string[];
+  linkedin_url?: string;
+  bio?: string;
+  photo_url?: string;
   availability?: MentorAvailability;
   max_mentees?: number;
   is_active?: boolean;
