@@ -101,12 +101,29 @@ export default function FacilitatorDevelopmentDetailPage() {
   const handleCreateImmersion = async () => {
     if (!immersionForm.company_name || !immersionForm.start_date || !immersionForm.duration_days) return;
 
+    // Validate end_date is after start_date
+    if (immersionForm.end_date && immersionForm.start_date) {
+      const startDate = new Date(immersionForm.start_date);
+      const endDate = new Date(immersionForm.end_date);
+      if (endDate < startDate) {
+        alert('End date cannot be before start date');
+        return;
+      }
+    }
+
+    // Validate duration is positive
+    const duration = parseInt(immersionForm.duration_days, 10);
+    if (duration <= 0 || isNaN(duration)) {
+      alert('Duration must be a positive number');
+      return;
+    }
+
     const input: CreateImmersionInput = {
       development_id: id,
       company_name: immersionForm.company_name,
       industry: immersionForm.industry || undefined,
       role_title: immersionForm.role_title || undefined,
-      duration_days: parseInt(immersionForm.duration_days, 10),
+      duration_days: duration,
       start_date: immersionForm.start_date,
       end_date: immersionForm.end_date || undefined,
       objectives: immersionForm.objectives ? immersionForm.objectives.split('\n').filter(Boolean) : [],
