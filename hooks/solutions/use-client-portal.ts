@@ -404,7 +404,7 @@ export function useClientPayments(clientId: string) {
       // Get payments
       const { data: payments, error } = await (supabase as any)
         .from('sh_payments')
-        .select('id, amount, payment_type, status, due_date, received_date, invoice_url, created_at, solution_id')
+        .select('id, amount, payment_type, status, due_date, payment_date, invoice_url, created_at, solution_id')
         .in('solution_id', solutionIds)
         .order('created_at', { ascending: false });
 
