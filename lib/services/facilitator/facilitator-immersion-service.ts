@@ -163,6 +163,27 @@ export class FacilitatorImmersionService {
     try {
       this.validateId(input.development_id, 'development_id');
 
+      // Validate dates: end_date must be after start_date if provided
+      if (input.end_date && input.start_date) {
+        const startDate = new Date(input.start_date);
+        const endDate = new Date(input.end_date);
+        if (endDate < startDate) {
+          throw new Error('End date cannot be before start date');
+        }
+      }
+
+      // Validate duration_days is positive
+      if (input.duration_days <= 0) {
+        throw new Error('Duration must be greater than 0');
+      }
+
+      // Validate rating if provided (should be 1-5)
+      if (input.rating !== undefined && input.rating !== null) {
+        if (input.rating < 1 || input.rating > 5) {
+          throw new Error('Rating must be between 1 and 5');
+        }
+      }
+
       const insertData = {
         development_id: input.development_id,
         company_name: input.company_name,
