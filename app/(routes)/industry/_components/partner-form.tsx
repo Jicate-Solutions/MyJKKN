@@ -147,11 +147,21 @@ export function PartnerForm({ partner, mode }: PartnerFormProps) {
           description: 'The industry partner has been created successfully.'
         });
       } else {
-        const { description, website_url, ...rest } = cleanedValues;
+        // Map form fields to DTO fields
+        const { description, website_url, company_name, industry_sector, partnership_type, contact_person, contact_email, contact_phone, partnership_start_date, partnership_end_date, mou_document_url, is_active } = cleanedValues;
         await updateMutation.mutateAsync({
-          ...rest,
+          company_name,
+          industry_sector,
+          partnership_type,
+          contact_person,
+          contact_email,
+          contact_phone,
+          partnership_start_date,
+          partnership_end_date,
           company_description: description,
-          company_website: website_url
+          company_website: website_url,
+          mou_document_url,
+          is_active
         });
         toast({
           title: 'Partner updated',
