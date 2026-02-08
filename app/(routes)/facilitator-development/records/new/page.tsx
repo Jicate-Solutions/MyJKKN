@@ -29,9 +29,11 @@ import { toast } from 'react-hot-toast';
 
 export default function NewDevelopmentPlanPage() {
   const router = useRouter();
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { isSuperAdmin, canAccess, isLoading: permissionsLoading } = usePermissions();
   const { institutions, loading: institutionsLoading } = useUserInstitutionAccess();
   const institutionId = institutions?.[0]?.institution_id || '';
+
+  const canCreate = isSuperAdmin || canAccess('facilitator_development', 'create');
 
   const createMutation = useCreateFacilitatorDevelopment();
 
