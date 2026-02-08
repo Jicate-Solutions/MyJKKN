@@ -228,6 +228,7 @@ export interface OutcomeProgramCorrelation {
   tracking_percentage: number | null;  // Computed column
 
   // Outcome breakdown (by type)
+  placed_count: number | null;  // DB column exists (verified 2026-02-08)
   employed_count: number | null;
   self_employed_count: number | null;
   entrepreneur_count: number | null;
