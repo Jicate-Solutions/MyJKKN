@@ -76,7 +76,7 @@ export type CommunicationType = 'call' | 'email' | 'whatsapp' | 'meeting' | 'not
 
 export type CommunicationDirection = 'inbound' | 'outbound'
 
-export type PaperType = 'problem' | 'design' | 'technical' | 'data' | 'impact'
+export type PaperType = 'problem' | 'design' | 'technical' | 'data' | 'impact' | 'journal' | 'conference' | 'patent' | 'book_chapter' | 'case_study'
 
 export type JournalType = 'scopus' | 'ugc_care' | 'other'
 
