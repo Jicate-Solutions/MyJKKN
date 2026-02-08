@@ -879,6 +879,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/organizations/courses/mappings',
               label: 'Course Mappings',
               active: pathname === '/organizations/courses/mappings'
+            },
+            {
+              href: '/organizations/courses/new',
+              label: 'Add Course',
+              active: pathname === '/organizations/courses/new'
             }
           ]
         }
