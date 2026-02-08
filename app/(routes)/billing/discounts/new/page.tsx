@@ -483,12 +483,13 @@ export default function NewDiscountPage() {
                       formData.discount_type === 'percentage' ? '10.5' : '1000'
                     }
                     value={formData.discount_value || ''}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value);
                       handleInputChange(
                         'discount_value',
-                        parseFloat(e.target.value)
-                      )
-                    }
+                        isNaN(value) ? 0 : value
+                      );
+                    }}
                     required
                   />
                 </div>
