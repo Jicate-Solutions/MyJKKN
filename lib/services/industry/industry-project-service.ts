@@ -142,8 +142,8 @@ export class IndustryProjectService {
       .from('industry_projects')
       .select(`
         *,
-        partner:industry_partners(id, company_name, industry_sector, contact_person, contact_email),
-        mentor:industry_mentors(id, mentor_name, designation, email, expertise_areas),
+        partner:industry_partners!partner_id(id, company_name, industry_sector, contact_person, contact_email),
+        mentor:industry_mentors!assigned_mentor_id(id, mentor_name, designation, email, expertise_areas),
         engagements:learner_industry_engagements(count)
       `)
       .eq('id', id)
