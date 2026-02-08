@@ -119,6 +119,7 @@ export interface AlumniOutcome {
   learner_id: string | null;  // NULLABLE in DB (verified 2026-02-08)
   institution_id: string;  // NOT NULL in DB
   program_id: string | null;
+  department_id: string | null;  // DB column exists (verified 2026-02-08)
 
   // Graduation info
   graduation_date: string | null;  // NULLABLE in DB (verified 2026-02-08)
