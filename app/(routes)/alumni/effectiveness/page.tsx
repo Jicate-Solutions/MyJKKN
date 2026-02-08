@@ -290,8 +290,8 @@ function ProgramCard({ correlation }: { correlation: OutcomeProgramCorrelation }
               <div className="mt-4">
                 <p className="text-xs text-muted-foreground mb-1">Top Employers</p>
                 <div className="flex flex-wrap gap-1">
-                  {c.top_employers.slice(0, 5).map((r: any) => (
-                    <Badge key={r.company || r} variant="secondary" className="text-xs">
+                  {c.top_employers.slice(0, 5).map((r: any, idx: number) => (
+                    <Badge key={`employer-${idx}-${r.company || r}`} variant="secondary" className="text-xs">
                       {r.company || r}
                     </Badge>
                   ))}
