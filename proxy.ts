@@ -32,6 +32,10 @@ const PUBLIC_PATHS_SET = new Set([
   '/auth/login',
   '/auth/callback',
   '/auth/complete-profile',
+  '/auth/parent/login', // Parent portal OTP login
+  '/auth/parent/register', // Parent portal registration
+  '/auth/parent/callback', // Parent portal auth callback
+  '/auth/authorize', // OAuth authorize endpoint
   '/unauthorized',
   '/students/onboarding', // Add onboarding path for pending students
   '/billing/payment/success', // HDFC payment success callback
