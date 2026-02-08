@@ -89,7 +89,7 @@ export function LearningPathForm({
         target_role: targetRole.trim() || undefined,
         target_industry: targetIndustry.trim() || undefined,
         target_competencies: competenciesArray.length > 0 ? competenciesArray : undefined,
-        estimated_duration_weeks: estimatedWeeks ? parseInt(estimatedWeeks, 10) : undefined,
+        estimated_duration_weeks: estimatedWeeks && !isNaN(parseInt(estimatedWeeks, 10)) ? parseInt(estimatedWeeks, 10) : undefined,
         start_date: startDate || undefined,
         target_completion_date: targetCompletionDate || undefined,
         status,
@@ -104,7 +104,7 @@ export function LearningPathForm({
         target_role: targetRole.trim() || undefined,
         target_industry: targetIndustry.trim() || undefined,
         target_competencies: competenciesArray.length > 0 ? competenciesArray : undefined,
-        estimated_duration_weeks: estimatedWeeks ? parseInt(estimatedWeeks, 10) : undefined,
+        estimated_duration_weeks: estimatedWeeks && !isNaN(parseInt(estimatedWeeks, 10)) ? parseInt(estimatedWeeks, 10) : undefined,
         start_date: startDate || undefined,
         target_completion_date: targetCompletionDate || undefined,
       };
