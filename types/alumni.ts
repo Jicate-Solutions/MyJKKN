@@ -613,15 +613,20 @@ export interface OutcomeCorrelationFilters {
 export interface AlumniDashboardStats {
   total_tracked: number;
   by_outcome_type: Record<OutcomeType, number>;
-  placement_percentage: number;
+  employment_percentage: number;  // employed + self_employed
   higher_studies_percentage: number;
   entrepreneur_percentage: number;
-  core_domain_percentage: number;
+  avg_relevance_percentage: number;  // Not core_domain_percentage
   average_satisfaction: number;
-  verified_count: number;
-  unverified_count: number;
-  average_time_to_placement_days: number;
-  by_salary_range: Record<string, number>;
+  verified_count: number;  // verification_status != 'pending'
+  pending_count: number;  // verification_status = 'pending'
+  by_salary_range: Record<SalaryRange, number>;
+  by_city: Record<string, number>;
+  engagement_stats: {
+    willing_to_mentor: number;
+    willing_to_hire: number;
+    willing_to_guest_lecture: number;
+  };
 }
 
 // ============================================================================
