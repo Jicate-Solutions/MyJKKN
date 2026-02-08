@@ -79,9 +79,8 @@ export default function NewEngagementPage() {
         mentor_id: values.mentor_id || undefined,
         partner_id: values.partner_id || undefined,
         start_date: values.start_date || undefined,
-        expected_end_date: values.expected_end_date || undefined
-        // Note: 'notes' field removed - CreateLearnerEngagementDTO doesn't have this field
-        // Use status_notes in UpdateLearnerEngagementDTO if needed
+        expected_end_date: values.expected_end_date || undefined,
+        notes: values.notes || undefined
       });
       toast({ title: 'Engagement created successfully' });
       router.push('/industry/engagements');
