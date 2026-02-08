@@ -17,15 +17,13 @@ import {
 } from '@/hooks/solutions/use-training';
 
 function getStatusFromProgram(program: {
-  scheduled_start?: string;
-  scheduled_end?: string;
-  actual_start?: string;
-  actual_end?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: string;
 }): { label: string; variant: 'default' | 'secondary' | 'outline' } {
-  if (program.actual_end) return { label: 'Completed', variant: 'outline' };
-  if (program.actual_start) return { label: 'Active', variant: 'default' };
-  if (program.scheduled_start) {
-    const start = new Date(program.scheduled_start);
+  if (program.status === 'completed') return { label: 'Completed', variant: 'outline' };
+  if (program.start_date) {
+    const start = new Date(program.start_date);
     if (start > new Date()) return { label: 'Planned', variant: 'secondary' };
     return { label: 'Active', variant: 'default' };
   }
