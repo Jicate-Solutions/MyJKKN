@@ -145,11 +145,11 @@ export default function ProjectDetailPage() {
                   {project.application_deadline && (
                     <div className="flex justify-between"><span className="text-muted-foreground">Apply By</span><span>{new Date(project.application_deadline).toLocaleDateString()}</span></div>
                   )}
-                  {project.project_start_date && (
-                    <div className="flex justify-between"><span className="text-muted-foreground">Starts</span><span>{new Date(project.project_start_date).toLocaleDateString()}</span></div>
+                  {project.start_date && (
+                    <div className="flex justify-between"><span className="text-muted-foreground">Starts</span><span>{new Date(project.start_date).toLocaleDateString()}</span></div>
                   )}
-                  {project.project_end_date && (
-                    <div className="flex justify-between"><span className="text-muted-foreground">Ends</span><span>{new Date(project.project_end_date).toLocaleDateString()}</span></div>
+                  {project.end_date && (
+                    <div className="flex justify-between"><span className="text-muted-foreground">Ends</span><span>{new Date(project.end_date).toLocaleDateString()}</span></div>
                   )}
                 </CardContent>
               </Card>
