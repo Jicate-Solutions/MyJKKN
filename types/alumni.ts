@@ -198,7 +198,7 @@ export interface AlumniOutcome {
   reported_at: string | null;
   last_updated_at: string | null;
   update_count: number | null;
-  data_source: string | null;  // VARCHAR in DB
+  data_source: DataSource | null;  // USER-DEFINED ENUM in DB (not VARCHAR)
 
   // Audit fields
   created_by: string | null;
