@@ -124,7 +124,7 @@ export const COMMUNICATION_TYPE_LABELS: Record<CommunicationType, string> = {
   email: 'Email',
   whatsapp: 'WhatsApp',
   meeting: 'Meeting',
-  note: 'Note',
+  other: 'Other',
 };
 
 export const COMMUNICATION_DIRECTION_LABELS: Record<CommunicationDirection, string> = {
