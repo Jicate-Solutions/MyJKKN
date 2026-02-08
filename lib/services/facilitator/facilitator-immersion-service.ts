@@ -74,8 +74,10 @@ export class FacilitatorImmersionService {
       }
 
       if (filters.search) {
+        // Search only in non-null fields, handle nulls gracefully
+        const searchPattern = `%${filters.search}%`;
         query = query.or(
-          `company_name.ilike.%${filters.search}%,industry.ilike.%${filters.search}%,role_title.ilike.%${filters.search}%`
+          `company_name.ilike.${searchPattern},and(industry.not.is.null,industry.ilike.${searchPattern}),and(role_title.not.is.null,role_title.ilike.${searchPattern})`
         );
       }
 
