@@ -42,8 +42,14 @@ export class ParentSessionService {
     const supabase = await createClient();
 
     // Generate cryptographically secure session token
-    const sessionToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const sessionToken = crypto.randomBytes(SESSION_TOKEN_LENGTH).toString('hex');
+    const expiresAt = new Date(Date.now() + SESSION_EXPIRY_MS);
+
+    // Validate token was generated successfully
+    if (!sessionToken || sessionToken.length !== SESSION_TOKEN_LENGTH * 2) {
+      console.error('[ParentSessionService] Failed to generate valid session token');
+      throw new Error('Failed to generate session token');
+    }
 
     // Use SECURITY DEFINER RPC to bypass RLS
     const { data, error } = await supabase.rpc('create_parent_session', {
@@ -60,8 +66,9 @@ export class ParentSessionService {
     }
 
     if (!data?.success) {
-      console.error('[ParentSessionService] Session creation failed:', data?.message);
-      throw new Error(data?.message || 'Failed to create session');
+      console.error('[ParentSessionService] Session creation failed');
+      // Don't expose internal error messages to prevent information leakage
+      throw new Error('Failed to create session');
     }
 
     return {
