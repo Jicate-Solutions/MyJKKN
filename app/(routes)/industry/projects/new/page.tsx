@@ -222,10 +222,10 @@ export default function NewProjectPage() {
                     <FormField control={form.control} name="application_deadline" render={({ field }) => (
                       <FormItem><FormLabel>Application Deadline</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
-                    <FormField control={form.control} name="project_start_date" render={({ field }) => (
+                    <FormField control={form.control} name="start_date" render={({ field }) => (
                       <FormItem><FormLabel>Start Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
-                    <FormField control={form.control} name="project_end_date" render={({ field }) => (
+                    <FormField control={form.control} name="end_date" render={({ field }) => (
                       <FormItem><FormLabel>End Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
                   </div>
