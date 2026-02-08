@@ -659,9 +659,9 @@ export interface MentorPickerOption {
   id: string;
   mentor_name: string;
   designation: string | null;
-  partner_name: string;
+  partner_name: string; // May be empty string if no partner
   expertise_areas: string[];
-  available_slots: number;
+  available_slots: number; // Calculated from max_mentees - current_mentees
 }
 
 /**
