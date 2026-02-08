@@ -43,34 +43,47 @@ export type VerificationStatus =
 
 export const OUTCOME_TYPE_LABELS: Record<OutcomeType, string> = {
   employed: 'Employed',
-  higher_studies: 'Higher Studies',
+  self_employed: 'Self-Employed / Freelancer',
   entrepreneur: 'Entrepreneur',
-  freelancer: 'Freelancer',
-  unemployed: 'Unemployed',
+  higher_studies: 'Higher Studies',
+  competitive_exams: 'Competitive Exams',
+  family_business: 'Family Business',
+  gap_year: 'Gap Year',
+  seeking: 'Seeking',
   unknown: 'Unknown'
 };
 
 export const SALARY_RANGE_OPTIONS: SalaryRange[] = [
-  'below_3_lpa',
-  '3-5 LPA',
-  '5-8 LPA',
-  '8-12 LPA',
-  '12+ LPA'
+  'below_3l',
+  '3l_to_5l',
+  '5l_to_8l',
+  '8l_to_12l',
+  '12l_to_20l',
+  '20l_to_35l',
+  'above_35l',
+  'not_applicable',
+  'undisclosed'
 ];
 
 export const SALARY_RANGE_LABELS: Record<SalaryRange, string> = {
-  below_3_lpa: 'Below 3 LPA',
-  '3-5 LPA': '3-5 LPA',
-  '5-8 LPA': '5-8 LPA',
-  '8-12 LPA': '8-12 LPA',
-  '12+ LPA': '12+ LPA'
+  below_3l: 'Below 3 LPA',
+  '3l_to_5l': '3-5 LPA',
+  '5l_to_8l': '5-8 LPA',
+  '8l_to_12l': '8-12 LPA',
+  '12l_to_20l': '12-20 LPA',
+  '20l_to_35l': '20-35 LPA',
+  above_35l: 'Above 35 LPA',
+  not_applicable: 'Not Applicable',
+  undisclosed: 'Undisclosed'
 };
 
-export const DATA_SOURCE_LABELS: Record<DataSource, string> = {
+export const VERIFICATION_STATUS_LABELS: Record<VerificationStatus, string> = {
+  pending: 'Pending',
   self_reported: 'Self Reported',
-  verified: 'Verified',
-  alumni_survey: 'Alumni Survey',
-  linkedin: 'LinkedIn'
+  document_verified: 'Document Verified',
+  employer_confirmed: 'Employer Confirmed',
+  linkedin_verified: 'LinkedIn Verified',
+  rejected: 'Rejected'
 };
 
 // ============================================================================
