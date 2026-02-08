@@ -238,6 +238,9 @@ export class ParentPortalService {
 
   // ============================================================================
   // PARENT-LEARNER LINK METHODS
+  // ⚠️ WARNING: These methods reference 'parent_learner_links' table which DOES NOT EXIST in DB
+  // The actual DB stores learner_id directly in 'parent_portal_access' table (1:1 relationship)
+  // These methods will FAIL at runtime until the schema is migrated
   // ============================================================================
 
   static async getLinkedLearners(parentId: string): Promise<ParentLearnerLink[]> {
