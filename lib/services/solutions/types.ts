@@ -256,7 +256,7 @@ export interface BugReport extends BaseEntity {
   reported_by?: string;
   description: string;
   severity: 'critical' | 'high' | 'medium' | 'low';
-  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  status: 'open' | 'in_progress' | 'resolved' | 'closed' | 'wont_fix';
   resolved_by?: string;
   resolution_notes?: string;
   resolved_at?: string;
