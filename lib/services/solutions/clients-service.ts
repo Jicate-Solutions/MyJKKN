@@ -76,7 +76,7 @@ export class ClientsService extends BaseService {
   static async getClients(filters?: ClientFilters): Promise<BaseListResponse<Client>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = (this.supabase as any).from('sh_clients')
+    let query = this.supabase.from('sh_clients')
       .select('*', { count: 'exact' })
       .order('name', { ascending: true });
 
@@ -129,7 +129,7 @@ export class ClientsService extends BaseService {
    * Get a single client by ID
    */
   static async getClientById(id: string): Promise<Client | null> {
-    const { data, error } = await (this.supabase as any).from('sh_clients')
+    const { data, error } = await this.supabase.from('sh_clients')
       .select('*')
       .eq('id', id)
       .single();
@@ -146,7 +146,7 @@ export class ClientsService extends BaseService {
    * Get client by email
    */
   static async getClientByEmail(email: string): Promise<Client | null> {
-    const { data, error } = await (this.supabase as any).from('sh_clients')
+    const { data, error } = await this.supabase.from('sh_clients')
       .select('*')
       .eq('contact_email', email)
       .single();
@@ -163,7 +163,7 @@ export class ClientsService extends BaseService {
    * Create a new client
    */
   static async createClient(input: CreateClientInput): Promise<Client> {
-    const { data, error } = await (this.supabase as any).from('sh_clients')
+    const { data, error } = await this.supabase.from('sh_clients')
       .insert({
         name: input.name,
         industry_sector: input.industry,
@@ -205,7 +205,7 @@ export class ClientsService extends BaseService {
     if (input.partner_status !== undefined) updateData.partner_status = input.partner_status;
     if (input.is_active !== undefined) updateData.is_active = input.is_active;
 
-    const { data, error } = await (this.supabase as any).from('sh_clients')
+    const { data, error } = await this.supabase.from('sh_clients')
       .update({
         ...updateData,
         updated_at: new Date().toISOString(),
@@ -236,7 +236,7 @@ export class ClientsService extends BaseService {
    * Increment referral count - auto-upgrades to partner status when >= 2
    */
   static async incrementReferralCount(id: string): Promise<Client> {
-    const { data: currentClient, error: fetchError } = await (this.supabase as any).from('sh_clients')
+    const { data: currentClient, error: fetchError } = await this.supabase.from('sh_clients')
       .select('referral_count, partner_status')
       .eq('id', id)
       .single();
@@ -255,7 +255,7 @@ export class ClientsService extends BaseService {
       updateData.partner_status = 'referral';
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_clients')
+    const { data, error } = await this.supabase.from('sh_clients')
       .update(updateData)
       .eq('id', id)
       .select()
@@ -269,7 +269,7 @@ export class ClientsService extends BaseService {
    * Get unique industries from all clients
    */
   static async getClientIndustries(): Promise<string[]> {
-    const { data, error } = await (this.supabase as any).from('sh_clients')
+    const { data, error } = await this.supabase.from('sh_clients')
       .select('industry_sector')
       .not('industry_sector', 'is', null);
 
@@ -286,7 +286,7 @@ export class ClientsService extends BaseService {
    * Get client statistics
    */
   static async getClientStats(): Promise<ClientStats> {
-    const { data, error } = await (this.supabase as any).from('sh_clients')
+    const { data, error } = await this.supabase.from('sh_clients')
       .select('partner_status, source_type, is_active');
 
     if (error) throw new Error(`Failed to fetch client stats: ${error.message}`);
@@ -352,7 +352,7 @@ export class ClientsService extends BaseService {
     executing_department_id: string;
     bonus_percentage?: number;
   }): Promise<ClientReferral> {
-    const { data, error } = await (this.supabase as any).from('sh_client_referrals')
+    const { data, error } = await this.supabase.from('sh_client_referrals')
       .insert({
         client_id: input.client_id,
         referring_dept_id: input.referring_department_id,
@@ -371,7 +371,7 @@ export class ClientsService extends BaseService {
    * Get referrals for a client
    */
   static async getClientReferrals(clientId: string): Promise<ClientReferral[]> {
-    const { data, error } = await (this.supabase as any).from('sh_client_referrals')
+    const { data, error } = await this.supabase.from('sh_client_referrals')
       .select('*')
       .eq('client_id', clientId)
       .order('created_at', { ascending: false });
@@ -387,7 +387,7 @@ export class ClientsService extends BaseService {
     referralId: string,
     bonusAmount: number
   ): Promise<ClientReferral> {
-    const { data, error } = await (this.supabase as any).from('sh_client_referrals')
+    const { data, error } = await this.supabase.from('sh_client_referrals')
       .update({
         bonus_amount: bonusAmount,
         bonus_paid: true,
