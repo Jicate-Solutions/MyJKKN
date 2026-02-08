@@ -117,15 +117,15 @@ export function LearnerCard({ data, onViewDetails }: LearnerCardProps) {
               <span>Fee Status</span>
             </div>
             <div className="mt-2">
-              {fees.total_pending > 0 ? (
+              {(fees?.total_pending ?? 0) > 0 ? (
                 <>
                   <span className="text-2xl font-bold text-orange-600">
-                    {formatCurrency(fees.total_pending)}
+                    {formatCurrency(fees?.total_pending ?? 0)}
                   </span>
                   <p className="text-xs text-gray-500">Pending</p>
-                  {fees.total_overdue > 0 && (
+                  {(fees?.total_overdue ?? 0) > 0 && (
                     <Badge variant="destructive" className="mt-1 text-xs">
-                      {formatCurrency(fees.total_overdue)} Overdue
+                      {formatCurrency(fees?.total_overdue ?? 0)} Overdue
                     </Badge>
                   )}
                 </>
