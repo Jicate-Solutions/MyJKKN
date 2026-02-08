@@ -246,6 +246,7 @@ export class IndustryPartnerService {
    * Get partner summaries for dashboard
    */
   static async getPartnerSummaries(institutionId: string): Promise<PartnerSummary[]> {
+    this.validateId(institutionId, 'institution ID');
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
