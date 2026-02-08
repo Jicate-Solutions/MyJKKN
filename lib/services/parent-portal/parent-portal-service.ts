@@ -592,36 +592,50 @@ export class ParentPortalService {
   // ============================================================================
 
   static async requestOTP(input: OTPRequest): Promise<OTPResponse> {
-    const supabase: any = createClientSupabaseClient();
-    const { data, error } = await supabase.rpc('send_parent_otp', {
-      p_phone: input.phone,
-      p_institution_id: input.institution_id,
+    // SECURITY: Call API route instead of RPC directly
+    // API route handles rate limiting and other security checks
+    const response = await fetch('/api/parent-portal/auth/request-otp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        phone: input.phone,
+        institution_id: input.institution_id,
+      }),
+      credentials: 'include', // Include cookies
     });
 
-    if (error) throw error;
-    return data;
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to send OTP');
+    }
+
+    return response.json();
   }
 
   static async verifyOTP(input: OTPVerification): Promise<ParentAuthResult> {
-    const supabase: any = createClientSupabaseClient();
-    const { data, error } = await supabase.rpc('verify_parent_otp', {
-      p_phone: input.phone,
-      p_otp: input.otp,
-      p_institution_id: input.institution_id,
+    // SECURITY: Call API route instead of RPC directly
+    // API route creates secure httpOnly session cookie
+    const response = await fetch('/api/parent-portal/auth/verify-otp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        phone: input.phone,
+        otp: input.otp,
+        institution_id: input.institution_id,
+      }),
+      credentials: 'include', // Include httpOnly cookies
     });
 
-    if (error) throw error;
-
-    if (data.success && data.parent_id) {
-      // Log the login activity
-      await this.logActivity({
-        parent_id: data.parent_id,
-        activity_type: 'login',
-        description: 'Logged in via OTP',
-      });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || error.message || 'Failed to verify OTP');
     }
 
-    return data;
+    return response.json();
   }
 
   // ============================================================================
