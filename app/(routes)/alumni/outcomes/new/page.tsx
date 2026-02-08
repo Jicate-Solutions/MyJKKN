@@ -112,6 +112,11 @@ export default function NewAlumniOutcomePage() {
         : []
     };
 
+    // Add optional program_id if selected
+    if (programId) {
+      input.program_id = programId;
+    }
+
     // Add fields based on outcome type
     if (companyName) input.company_name = companyName;
     if (designation) input.designation = designation;
