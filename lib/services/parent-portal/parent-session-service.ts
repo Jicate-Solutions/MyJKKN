@@ -1,7 +1,6 @@
 // lib/services/parent-portal/parent-session-service.ts
-// ⚠️ WARNING: This service references 'parent_sessions' table which DOES NOT EXIST in DB
-// All methods in this service will FAIL at runtime until the schema is migrated
-// The table needs to be created before this service can be used
+// Parent session management using SECURITY DEFINER RPCs to bypass RLS
+// (Parent portal uses its own auth system, not Supabase auth)
 
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
@@ -22,10 +21,7 @@ export interface SessionValidationResult {
 export class ParentSessionService {
   /**
    * Creates a new secure session for a parent
-   * @param parentId - The parent's UUID
-   * @param ipAddress - Client IP address (optional)
-   * @param userAgent - Client user agent (optional)
-   * @returns Session data including secure token
+   * Uses SECURITY DEFINER RPC to bypass RLS
    */
   static async createSession(
     parentId: string,
@@ -38,20 +34,23 @@ export class ParentSessionService {
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
-    // Store session in database
-    const { error } = await supabase.from('parent_sessions').insert({
-      session_token: sessionToken,
-      parent_id: parentId,
-      expires_at: expiresAt.toISOString(),
-      ip_address: ipAddress,
-      user_agent: userAgent,
-      created_at: new Date().toISOString(),
-      last_activity_at: new Date().toISOString(),
+    // Use SECURITY DEFINER RPC to bypass RLS
+    const { data, error } = await supabase.rpc('create_parent_session', {
+      p_session_token: sessionToken,
+      p_parent_id: parentId,
+      p_expires_at: expiresAt.toISOString(),
+      p_ip_address: ipAddress || null,
+      p_user_agent: userAgent || null,
     });
 
     if (error) {
       console.error('[ParentSessionService] Failed to create session:', error);
       throw new Error('Failed to create session');
+    }
+
+    if (!data?.success) {
+      console.error('[ParentSessionService] Session creation failed:', data?.message);
+      throw new Error(data?.message || 'Failed to create session');
     }
 
     return {
@@ -63,8 +62,7 @@ export class ParentSessionService {
 
   /**
    * Validates a session token and returns the parent ID if valid
-   * @param token - The session token to validate
-   * @returns Validation result with parent ID if valid
+   * Uses SECURITY DEFINER RPC to bypass RLS
    */
   static async validateSession(token: string): Promise<SessionValidationResult> {
     if (!token) {
@@ -72,40 +70,19 @@ export class ParentSessionService {
     }
 
     const supabase = await createClient();
-    const now = new Date();
 
-    // Query session
-    const { data, error } = await supabase
-      .from('parent_sessions')
-      .select('parent_id, expires_at, revoked')
-      .eq('session_token', token)
-      .single();
+    const { data, error } = await supabase.rpc('validate_parent_session', {
+      p_token: token,
+    });
 
-    if (error || !data) {
-      return { valid: false, error: 'Invalid session token' };
+    if (error) {
+      console.error('[ParentSessionService] Session validation error:', error);
+      return { valid: false, error: 'Session validation failed' };
     }
 
-    // Check if revoked
-    if (data.revoked) {
-      return { valid: false, error: 'Session has been revoked' };
+    if (!data?.valid) {
+      return { valid: false, error: data?.error || 'Invalid session' };
     }
-
-    // Check if expired
-    if (new Date(data.expires_at) < now) {
-      // Clean up expired session
-      await supabase
-        .from('parent_sessions')
-        .delete()
-        .eq('session_token', token);
-
-      return { valid: false, error: 'Session has expired' };
-    }
-
-    // Update last activity
-    await supabase
-      .from('parent_sessions')
-      .update({ last_activity_at: now.toISOString() })
-      .eq('session_token', token);
 
     return {
       valid: true,
