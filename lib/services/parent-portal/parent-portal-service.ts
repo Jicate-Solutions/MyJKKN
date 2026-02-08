@@ -7,7 +7,6 @@ import type {
   ParentCommunication,
   ParentActivityLog,
   ParentDashboardData,
-  LearnerDashboardData,
   LearnerAttendanceSummary,
   LearnerFeeSummary,
   CreateParentProfileDto,
