@@ -361,11 +361,9 @@ export class PublicationsService extends BaseService {
         other: 0,
       },
       byStatus: {
-        identified: 0,
-        drafting: 0,
+        draft: 0,
         submitted: 0,
         under_review: 0,
-        revision: 0,
         accepted: 0,
         published: 0,
         rejected: 0,
