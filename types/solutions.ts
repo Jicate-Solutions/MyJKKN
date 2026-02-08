@@ -41,7 +41,7 @@ export type TrainingProgramType = 'workshop' | 'seminar' | 'bootcamp' | 'certifi
 
 export type TrainingTrack = 'track_a' | 'track_b'
 
-export type LocationPreference = 'client_site' | 'jkkn_campus' | 'online' | 'hybrid'
+export type LocationPreference = 'client_site' | 'jkkn_campus' | 'online' | 'hybrid' | 'on_site' | 'remote'
 
 export type CohortMemberLevel = 0 | 1 | 2 | 3
 
