@@ -62,11 +62,10 @@ export default function NewCommunicationPage() {
       institution_id: institutionId,
       subject: formData.subject,
       content: formData.content,
-      type: formData.type,
-      priority: formData.priority,
-      sender_id: profile?.id || undefined,
-      parent_id: formData.parent_id || undefined,
-      learner_id: formData.learner_id || undefined,
+      communication_type: formData.type,
+      sent_by: profile?.id || undefined,
+      parent_access_id: formData.parent_id || undefined,
+      learner_id: formData.learner_id || '',
     };
 
     try {
