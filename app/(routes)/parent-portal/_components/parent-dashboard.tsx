@@ -63,7 +63,7 @@ export function ParentDashboardClient() {
       {/* Welcome Section */}
       <div>
         <h1 className="text-3xl font-bold text-gray-900">
-          Welcome back, {dashboardData.parent.name.split(' ')[0]}!
+          Welcome back, {dashboardData.parent.name?.split(' ')[0] || 'Parent'}!
         </h1>
         <p className="mt-1 text-gray-600">
           Here&apos;s an overview of your children&apos;s progress and activities.
