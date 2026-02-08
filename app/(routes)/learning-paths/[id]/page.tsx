@@ -668,8 +668,8 @@ export default function LearningPathDetailPage() {
                       Target Competencies
                     </p>
                     <div className="flex flex-wrap gap-1">
-                      {path.target_competencies.map((comp) => (
-                        <Badge key={comp} variant="secondary" className="text-xs">
+                      {path.target_competencies.map((comp, idx) => (
+                        <Badge key={`path-comp-${idx}`} variant="secondary" className="text-xs">
                           {comp}
                         </Badge>
                       ))}
