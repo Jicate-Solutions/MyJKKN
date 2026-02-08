@@ -270,6 +270,7 @@ export function useCreateImmersion() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.immersions() });
       queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.detail(data.development_id) });
+      queryClient.invalidateQueries({ queryKey: facilitatorDevKeys.all }); // Invalidate stats (total_immersions count)
     }
   });
 }
