@@ -89,6 +89,8 @@ export type PublicationStatus =
   | 'published'
   | 'rejected';
 
+export type MouStatus = 'draft' | 'pending_signatures' | 'active' | 'expired' | 'terminated';
+
 export type NotificationType = 'payment' | 'approval' | 'assignment' | 'deadline' | 'system';
 
 // ============================================

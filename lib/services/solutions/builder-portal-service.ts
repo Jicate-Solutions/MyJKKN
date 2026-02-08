@@ -104,7 +104,7 @@ export class BuilderPortalService {
    * Get builder profile by user ID (for logged-in user)
    */
   static async getBuilderByUserId(userId: string): Promise<BuilderWithDetails | null> {
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await this.supabase
       .from('sh_builders')
       .select(`
         *,
@@ -127,7 +127,7 @@ export class BuilderPortalService {
    */
   static async getPortalOverview(builderId: string): Promise<PortalOverview> {
     // Fetch builder with details
-    const { data: builder, error: builderError } = await (this.supabase as any)
+    const { data: builder, error: builderError } = await this.supabase
       .from('sh_builders')
       .select(`
         *,
@@ -142,7 +142,7 @@ export class BuilderPortalService {
     }
 
     // Fetch assignment counts
-    const { data: assignments, error: assignmentsError } = await (this.supabase as any)
+    const { data: assignments, error: assignmentsError } = await this.supabase
       .from('sh_builder_assignments')
       .select('status')
       .eq('builder_id', builderId);
@@ -158,14 +158,14 @@ export class BuilderPortalService {
     ).length || 0;
 
     // Fetch available phases count
-    const { count: availablePhasesCount } = await (this.supabase as any)
+    const { count: availablePhasesCount } = await this.supabase
       .from('sh_solution_phases')
       .select('id', { count: 'exact', head: true })
       .in('status', ['prototype_building', 'revisions', 'deploying'])
       .is('owner_user_id', null);
 
     // Fetch recent activity (assignments and earnings)
-    const { data: recentAssignments } = await (this.supabase as any)
+    const { data: recentAssignments } = await this.supabase
       .from('sh_builder_assignments')
       .select(`
         id,
@@ -207,7 +207,7 @@ export class BuilderPortalService {
     builderId: string,
     statusFilter?: AssignmentStatus
   ): Promise<BuilderAssignmentWithPhase[]> {
-    let query = (this.supabase as any)
+    let query = this.supabase
       .from('sh_builder_assignments')
       .select(`
         *,
@@ -242,7 +242,7 @@ export class BuilderPortalService {
    */
   static async getAvailablePhases(builderId: string): Promise<AvailablePhase[]> {
     // Get builder's skills
-    const { data: builderSkills } = await (this.supabase as any)
+    const { data: builderSkills } = await this.supabase
       .from('sh_builder_skills')
       .select('skill_name')
       .eq('builder_id', builderId);
@@ -251,7 +251,7 @@ export class BuilderPortalService {
 
     // Get phases that are available for work (not assigned or need more builders)
     // Phases in prototype_building, revisions, or deploying status
-    const { data: phases, error } = await (this.supabase as any)
+    const { data: phases, error } = await this.supabase
       .from('sh_solution_phases')
       .select(`
         *,
@@ -270,7 +270,7 @@ export class BuilderPortalService {
     }
 
     // Get existing assignments for the builder to exclude already claimed phases
-    const { data: existingAssignments } = await (this.supabase as any)
+    const { data: existingAssignments } = await this.supabase
       .from('sh_builder_assignments')
       .select('phase_id')
       .eq('builder_id', builderId)
@@ -293,7 +293,7 @@ export class BuilderPortalService {
     role: BuilderRole = 'contributor'
   ): Promise<BuilderAssignment> {
     // Check if already assigned
-    const { data: existing } = await (this.supabase as any)
+    const { data: existing } = await this.supabase
       .from('sh_builder_assignments')
       .select('id')
       .eq('phase_id', phaseId)
@@ -305,7 +305,7 @@ export class BuilderPortalService {
     }
 
     // Create assignment request
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await this.supabase
       .from('sh_builder_assignments')
       .insert({
         phase_id: phaseId,
@@ -328,7 +328,7 @@ export class BuilderPortalService {
    * Start working on a phase (move from approved to active)
    */
   static async startPhaseWork(assignmentId: string): Promise<BuilderAssignment> {
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await this.supabase
       .from('sh_builder_assignments')
       .update({
         status: 'active',
@@ -353,7 +353,7 @@ export class BuilderPortalService {
    * Complete phase work
    */
   static async completePhaseWork(assignmentId: string): Promise<BuilderAssignment> {
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await this.supabase
       .from('sh_builder_assignments')
       .update({
         status: 'completed',
@@ -378,7 +378,7 @@ export class BuilderPortalService {
    * Withdraw from a phase
    */
   static async withdrawFromPhase(assignmentId: string): Promise<BuilderAssignment> {
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await this.supabase
       .from('sh_builder_assignments')
       .update({
         status: 'withdrawn',
@@ -406,7 +406,7 @@ export class BuilderPortalService {
    * Get my skills
    */
   static async getMySkills(builderId: string): Promise<BuilderSkill[]> {
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await this.supabase
       .from('sh_builder_skills')
       .select('*')
       .eq('builder_id', builderId)
@@ -427,7 +427,7 @@ export class BuilderPortalService {
     skillName: string,
     proficiencyLevel: number = 1
   ): Promise<BuilderSkill> {
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await this.supabase
       .from('sh_builder_skills')
       .insert({
         builder_id: builderId,
@@ -459,7 +459,7 @@ export class BuilderPortalService {
       throw new Error('Proficiency level must be between 1 and 5');
     }
 
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await this.supabase
       .from('sh_builder_skills')
       .update({
         proficiency_level: proficiencyLevel,
@@ -482,7 +482,7 @@ export class BuilderPortalService {
    * Remove a skill from my profile
    */
   static async removeMySkill(skillId: string): Promise<void> {
-    const { error } = await (this.supabase as any)
+    const { error } = await this.supabase
       .from('sh_builder_skills')
       .delete()
       .eq('id', skillId);
@@ -501,7 +501,7 @@ export class BuilderPortalService {
    */
   static async getMyEarnings(builderId: string): Promise<BuilderEarningsSummary> {
     // Get earnings from ledger
-    const { data: earnings, error } = await (this.supabase as any)
+    const { data: earnings, error } = await this.supabase
       .from('sh_earnings_ledger')
       .select(`
         *,
