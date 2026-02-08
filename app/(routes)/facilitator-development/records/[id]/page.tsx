@@ -256,7 +256,7 @@ export default function FacilitatorDevelopmentDetailPage() {
               ))}
             </div>
             <div className='flex gap-2 mt-4'>
-              <Select value={record.current_stage} onValueChange={(v) => handleStageChange(v as DevelopmentStage)}>
+              <Select value={record.current_stage} onValueChange={(v) => handleStageChange(v as DevelopmentStage)} disabled={updateMutation.isPending}>
                 <SelectTrigger className='max-w-[200px]'>
                   <SelectValue placeholder='Update stage' />
                 </SelectTrigger>
@@ -266,7 +266,7 @@ export default function FacilitatorDevelopmentDetailPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={record.status} onValueChange={(v) => handleStatusChange(v as DevelopmentStatus)}>
+              <Select value={record.status} onValueChange={(v) => handleStatusChange(v as DevelopmentStatus)} disabled={updateMutation.isPending}>
                 <SelectTrigger className='max-w-[200px]'>
                   <SelectValue placeholder='Update status' />
                 </SelectTrigger>
