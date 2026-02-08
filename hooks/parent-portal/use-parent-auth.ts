@@ -38,9 +38,9 @@ export function useVerifyOTP() {
     mutationFn: (data: OTPVerification) => ParentPortalService.verifyOTP(data),
     onSuccess: (data) => {
       if (data.success) {
-        if (data.parent?.id) {
+        if (data.parent_id) {
           queryClient.invalidateQueries({
-            queryKey: parentProfileKeys.detail(data.parent.id),
+            queryKey: parentProfileKeys.detail(data.parent_id),
           });
           queryClient.invalidateQueries({
             queryKey: parentDashboardKeys.dashboard(),
