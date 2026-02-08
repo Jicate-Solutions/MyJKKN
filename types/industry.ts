@@ -182,52 +182,27 @@ export interface IndustryProject {
 // ============================================================================
 
 /**
- * Mentor Feedback structure (stored in mentor_feedback JSONB column)
- */
-export interface MentorFeedback {
-  rating: number;  // 0-5
-  strengths: string[];
-  areas_for_improvement: string[];
-  comments: string;
-  recommend_for_placement: boolean;
-  given_at: string;
-}
-
-/**
- * Learner Feedback structure (stored in learner_feedback JSONB column)
- */
-export interface LearnerFeedback {
-  rating: number; // 0-5
-  experience_highlights: string[];
-  challenges_faced: string[];
-  suggestions: string;
-  would_recommend: boolean;
-  given_at: string;
-}
-
-/**
- * Legacy feedback structure - kept for backward compatibility
- * NOTE: DB now uses separate mentor_feedback and learner_feedback columns
- * @deprecated Use MentorFeedback and LearnerFeedback instead
+ * Feedback structure stored in the single `feedback` JSONB column
+ * The DB has ONE `feedback` column (not separate mentor/learner columns)
+ * The structure within is flexible - these interfaces document expected shapes
  */
 export interface EngagementFeedback {
   mentor_feedback?: {
     rating: number;  // 1-5
     comments: string;
-    date: string;
-    competencies_demonstrated: string[];
+    given_at?: string;
+    strengths?: string[];
+    areas_for_improvement?: string[];
+    recommend_for_placement?: boolean;
   };
   learner_feedback?: {
     rating: number;
     comments: string;
-    date: string;
-    skills_gained: string[];
-  };
-  supervisor_feedback?: {
-    rating: number;
-    comments: string;
-    date: string;
-    recommendation: string;
+    given_at?: string;
+    experience_highlights?: string[];
+    challenges_faced?: string[];
+    suggestions?: string;
+    would_recommend?: boolean;
   };
 }
 
