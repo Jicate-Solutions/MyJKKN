@@ -484,12 +484,12 @@ export default function ParentDetailPage() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">
-                          {COMMUNICATION_TYPE_LABELS[comm.type] || comm.type}
+                          {COMMUNICATION_TYPE_LABELS[comm.communication_type] || comm.communication_type}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge className={getPriorityColor(comm.priority)}>
-                          {PRIORITY_LABELS[comm.priority] || comm.priority}
+                        <Badge variant="secondary">
+                          Normal
                         </Badge>
                       </TableCell>
                       <TableCell>
