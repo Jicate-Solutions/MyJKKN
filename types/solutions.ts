@@ -78,7 +78,7 @@ export type CommunicationDirection = 'inbound' | 'outbound'
 
 export type PaperType = 'problem' | 'design' | 'technical' | 'data' | 'impact' | 'journal' | 'conference' | 'patent' | 'book_chapter' | 'case_study'
 
-export type JournalType = 'scopus' | 'ugc_care' | 'other'
+export type JournalType = 'scopus' | 'ugc_care' | 'other' | 'wos' | 'ugc'
 
 export type PublicationStatus =
   | 'identified'
