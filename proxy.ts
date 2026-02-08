@@ -418,6 +418,6 @@ export const config = {
     '/guest/:path*',
     '/driver/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|icons|pwa-test.html).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth|icons|pwa-test.html).*)'
   ]
 };
