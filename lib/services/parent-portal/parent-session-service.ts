@@ -210,6 +210,14 @@ export class ParentSessionService {
       throw new Error('Parent ID is required for revocation');
     }
 
+    // Validate parent ID is a valid UUID
+    try {
+      InputValidator.uuid(parentId, 'Parent ID');
+    } catch (error) {
+      console.error('[ParentSessionService] Invalid parent ID:', error);
+      throw new Error('Invalid parent ID');
+    }
+
     const supabase = await createClient();
 
     const { error } = await supabase.rpc('revoke_all_parent_sessions', {

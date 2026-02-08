@@ -38,8 +38,8 @@ export function useBillingDiscounts(initialFilters: DiscountFilters = {}) {
   }, []);
 
   const fetchDiscounts = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
-  }, [queryClient]);
+    queryClient.invalidateQueries({ queryKey: ['billing-discounts', filters] });
+  }, [queryClient, filters]);
 
   return {
     discounts: data?.data || [],
