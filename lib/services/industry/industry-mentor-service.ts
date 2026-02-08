@@ -166,7 +166,10 @@ export class IndustryMentorService {
       .from('industry_mentors')
       .insert({
         ...dto,
-        current_mentees_count: 0
+        current_mentees: 0, // DB column name (not current_mentees_count)
+        total_mentees_all_time: 0,
+        average_rating: 0,
+        total_sessions_conducted: 0
       })
       .select()
       .single();
