@@ -32,12 +32,13 @@ export class ParentCommunicationService {
       const { page = 1, limit = 20 } = filters;
       const offset = (page - 1) * limit;
 
+      // NOTE: sender_id has NO FK constraint to profiles table.
+      // Cannot use PostgREST FK join. Select raw columns only.
       let query = supabase
         .from('parent_communications')
         .select(
           `
           *,
-          sender:profiles!sent_by(id, name, avatar_url),
           learner:learners_profiles(id, name, enrollment_number)
         `,
           { count: 'exact' }
