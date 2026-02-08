@@ -129,7 +129,7 @@ export class BugsService extends BaseService {
   static async getBugs(filters?: BugFilters): Promise<BaseListResponse<BugWithDetails>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    let query = (this.supabase as any).from('sh_bug_reports')
+    let query = this.supabase.from('sh_bug_reports')
       .select(
         `
         *,
@@ -200,7 +200,7 @@ export class BugsService extends BaseService {
    * Get a single bug by ID
    */
   static async getBugById(id: string): Promise<BugWithDetails | null> {
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .select(
         `
         *,
@@ -237,7 +237,7 @@ export class BugsService extends BaseService {
    */
   static async getBugsByPhase(phaseId: string): Promise<BugReport[]> {
     // First get all iteration IDs for the phase
-    const { data: iterations, error: iterError } = await (this.supabase as any)
+    const { data: iterations, error: iterError } = await this.supabase
       .from('sh_prototype_iterations')
       .select('id')
       .eq('phase_id', phaseId);
@@ -250,7 +250,7 @@ export class BugsService extends BaseService {
 
     const iterationIds = iterations.map((i: { id: string }) => i.id);
 
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .select('*')
       .in('iteration_id', iterationIds)
       .order('created_at', { ascending: false });
@@ -263,7 +263,7 @@ export class BugsService extends BaseService {
    * Get bugs by iteration ID
    */
   static async getBugsByIteration(iterationId: string): Promise<BugReport[]> {
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .select('*')
       .eq('iteration_id', iterationId)
       .order('created_at', { ascending: false });
@@ -276,7 +276,7 @@ export class BugsService extends BaseService {
    * Create a bug report
    */
   static async createBug(input: CreateBugInput): Promise<BugReport> {
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .insert({
         iteration_id: input.iteration_id,
         reported_by: input.reported_by,
@@ -303,7 +303,7 @@ export class BugsService extends BaseService {
       updateData.resolved_at = new Date().toISOString();
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .update(updateData)
       .eq('id', id)
       .select()
@@ -321,7 +321,7 @@ export class BugsService extends BaseService {
     resolvedBy: string,
     resolutionNotes?: string
   ): Promise<BugReport> {
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .update({
         status: 'resolved',
         resolved_by: resolvedBy,
@@ -340,7 +340,7 @@ export class BugsService extends BaseService {
    * Close a bug
    */
   static async closeBug(id: string): Promise<BugReport> {
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .update({ status: 'closed' })
       .eq('id', id)
       .select()
@@ -354,7 +354,7 @@ export class BugsService extends BaseService {
    * Reopen a bug
    */
   static async reopenBug(id: string): Promise<BugReport> {
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .update({
         status: 'open',
         resolved_by: null,
@@ -373,7 +373,7 @@ export class BugsService extends BaseService {
    * Delete a bug report
    */
   static async deleteBug(id: string): Promise<void> {
-    const { error } = await (this.supabase as any).from('sh_bug_reports')
+    const { error } = await this.supabase.from('sh_bug_reports')
       .delete()
       .eq('id', id);
 
@@ -390,7 +390,7 @@ export class BugsService extends BaseService {
     openCritical: number;
     avgResolutionTimeHours: number | null;
   }> {
-    const { data, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { data, error } = await this.supabase.from('sh_bug_reports')
       .select('severity, status, created_at, resolved_at');
 
     if (error) throw new Error(`Failed to fetch bug stats: ${error.message}`);
@@ -446,7 +446,7 @@ export class BugsService extends BaseService {
    */
   static async getOpenBugCountForPhase(phaseId: string): Promise<number> {
     // First get all iteration IDs for the phase
-    const { data: iterations, error: iterError } = await (this.supabase as any)
+    const { data: iterations, error: iterError } = await this.supabase
       .from('sh_prototype_iterations')
       .select('id')
       .eq('phase_id', phaseId);
@@ -459,7 +459,7 @@ export class BugsService extends BaseService {
 
     const iterationIds = iterations.map((i: { id: string }) => i.id);
 
-    const { count, error } = await (this.supabase as any).from('sh_bug_reports')
+    const { count, error } = await this.supabase.from('sh_bug_reports')
       .select('*', { count: 'exact', head: true })
       .in('iteration_id', iterationIds)
       .in('status', ['open', 'in_progress']);
