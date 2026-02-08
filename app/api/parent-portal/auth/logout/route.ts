@@ -1,6 +1,7 @@
 // app/api/parent-portal/auth/logout/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { ParentSessionService } from '@/lib/services/parent-portal/parent-session-service';
 import { clearCSRFCookie, validateCSRFFromRequest } from '@/lib/utils/csrf';
 import { createClient } from '@/lib/supabase/server';
@@ -17,8 +18,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get cookie store ONCE to avoid Next.js 16 deadlock
+    const cookieStore = await cookies();
+
     // Get the session token
-    const sessionToken = await ParentSessionService.getSessionToken();
+    const sessionToken = await ParentSessionService.getSessionToken(cookieStore);
 
     if (sessionToken) {
       // Get parent ID for logging
@@ -38,9 +42,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Clear cookies
-    await ParentSessionService.clearSessionCookie();
-    await clearCSRFCookie();
+    // Clear cookies using the same store
+    await ParentSessionService.clearSessionCookie(cookieStore);
+    await clearCSRFCookie(cookieStore);
 
     return NextResponse.json({
       success: true,
@@ -49,8 +53,13 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[parent-portal/auth/logout] POST error:', error);
     // Still clear cookies even if there's an error
-    await ParentSessionService.clearSessionCookie();
-    await clearCSRFCookie();
+    try {
+      const cookieStore = await cookies();
+      await ParentSessionService.clearSessionCookie(cookieStore);
+      await clearCSRFCookie(cookieStore);
+    } catch {
+      // Ignore cookie clearing errors
+    }
 
     return NextResponse.json(
       { error: 'Logout failed but cookies cleared' },
