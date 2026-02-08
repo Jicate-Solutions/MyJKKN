@@ -62,10 +62,13 @@ export function useAlumniOutcomes(
       outcome_type: filters.outcome_type,
       graduation_year: filters.graduation_year,
       program_id: filters.program_id,
-      department_id: filters.department_id,
-      verified: filters.verified,
-      data_source: filters.data_source,
-      is_core_domain: filters.is_core_domain,
+      batch_id: filters.batch_id,
+      verification_status: filters.verification_status,
+      is_relevant_to_program: filters.is_relevant_to_program,
+      city: filters.city,
+      state: filters.state,
+      country: filters.country,
+      salary_range: filters.salary_range,
       page: filters.page || 1,
       limit: filters.limit || 10,
       sort_by: filters.sort_by,
@@ -78,10 +81,13 @@ export function useAlumniOutcomes(
     filters.outcome_type,
     filters.graduation_year,
     filters.program_id,
-    filters.department_id,
-    filters.verified,
-    filters.data_source,
-    filters.is_core_domain,
+    filters.batch_id,
+    filters.verification_status,
+    filters.is_relevant_to_program,
+    filters.city,
+    filters.state,
+    filters.country,
+    filters.salary_range,
     filters.page,
     filters.limit,
     filters.sort_by,
@@ -131,21 +137,29 @@ export function useAlumniDashboardStats(
         total_tracked: 0,
         by_outcome_type: {
           employed: 0,
-          higher_studies: 0,
+          self_employed: 0,
           entrepreneur: 0,
-          freelancer: 0,
-          unemployed: 0,
+          higher_studies: 0,
+          competitive_exams: 0,
+          family_business: 0,
+          gap_year: 0,
+          seeking: 0,
           unknown: 0
         },
-        placement_percentage: 0,
+        employment_percentage: 0,
         higher_studies_percentage: 0,
         entrepreneur_percentage: 0,
-        core_domain_percentage: 0,
+        avg_relevance_percentage: 0,
         average_satisfaction: 0,
         verified_count: 0,
-        unverified_count: 0,
-        average_time_to_placement_days: 0,
-        by_salary_range: {}
+        pending_count: 0,
+        by_salary_range: {} as Record<string, number>,
+        by_city: {},
+        engagement_stats: {
+          willing_to_mentor: 0,
+          willing_to_hire: 0,
+          willing_to_guest_lecture: 0
+        }
       };
     }
   }, [institutionId]);
@@ -237,8 +251,9 @@ export function useOutcomeCorrelations(
     const stableFilters: OutcomeCorrelationFilters = {
       institution_id: filters.institution_id || '',
       program_id: filters.program_id,
-      department_id: filters.department_id,
-      academic_year: filters.academic_year,
+      cohort_year: filters.cohort_year,
+      cohort_batch_id: filters.cohort_batch_id,
+      is_published: filters.is_published,
       page: filters.page || 1,
       limit: filters.limit || 20
     };
@@ -246,8 +261,9 @@ export function useOutcomeCorrelations(
   }, [
     filters.institution_id,
     filters.program_id,
-    filters.department_id,
-    filters.academic_year,
+    filters.cohort_year,
+    filters.cohort_batch_id,
+    filters.is_published,
     filters.page,
     filters.limit
   ]);
@@ -281,11 +297,11 @@ export function useComputeCorrelation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ institutionId, programId, academicYear }: {
+    mutationFn: ({ institutionId, programId, cohortYear }: {
       institutionId: string;
       programId: string;
-      academicYear: string;
-    }) => OutcomeCorrelationService.computeCorrelation(institutionId, programId, academicYear),
+      cohortYear: number;
+    }) => OutcomeCorrelationService.computeCorrelation(institutionId, programId, cohortYear),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: alumniKeys.correlations() });
     }
