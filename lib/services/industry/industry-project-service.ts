@@ -51,7 +51,6 @@ export class IndustryProjectService {
       status,
       difficulty_level,
       required_competency,
-      is_remote,
       has_stipend,
       search,
       page = 1,
