@@ -375,7 +375,7 @@ export default function NewDiscountPage() {
               </div>
             </CardContent>
           </Card>
-        )}
+        ) : null}
 
         {/* Discount Form */}
         <Card>
