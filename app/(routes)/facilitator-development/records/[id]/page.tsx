@@ -331,7 +331,7 @@ export default function FacilitatorDevelopmentDetailPage() {
           </Card>
           <Card>
             <CardContent className='p-4 text-center'>
-              <div className='text-2xl font-bold'>{record.peer_observations_received}</div>
+              <div className='text-2xl font-bold'>{record.peer_observations_received ?? 0}</div>
               <p className='text-xs text-muted-foreground'>Peer Obs Received</p>
             </CardContent>
           </Card>
