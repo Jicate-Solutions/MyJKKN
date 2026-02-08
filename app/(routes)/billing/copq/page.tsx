@@ -133,6 +133,12 @@ export default function BillingCOPQPage() {
             </p>
           </div>
           <div className='flex flex-wrap gap-2'>
+            <Button variant='outline' asChild>
+              <Link href='/billing/copq/incidents'>
+                <List className='mr-2 h-4 w-4' />
+                View All Incidents
+              </Link>
+            </Button>
             <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
               <DialogTrigger asChild>
                 <Button>
