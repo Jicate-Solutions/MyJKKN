@@ -26,10 +26,10 @@ const engagementSchema = z.object({
   status: z.enum(['applied', 'approved', 'active', 'completed', 'withdrawn', 'terminated'] as const),
   start_date: z.string().optional(),
   expected_end_date: z.string().optional(),
-  end_date: z.string().optional(),
-  hours_completed: z.coerce.number().min(0).default(0),
+  actual_end_date: z.string().optional(),
+  progress_percentage: z.coerce.number().min(0).max(100).default(0),
   certificate_url: z.string().url().optional().or(z.literal('')),
-  notes: z.string().optional()
+  status_notes: z.string().optional()
 });
 
 type EngagementFormValues = z.infer<typeof engagementSchema>;
@@ -56,10 +56,10 @@ export default function EditEngagementPage() {
       status: 'applied',
       start_date: '',
       expected_end_date: '',
-      end_date: '',
-      hours_completed: 0,
+      actual_end_date: '',
+      progress_percentage: 0,
       certificate_url: '',
-      notes: ''
+      status_notes: ''
     }
   });
 
@@ -77,10 +77,10 @@ export default function EditEngagementPage() {
         status: mappedStatus as EngagementFormValues['status'],
         start_date: engagement.start_date || '',
         expected_end_date: engagement.expected_end_date || '',
-        end_date: engagement.actual_end_date || '',
-        hours_completed: engagement.hours_completed,
+        actual_end_date: engagement.actual_end_date || '',
+        progress_percentage: engagement.progress_percentage,
         certificate_url: engagement.certificate_url || '',
-        notes: engagement.notes || ''
+        status_notes: engagement.status_notes || ''
       });
     }
   }, [engagement, form]);
@@ -91,11 +91,11 @@ export default function EditEngagementPage() {
         engagement_type: values.engagement_type,
         start_date: values.start_date || undefined,
         expected_end_date: values.expected_end_date || undefined,
-        end_date: values.end_date || undefined,
+        actual_end_date: values.actual_end_date || undefined,
         status: values.status,
-        hours_completed: values.hours_completed,
+        progress_percentage: values.progress_percentage,
         certificate_url: values.certificate_url || undefined,
-        notes: values.notes
+        status_notes: values.status_notes
       });
       toast({ title: 'Engagement updated successfully' });
       router.push(`/industry/engagements/${id}`);
@@ -192,10 +192,10 @@ export default function EditEngagementPage() {
                     )} />
                   </div>
 
-                  <FormField control={form.control} name="hours_completed" render={({ field }) => (
+                  <FormField control={form.control} name="progress_percentage" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Hours Completed</FormLabel>
-                      <FormControl><Input type="number" min={0} {...field} /></FormControl>
+                      <FormLabel>Progress (%)</FormLabel>
+                      <FormControl><Input type="number" min={0} max={100} {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -207,7 +207,7 @@ export default function EditEngagementPage() {
                     <FormField control={form.control} name="expected_end_date" render={({ field }) => (
                       <FormItem><FormLabel>Expected End</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
-                    <FormField control={form.control} name="end_date" render={({ field }) => (
+                    <FormField control={form.control} name="actual_end_date" render={({ field }) => (
                       <FormItem><FormLabel>Actual End</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
                   </div>
@@ -220,7 +220,7 @@ export default function EditEngagementPage() {
                     </FormItem>
                   )} />
 
-                  <FormField control={form.control} name="notes" render={({ field }) => (
+                  <FormField control={form.control} name="status_notes" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Notes</FormLabel>
                       <FormControl><Textarea placeholder="Additional notes..." className="min-h-[100px]" {...field} /></FormControl>
