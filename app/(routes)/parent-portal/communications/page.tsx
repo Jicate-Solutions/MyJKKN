@@ -214,25 +214,7 @@ export default function CommunicationsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select
-                value={priorityFilter || 'all'}
-                onValueChange={(v) => {
-                  setPriorityFilter(v === 'all' ? undefined : (v as CommunicationPriority));
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="Priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Priorities</SelectItem>
-                  {Object.entries(PRIORITY_LABELS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* NOTE: Priority filter removed - DB has no priority column */}
               <Select
                 value={readFilter === undefined ? 'all' : readFilter ? 'read' : 'unread'}
                 onValueChange={(v) => {
