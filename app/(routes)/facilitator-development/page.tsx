@@ -67,7 +67,8 @@ export default function FacilitatorDevelopmentDashboard() {
   const stageEntries = stats?.by_stage
     ? (Object.entries(stats.by_stage) as [DevelopmentStage, number][])
     : [];
-  const totalForPercentage = stageEntries.reduce((sum, [, count]) => sum + count, 0) || 1;
+  // Ensure totalForPercentage is never 0 to avoid division by zero
+  const totalForPercentage = Math.max(1, stageEntries.reduce((sum, [, count]) => sum + count, 0));
 
   return (
     <ContentLayout title='Facilitator Development'>
