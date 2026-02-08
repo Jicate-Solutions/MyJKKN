@@ -47,7 +47,6 @@ export function ContentQueueList() {
     revision: 40,
     approved: 100,
     delivered: 100,
-    rejected: 0,
   };
 
   if (error) {
