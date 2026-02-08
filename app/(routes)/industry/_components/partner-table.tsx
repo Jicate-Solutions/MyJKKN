@@ -222,9 +222,9 @@ export function PartnerTable() {
                 <Pencil className="h-4 w-4 mr-2" />
                 Edit
               </DropdownMenuItem>
-              {row.original.company_website && (
+              {row.original.website_url && (
                 <DropdownMenuItem asChild>
-                  <a href={row.original.company_website} target="_blank" rel="noopener noreferrer">
+                  <a href={row.original.website_url} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="h-4 w-4 mr-2" />
                     Visit Website
                   </a>
