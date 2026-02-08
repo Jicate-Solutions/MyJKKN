@@ -326,38 +326,29 @@ export interface UpdateIndustryMentorDTO {
 }
 
 /**
- * Create industry project
+ * Create industry project - VERIFIED against DB: 2026-02-08
  */
 export interface CreateIndustryProjectDTO {
-  institution_id: string; // REQUIRED - was missing
+  institution_id: string;
   partner_id?: string | null;
   project_title: string;
-  project_code?: string;
   description?: string;
-  detailed_requirements?: string;
-  expected_outcomes?: string;
-  deliverables?: any; // JSONB
   required_competencies?: string[];
-  minimum_competency_level?: string;
-  competencies_developed?: string[];
   difficulty_level?: DifficultyLevel;
   duration_weeks?: number;
-  estimated_hours?: number;
   max_team_size?: number;
   min_team_size?: number;
-  eligible_programs?: string[];
-  eligible_semesters?: string[];
-  prerequisites?: string;
-  is_paid?: boolean;
   stipend_amount?: number;
   stipend_currency?: string;
-  other_benefits?: string;
   application_deadline?: string;
-  project_start_date?: string; // DB column name
-  project_end_date?: string; // DB column name
-  max_teams?: number;
+  start_date?: string; // DB column: start_date (NOT project_start_date)
+  end_date?: string; // DB column: end_date (NOT project_end_date)
   status?: ProjectStatus;
-  assigned_mentor_id?: string; // DB column name
+  deliverables?: string[]; // DB type: ARRAY (NOT JSONB)
+  technologies?: string[]; // DB column exists
+  location?: string; // DB column exists
+  is_remote?: boolean; // DB column exists
+  mentor_id?: string; // DB column: mentor_id (NOT assigned_mentor_id)
 }
 
 /**
