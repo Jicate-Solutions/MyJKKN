@@ -365,7 +365,13 @@ export default function LearningPathsPage() {
                               </Link>
                             </DropdownMenuItem>
                             {path.status !== 'archived' && (
-                              <DropdownMenuItem onClick={() => handleArchive(path.id)}>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  if (confirm(`Archive learning path "${path.title}"? You can restore it later.`)) {
+                                    handleArchive(path.id);
+                                  }
+                                }}
+                              >
                                 <Archive className="mr-2 h-4 w-4" />
                                 Archive
                               </DropdownMenuItem>
