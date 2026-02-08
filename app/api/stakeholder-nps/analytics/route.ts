@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { connection } from 'next/server';
 import { NPSService } from '@/lib/services/stakeholder-nps/nps-service';
 import { npsAnalyticsFiltersSchema } from '@/lib/validations/stakeholder-nps';
 import type { NPSAnalyticsFilters } from '@/types/stakeholder-nps';
 
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const { searchParams } = new URL(request.url);
     const institutionId = searchParams.get('institution_id');
