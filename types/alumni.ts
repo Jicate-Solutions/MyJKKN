@@ -281,57 +281,156 @@ export interface OutcomeProgramCorrelation {
 // ============================================================================
 
 export interface CreateAlumniOutcomeInput {
-  institution_id: string;
-  learner_id?: string;
-  name: string;
-  graduation_year: number;
-  program_id?: string;
-  department_id?: string;
+  // Required fields
+  learner_id: string;  // NOT NULL in DB
+  institution_id: string;  // NOT NULL in DB
+  graduation_date: string;  // DATE NOT NULL - CRITICAL
   outcome_type: OutcomeType;
+
+  // Optional relationships
+  program_id?: string;
+  batch_id?: string;
+
+  // Outcome details
+  outcome_start_date?: string;
+
+  // Employment details
   company_name?: string;
-  job_title?: string;
-  industry?: string;
-  location?: string;
-  salary_range?: string;
-  is_core_domain?: boolean;
-  higher_study_institution?: string;
-  higher_study_program?: string;
-  startup_name?: string;
-  startup_industry?: string;
-  time_to_placement_days?: number;
-  competencies_utilized?: string[];
+  company_website?: string;
+  designation?: string;  // Not job_title
+  department?: string;
+  industry_sector?: string;  // Not industry
+  job_function?: string;
+
+  // Location
+  city?: string;
+  state?: string;
+  country?: string;
+  is_remote?: boolean;
+
+  // Compensation
+  salary_range?: SalaryRange;
+  has_equity?: boolean;
+  other_benefits?: string;
+
+  // Program relevance
+  is_relevant_to_program?: boolean;  // Not is_core_domain
+  relevance_percentage?: number;
+  skills_used?: string[];  // Not competencies_utilized
+
+  // Higher studies
+  institution_name?: string;  // Not higher_study_institution
+  course_name?: string;  // Not higher_study_program
+  specialization?: string;
+  is_scholarship?: boolean;
+  scholarship_details?: string;
+
+  // Entrepreneurship
+  business_name?: string;  // Not startup_name
+  business_type?: string;
+  business_sector?: string;  // Not startup_industry
+  funding_raised?: string;
+  employee_count?: number;
+
+  // Feedback
   satisfaction_score?: number;
+  would_recommend_program?: boolean;
   feedback?: string;
-  linkedin_url?: string;
-  data_source?: DataSource;
+  suggestions?: string;
+  testimonial?: string;
+  testimonial_approved?: boolean;
+
+  // Verification
+  verification_status?: VerificationStatus;
+  verification_notes?: string;
+
+  // Contact & Engagement
+  is_contactable?: boolean;
+  preferred_contact_method?: string;
+  contact_frequency?: string;
+  is_willing_to_mentor?: boolean;
+  is_willing_to_hire?: boolean;
+  is_willing_to_guest_lecture?: boolean;
+
+  // Tracking
+  data_source?: string;
+  created_by?: string;
 }
 
 export interface UpdateAlumniOutcomeInput {
   id: string;
-  name?: string;
-  graduation_year?: number;
+
+  // Can update most fields except core IDs
+  graduation_date?: string;
   program_id?: string;
-  department_id?: string;
+  batch_id?: string;
   outcome_type?: OutcomeType;
+  outcome_start_date?: string;
+
+  // Employment
   company_name?: string;
-  job_title?: string;
-  industry?: string;
-  location?: string;
-  salary_range?: string;
-  is_core_domain?: boolean;
-  higher_study_institution?: string;
-  higher_study_program?: string;
-  startup_name?: string;
-  startup_industry?: string;
-  time_to_placement_days?: number;
-  competencies_utilized?: string[];
+  company_website?: string;
+  designation?: string;
+  department?: string;
+  industry_sector?: string;
+  job_function?: string;
+
+  // Location
+  city?: string;
+  state?: string;
+  country?: string;
+  is_remote?: boolean;
+
+  // Compensation
+  salary_range?: SalaryRange;
+  has_equity?: boolean;
+  other_benefits?: string;
+
+  // Program relevance
+  is_relevant_to_program?: boolean;
+  relevance_percentage?: number;
+  skills_used?: string[];
+
+  // Higher studies
+  institution_name?: string;
+  course_name?: string;
+  specialization?: string;
+  is_scholarship?: boolean;
+  scholarship_details?: string;
+
+  // Entrepreneurship
+  business_name?: string;
+  business_type?: string;
+  business_sector?: string;
+  funding_raised?: string;
+  employee_count?: number;
+
+  // Feedback
   satisfaction_score?: number;
+  would_recommend_program?: boolean;
   feedback?: string;
-  linkedin_url?: string;
-  verified?: boolean;
+  suggestions?: string;
+  testimonial?: string;
+  testimonial_approved?: boolean;
+
+  // Verification
+  verification_status?: VerificationStatus;
   verified_by?: string;
   verified_at?: string;
-  data_source?: DataSource;
+  verification_notes?: string;
+
+  // Contact & Engagement
+  is_contactable?: boolean;
+  preferred_contact_method?: string;
+  contact_frequency?: string;
+  is_willing_to_mentor?: boolean;
+  is_willing_to_hire?: boolean;
+  is_willing_to_guest_lecture?: boolean;
+  last_engagement_date?: string;
+  engagement_notes?: string;
+
+  // Tracking
+  data_source?: string;
 }
 
 export interface CreateOutcomeCorrelationInput {
