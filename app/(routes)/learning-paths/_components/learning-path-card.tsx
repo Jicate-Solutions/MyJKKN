@@ -42,9 +42,9 @@ export function LearningPathCard({ path }: LearningPathCardProps) {
           <div className='space-y-1'>
             <div className='flex items-center justify-between text-sm'>
               <span className='text-muted-foreground'>Progress</span>
-              <span className='font-medium'>{Number(path.current_progress).toFixed(0)}%</span>
+              <span className='font-medium'>{path.current_progress.toFixed(0)}%</span>
             </div>
-            <Progress value={Number(path.current_progress)} className='h-2' />
+            <Progress value={path.current_progress} className='h-2' />
           </div>
 
           {/* Meta info */}
