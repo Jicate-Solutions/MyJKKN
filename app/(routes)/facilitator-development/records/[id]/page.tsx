@@ -561,7 +561,7 @@ export default function FacilitatorDevelopmentDetailPage() {
                       </div>
                       <div className='flex items-center gap-1'>
                         <Clock className='h-3 w-3' />
-                        {imm.duration_days} days
+                        {imm.duration_days ?? 0} days
                       </div>
                       {imm.rating && (
                         <div className='flex items-center gap-1'>
