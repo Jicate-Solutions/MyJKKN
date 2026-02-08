@@ -206,6 +206,7 @@ export async function proxy(request: NextRequest) {
         currentPath === '/api/parent-portal/dashboard' ||
         currentPath.startsWith('/api/parent-portal/learner/') ||
         currentPath.startsWith('/api/parent-portal/learners') ||
+        currentPath.startsWith('/api/parent-portal/communications') ||
         currentPath.startsWith('/api/parent-portal/profile') ||
         currentPath === '/api/parent-portal/auth/logout';
 
