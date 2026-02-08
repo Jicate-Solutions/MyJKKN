@@ -159,6 +159,46 @@ export async function proxy(request: NextRequest) {
       return res;
     }
 
+    // SECURITY: Parent portal authentication - separate auth system
+    // Parent portal uses session cookies, not Supabase auth
+    if (currentPath.startsWith('/parent-portal')) {
+      const parentSessionToken = request.cookies.get('parent_session')?.value;
+
+      // If no parent session, redirect to parent login
+      if (!parentSessionToken) {
+        return NextResponse.redirect(
+          new URL('/auth/parent/login', request.url)
+        );
+      }
+
+      // Parent session exists - allow access
+      // Session validation happens at API level in ParentSessionService
+      const res = NextResponse.next();
+      res.headers.set('Cache-Control', 'no-store, must-revalidate');
+      res.headers.set('x-parent-session', 'true'); // Marker for debugging
+      return res;
+    }
+
+    // SECURITY: Parent portal API routes - require parent session
+    if (
+      currentPath.startsWith('/api/parent-portal') &&
+      !isPublicApiRoute(currentPath)
+    ) {
+      const parentSessionToken = request.cookies.get('parent_session')?.value;
+
+      if (!parentSessionToken) {
+        return NextResponse.json(
+          { error: 'Authentication required' },
+          { status: 401 }
+        );
+      }
+
+      // Parent session exists - allow API access
+      // Actual validation happens in the API route via ParentSessionService
+      const res = NextResponse.next();
+      return res;
+    }
+
     const res = NextResponse.next();
 
     // Create supabase client only for non-public paths
