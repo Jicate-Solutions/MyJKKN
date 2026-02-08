@@ -270,13 +270,13 @@ export interface LinkLearnerDto {
 
 export interface CreateCommunicationDto {
   institution_id: string;
-  parent_access_id?: string; // DB column is parent_access_id
+  parent_id?: string; // FIXED: DB column is parent_id
   learner_id: string;
-  communication_type: CommunicationType; // DB column is communication_type
+  type: CommunicationType; // FIXED: DB column is type
   subject: string;
   content: string;
-  // NOTE: DB has no priority column - do not include
-  sent_by?: string; // DB column is sent_by
+  priority?: CommunicationPriority; // FIXED: DB has priority column
+  sender_id?: string; // FIXED: DB column is sender_id
   attachments?: CommunicationAttachment[];
 }
 
