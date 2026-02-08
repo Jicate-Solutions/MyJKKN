@@ -140,44 +140,30 @@ export interface IndustryMentor {
 
 /**
  * Industry Project - Real-world project from industry partner
+ * VERIFIED against DB: 2026-02-08 (24 columns)
  */
 export interface IndustryProject {
   id: string;
-  institution_id: string; // REQUIRED - was missing
-  partner_id: string | null; // Nullable in DB
+  institution_id: string;
+  partner_id: string | null;
   project_title: string;
-  project_code: string | null;
   description: string | null;
-  detailed_requirements: string | null;
-  expected_outcomes: string | null;
-  deliverables: any; // JSONB in DB
-  required_competencies: string[];  // UUID array
-  minimum_competency_level: string | null; // proficiency_level enum
-  competencies_developed: string[]; // UUID array
+  required_competencies: string[] | null; // ARRAY
   difficulty_level: DifficultyLevel | null;
   duration_weeks: number | null;
-  estimated_hours: number | null;
   max_team_size: number | null;
   min_team_size: number | null;
-  eligible_programs: string[]; // UUID array
-  eligible_semesters: string[]; // UUID array
-  prerequisites: string | null;
-  is_paid: boolean;
   stipend_amount: number | null;
-  stipend_currency: string;
-  other_benefits: string | null;
+  stipend_currency: string | null;
   application_deadline: string | null;
-  project_start_date: string | null; // DB column name
-  project_end_date: string | null; // DB column name
-  max_teams: number;
-  current_teams: number;
+  start_date: string | null; // DB column: start_date (NOT project_start_date)
+  end_date: string | null; // DB column: end_date (NOT project_end_date)
   status: ProjectStatus;
-  published_at: string | null;
-  published_by: string | null;
-  assigned_mentor_id: string | null; // DB column name
-  total_applications: number;
-  total_completions: number;
-  average_rating: number;
+  deliverables: string[] | null; // DB type: ARRAY (NOT JSONB)
+  technologies: string[] | null; // DB column exists - was missing from types
+  location: string | null; // DB column exists - was missing from types
+  is_remote: boolean | null; // DB column exists - was wrongly removed from types
+  mentor_id: string | null; // DB column: mentor_id (NOT assigned_mentor_id)
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -188,7 +174,6 @@ export interface IndustryProject {
   engagements?: LearnerIndustryEngagement[];
   _count?: {
     engagements: number;
-    applications: number;
   };
 }
 
