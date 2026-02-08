@@ -24,8 +24,11 @@ const OUTCOME_ICONS: Record<OutcomeType, React.ReactNode> = {
   employed: <Briefcase className="h-4 w-4" />,
   higher_studies: <GraduationCap className="h-4 w-4" />,
   entrepreneur: <Lightbulb className="h-4 w-4" />,
-  freelancer: <Target className="h-4 w-4" />,
-  unemployed: <Clock className="h-4 w-4" />,
+  self_employed: <Target className="h-4 w-4" />,
+  competitive_exams: <GraduationCap className="h-4 w-4" />,
+  family_business: <Briefcase className="h-4 w-4" />,
+  gap_year: <Clock className="h-4 w-4" />,
+  seeking: <Clock className="h-4 w-4" />,
   unknown: <Users className="h-4 w-4" />
 };
 
@@ -33,8 +36,11 @@ const OUTCOME_COLORS: Record<OutcomeType, string> = {
   employed: 'bg-green-100 text-green-800',
   higher_studies: 'bg-blue-100 text-blue-800',
   entrepreneur: 'bg-purple-100 text-purple-800',
-  freelancer: 'bg-amber-100 text-amber-800',
-  unemployed: 'bg-red-100 text-red-800',
+  self_employed: 'bg-amber-100 text-amber-800',
+  competitive_exams: 'bg-cyan-100 text-cyan-800',
+  family_business: 'bg-orange-100 text-orange-800',
+  gap_year: 'bg-slate-100 text-slate-800',
+  seeking: 'bg-red-100 text-red-800',
   unknown: 'bg-gray-100 text-gray-800'
 };
 
