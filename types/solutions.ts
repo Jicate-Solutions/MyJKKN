@@ -53,7 +53,7 @@ export type ContentDivision = 'video' | 'graphics' | 'content' | 'education' | '
 
 export type SkillLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert'
 
-export type DeliverableStatus = 'pending' | 'in_progress' | 'review' | 'revision' | 'approved' | 'rejected'
+export type DeliverableStatus = 'pending' | 'in_progress' | 'review' | 'revision' | 'approved' | 'rejected' | 'delivered'
 
 export type PaymentStatus = 'pending' | 'invoiced' | 'received' | 'overdue' | 'failed'
 
