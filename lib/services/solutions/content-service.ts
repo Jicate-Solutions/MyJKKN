@@ -636,13 +636,12 @@ export class ContentService extends BaseService {
         revision: 0,
         approved: 0,
         delivered: 0,
-        rejected: 0,
       } as Record<DeliverableStatus, number>,
       flaggedForMD: 0,
     };
 
     // Valid status values for safe counting
-    const validStatuses: DeliverableStatus[] = ['pending', 'in_progress', 'review', 'revision', 'approved', 'delivered', 'rejected'];
+    const validStatuses: DeliverableStatus[] = ['pending', 'in_progress', 'review', 'revision', 'approved', 'delivered'];
 
     data?.forEach((deliverable) => {
       if (deliverable.status && validStatuses.includes(deliverable.status as DeliverableStatus)) {
