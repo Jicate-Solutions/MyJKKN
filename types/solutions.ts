@@ -49,7 +49,7 @@ export type CohortRole = 'observer' | 'support' | 'co_lead' | 'lead'
 
 export type ContentOrderType = 'video' | 'social_media' | 'presentation' | 'writing' | 'branding' | 'podcast' | 'package' | 'graphic' | 'document' | 'animation' | 'other'
 
-export type ContentDivision = 'video' | 'graphics' | 'content' | 'education' | 'translation' | 'research'
+export type ContentDivision = 'video' | 'graphics' | 'content' | 'education' | 'translation' | 'research' | 'design' | 'writing' | 'animation' | 'social' | 'other'
 
 export type SkillLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert'
 
