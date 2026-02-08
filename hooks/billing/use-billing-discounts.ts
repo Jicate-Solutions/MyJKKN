@@ -139,8 +139,9 @@ export function useRejectDiscount() {
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       BillingDiscountService.rejectDiscount(id, reason),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-discount', variables.id] });
       toast.success('Discount rejected');
     },
     onError: (error: Error) => {
