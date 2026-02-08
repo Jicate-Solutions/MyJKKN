@@ -15,6 +15,19 @@ interface FeeStatusProps {
 }
 
 export function FeeStatus({ learnerName, fees, onPayNow }: FeeStatusProps) {
+  if (!fees) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">{learnerName}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-center text-gray-500">Fee data not available</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
