@@ -55,7 +55,7 @@ export type SkillLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert'
 
 export type DeliverableStatus = 'pending' | 'in_progress' | 'review' | 'revision' | 'approved' | 'rejected' | 'delivered'
 
-export type PaymentStatus = 'pending' | 'invoiced' | 'received' | 'overdue' | 'failed'
+export type PaymentStatus = 'pending' | 'invoiced' | 'received' | 'overdue' | 'failed' | 'processing' | 'completed' | 'refunded'
 
 export type PaymentType = 'advance' | 'milestone' | 'completion' | 'mou_signing' | 'deployment' | 'acceptance' | 'amc'
 
