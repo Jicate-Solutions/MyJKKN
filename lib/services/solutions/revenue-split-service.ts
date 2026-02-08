@@ -108,7 +108,7 @@ export class RevenueSplitService extends BaseService {
    * Get all revenue split models
    */
   static async getRevenueSplitModels(): Promise<RevenueSplitModel[]> {
-    const { data, error } = await (this.supabase as any).from('sh_revenue_split_models')
+    const { data, error } = await this.supabase.from('sh_revenue_split_models')
       .select('*')
       .order('solution_type');
 
@@ -120,7 +120,7 @@ export class RevenueSplitService extends BaseService {
    * Get a single revenue split model by ID
    */
   static async getRevenueSplitModelById(id: string): Promise<RevenueSplitModel | null> {
-    const { data, error } = await (this.supabase as any).from('sh_revenue_split_models')
+    const { data, error } = await this.supabase.from('sh_revenue_split_models')
       .select('*')
       .eq('id', id)
       .single();
@@ -137,7 +137,7 @@ export class RevenueSplitService extends BaseService {
    * Get the default revenue split model for a solution type
    */
   static async getDefaultModelForType(solutionType: SplitType): Promise<RevenueSplitModel | null> {
-    const { data, error } = await (this.supabase as any).from('sh_revenue_split_models')
+    const { data, error } = await this.supabase.from('sh_revenue_split_models')
       .select('*')
       .eq('solution_type', solutionType)
       .eq('is_default', true)
@@ -163,7 +163,7 @@ export class RevenueSplitService extends BaseService {
     if (defaultModel) return defaultModel;
 
     // If no default, get the first one for this type
-    const { data, error } = await (this.supabase as any).from('sh_revenue_split_models')
+    const { data, error } = await this.supabase.from('sh_revenue_split_models')
       .select('*')
       .eq('solution_type', solutionType)
       .limit(1)
@@ -189,12 +189,12 @@ export class RevenueSplitService extends BaseService {
 
     // If setting as default, unset other defaults for this solution type
     if (input.is_default) {
-      await (this.supabase as any).from('sh_revenue_split_models')
+      await this.supabase.from('sh_revenue_split_models')
         .update({ is_default: false })
         .eq('solution_type', input.solution_type);
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_revenue_split_models')
+    const { data, error } = await this.supabase.from('sh_revenue_split_models')
       .insert({
         solution_type: input.solution_type,
         name: input.name,
@@ -228,14 +228,14 @@ export class RevenueSplitService extends BaseService {
     if (input.is_default) {
       const currentModel = await this.getRevenueSplitModelById(id);
       if (currentModel) {
-        await (this.supabase as any).from('sh_revenue_split_models')
+        await this.supabase.from('sh_revenue_split_models')
           .update({ is_default: false })
           .eq('solution_type', currentModel.solution_type)
           .neq('id', id);
       }
     }
 
-    const { data, error } = await (this.supabase as any).from('sh_revenue_split_models')
+    const { data, error } = await this.supabase.from('sh_revenue_split_models')
       .update(input)
       .eq('id', id)
       .select()
@@ -249,7 +249,7 @@ export class RevenueSplitService extends BaseService {
    * Delete a revenue split model
    */
   static async deleteRevenueSplitModel(id: string): Promise<void> {
-    const { error } = await (this.supabase as any).from('sh_revenue_split_models')
+    const { error } = await this.supabase.from('sh_revenue_split_models')
       .delete()
       .eq('id', id);
 
@@ -374,7 +374,7 @@ export class RevenueSplitService extends BaseService {
     amount: number
   ): Promise<RevenueSplitCalculation> {
     // Get solution details
-    const { data: solution, error } = await (this.supabase as any).from('sh_solutions')
+    const { data: solution, error } = await this.supabase.from('sh_solutions')
       .select(`
         id,
         solution_type,
@@ -395,7 +395,7 @@ export class RevenueSplitService extends BaseService {
 
     // For training, we need to check the program track
     if (solution.solution_type === 'training') {
-      const { data: program } = await (this.supabase as any).from('sh_training_programs')
+      const { data: program } = await this.supabase.from('sh_training_programs')
         .select('track')
         .eq('solution_id', solutionId)
         .single();
@@ -410,7 +410,7 @@ export class RevenueSplitService extends BaseService {
     const hasReferral = clientData?.partner_status === 'referral' || (clientData?.referral_count || 0) > 0;
 
     // Check if this is first phase for referral bonus
-    const { count: phaseCount } = await (this.supabase as any).from('sh_solution_phases')
+    const { count: phaseCount } = await this.supabase.from('sh_solution_phases')
       .select('id', { count: 'exact', head: true })
       .eq('solution_id', solutionId);
 
