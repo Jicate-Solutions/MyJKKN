@@ -352,36 +352,28 @@ export interface CreateIndustryProjectDTO {
 }
 
 /**
- * Update industry project
+ * Update industry project - VERIFIED against DB: 2026-02-08
  */
 export interface UpdateIndustryProjectDTO {
   partner_id?: string | null;
   project_title?: string;
-  project_code?: string;
   description?: string;
-  detailed_requirements?: string;
-  expected_outcomes?: string;
-  deliverables?: any;
   required_competencies?: string[];
-  minimum_competency_level?: string;
-  competencies_developed?: string[];
   difficulty_level?: DifficultyLevel;
   duration_weeks?: number;
-  estimated_hours?: number;
   max_team_size?: number;
   min_team_size?: number;
-  eligible_programs?: string[];
-  eligible_semesters?: string[];
-  prerequisites?: string;
-  is_paid?: boolean;
   stipend_amount?: number;
   stipend_currency?: string;
-  other_benefits?: string;
   application_deadline?: string;
-  project_start_date?: string;
-  project_end_date?: string;
+  start_date?: string; // DB column: start_date (NOT project_start_date)
+  end_date?: string; // DB column: end_date (NOT project_end_date)
   status?: ProjectStatus;
-  assigned_mentor_id?: string;
+  deliverables?: string[];
+  technologies?: string[];
+  location?: string;
+  is_remote?: boolean;
+  mentor_id?: string; // DB column: mentor_id (NOT assigned_mentor_id)
 }
 
 /**
