@@ -142,7 +142,7 @@ export default function AlumniOutcomeDetailPage() {
   }
 
   const displayName = outcome.learner
-    ? `${outcome.learner.first_name} ${outcome.learner.last_name}`
+    ? `${outcome.learner.first_name || ''} ${outcome.learner.last_name || ''}`.trim() || 'Unknown Alumni'
     : 'Unknown Alumni';
   const isVerified = outcome.verification_status !== 'pending'
     && outcome.verification_status !== 'rejected';
