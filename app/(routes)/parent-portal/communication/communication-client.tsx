@@ -95,7 +95,7 @@ export function CommunicationClient() {
     }
   };
 
-  const getIconBg = (type: ParentCommunication['type']) => {
+  const getIconBg = (type: ParentCommunication['communication_type']) => {
     switch (type) {
       case 'announcement':
         return 'bg-blue-100 text-blue-600';
