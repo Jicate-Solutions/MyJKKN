@@ -2,6 +2,7 @@
 // SECURITY: Uses validation middleware to prevent XSS and injection attacks
 
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { parentRegistrationSchema, ParentRegistrationInput } from '@/lib/validations/parent-portal';
 import { ParentSessionService } from '@/lib/services/parent-portal/parent-session-service';
