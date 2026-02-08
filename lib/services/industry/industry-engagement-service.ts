@@ -373,6 +373,8 @@ export class IndustryEngagementService {
     id: string,
     competencyId: string
   ): Promise<void> {
+    this.validateId(id, 'engagement ID');
+    this.validateId(competencyId, 'competency ID');
     const supabase = createClientSupabaseClient();
 
     // Get current competencies
