@@ -220,10 +220,12 @@ export class LearningPathService {
     try {
       this.validateId(id, 'learning path ID');
 
-      const updateData = {
-        ...input,
-        updated_at: new Date().toISOString(),
-      };
+      // Filter out undefined values to avoid sending them to Supabase
+      const updateData = Object.fromEntries(
+        Object.entries(input).filter(([_, value]) => value !== undefined)
+      );
+
+      // updated_at is handled by database trigger
 
       const { data, error } = await (this.getSupabase() as any)
         .from('learning_paths')
