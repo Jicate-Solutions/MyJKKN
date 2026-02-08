@@ -143,8 +143,8 @@ export function StepList({ steps, onUpdateStatus, onDeleteStep, isUpdating }: St
                     <div>
                       <span className='text-xs font-medium text-muted-foreground'>Target Competencies</span>
                       <div className='flex flex-wrap gap-1 mt-1'>
-                        {step.target_competencies.map((comp: string) => (
-                          <Badge key={comp} variant='secondary' className='text-xs'>
+                        {step.target_competencies.map((comp: string, idx: number) => (
+                          <Badge key={`${step.id}-comp-${idx}`} variant='secondary' className='text-xs'>
                             {comp}
                           </Badge>
                         ))}
