@@ -137,7 +137,7 @@ export default function AlumniOutcomeDetailPage() {
   }
 
   return (
-    <ContentLayout title={outcome.name}>
+    <ContentLayout title={outcome.learner ? `${outcome.learner.first_name} ${outcome.learner.last_name}` : 'Alumni Outcome'}>
       <div className="space-y-6">
         {/* Breadcrumb */}
         <Breadcrumb>
