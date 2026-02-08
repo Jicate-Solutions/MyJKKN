@@ -99,6 +99,13 @@ export default function COPQIncidentsPage() {
     changePage
   } = useBillingCOPQIncidents({ institution_id: institutionId });
 
+  // Sync institution_id when it changes (async load)
+  useEffect(() => {
+    if (institutionId && institutionId !== filters.institution_id) {
+      updateFilters({ institution_id: institutionId });
+    }
+  }, [institutionId, filters.institution_id, updateFilters]);
+
   const canViewCOPQ = isSuperAdmin || canAccess('billing.reports', 'view');
 
   // Handle filter changes
