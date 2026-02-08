@@ -141,19 +141,19 @@ export class ParentCommunicationService {
         .from('parent_communications')
         .insert({
           institution_id: input.institution_id,
-          parent_id: input.parent_id || null,
-          learner_id: input.learner_id || null,
-          type: input.type || 'announcement',
+          parent_access_id: input.parent_access_id || null,
+          learner_id: input.learner_id,
+          communication_type: input.communication_type || 'announcement',
           subject: input.subject,
           content: input.content,
-          priority: input.priority || 'normal',
-          sender_id: input.sender_id || null,
+          // NOTE: DB has no priority column - do not include
+          sent_by: input.sent_by || null,
           attachments: input.attachments || [],
         })
         .select(
           `
           *,
-          sender:users_profiles(id, name, avatar_url)
+          sender:profiles!sent_by(id, name, avatar_url)
         `
         )
         .single();
