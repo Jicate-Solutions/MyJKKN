@@ -555,8 +555,12 @@ export default function FacilitatorDevelopmentDetailPage() {
                     <div className='flex gap-4 mt-3 text-sm text-muted-foreground'>
                       <div className='flex items-center gap-1'>
                         <Calendar className='h-3 w-3' />
-                        {new Date(imm.start_date).toLocaleDateString()}
-                        {imm.end_date && ` - ${new Date(imm.end_date).toLocaleDateString()}`}
+                        {imm.start_date ? (
+                          <>
+                            {new Date(imm.start_date).toLocaleDateString()}
+                            {imm.end_date && !isNaN(new Date(imm.end_date).getTime()) && ` - ${new Date(imm.end_date).toLocaleDateString()}`}
+                          </>
+                        ) : 'N/A'}
                       </div>
                       <div className='flex items-center gap-1'>
                         <Clock className='h-3 w-3' />
