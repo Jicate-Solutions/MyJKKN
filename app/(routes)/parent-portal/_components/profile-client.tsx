@@ -65,6 +65,29 @@ export function ProfileClient() {
   const parent = dashboardData.parent;
   const learners = ensureArray(dashboardData.learners, []);
 
+  // NULL SAFETY: If parent data is missing, show error
+  if (!parent) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="text-center">
+          <AlertTriangle className="mx-auto h-12 w-12 text-red-500" />
+          <p className="mt-4 text-lg font-medium text-gray-900">
+            Profile data not found
+          </p>
+          <p className="mt-1 text-sm text-gray-500">
+            Unable to load parent profile information
+          </p>
+          <Button
+            onClick={() => router.push('/parent-portal/dashboard')}
+            className="mt-4"
+          >
+            Return to Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const initials = parent.name
     .split(' ')
     .map((n) => n[0])

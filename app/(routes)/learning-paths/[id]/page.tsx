@@ -550,7 +550,11 @@ export default function LearningPathDetailPage() {
                                         onClick={() =>
                                           handleUpdateStepStatus(step.id, 'in_progress')
                                         }
+                                        disabled={updateStepMutation.isPending}
                                       >
+                                        {updateStepMutation.isPending && (
+                                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                        )}
                                         Start
                                       </Button>
                                     )}
@@ -562,7 +566,11 @@ export default function LearningPathDetailPage() {
                                         onClick={() =>
                                           handleUpdateStepStatus(step.id, 'completed')
                                         }
+                                        disabled={updateStepMutation.isPending}
                                       >
+                                        {updateStepMutation.isPending && (
+                                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                        )}
                                         Complete
                                       </Button>
                                     )}
@@ -575,6 +583,7 @@ export default function LearningPathDetailPage() {
                                         onClick={() =>
                                           handleUpdateStepStatus(step.id, 'skipped')
                                         }
+                                        disabled={updateStepMutation.isPending}
                                       >
                                         Skip
                                       </Button>
