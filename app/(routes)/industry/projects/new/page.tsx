@@ -129,7 +129,7 @@ export default function NewProjectPage() {
                         <FormMessage />
                       </FormItem>
                     )} />
-                    <FormField control={form.control} name="assigned_mentor_id" render={({ field }) => (
+                    <FormField control={form.control} name="mentor_id" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Assigned Mentor</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
