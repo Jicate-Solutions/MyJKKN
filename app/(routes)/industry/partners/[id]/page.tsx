@@ -117,9 +117,9 @@ export default function PartnerDetailPage() {
               </div>
             </div>
             <div className="flex gap-2">
-              {partner.company_website && (
+              {partner.website_url && (
                 <Button variant="outline" asChild>
-                  <a href={partner.company_website} target="_blank" rel="noopener noreferrer">
+                  <a href={partner.website_url} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="h-4 w-4 mr-2" />
                     Website
                   </a>
