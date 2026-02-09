@@ -368,11 +368,15 @@ export function useRejectReward() {
 
   return useMutation({
     mutationFn: async (input: string | { id: string; rejectedBy?: string; reason?: string }) => {
-      toast.success('Reward rejected');
-      return typeof input === 'string' ? input : input.id;
+      // TODO: Implement rejection
+      throw new Error('Reward rejection is not yet implemented');
     },
     onSuccess: () => {
+      toast.success('Reward rejected');
       queryClient.invalidateQueries({ queryKey: ['consultant-rewards'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to reject reward');
     }
   });
 }
