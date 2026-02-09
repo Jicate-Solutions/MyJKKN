@@ -164,7 +164,7 @@ export function ParentPortalClient() {
         {/* Welcome */}
         <div className="mb-6">
           <h2 className="text-2xl font-bold text-gray-900">
-            Welcome back, {dashboardData.parent.name.split(' ')[0]}!
+            Welcome back, {(dashboardData.parent.name ?? 'Parent').split(' ')[0]}!
           </h2>
           <p className="text-gray-600">
             Here&apos;s an overview of your children&apos;s progress.
