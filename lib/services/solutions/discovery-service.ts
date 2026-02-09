@@ -306,7 +306,7 @@ export class DiscoveryService extends BaseService {
       .select(`
         *,
         client:sh_clients(id, name),
-        department:sh_departments(id, name)
+        department:departments(id, name)
       `)
       .order('visit_date', { ascending: false })
       .limit(limit);
