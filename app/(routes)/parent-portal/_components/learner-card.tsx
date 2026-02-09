@@ -49,9 +49,9 @@ export function LearnerCard({ data, onViewDetails }: LearnerCardProps) {
               </AvatarFallback>
             </Avatar>
             <div>
-              <CardTitle className="text-lg">{learner.name}</CardTitle>
+              <CardTitle className="text-lg">{learnerFullName}</CardTitle>
               <p className="text-sm text-gray-600">
-                {learner.enrollment_number}
+                {learner.roll_number}
               </p>
             </div>
           </div>
