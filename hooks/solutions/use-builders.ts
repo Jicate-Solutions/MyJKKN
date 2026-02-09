@@ -32,8 +32,13 @@ export interface CreateBuilderInput {
   user_id?: string;
   name: string;
   email?: string;
+  phone?: string;
   department_id?: string;
   trained_date?: string;
+  hourly_rate?: number;
+  specialization?: string;
+  availability_status?: string;
+  bio?: string;
 }
 
 export interface UpdateBuilderInput {
