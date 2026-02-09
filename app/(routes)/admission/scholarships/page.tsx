@@ -312,7 +312,7 @@ function ScholarshipsPageContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">₹50,00,000</div>
-            <Progress value={(disbursedAmount / totalBudget) * 100} className="mt-2" />
+            <Progress value={totalBudget > 0 ? (disbursedAmount / totalBudget) * 100 : 0} className="mt-2" />
             <p className="text-xs text-muted-foreground mt-1">
               ₹{(disbursedAmount / 100000).toFixed(1)}L disbursed
             </p>
