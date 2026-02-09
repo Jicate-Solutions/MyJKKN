@@ -164,9 +164,9 @@ export class BuildersService extends BaseService {
     }
 
     // Filter by skill if needed (post-query filter)
-    let result = data || [];
+    let result = (data || []) as BuilderWithDetails[];
     if (filters?.has_skill) {
-      result = result.filter((builder) =>
+      result = result.filter((builder: BuilderWithDetails) =>
         builder.skills?.some((skill: BuilderSkill) =>
           skill.skill_name.toLowerCase().includes(filters.has_skill!.toLowerCase())
         )
@@ -175,7 +175,7 @@ export class BuildersService extends BaseService {
 
     const total = count || 0;
     return {
-      data: result as BuilderWithDetails[],
+      data: result,
       metadata: {
         total,
         page,
