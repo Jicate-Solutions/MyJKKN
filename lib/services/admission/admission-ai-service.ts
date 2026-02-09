@@ -132,11 +132,11 @@ export class AdmissionAIService {
 - Direct Students: ${overview.directStudents}
 
 ### Admission Pipeline
-- Pending: ${overview.pending} (${((overview.pending / total) * 100).toFixed(1)}%)
-- Approved: ${overview.approved} (${((overview.approved / total) * 100).toFixed(1)}%)
-- Rejected: ${overview.rejected} (${((overview.rejected / total) * 100).toFixed(1)}%)
-- Waitlisted: ${overview.waitlisted} (${((overview.waitlisted / total) * 100).toFixed(1)}%)
-- Enrolled: ${overview.enrolled} (${((overview.enrolled / total) * 100).toFixed(1)}%)
+- Pending: ${overview.pending} (${(total > 0 ? (overview.pending / total) * 100 : 0).toFixed(1)}%)
+- Approved: ${overview.approved} (${(total > 0 ? (overview.approved / total) * 100 : 0).toFixed(1)}%)
+- Rejected: ${overview.rejected} (${(total > 0 ? (overview.rejected / total) * 100 : 0).toFixed(1)}%)
+- Waitlisted: ${overview.waitlisted} (${(total > 0 ? (overview.waitlisted / total) * 100 : 0).toFixed(1)}%)
+- Enrolled: ${overview.enrolled} (${(total > 0 ? (overview.enrolled / total) * 100 : 0).toFixed(1)}%)
 - Conversion Rate: ${overview.conversionRate.toFixed(1)}%
 - Average Processing Time: ${overview.avgProcessingDays.toFixed(1)} days
 
