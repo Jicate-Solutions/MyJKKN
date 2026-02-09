@@ -368,26 +368,42 @@ export class DepartmentTrackerService extends BaseService {
       targetMap[t.solution_department_id] = Number(t.target_revenue) || 0;
     });
 
-    // Get active solution counts per department
+    // Get active solution counts and price sums per department
     const { data: solutions } = await this.supabase
       .from('sh_solutions')
-      .select('lead_department_id')
-      .eq('status', 'active');
+      .select('lead_department_id, final_price, status')
+      .neq('status', 'cancelled');
 
     const solutionCounts: Record<string, number> = {};
-    (solutions || []).forEach((s: { lead_department_id: string }) => {
-      solutionCounts[s.lead_department_id] = (solutionCounts[s.lead_department_id] || 0) + 1;
+    const solutionPriceSums: Record<string, number> = {};
+    (solutions || []).forEach((s: { lead_department_id: string; final_price: number | null; status: string }) => {
+      if (s.status === 'active') {
+        solutionCounts[s.lead_department_id] = (solutionCounts[s.lead_department_id] || 0) + 1;
+      }
+      if (s.final_price) {
+        solutionPriceSums[s.lead_department_id] = (solutionPriceSums[s.lead_department_id] || 0) + Number(s.final_price);
+      }
     });
 
     // Build result
     return departments.map((dept) => {
       const revenue = currentRevenues[dept.department_id] || 0;
       const prevRevenue = prevRevenues[dept.department_id] || 0;
-      const target = targetMap[dept.id] || 0;
+      const explicitTarget = targetMap[dept.id] || 0;
+      const estimatedTarget = solutionPriceSums[dept.department_id] || 0;
+      const target = explicitTarget || estimatedTarget;
+      const targetType: 'explicit' | 'estimated' | 'none' = explicitTarget > 0
+        ? 'explicit'
+        : estimatedTarget > 0
+          ? 'estimated'
+          : 'none';
 
       let growthRate: number | null = null;
       if (prevRevenue > 0) {
         growthRate = ((revenue - prevRevenue) / prevRevenue) * 100;
+      } else if (revenue > 0) {
+        // New revenue this quarter with no previous baseline
+        growthRate = 100;
       }
 
       return {
@@ -400,6 +416,7 @@ export class DepartmentTrackerService extends BaseService {
         status: dept.status,
         revenue,
         target,
+        target_type: targetType,
         achievement_pct: target > 0 ? (revenue / target) * 100 : 0,
         active_solutions: solutionCounts[dept.department_id] || 0,
         last_revenue_at: dept.last_revenue_at,
