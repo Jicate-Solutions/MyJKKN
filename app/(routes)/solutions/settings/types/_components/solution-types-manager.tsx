@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Plus, Pencil, Trash2, X, Check } from 'lucide-react';
+import { Plus, Pencil, Trash2, Check } from 'lucide-react';
 import { useSolutionTypes, type SolutionTypeRecord } from '@/hooks/use-department-tracker';
 
 // ============================================
