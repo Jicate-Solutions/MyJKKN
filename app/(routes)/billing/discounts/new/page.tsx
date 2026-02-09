@@ -140,13 +140,13 @@ export default function NewDiscountPage() {
   };
 
   const totalBillAmount = selectedBills.reduce(
-    (sum, bill) => sum + (bill.total_amount || bill.final_amount),
+    (sum, bill) => sum + (bill.total_amount ?? bill.final_amount ?? 0),
     0
   );
 
   const totalDiscountAmount = selectedBills.reduce(
     (sum, bill) =>
-      sum + calculateDiscountAmount(bill.total_amount || bill.final_amount),
+      sum + calculateDiscountAmount(bill.total_amount ?? bill.final_amount ?? 0),
     0
   );
 
