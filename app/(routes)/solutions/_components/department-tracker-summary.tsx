@@ -176,8 +176,8 @@ function StatusCountCards({ summary, loading }: {
   );
 }
 
-function RevenueLeaderboard({ loading }: { loading: boolean }) {
-  const { leaderboard, loading: lbLoading } = useDepartmentLeaderboard(5);
+function RevenueLeaderboard({ loading, quarter }: { loading: boolean; quarter?: string }) {
+  const { leaderboard, loading: lbLoading } = useDepartmentLeaderboard(5, quarter);
   const isLoading = loading || lbLoading;
 
   return (
