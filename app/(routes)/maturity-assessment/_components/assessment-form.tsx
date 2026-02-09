@@ -206,8 +206,8 @@ export function AssessmentForm({
                       <FormItem>
                         <FormLabel>Department</FormLabel>
                         <Select
-                          onValueChange={field.onChange}
-                          value={field.value || ''}
+                          onValueChange={(val) => field.onChange(val === '__all__' ? '' : val)}
+                          value={field.value || '__all__'}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -215,7 +215,7 @@ export function AssessmentForm({
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="">Institution-wide</SelectItem>
+                            <SelectItem value="__all__">Institution-wide</SelectItem>
                             {departments.map((dept) => (
                               <SelectItem key={dept.id} value={dept.id}>
                                 {dept.name}
