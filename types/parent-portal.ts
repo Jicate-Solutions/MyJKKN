@@ -82,9 +82,10 @@ export interface ParentLearnerLink {
 
 export interface LearnerBasicInfo {
   id: string;
-  name: string;
-  enrollment_number: string;
-  photo_url: string | null;
+  first_name: string;
+  last_name: string;
+  roll_number: string | null;
+  student_photo_url: string | null;
   program_id: string;
   section_id: string | null;
   semester_id: string | null;
