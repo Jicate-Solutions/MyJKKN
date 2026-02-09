@@ -369,8 +369,8 @@ export class AttendanceDashboardService {
 
             // Average attendance across periods if multiple periods
             if (periodCount > 1) {
-              sectionPresent = Math.round(sectionPresent / periodCount);
-              sectionAbsent = Math.round(sectionAbsent / periodCount);
+              sectionPresent = periodCount > 0 ? Math.round(sectionPresent / periodCount) : 0;
+              sectionAbsent = periodCount > 0 ? Math.round(sectionAbsent / periodCount) : 0;
             }
 
             // Update section attendance data (student count already set from student data)
