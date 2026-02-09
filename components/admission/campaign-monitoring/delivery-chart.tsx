@@ -51,10 +51,10 @@ function DonutChart({ metrics }: { metrics: DeliveryMetrics }) {
   const pending = metrics.pending;
 
   // Calculate percentages for the donut
-  const deliveredPct = (delivered / total) * 100;
-  const readPct = (read / total) * 100;
-  const failedPct = (failed / total) * 100;
-  const pendingPct = (pending / total) * 100;
+  const deliveredPct = total > 0 ? (delivered / total) * 100 : 0;
+  const readPct = total > 0 ? (read / total) * 100 : 0;
+  const failedPct = total > 0 ? (failed / total) * 100 : 0;
+  const pendingPct = total > 0 ? (pending / total) * 100 : 0;
 
   // SVG donut chart
   const radius = 45;
