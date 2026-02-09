@@ -162,8 +162,6 @@ function NewLeadPageContent() {
       tags: [] as string[]
     };
 
-    console.error('[DEBUG] Form submitted. institutionId:', institutionId, 'payload:', JSON.stringify(leadPayload));
-
     createLeadWithProfile.mutate(
       leadPayload,
       {
