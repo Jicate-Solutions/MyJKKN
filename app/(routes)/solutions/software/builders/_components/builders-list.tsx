@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,6 +19,20 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import {
   Search,
   Plus,
   Filter,
@@ -27,6 +41,7 @@ import {
   FolderKanban,
   Code2,
   AlertCircle,
+  X,
 } from 'lucide-react';
 import { useBuilders, useBuilderStats } from '@/hooks/solutions/use-builders';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
