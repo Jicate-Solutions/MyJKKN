@@ -114,13 +114,16 @@ export function useCommissionMutations() {
   });
 
   const processPayouts = useMutation({
-    mutationFn: async (batchId: string) => {
-      // TODO: Implement payout processing
-      toast.success('Payout processed successfully');
-      return batchId;
+    mutationFn: async (_batchId: string) => {
+      // TODO: Implement payout processing via ConsultantService
+      throw new Error('Payout processing is not yet implemented');
     },
     onSuccess: () => {
+      toast.success('Payout processed successfully');
       queryClient.invalidateQueries({ queryKey: ['consultant-commissions'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to process payout');
     }
   });
 
