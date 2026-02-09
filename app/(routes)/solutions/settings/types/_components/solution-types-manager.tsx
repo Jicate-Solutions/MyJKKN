@@ -338,6 +338,7 @@ function TypesLoadingSkeleton() {
 
 export function SolutionTypesManager() {
   const { types, loading, error, refresh, createType, updateType } = useSolutionTypes(false);
+  const { toast } = useToast();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingType, setEditingType] = useState<SolutionTypeRecord | null>(null);
