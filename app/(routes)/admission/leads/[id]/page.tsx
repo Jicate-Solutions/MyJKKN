@@ -273,6 +273,9 @@ function LeadDetailPageContent() {
   const [followupDate, setFollowupDate] = useState('');
   const [followupNotes, setFollowupNotes] = useState('');
 
+  // Create application form state
+  const [selectedProgramId, setSelectedProgramId] = useState('');
+
   const { lead, isLoading: leadLoading, refetch } = useAdmissionLead(leadId);
   const { timeline, isLoading: timelineLoading } = useEnhancedTimeline(leadId);
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
