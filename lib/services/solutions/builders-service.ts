@@ -596,7 +596,7 @@ export class BuildersService extends BaseService {
     const byDepartment: Record<string, number> = {};
     let active = 0;
 
-    builders?.forEach((builder) => {
+    builders?.forEach((builder: { is_active: boolean; department_id: string | null }) => {
       if (builder.is_active) active++;
       if (builder.department_id) {
         byDepartment[builder.department_id] = (byDepartment[builder.department_id] || 0) + 1;
