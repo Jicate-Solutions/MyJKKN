@@ -82,6 +82,7 @@ export interface DepartmentRevenue {
   status: DepartmentStatus;
   revenue: number;
   target: number;
+  target_type: 'explicit' | 'estimated' | 'none';
   achievement_pct: number;
   active_solutions: number;
   last_revenue_at: string | null;
