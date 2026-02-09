@@ -609,7 +609,7 @@ function ScholarshipsPageContent() {
                 <div className="space-y-4">
                   <div className="text-center py-4">
                     <div className="text-4xl font-bold text-primary">
-                      {((disbursedAmount / totalBudget) * 100).toFixed(0)}%
+                      {totalBudget > 0 ? ((disbursedAmount / totalBudget) * 100).toFixed(0) : '0'}%
                     </div>
                     <p className="text-sm text-muted-foreground">of budget utilized</p>
                   </div>
