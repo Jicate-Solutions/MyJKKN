@@ -25,7 +25,7 @@ export default function NewCohortMemberPage() {
     name: '',
     email: '',
     phone: '',
-    level: 0,
+    level: 'observer',
     track: '' as CohortTrack | '',
   });
 
@@ -35,7 +35,7 @@ export default function NewCohortMemberPage() {
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: name === 'level' ? parseInt(value, 10) : value,
+      [name]: value,
     }));
   };
 
