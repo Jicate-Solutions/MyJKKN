@@ -134,7 +134,7 @@ export function FeesClient() {
               <FeeStatus
                 key={learnerData.learner.id}
                 learnerName={`${learnerData.learner.first_name || ''} ${learnerData.learner.last_name || ''}`.trim() || 'Learner'}
-                learnerPhoto={learnerData.learner.photo_url}
+                learnerPhoto={learnerData.learner.student_photo_url}
                 fees={learnerData.fees}
                 onPayNow={() =>
                   handlePayNow(
