@@ -119,6 +119,19 @@ export function DepartmentDetailClient({ id }: DepartmentDetailClientProps) {
   const [solutions, setSolutions] = useState<DepartmentSolution[]>([]);
   const [solutionsLoading, setSolutionsLoading] = useState(true);
 
+  // Quarterly revenue trend
+  const [quarterlyData, setQuarterlyData] = useState<{ quarter: string; revenue: number }[]>([]);
+  const [quarterlyLoading, setQuarterlyLoading] = useState(true);
+
+  // Peer comparison
+  const [peerData, setPeerData] = useState<{
+    rank: number;
+    totalDepartments: number;
+    percentile: number;
+    growthRate: number | null;
+  } | null>(null);
+  const [peerLoading, setPeerLoading] = useState(true);
+
   // Load revenue data once we have the department
   useEffect(() => {
     if (!department?.department_id) return;
