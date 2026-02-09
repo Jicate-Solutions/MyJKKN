@@ -408,8 +408,29 @@ function LeadDetailPageContent() {
   };
 
   const handleCreateApplication = () => {
-    if (!lead) return;
-    router.push(`/admission/applications/new?lead_id=${leadId}&name=${encodeURIComponent((lead as any).full_name || '')}&email=${encodeURIComponent((lead as any).email || '')}&phone=${encodeURIComponent((lead as any).phone || '')}&institution_id=${encodeURIComponent(lead.institution_id || '')}`);
+    if (!lead || !selectedProgramId) {
+      toast.error('Please select a program');
+      return;
+    }
+    createApplication.mutate(
+      {
+        institution_id: lead.institution_id,
+        lead_id: leadId,
+        program_id: selectedProgramId,
+        full_name: (lead as any).full_name || '',
+        email: (lead as any).email || '',
+        phone: (lead as any).phone || '',
+      },
+      {
+        onSuccess: (app: any) => {
+          toast.success(`Application ${app.application_number} created!`);
+          setSelectedProgramId('');
+          setShowCreateAppDialog(false);
+          refetch();
+        },
+        onError: () => toast.error('Failed to create application'),
+      }
+    );
   };
 
   return (
