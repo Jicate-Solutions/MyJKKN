@@ -184,7 +184,7 @@ export function calculateOverallProgress(objectives: OKRObjective[]): number {
     0
   );
 
-  return Math.round(totalProgress / activeObjectives.length);
+  return activeObjectives.length > 0 ? Math.round(totalProgress / activeObjectives.length) : 0;
 }
 
 /**
