@@ -141,7 +141,7 @@ export default function ClientProjectDetailPage() {
   let progress = 0;
   if (solution.solution_type === 'software' && solution.phases && solution.phases.length > 0) {
     const completedPhases = solution.phases.filter(p => ['approved', 'live', 'completed', 'in_amc'].includes(p.status)).length;
-    progress = Math.round((completedPhases / solution.phases.length) * 100);
+    progress = solution.phases.length > 0 ? Math.round((completedPhases / solution.phases.length) * 100) : 0;
   } else if (solution.solution_type === 'training' && solution.training_program) {
     // Get sessions from the training_program relation if available
     const sessions = (solution.training_program as any).sessions || [];
