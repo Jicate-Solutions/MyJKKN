@@ -150,6 +150,7 @@ export function useSLABreachedInstances(institutionId?: string) {
         is_completed: false,
         limit: 50
       }),
+    enabled: !!institutionId,
     staleTime: 1 * 60 * 1000,
     select: (data) => data.data
   });
