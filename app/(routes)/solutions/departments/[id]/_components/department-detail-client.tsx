@@ -109,6 +109,7 @@ export function DepartmentDetailClient({ id }: DepartmentDetailClientProps) {
   const { department, loading: deptLoading, error: deptError } = useSolutionDepartment(id);
   const { history, loading: historyLoading } = useDepartmentStatusHistory(department?.id ?? null);
   const { targets, loading: targetsLoading } = useDepartmentTargets(department?.id ?? null);
+  const { builders, loading: buildersLoading } = useDepartmentBuilders(department?.department_id ?? null);
 
   // Revenue states
   const [monthRevenue, setMonthRevenue] = useState<number | null>(null);
