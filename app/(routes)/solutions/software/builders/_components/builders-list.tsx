@@ -82,7 +82,7 @@ export function BuildersList() {
   });
   const { data: stats, isLoading: statsLoading } = useBuilderStats();
 
-  const builders = buildersData?.data || [];
+  const builders: BuilderWithDetails[] = buildersData?.data || [];
 
   // Extract unique departments from builders for filter dropdown
   const departments = useMemo(() => {
