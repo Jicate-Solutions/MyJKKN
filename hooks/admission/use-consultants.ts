@@ -491,11 +491,15 @@ export function useUpdateCommissionTransactionStatus() {
       changedBy?: string;
       reason?: string;
     }) => {
-      toast.success('Commission status updated');
-      return id || transactionId;
+      // TODO: Implement commission status update
+      throw new Error('Update commission transaction status is not yet implemented');
     },
     onSuccess: () => {
+      toast.success('Commission status updated');
       queryClient.invalidateQueries({ queryKey: ['commission-transactions'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update commission status');
     }
   });
 }
