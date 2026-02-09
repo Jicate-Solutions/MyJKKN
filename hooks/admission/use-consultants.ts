@@ -88,7 +88,7 @@ export function useCommissionSummary(consultantId: string) {
     queryKey: ['commission-summary', consultantId],
     queryFn: async () => {
       // Get consultant to access commission data
-      const consultant = await ConsultantService.getConsultant(consultantId);
+      const consultant = await ConsultantService.getConsultantById(consultantId);
       return {
         total_earned: consultant?.total_commission_earned || 0,
         pending: consultant?.pending_commission || 0,
