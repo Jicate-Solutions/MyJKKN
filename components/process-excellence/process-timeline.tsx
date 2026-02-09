@@ -97,7 +97,7 @@ export function ProcessTimeline({
               status={sla_status}
               percentComplete={
                 stageStats
-                  ? (stageStats.completedStages / stageStats.totalStages) * 100
+                  ? (stageStats.totalStages > 0 ? (stageStats.completedStages / stageStats.totalStages) * 100 : 0)
                   : undefined
               }
             />
