@@ -252,7 +252,6 @@ function CommunicationItem({
 
 function LeadDetailPageContent() {
   const params = useParams();
-  const router = useRouter();
   const leadId = params.id as string;
 
   const [newTag, setNewTag] = useState('');
