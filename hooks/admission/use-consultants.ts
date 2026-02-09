@@ -468,11 +468,14 @@ export function useToggleRewardConfigActive() {
 
   return useMutation({
     mutationFn: async ({ id, configId, isActive }: { id?: string; configId?: string; isActive: boolean }) => {
-      // Don't show toast here - component handles it
-      return id || configId;
+      // TODO: Implement toggle active status
+      throw new Error('Toggle reward config active status is not yet implemented');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reward-configs'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to toggle reward configuration');
     }
   });
 }
