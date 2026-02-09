@@ -294,7 +294,7 @@ function SeatConfirmationPageContent() {
               </div>
               <Building2 className="h-8 w-8 text-blue-500 opacity-80" />
             </div>
-            <Progress value={(filledSeats / totalSeats) * 100} className="mt-2 h-1.5" />
+            <Progress value={totalSeats > 0 ? (filledSeats / totalSeats) * 100 : 0} className="mt-2 h-1.5" />
           </CardContent>
         </Card>
         <Card>
