@@ -364,9 +364,9 @@ function LoansPageContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {((approvedApplications / totalApplications) * 100).toFixed(0)}%
+              {totalApplications > 0 ? ((approvedApplications / totalApplications) * 100).toFixed(0) : '0'}%
             </div>
-            <Progress value={(approvedApplications / totalApplications) * 100} className="mt-2" />
+            <Progress value={totalApplications > 0 ? (approvedApplications / totalApplications) * 100 : 0} className="mt-2" />
           </CardContent>
         </Card>
       </div>
