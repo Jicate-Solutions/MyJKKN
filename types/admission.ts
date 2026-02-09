@@ -798,7 +798,7 @@ export interface CommunicationTemplate {
   id: string;
   institution_id: string;
   name: string;
-  type: TemplateType;
+  channel: TemplateType;
   subject: string | null;
   content: string;
   variables: TemplateVariable[];
