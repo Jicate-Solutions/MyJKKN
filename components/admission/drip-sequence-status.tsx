@@ -148,7 +148,7 @@ export function DripSequenceStatus({
 
   const config = statusConfig[sequence.status];
   const StatusIcon = config.icon;
-  const progress = (sequence.current_step_index / sequence.total_steps) * 100;
+  const progress = sequence.total_steps > 0 ? (sequence.current_step_index / sequence.total_steps) * 100 : 0;
   const isActive = sequence.status === 'active';
   const isPaused = sequence.status === 'paused';
   const canControl = isActive || isPaused;
