@@ -144,7 +144,7 @@ export function DepartmentListClient() {
   };
 
   const handleRowClick = (dept: DepartmentRevenue) => {
-    router.push(`/solutions/departments/${dept.department_id}`);
+    router.push(`/solutions/departments/${dept.solution_department_id}`);
   };
 
   if (error) {
