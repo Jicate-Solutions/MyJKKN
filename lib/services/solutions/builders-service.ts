@@ -258,9 +258,14 @@ export class BuildersService extends BaseService {
       .insert({
         name: input.name,
         email: input.email,
+        phone: input.phone,
         user_id: input.user_id,
         department_id: input.department_id,
         trained_date: input.trained_date || new Date().toISOString().split('T')[0],
+        hourly_rate: input.hourly_rate,
+        specialization: input.specialization,
+        availability_status: input.availability_status || 'available',
+        bio: input.bio,
         is_active: true,
       })
       .select()
