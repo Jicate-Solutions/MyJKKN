@@ -325,7 +325,16 @@ export function DepartmentListClient() {
                         {formatCurrency(dept.revenue)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">
-                        {dept.target > 0 ? formatCurrency(dept.target) : <span className="text-muted-foreground">-</span>}
+                        {dept.target > 0 ? (
+                          <div>
+                            <span>{formatCurrency(dept.target)}</span>
+                            {dept.target_type === 'estimated' && (
+                              <span className="text-xs text-muted-foreground ml-1" title="Estimated from solution prices">(est.)</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Not Set</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right text-sm">
                         {dept.target > 0 ? (
@@ -333,7 +342,7 @@ export function DepartmentListClient() {
                             {dept.achievement_pct.toFixed(1)}%
                           </span>
                         ) : (
-                          <span className="text-muted-foreground">-</span>
+                          <span className="text-xs text-muted-foreground">N/A</span>
                         )}
                       </TableCell>
                       <TableCell className="text-right text-sm">
@@ -342,7 +351,7 @@ export function DepartmentListClient() {
                             {dept.growth_rate >= 0 ? '+' : ''}{dept.growth_rate.toFixed(1)}%
                           </span>
                         ) : (
-                          <span className="text-muted-foreground">-</span>
+                          <span className="text-xs text-muted-foreground">N/A</span>
                         )}
                       </TableCell>
                       <TableCell className="text-right text-sm font-medium">{dept.active_solutions}</TableCell>
