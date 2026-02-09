@@ -816,7 +816,7 @@ export interface TemplateVariable {
 export interface CreateTemplateInput {
   institution_id: string;
   name: string;
-  type: TemplateType;
+  channel: TemplateType;
   subject?: string;
   content: string;
   variables?: TemplateVariable[];
