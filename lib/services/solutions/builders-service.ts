@@ -355,7 +355,7 @@ export class BuildersService extends BaseService {
 
     // Search staff
     const { data: staffMembers } = await this.supabase.from('staff')
-      .select('id, first_name, last_name, email, institution_email, phone, department_id, designation, department:departments(department_name)')
+      .select('id, first_name, last_name, email, institution_email, phone, department_id, designation, department:departments!fk_staff_department(department_name)')
       .or(`first_name.ilike.%${escaped}%,last_name.ilike.%${escaped}%,email.ilike.%${escaped}%,designation.ilike.%${escaped}%`)
       .eq('is_active', true)
       .limit(limit);
