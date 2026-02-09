@@ -670,10 +670,10 @@ export class DepartmentTrackerService extends BaseService {
       .order('name');
 
     if (error) throw error;
-    return (data || []).map((b) => ({
+    return (data || []).map((b: Record<string, unknown>) => ({
       ...b,
-      role: b.staff_id ? 'facilitator' : b.learner_id ? 'learner' : 'builder',
-    }));
+      role: b.staff_id ? 'facilitator' as const : b.learner_id ? 'learner' as const : 'builder' as const,
+    })) as DepartmentBuilder[];
   }
 
   // ----------------------------------------
