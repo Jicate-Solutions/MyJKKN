@@ -110,9 +110,27 @@ export function NewSolutionForm() {
         target_date: targetDate || undefined,
         description: description || undefined,
         created_by: profile?.id || 'system',
+        // Networker integration fields
+        networker_contact_id: networkerContact?.networker_contact_id,
+        client_name: networkerContact?.client_name,
+        client_organization: networkerContact?.client_organization,
       });
 
       toast.success('Solution created successfully');
+
+      // Fire-and-forget webhook to Networker (non-blocking)
+      if (networkerContact?.networker_contact_id) {
+        const dept = departments.find((d) => d.id === selectedDepartmentId);
+        notifyNetworkerEvent({
+          type: 'solution.created',
+          contact_id: networkerContact.networker_contact_id,
+          solution_name: title,
+          department_name: dept?.department_name || 'Unknown Department',
+        }).catch(() => {
+          // Silently ignore — webhook is best-effort
+        });
+      }
+
       // Result is Solution type from the service
       const solutionId = (result as { id: string })?.id;
       router.push(`/solutions/${solutionId}`);
