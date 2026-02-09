@@ -57,11 +57,34 @@ function formatCurrency(amount: number): string {
 export function BuildersList() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [departmentFilter, setDepartmentFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [skillFilter, setSkillFilter] = useState('');
   const debouncedSearch = useDebounceValue(searchQuery, 300);
+  const debouncedSkill = useDebounceValue(skillFilter, 300);
+
+  // Count active filters
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (departmentFilter) count++;
+    if (statusFilter) count++;
+    if (skillFilter.trim()) count++;
+    return count;
+  }, [departmentFilter, statusFilter, skillFilter]);
+
+  const clearFilters = () => {
+    setDepartmentFilter('');
+    setStatusFilter('');
+    setSkillFilter('');
+  };
 
   // Fetch real data from hooks
   const { data: buildersData, isLoading, error } = useBuilders({
     search: debouncedSearch || undefined,
+    department_id: departmentFilter || undefined,
+    is_active: statusFilter === '' ? undefined : statusFilter === 'active',
+    has_skill: debouncedSkill.trim() || undefined,
     limit: 50,
   });
   const { data: stats, isLoading: statsLoading } = useBuilderStats();
