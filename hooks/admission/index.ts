@@ -449,7 +449,7 @@ export function useAdmissionApplications(filters?: any) {
         limit: filters?.limit || 10,
       });
     },
-    enabled: true
+    enabled: !!filters?.institutionId
   });
 
   return {
