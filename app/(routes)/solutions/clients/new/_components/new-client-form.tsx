@@ -14,6 +14,8 @@ export function NewClientForm() {
     try {
       const result = await createClient.mutateAsync(data);
       toast.success('Client created successfully');
+      // Bust Next.js router cache so the detail page fetches fresh data
+      router.refresh();
       router.push(`/solutions/clients/${result.id}`);
     } catch (error) {
       console.error('Failed to create client:', error);
