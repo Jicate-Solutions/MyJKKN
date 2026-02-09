@@ -40,6 +40,7 @@ function formatCurrency(amount: number): string {
 }
 
 export function BuildersList() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebounceValue(searchQuery, 300);
 
