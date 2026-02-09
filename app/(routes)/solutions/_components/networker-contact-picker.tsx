@@ -184,7 +184,7 @@ export function NetworkerContactPicker({
 
   // Search mode
   return (
-    <div className="space-y-2" ref={containerRef}>
+    <div className="space-y-2 relative" ref={containerRef}>
       <Label>Client (from Networker)</Label>
       <div className="relative">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
