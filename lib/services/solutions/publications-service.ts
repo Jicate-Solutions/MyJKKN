@@ -466,7 +466,7 @@ export class PublicationsService extends BaseService {
     };
 
     // Calculate CGPA
-    criteria.cgpa = parseFloat(((criteria.totalScore / criteria.maxTotalScore) * 4).toFixed(2));
+    criteria.cgpa = criteria.maxTotalScore > 0 ? parseFloat(((criteria.totalScore / criteria.maxTotalScore) * 4).toFixed(2)) : 0;
 
     // Determine grade
     if (criteria.cgpa >= 3.51) criteria.grade = 'A++';
