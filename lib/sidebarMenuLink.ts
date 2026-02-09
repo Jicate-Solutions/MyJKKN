@@ -1459,11 +1459,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/solutions/software'
             },
             {
-              href: '/solutions/software/builders',
-              label: 'Builder Talent Pool',
-              active: pathname.startsWith('/solutions/software/builders')
-            },
-            {
               href: '/solutions/software/phases',
               label: 'Phase Management',
               active: pathname === '/solutions/software/phases'
