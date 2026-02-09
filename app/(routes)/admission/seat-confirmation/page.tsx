@@ -346,7 +346,7 @@ function SeatConfirmationPageContent() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Fill Rate</p>
-                <p className="text-2xl font-bold text-purple-600">{((filledSeats / totalSeats) * 100).toFixed(0)}%</p>
+                <p className="text-2xl font-bold text-purple-600">{totalSeats > 0 ? ((filledSeats / totalSeats) * 100).toFixed(0) : '0'}%</p>
               </div>
               <TrendingUp className="h-8 w-8 text-purple-500 opacity-80" />
             </div>
