@@ -425,7 +425,7 @@ export class LearnerCompetencyService {
         (competencies || []).forEach((c: any) => {
           totalProgress += weights[c.current_level as ProficiencyLevel] || 0;
         });
-        progress.overall_progress_percentage = totalProgress / progress.total_competencies;
+        progress.overall_progress_percentage = progress.total_competencies > 0 ? totalProgress / progress.total_competencies : 0;
       }
 
       return progress;
