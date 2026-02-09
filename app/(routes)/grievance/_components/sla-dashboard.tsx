@@ -68,7 +68,8 @@ export function SLADashboard({ report, institutionId }: SLADashboardProps) {
                 <div className="text-3xl font-bold">
                   {Object.values(report.by_status).reduce((a, b) => a + b, 0) -
                     (report.by_status.resolved || 0) -
-                    (report.by_status.closed || 0)}
+                    (report.by_status.closed || 0) -
+                    (report.by_status.breached || 0)}
                 </div>
                 <p className="text-xs text-muted-foreground">Active tickets on track</p>
               </div>
