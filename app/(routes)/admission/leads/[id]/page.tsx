@@ -31,7 +31,8 @@ import {
   useLeadCommunicationHistory,
   useLeadMutations,
   useCommunicationMutations,
-  useActivityMutations
+  useActivityMutations,
+  useApplicationMutations
 } from '@/hooks/admission';
 import type { TimelineEntry } from '@/lib/services/admission/activity-service';
 import {
