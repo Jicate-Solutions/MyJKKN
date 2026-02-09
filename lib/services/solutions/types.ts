@@ -748,9 +748,14 @@ export interface CreatePhaseInput {
 export interface CreateBuilderInput {
   name: string;
   email?: string;
+  phone?: string;
   user_id?: string;
   department_id?: string;
   trained_date?: string;
+  hourly_rate?: number;
+  specialization?: string;
+  availability_status?: string;
+  bio?: string;
 }
 
 export interface CreateMouInput {
