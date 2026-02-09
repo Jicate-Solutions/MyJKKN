@@ -120,12 +120,12 @@ export default function BuilderDetailPage({ params }: BuilderDetailPageProps) {
     );
   }
 
-  const skills = builder.skills || [];
-  const assignments = builder.assignments || [];
+  const skills: BuilderSkill[] = builder.skills || [];
+  const assignments: BuilderAssignmentWithPhase[] = builder.assignments || [];
   const activeAssignments = assignments.filter(
-    (a) => a.status === 'active' || a.status === 'approved' || a.status === 'requested'
+    (a: BuilderAssignmentWithPhase) => a.status === 'active' || a.status === 'approved' || a.status === 'requested'
   );
-  const completedAssignments = assignments.filter((a) => a.status === 'completed');
+  const completedAssignments = assignments.filter((a: BuilderAssignmentWithPhase) => a.status === 'completed');
 
   return (
     <ContentLayout title="Builder Details">
