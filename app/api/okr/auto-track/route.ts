@@ -64,7 +64,7 @@ const autoTrackHandlers: Record<string, (supabase: any, config: any) => Promise<
 
     if (!data || data.length === 0) return 0;
     const converted = data.filter((a: any) => a.status === 'enrolled').length;
-    return Math.round((converted / data.length) * 100);
+    return data.length > 0 ? Math.round((converted / data.length) * 100) : 0;
   },
 
   // Staff module
@@ -78,7 +78,7 @@ const autoTrackHandlers: Record<string, (supabase: any, config: any) => Promise<
 
     if (!data || data.length === 0) return 100;
     const retained = data.filter((s: any) => s.is_active).length;
-    return Math.round((retained / data.length) * 100);
+    return data.length > 0 ? Math.round((retained / data.length) * 100) : 0;
   }
 };
 

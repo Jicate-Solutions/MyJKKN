@@ -148,7 +148,7 @@ function HostelsPageContent() {
   const totalBeds = mockHostels.reduce((sum, h) => sum + h.totalBeds, 0);
   const occupiedBeds = mockHostels.reduce((sum, h) => sum + h.occupiedBeds, 0);
   const availableBeds = totalBeds - occupiedBeds;
-  const occupancyRate = (occupiedBeds / totalBeds) * 100;
+  const occupancyRate = totalBeds > 0 ? (occupiedBeds / totalBeds) * 100 : 0;
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
