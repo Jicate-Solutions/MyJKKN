@@ -1314,7 +1314,7 @@ export class AttendanceReportService {
         })
         .map(([date, stats]) => ({
           date,
-          percentage: (stats.present / stats.total) * 100,
+          percentage: stats.total > 0 ? (stats.present / stats.total) * 100 : 0,
           section: undefined // Can be enhanced to include section info
         }))
         .sort((a, b) => b.date.localeCompare(a.date))
