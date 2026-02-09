@@ -250,11 +250,14 @@ export function useProcessClawback() {
   return useMutation({
     mutationFn: async (data: string | { id: string; reason?: string; processedBy?: string }) => {
       // TODO: Implement clawback processing
-      toast.success('Clawback processed successfully');
-      return typeof data === 'string' ? data : data.id;
+      throw new Error('Clawback processing is not yet implemented');
     },
     onSuccess: () => {
+      toast.success('Clawback processed successfully');
       queryClient.invalidateQueries({ queryKey: ['commission-transactions'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to process clawback');
     }
   });
 }
