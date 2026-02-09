@@ -188,10 +188,90 @@ export function BuildersList() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <Button variant="outline">
-              <Filter className="mr-2 h-4 w-4" />
-              Filter
-            </Button>
+            <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="relative">
+                  <Filter className="mr-2 h-4 w-4" />
+                  Filter
+                  {activeFilterCount > 0 && (
+                    <Badge
+                      variant="default"
+                      className="ml-2 h-5 w-5 rounded-full p-0 text-xs flex items-center justify-center"
+                    >
+                      {activeFilterCount}
+                    </Badge>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80" align="end">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium">Filters</h4>
+                    {activeFilterCount > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearFilters}
+                        className="h-auto p-1 text-xs text-muted-foreground"
+                      >
+                        <X className="mr-1 h-3 w-3" />
+                        Clear all
+                      </Button>
+                    )}
+                  </div>
+                  <Separator />
+
+                  {/* Department Filter */}
+                  <div className="space-y-2">
+                    <Label>Department</Label>
+                    <Select
+                      value={departmentFilter}
+                      onValueChange={(v) => setDepartmentFilter(v === '__all__' ? '' : v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="All departments" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">All departments</SelectItem>
+                        {departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Status Filter */}
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <Select
+                      value={statusFilter}
+                      onValueChange={(v) => setStatusFilter(v === '__all__' ? '' : v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="All statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">All statuses</SelectItem>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="inactive">Inactive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Skills Filter */}
+                  <div className="space-y-2">
+                    <Label>Skills</Label>
+                    <Input
+                      placeholder="Filter by skill name..."
+                      value={skillFilter}
+                      onChange={(e) => setSkillFilter(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
             <Button asChild>
               <Link href="/solutions/software/builders/new">
                 <Plus className="mr-2 h-4 w-4" />
