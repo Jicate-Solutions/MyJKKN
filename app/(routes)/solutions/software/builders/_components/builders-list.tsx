@@ -292,7 +292,7 @@ export function BuildersList() {
                   <TableHead>Department</TableHead>
                   <TableHead>Skills</TableHead>
                   <TableHead className="text-center">Assignments</TableHead>
-                  <TableHead className="text-right">Skills</TableHead>
+                  <TableHead className="text-right">Rate</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
