@@ -34,6 +34,8 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useBuilder } from '@/hooks/solutions/use-builders';
+import type { BuilderAssignmentWithPhase } from '@/lib/services/solutions/builders-service';
+import type { BuilderSkill } from '@/lib/services/solutions/types';
 
 interface BuilderDetailPageProps {
   params: Promise<{ id: string }>;
