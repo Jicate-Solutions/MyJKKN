@@ -310,11 +310,14 @@ export function useDeleteRewardConfig() {
   return useMutation({
     mutationFn: async (configId: string) => {
       // TODO: Implement delete
-      toast.success('Reward configuration deleted');
-      return configId;
+      throw new Error('Delete reward configuration is not yet implemented');
     },
     onSuccess: () => {
+      toast.success('Reward configuration deleted');
       queryClient.invalidateQueries({ queryKey: ['reward-configs'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete reward configuration');
     }
   });
 }
