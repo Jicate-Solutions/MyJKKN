@@ -133,7 +133,7 @@ export function FeesClient() {
             {learners.map((learnerData) => (
               <FeeStatus
                 key={learnerData.learner.id}
-                learnerName={learnerData.learner.name}
+                learnerName={`${learnerData.learner.first_name || ''} ${learnerData.learner.last_name || ''}`.trim() || 'Learner'}
                 learnerPhoto={learnerData.learner.photo_url}
                 fees={learnerData.fees}
                 onPayNow={() =>
