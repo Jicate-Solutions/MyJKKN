@@ -88,9 +88,11 @@ export class AdmissionErrorBoundary extends Component<ErrorBoundaryProps, ErrorB
             <p className="text-muted-foreground">
               An error occurred in the admission module. Please try refreshing the page.
             </p>
-            <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-32">
-              {this.state.error?.message}
-            </pre>
+            {process.env.NODE_ENV === 'development' && (
+              <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-32">
+                {this.state.error?.message}
+              </pre>
+            )}
             <Button
               variant="outline"
               onClick={() => {
