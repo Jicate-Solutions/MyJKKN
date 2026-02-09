@@ -250,6 +250,25 @@ export class CompetencyMappingService {
 
       const courseIds = (programCourses || []).map((c: any) => c.course_id);
 
+      // Early return if no courses in the program
+      if (courseIds.length === 0) {
+        const gaps = (mappings || []).map((m: any) => ({
+          competency_id: m.competency_id,
+          competency_name: m.competency?.competency_name || '',
+          required_level: m.required_level,
+          course_coverage: 0
+        }));
+
+        return {
+          program_id: program.id,
+          program_name: program.program_name,
+          required_competencies: mappings?.length || 0,
+          mapped_to_courses: 0,
+          coverage_percentage: 0,
+          gaps
+        };
+      }
+
       // Get competency coverage from courses
       const { data: courseMappings, error: cmError } = await (this.getSupabase() as any)
         .from('course_competency_mapping')
