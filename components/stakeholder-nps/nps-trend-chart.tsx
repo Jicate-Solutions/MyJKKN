@@ -153,11 +153,19 @@ export function NPSTrendChart({
               tick={{ fill: '#6B7280' }}
             />
             <YAxis
+              yAxisId={0}
               domain={[yMin, yMax]}
               stroke="#6B7280"
               style={{ fontSize: '12px' }}
               tick={{ fill: '#6B7280' }}
               tickFormatter={(value) => (value > 0 ? `+${value}` : value)}
+            />
+            <YAxis
+              yAxisId={1}
+              orientation="right"
+              stroke="#9CA3AF"
+              style={{ fontSize: '12px' }}
+              tick={{ fill: '#9CA3AF' }}
             />
             <Tooltip content={<CustomTooltip />} />
             <ReferenceLine y={0} stroke="#9CA3AF" strokeDasharray="3 3" />
