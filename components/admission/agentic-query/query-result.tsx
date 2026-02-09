@@ -266,7 +266,7 @@ function ChartDisplay({ data }: { data: any }) {
     return <div className="text-center py-8 text-muted-foreground">No data to display</div>;
   }
 
-  const maxValue = Math.max(...items.map((i: any) => i.value || i.count));
+  const maxValue = Math.max(...items.map((i: any) => i.value || i.count || 0)) || 1;
 
   return (
     <div className="space-y-3 py-4">
