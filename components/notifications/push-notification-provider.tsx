@@ -51,12 +51,11 @@ export function PushNotificationProvider({
     return () => clearTimeout(timer);
   }, [isSupported, permission, isSubscribed, requestPermission, subscribe]);
 
-  // Show error toast if there's an error
+  // Log push notification errors silently - don't show disruptive toasts
+  // Push notifications are a non-critical background feature
   useEffect(() => {
     if (error) {
-      toast.error('Notification Error', {
-        duration: 5000
-      });
+      console.warn('[notifications] Push notification setup failed:', error);
     }
   }, [error]);
 
