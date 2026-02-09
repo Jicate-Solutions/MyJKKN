@@ -539,7 +539,7 @@ export function TicketDetail({ ticket, currentUserId, currentUserName, isStaff }
                       {format(new Date(h.performed_at), 'PP p')}
                     </span>
                     <Badge variant="outline" className="text-xs capitalize">
-                      {h.action.replace('_', ' ')}
+                      {h.action.replace(/_/g, ' ')}
                     </Badge>
                     {h.old_value && h.new_value && (
                       <span className="text-muted-foreground">
