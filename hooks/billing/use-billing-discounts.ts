@@ -22,7 +22,6 @@ export function useBillingDiscounts(initialFilters: DiscountFilters = {}) {
   const { data, isLoading, error } = useQuery({
     queryKey: ['billing-discounts', filters],
     queryFn: () => BillingDiscountService.getBillingDiscounts(filters),
-    enabled: !!filters?.institution_id,
     placeholderData: (previousData) => previousData
   });
 
