@@ -505,7 +505,7 @@ export class NPSService {
 
     // Calculate average score
     const totalScore = responses.reduce((sum, r) => sum + r.score, 0);
-    const average_score = Math.round((totalScore / total) * 10) / 10;
+    const average_score = total > 0 ? Math.round((totalScore / total) * 10) / 10 : 0;
 
     return {
       total,
