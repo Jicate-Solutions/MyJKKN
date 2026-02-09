@@ -63,10 +63,6 @@ export function LearnerDetail({ learner, billing }: LearnerDetailProps) {
     !!learner.college_email &&
     !!learner.student_photo_url;
 
-  // Only access permissions after they've loaded
-  const hasEditPermission =
-    !permissionsLoading && (isSuperAdmin || canAccess('learners', 'edit'));
-
   const sections = [
     {
       id: 'personal',
