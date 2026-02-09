@@ -65,7 +65,7 @@ export function CohortList() {
               {statsLoading ? (
                 <Skeleton className="h-8 w-12" />
               ) : (
-                <p className="text-2xl font-bold">{stats?.byLevel?.[3] || 0}</p>
+                <p className="text-2xl font-bold">{stats?.byLevel?.['master'] || 0}</p>
               )}
               <p className="text-sm text-muted-foreground">Masters</p>
             </div>
