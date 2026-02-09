@@ -249,7 +249,7 @@ export class ParentPortalService {
       .select(`
         *,
         learner:learners_profiles(
-          id, name, enrollment_number, photo_url,
+          id, first_name, last_name, roll_number, student_photo_url,
           program_id, section_id, semester_id,
           program:programs(id, name, code),
           section:sections(id, name),
