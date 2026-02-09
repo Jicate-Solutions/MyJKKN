@@ -553,20 +553,22 @@ export function useCommunicationMutations() {
 
   const sendMessage = useMutation({
     mutationFn: async (data: any) => {
-      toast.success('Message sent successfully');
-      return data;
+      const { CommunicationService } = await import('@/lib/services/admission/communication-service');
+      return CommunicationService.sendMessage(data);
     },
     onSuccess: () => {
+      toast.success('Message sent successfully');
       queryClient.invalidateQueries({ queryKey: ['lead-communication-history'] });
     }
   });
 
   const scheduleMessage = useMutation({
     mutationFn: async (data: any) => {
-      toast.success('Message scheduled successfully');
-      return data;
+      const { CommunicationService } = await import('@/lib/services/admission/communication-service');
+      return CommunicationService.scheduleMessage(data);
     },
     onSuccess: () => {
+      toast.success('Message scheduled successfully');
       queryClient.invalidateQueries({ queryKey: ['lead-communication-history'] });
     }
   });
