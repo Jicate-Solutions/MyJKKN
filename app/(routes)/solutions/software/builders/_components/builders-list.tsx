@@ -181,7 +181,7 @@ export function BuildersList() {
                   </TableRow>
                 ) : (
                   builders.map((builder) => (
-                    <TableRow key={builder.id} className="cursor-pointer hover:bg-muted/50" onClick={() => window.location.href = `/solutions/software/builders/${builder.id}`}>
+                    <TableRow key={builder.id} className="cursor-pointer hover:bg-muted/50" onClick={() => router.push(`/solutions/software/builders/${builder.id}`)}>
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <Avatar className="h-8 w-8">
