@@ -283,6 +283,23 @@ function LeadDetailPageContent() {
 
   const { updateStage, toggleHotLead, togglePriority, addTag, removeTag, scheduleFollowup } = useLeadMutations();
   const { createActivity } = useActivityMutations(leadId);
+  const { createApplication } = useApplicationMutations();
+
+  // Fetch programs for the Create Application dialog
+  const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (showCreateAppDialog && lead?.institution_id) {
+      const supabase = createClientSupabaseClient();
+      supabase
+        .from('programs')
+        .select('id, name')
+        .eq('institution_id', lead.institution_id)
+        .order('name')
+        .then(({ data }: { data: any }) => {
+          if (data) setPrograms(data);
+        });
+    }
+  }, [showCreateAppDialog, lead?.institution_id]);
 
   const isLoading = leadLoading;
 
