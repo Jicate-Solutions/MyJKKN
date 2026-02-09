@@ -23,10 +23,10 @@ export interface CohortMemberWithDetails extends CohortMember {
 }
 
 export interface CohortMemberFilters extends PaginationParams {
-  level?: number;
+  level?: string;
   track?: CohortTrack;
   department_id?: string;
-  status?: string;
+  is_active?: boolean;
 }
 
 export interface CreateCohortMemberInput {
