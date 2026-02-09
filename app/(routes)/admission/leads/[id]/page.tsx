@@ -982,7 +982,7 @@ function LeadDetailPageContent() {
                             </SelectTrigger>
                             <SelectContent>
                               {programs.map((p) => (
-                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                <SelectItem key={p.id} value={p.id}>{p.program_name}</SelectItem>
                               ))}
                               {programs.length === 0 && (
                                 <SelectItem value="_none" disabled>No programs found</SelectItem>
