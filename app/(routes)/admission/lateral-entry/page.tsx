@@ -572,7 +572,7 @@ function LateralEntryPageContent() {
                     <span>Branch Transfer</span>
                     <span className="font-bold">{branchTransferCount}</span>
                   </div>
-                  <Progress value={(branchTransferCount / totalApplications) * 100} className="h-2" />
+                  <Progress value={totalApplications > 0 ? (branchTransferCount / totalApplications) * 100 : 0} className="h-2" />
                 </div>
               </CardContent>
             </Card>
