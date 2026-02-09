@@ -45,6 +45,33 @@ export async function searchNetworkerContacts(
 }
 
 /**
+ * Notify Networker about a solution event (server action — fire-and-forget)
+ * Called after solution creation, payment, or completion
+ * Returns quickly — failure here should NOT block the user
+ */
+export async function notifyNetworkerEvent(params: {
+  type: SolutionEventType;
+  contact_id: string;
+  solution_name: string;
+  department_name: string;
+  amount?: number;
+  notes?: string;
+}): Promise<{ success: boolean }> {
+  if (!isNetworkerConfigured() || !params.contact_id) {
+    return { success: false };
+  }
+
+  try {
+    const ok = await notifySolutionEvent(params);
+    return { success: ok };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[solutions/actions] Networker webhook failed:', message);
+    return { success: false };
+  }
+}
+
+/**
  * Get a single Networker contact by ID (server action)
  * Used on solution detail page to show live client info
  */
