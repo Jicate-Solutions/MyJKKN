@@ -10,6 +10,7 @@ import type {
   PaginationParams,
   Client,
 } from './types';
+import { notifySolutionEvent, isNetworkerConfigured } from '@/lib/networker/client';
 
 // ============================================
 // TYPES
