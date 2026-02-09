@@ -3,9 +3,11 @@
 import {
   searchContacts,
   getContact,
+  notifySolutionEvent,
   isNetworkerConfigured,
   type NetworkerContact,
   type NetworkerContactDetail,
+  type SolutionEventType,
 } from '@/lib/networker/client';
 
 /**
