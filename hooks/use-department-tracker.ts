@@ -310,6 +310,49 @@ export function useSolutionTypes(activeOnly = true) {
   return { types, loading, error, refresh: fetch, createType, updateType };
 }
 
+// ============================================
+// DEPARTMENT BUILDERS HOOK
+// ============================================
+
+import type { DepartmentBuilder } from '@/lib/services/solutions/department-tracker-service';
+
+export function useDepartmentBuilders(departmentId: string | null) {
+  const [builders, setBuilders] = useState<DepartmentBuilder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!departmentId) {
+      setBuilders([]);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await DepartmentTrackerService.getDepartmentBuilders(departmentId);
+        if (!cancelled) setBuilders(data);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : 'Failed to load builders';
+          console.error('[solutions/department-builders] Error:', err);
+          setError(message);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [departmentId]);
+
+  return { builders, loading, error };
+}
+
 // Re-export types for convenience
 export type {
   SolutionDepartmentWithDetails,
@@ -319,4 +362,5 @@ export type {
   DepartmentTarget,
   SolutionTypeRecord,
   DepartmentStatus,
+  DepartmentBuilder,
 };
