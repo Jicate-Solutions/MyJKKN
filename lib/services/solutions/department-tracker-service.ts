@@ -279,7 +279,7 @@ export class DepartmentTrackerService extends BaseService {
     let query = this.supabase
       .from('sh_payments')
       .select('amount, solution:sh_solutions!solution_id(lead_department_id)')
-      .eq('status', 'received');
+      .eq('status', 'completed');
 
     if (startDate) query = query.gte('payment_date', startDate);
     if (endDate) query = query.lte('payment_date', endDate);
@@ -303,7 +303,7 @@ export class DepartmentTrackerService extends BaseService {
     let query = this.supabase
       .from('sh_payments')
       .select('amount, solution:sh_solutions!solution_id(lead_department_id)')
-      .eq('status', 'received');
+      .eq('status', 'completed');
 
     if (startDate) query = query.gte('payment_date', startDate);
     if (endDate) query = query.lte('payment_date', endDate);
