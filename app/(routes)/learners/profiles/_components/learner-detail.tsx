@@ -100,6 +100,11 @@ export function LearnerDetail({ learner, billing }: LearnerDetailProps) {
       icon: BookText,
     },
     {
+      id: 'billing',
+      label: 'Billing & Fees',
+      icon: CreditCard,
+    },
+    {
       id: 'capabilities',
       label: 'Capabilities & Career',
       icon: Sparkles,
