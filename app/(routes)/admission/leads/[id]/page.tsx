@@ -282,15 +282,15 @@ function LeadDetailPageContent() {
   const { createApplication } = useApplicationMutations();
 
   // Fetch programs for the Create Application dialog
-  const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
+  const [programs, setPrograms] = useState<{ id: string; program_name: string }[]>([]);
   useEffect(() => {
     if (showCreateAppDialog && lead?.institution_id) {
       const supabase = createClientSupabaseClient();
       supabase
         .from('programs')
-        .select('id, name')
+        .select('id, program_name')
         .eq('institution_id', lead.institution_id)
-        .order('name')
+        .order('program_name')
         .then(({ data }: { data: any }) => {
           if (data) setPrograms(data);
         });
