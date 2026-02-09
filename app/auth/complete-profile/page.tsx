@@ -198,11 +198,38 @@ export default function CompleteProfile() {
         throw new Error('No authenticated session');
       }
 
+      // Check if user needs institution_id assigned
+      const userEmail = user.data.user.email || '';
+      let institutionUpdate: Record<string, any> = {};
+      if (userEmail.endsWith('@jkkn.ac.in') || userEmail.endsWith('@jkkn.local')) {
+        // Check if institution_id is already set
+        const { data: currentProfile } = await supabase
+          .from('profiles')
+          .select('institution_id')
+          .eq('id', user.data.user.id)
+          .single() as { data: { institution_id: string | null } | null; error: any };
+
+        if (!currentProfile?.institution_id) {
+          // Fetch default institution
+          const { data: defaultInst } = await supabase
+            .from('institutions')
+            .select('id')
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .single() as { data: { id: string } | null; error: any };
+
+          if (defaultInst?.id) {
+            institutionUpdate = { institution_id: defaultInst.id };
+          }
+        }
+      }
+
       const { error: updateError } = await supabase
         .from('profiles')
         // @ts-ignore - TypeScript incorrectly infers update() type as 'never' after React 19 upgrade
         .update({
           ...data,
+          ...institutionUpdate,
           profile_completed: true,
           updated_at: new Date().toISOString()
         })
