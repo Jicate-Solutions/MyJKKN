@@ -379,13 +379,13 @@ export interface CohortMember extends BaseEntity {
   email?: string;
   phone?: string;
   department_id?: string;
-  level: number;
-  track?: CohortTrack;
+  level: string | null;
+  track?: CohortTrack | null;
   sessions_observed: number;
   sessions_co_led: number;
   sessions_led: number;
   total_earnings: number;
-  status: string;
+  is_active: boolean | null;
 }
 
 export interface CohortAssignment extends BaseEntity {
