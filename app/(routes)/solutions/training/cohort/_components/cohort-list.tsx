@@ -138,8 +138,8 @@ export function CohortList() {
               </TableHeader>
               <TableBody>
                 {members.map((member) => {
-                  const levelInfo = getLevelInfo(member.level || 0);
-                  const levelColor = LEVEL_COLORS[member.level || 0] || 'bg-gray-100 text-gray-800';
+                  const levelInfo = getLevelInfo(member.level);
+                  const levelColor = LEVEL_COLORS[member.level || ''] || 'bg-gray-100 text-gray-800';
                   const trackLabel = getTrackDisplayLabel(member.track || null);
                   const deptName = (member as any).department?.name || '-';
 
