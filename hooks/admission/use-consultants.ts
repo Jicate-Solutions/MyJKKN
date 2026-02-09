@@ -332,11 +332,14 @@ export function useApproveReward() {
   return useMutation({
     mutationFn: async (input: string | { id: string; approvedBy?: string; notes?: string }) => {
       // TODO: Implement approval
-      toast.success('Reward approved successfully');
-      return typeof input === 'string' ? input : input.id;
+      throw new Error('Reward approval is not yet implemented');
     },
     onSuccess: () => {
+      toast.success('Reward approved successfully');
       queryClient.invalidateQueries({ queryKey: ['consultant-rewards'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to approve reward');
     }
   });
 }
