@@ -448,7 +448,7 @@ function StatusTimeline({ history }: { history: DepartmentStatusHistory[] }) {
       <div className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-border" />
 
       <div className="space-y-5">
-        {history.map((entry, idx) => (
+        {history.map((entry) => (
           <div key={entry.id} className="flex gap-3 relative">
             {/* Dot */}
             <div className={`mt-1 h-4 w-4 rounded-full flex-shrink-0 border-2 border-background z-10 ${getStatusDotColor(entry.new_status)}`} />
