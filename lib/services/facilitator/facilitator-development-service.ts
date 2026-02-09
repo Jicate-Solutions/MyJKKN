@@ -88,8 +88,9 @@ export class FacilitatorDevelopmentService {
       }
 
       if (filters.search) {
+        const safeSearch = filters.search.replace(/[%_\\]/g, '\\$&');
         query = query.or(
-          `staff_id.ilike.%${filters.search}%,mentor_notes.ilike.%${filters.search}%`
+          `staff_id.ilike.%${safeSearch}%,mentor_notes.ilike.%${safeSearch}%`
         );
       }
 
