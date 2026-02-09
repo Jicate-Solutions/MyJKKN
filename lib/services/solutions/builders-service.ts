@@ -734,5 +734,6 @@ export const buildersService = {
   getPendingAssignmentRequests: BuildersService.getPendingAssignmentRequests.bind(BuildersService),
   getAvailableBuildersForPhase: BuildersService.getAvailableBuildersForPhase.bind(BuildersService),
   getBuilderStats: BuildersService.getBuilderStats.bind(BuildersService),
+  searchPeople: BuildersService.searchPeople.bind(BuildersService),
   APPROVAL_THRESHOLDS,
 };
