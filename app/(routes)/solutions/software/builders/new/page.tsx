@@ -155,11 +155,12 @@ export default function NewBuilderPage() {
       });
 
       // Add skills after builder is created
-      if (skills.length > 0 && builder?.id) {
+      const builderId = (builder as { id?: string })?.id;
+      if (skills.length > 0 && builderId) {
         await Promise.all(
           skills.map((skill) =>
             addSkill.mutateAsync({
-              builder_id: builder.id,
+              builder_id: builderId,
               skill_name: skill.skill_name,
               proficiency_level: skill.proficiency_level,
             })
