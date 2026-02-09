@@ -380,8 +380,9 @@ export function SolutionTypesManager() {
       }
       setDialogOpen(false);
       setEditingType(null);
-    } catch (err: any) {
-      console.error('Failed to save solution type:', err.message || err);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('Failed to save solution type:', message);
     } finally {
       setSubmitting(false);
     }
