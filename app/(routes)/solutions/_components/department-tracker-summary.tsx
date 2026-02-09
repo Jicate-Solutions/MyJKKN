@@ -1,11 +1,18 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Tooltip,
   TooltipContent,
@@ -42,6 +49,32 @@ import {
 // ============================================
 // HELPERS
 // ============================================
+
+function getCurrentQuarter(): string {
+  const now = new Date();
+  const quarter = Math.ceil((now.getMonth() + 1) / 3);
+  return `${now.getFullYear()}-Q${quarter}`;
+}
+
+function generateQuarterOptions(count: number = 6): { label: string; value: string }[] {
+  const now = new Date();
+  const currentQ = Math.ceil((now.getMonth() + 1) / 3);
+  const currentYear = now.getFullYear();
+  const options: { label: string; value: string }[] = [];
+
+  for (let i = 0; i < count; i++) {
+    let q = currentQ - i;
+    let y = currentYear;
+    while (q <= 0) {
+      q += 4;
+      y--;
+    }
+    const value = `${y}-Q${q}`;
+    options.push({ label: value, value });
+  }
+
+  return options;
+}
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
