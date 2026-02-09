@@ -120,8 +120,10 @@ export function useDepartmentRevenueList(quarter?: string) {
       const data = await DepartmentTrackerService.getDepartmentRevenueList(quarter);
       setRevenues(data);
     } catch (err: unknown) {
-      console.error('[SDT-DEBUG] Revenue list error:', err, typeof err, JSON.stringify(err));
-      const msg = err instanceof Error ? err.message : (typeof err === 'object' && err !== null && 'message' in err) ? String((err as Record<string, unknown>).message) : 'Failed to load revenue data';
+      let msg = 'Unknown error';
+      try { msg = JSON.stringify(err); } catch { msg = String(err); }
+      if (err instanceof Error) msg = err.message;
+      else if (typeof err === 'object' && err !== null && 'message' in err) msg = String((err as Record<string, unknown>).message);
       setError(msg);
     } finally {
       setLoading(false);
