@@ -358,7 +358,7 @@ export default function NewBuilderPage() {
                           )}
                           {searchResults && searchResults.length > 0 && (
                             <CommandGroup heading="Results">
-                              {searchResults.map((person) => (
+                              {searchResults.map((person: SelectedPerson) => (
                                 <CommandItem
                                   key={`${person.type}-${person.id}`}
                                   value={`${person.type}-${person.id}`}
