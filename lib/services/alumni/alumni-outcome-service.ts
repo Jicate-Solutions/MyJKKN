@@ -99,8 +99,9 @@ export class AlumniOutcomeService {
         query = query.eq('salary_range', filters.salary_range);
       }
       if (filters.search) {
+        const safeSearch = filters.search.replace(/[%_\\]/g, '\\$&');
         query = query.or(
-          `company_name.ilike.%${filters.search}%,designation.ilike.%${filters.search}%,industry_sector.ilike.%${filters.search}%`
+          `company_name.ilike.%${safeSearch}%,designation.ilike.%${safeSearch}%,industry_sector.ilike.%${safeSearch}%`
         );
       }
 
