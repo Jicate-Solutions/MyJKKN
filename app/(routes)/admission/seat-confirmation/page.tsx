@@ -853,9 +853,9 @@ function SeatConfirmationPageContent() {
                     <div key={cat.category} className="space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">{cat.category}</span>
-                        <span className="text-sm">{cat.filled}/{cat.total} ({((cat.filled / cat.total) * 100).toFixed(0)}%)</span>
+                        <span className="text-sm">{cat.filled}/{cat.total} ({cat.total > 0 ? ((cat.filled / cat.total) * 100).toFixed(0) : '0'}%)</span>
                       </div>
-                      <Progress value={(cat.filled / cat.total) * 100} className="h-2" />
+                      <Progress value={cat.total > 0 ? (cat.filled / cat.total) * 100 : 0} className="h-2" />
                     </div>
                   ))}
                 </div>
