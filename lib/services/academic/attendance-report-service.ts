@@ -924,7 +924,7 @@ export class AttendanceReportService {
           return {
             ...student,
             is_present: attendedCount > 0,
-            attendance_percentage: (attendedCount / periods.length) * 100
+            attendance_percentage: periods.length > 0 ? (attendedCount / periods.length) * 100 : 0
           };
         }
       );
