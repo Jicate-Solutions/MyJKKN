@@ -1432,7 +1432,7 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/solutions/list',
           label: 'All Solutions',
-          active: pathname === '/solutions/list' || (pathname.startsWith('/solutions/') && !pathname.startsWith('/solutions/clients') && !pathname.startsWith('/solutions/software') && !pathname.startsWith('/solutions/training') && !pathname.startsWith('/solutions/content') && !pathname.startsWith('/solutions/discovery') && !pathname.startsWith('/solutions/payments') && !pathname.startsWith('/solutions/earnings') && !pathname.startsWith('/solutions/publications') && !pathname.startsWith('/solutions/departments') && !pathname.startsWith('/solutions/settings')),
+          active: pathname === '/solutions/list' || (pathname.startsWith('/solutions/') && !pathname.startsWith('/solutions/clients') && !pathname.startsWith('/solutions/software') && !pathname.startsWith('/solutions/training') && !pathname.startsWith('/solutions/content') && !pathname.startsWith('/solutions/discovery') && !pathname.startsWith('/solutions/payments') && !pathname.startsWith('/solutions/earnings') && !pathname.startsWith('/solutions/publications') && !pathname.startsWith('/solutions/departments') && !pathname.startsWith('/solutions/builders') && !pathname.startsWith('/solutions/settings')),
           icon: FileStack,
           submenus: [
             {
