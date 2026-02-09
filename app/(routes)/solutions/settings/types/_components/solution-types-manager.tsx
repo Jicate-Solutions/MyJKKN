@@ -433,11 +433,12 @@ export function SolutionTypesManager() {
         title: 'Solution type deleted',
         description: `"${type.name}" has been deactivated successfully.`,
       });
-    } catch (err: any) {
-      console.error('Failed to delete solution type:', err.message || err);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('Failed to delete solution type:', message);
       toast({
         title: 'Error',
-        description: err.message || 'Failed to delete solution type',
+        description: message || 'Failed to delete solution type',
         variant: 'destructive',
       });
     } finally {
