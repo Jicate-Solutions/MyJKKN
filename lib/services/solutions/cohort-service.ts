@@ -245,6 +245,8 @@ export class CohortService extends BaseService {
    * Level up a cohort member
    */
   static async levelUpCohortMember(id: string): Promise<CohortMember> {
+    const LEVEL_ORDER = ['observer', 'co_lead', 'lead', 'master'];
+
     // Get current level
     const { data: member, error: fetchError } = await this.supabase.from('sh_cohort_members')
       .select('level')
@@ -254,14 +256,15 @@ export class CohortService extends BaseService {
     if (fetchError) throw new Error(`Failed to fetch cohort member: ${fetchError.message}`);
     if (!member) throw new Error('Cohort member not found');
 
-    const currentLevel = member.level || 0;
-    if (currentLevel >= 3) {
+    const currentLevel = member.level || 'observer';
+    const currentIndex = LEVEL_ORDER.indexOf(currentLevel);
+    if (currentIndex >= LEVEL_ORDER.length - 1) {
       throw new Error('Already at maximum level');
     }
 
     const { data, error } = await this.supabase.from('sh_cohort_members')
       .update({
-        level: currentLevel + 1,
+        level: LEVEL_ORDER[currentIndex + 1],
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
