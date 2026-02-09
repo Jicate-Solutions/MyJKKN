@@ -43,10 +43,12 @@ import { Progress } from '@/components/ui/progress';
 import { usePermissions } from '@/hooks/use-permissions';
 import { cn } from '@/lib/utils';
 import type { LearnerProfile } from '@/types/learner-profile';
+import type { LearnerBillingSummary } from '../_data/get-learner-billing';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 
 interface LearnerDetailProps {
   learner: LearnerProfile;
+  billing?: LearnerBillingSummary | null;
 }
 
 export function LearnerDetail({ learner }: LearnerDetailProps) {
