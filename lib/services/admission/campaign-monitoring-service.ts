@@ -286,7 +286,7 @@ export class CampaignMonitoringService {
         for (const lead of leads || []) {
           // Simulate progress - in production this would be from actual tracking data
           const currentStep = Math.floor(Math.random() * totalSteps) + 1;
-          const stepProgress = Math.round((currentStep / totalSteps) * 100);
+          const stepProgress = totalSteps > 0 ? Math.round((currentStep / totalSteps) * 100) : 0;
 
           sequences.push({
             id: `seq_${campaign.id}_${lead.id}`,
