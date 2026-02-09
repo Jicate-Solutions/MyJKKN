@@ -235,7 +235,7 @@ export function ContentOverview() {
                     <div className="w-20 font-medium">{item.division}</div>
                     <div className="flex-1">
                       <Progress
-                        value={(item.count / totalInQueue) * 100}
+                        value={totalInQueue > 0 ? (item.count / totalInQueue) * 100 : 0}
                         className="h-2"
                       />
                     </div>
