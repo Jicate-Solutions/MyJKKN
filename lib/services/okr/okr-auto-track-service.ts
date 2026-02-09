@@ -167,7 +167,7 @@ export class OKRAutoTrackService {
 
           if (!data || data.length === 0) return 0;
           const presentCount = data.filter((d: any) => d.is_present).length;
-          return Math.round((presentCount / data.length) * 100);
+          return data.length > 0 ? Math.round((presentCount / data.length) * 100) : 0;
         },
 
         'learners.enrollment_count': async () => {
