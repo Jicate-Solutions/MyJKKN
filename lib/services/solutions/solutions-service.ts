@@ -43,6 +43,10 @@ export interface UpdateSolutionInput {
   start_date?: string;
   target_date?: string;
   completion_date?: string;
+  // Networker integration fields
+  networker_contact_id?: string;
+  client_name?: string;
+  client_organization?: string;
 }
 
 export interface SolutionStats {
