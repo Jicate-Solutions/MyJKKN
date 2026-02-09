@@ -206,6 +206,7 @@ export function NPSTrendChart({
                 );
               }}
               activeDot={{ r: 8, strokeWidth: 2 }}
+              yAxisId={0}
             />
             <Line
               type="monotone"
