@@ -747,6 +747,175 @@ export function LearnerDetail({ learner, billing }: LearnerDetailProps) {
             </>
           )}
 
+          {/* Billing & Fees Section */}
+          {activeSection === 'billing' && (
+            <>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CreditCard className="h-5 w-5" />
+                  Billing & Fees
+                </CardTitle>
+                <CardDescription>Fee summary, payment status, and outstanding balances</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {billing ? (
+                  <>
+                    {/* Financial Overview Cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="rounded-lg border p-3 text-center">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <IndianRupee className="h-3.5 w-3.5 text-muted-foreground" />
+                        </div>
+                        <p className="text-xl font-bold">
+                          {Number(billing.total_bill_amount).toLocaleString('en-IN')}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Total Billed</p>
+                      </div>
+                      <div className="rounded-lg border p-3 text-center">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                        </div>
+                        <p className="text-xl font-bold text-green-600">
+                          {Number(Number(billing.total_bill_amount) - Number(billing.total_outstanding)).toLocaleString('en-IN')}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Total Paid</p>
+                      </div>
+                      <div className={cn(
+                        "rounded-lg border p-3 text-center",
+                        Number(billing.total_outstanding) > 0 && "border-orange-200 bg-orange-50"
+                      )}>
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <AlertTriangle className={cn(
+                            "h-3.5 w-3.5",
+                            Number(billing.total_outstanding) > 0 ? "text-orange-500" : "text-muted-foreground"
+                          )} />
+                        </div>
+                        <p className={cn(
+                          "text-xl font-bold",
+                          Number(billing.total_outstanding) > 0 ? "text-orange-600" : ""
+                        )}>
+                          {Number(billing.total_outstanding).toLocaleString('en-IN')}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Outstanding</p>
+                      </div>
+                      <div className="rounded-lg border p-3 text-center">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <Receipt className="h-3.5 w-3.5 text-blue-500" />
+                        </div>
+                        <p className="text-xl font-bold">
+                          {billing.total_receipts}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Receipts</p>
+                      </div>
+                    </div>
+
+                    {/* Collection Progress Bar */}
+                    {Number(billing.total_bill_amount) > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Collection Progress</span>
+                          <span className="font-medium">
+                            {Math.round(
+                              ((Number(billing.total_bill_amount) - Number(billing.total_outstanding)) /
+                                Number(billing.total_bill_amount)) *
+                                100
+                            )}
+                            %
+                          </span>
+                        </div>
+                        <Progress
+                          value={Math.round(
+                            ((Number(billing.total_bill_amount) - Number(billing.total_outstanding)) /
+                              Number(billing.total_bill_amount)) *
+                              100
+                          )}
+                          className="h-2"
+                        />
+                      </div>
+                    )}
+
+                    <Separator />
+
+                    {/* Bill Breakdown */}
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium">Bill Status Breakdown</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">Total Bills</h4>
+                          <p className="text-sm font-semibold">{billing.total_bills}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-green-600">Paid</h4>
+                          <p className="text-sm font-semibold">{billing.paid_bills}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-orange-600">Unpaid</h4>
+                          <p className="text-sm font-semibold">{billing.unpaid_bills}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-yellow-600">Partially Paid</h4>
+                          <p className="text-sm font-semibold">{billing.partially_paid_bills}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Overdue Warning */}
+                    {Number(billing.overdue_bills) > 0 && (
+                      <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
+                        <AlertTriangle className="h-4 w-4 text-red-500" />
+                        <span className="text-sm text-red-700">
+                          {billing.overdue_bills} overdue bill{Number(billing.overdue_bills) !== 1 ? 's' : ''} require attention
+                        </span>
+                      </div>
+                    )}
+
+                    <Separator />
+
+                    {/* Payment & Refund Info */}
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium">Payment & Refund Details</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">Total Receipt Amount</h4>
+                          <p className="text-sm">
+                            {Number(billing.total_receipt_amount).toLocaleString('en-IN')}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">Last Payment</h4>
+                          <p className="text-sm">
+                            {billing.last_payment_date
+                              ? formatDate(billing.last_payment_date)
+                              : 'No payments recorded'}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">Total Refunds</h4>
+                          <p className="text-sm">{billing.total_refunds}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">Refund Amount</h4>
+                          <p className="text-sm">
+                            {Number(billing.total_processed_refunds).toLocaleString('en-IN')}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <CreditCard className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm font-medium">No Billing Data</p>
+                    <p className="text-xs mt-1">
+                      No bills have been generated for this learner yet.
+                      Bills will appear here once they are created in the Billing module.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </>
+          )}
+
           {/* Capabilities & Career Section */}
           {activeSection === 'capabilities' && (
             <>
