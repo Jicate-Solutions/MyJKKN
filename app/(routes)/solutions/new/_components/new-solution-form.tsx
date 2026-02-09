@@ -99,6 +99,11 @@ export function NewSolutionForm() {
       return;
     }
 
+    if (!profile?.id) {
+      toast.error('User profile not loaded. Please refresh and try again.');
+      return;
+    }
+
     try {
       const result = await createSolution.mutateAsync({
         solution_type: selectedType,
@@ -109,14 +114,12 @@ export function NewSolutionForm() {
         start_date: startDate || undefined,
         target_date: targetDate || undefined,
         description: description || undefined,
-        created_by: profile?.id || 'system',
-        // Networker integration fields
+        created_by: profile.id,
+        // Networker integration fields (stored in metadata JSONB)
         networker_contact_id: networkerContact?.networker_contact_id,
         client_name: networkerContact?.client_name,
         client_organization: networkerContact?.client_organization,
       });
-
-      toast.success('Solution created successfully');
 
       // Fire-and-forget webhook to Networker (non-blocking)
       if (networkerContact?.networker_contact_id) {
@@ -133,10 +136,19 @@ export function NewSolutionForm() {
 
       // Result is Solution type from the service
       const solutionId = (result as { id: string })?.id;
-      router.push(`/solutions/${solutionId}`);
+      if (solutionId) {
+        toast.success('Solution created successfully');
+        router.push(`/solutions/${solutionId}`);
+        router.refresh();
+      } else {
+        toast.error('Solution was created but could not retrieve its ID');
+        router.push('/solutions/list');
+        router.refresh();
+      }
     } catch (error) {
       console.error('Failed to create solution:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to create solution');
+      const message = error instanceof Error ? error.message : 'Failed to create solution. Please try again.';
+      toast.error(message);
     }
   };
 
