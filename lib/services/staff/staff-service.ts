@@ -927,7 +927,7 @@ export class StaffService {
     });
 
     const profileCompletionRate =
-      totalStaff > 0 ? (totalFieldsCompleted / totalFieldsExpected) * 100 : 0;
+      totalStaff > 0 && totalFieldsExpected > 0 ? (totalFieldsCompleted / totalFieldsExpected) * 100 : 0;
 
     // Calculate average tenure
     const totalTenure =
