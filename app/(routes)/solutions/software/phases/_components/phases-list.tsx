@@ -390,7 +390,7 @@ function ManageBuildersDialog({
             </p>
           ) : (
             <div className="space-y-2 max-h-[200px] overflow-y-auto">
-              {availableBuilders.map((builder) => (
+              {availableBuilders.map((builder: BuilderWithDetails) => (
                 <div
                   key={builder.id}
                   className="flex items-center justify-between p-3 rounded-lg border"
