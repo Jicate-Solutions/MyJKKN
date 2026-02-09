@@ -78,6 +78,9 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import type { FunnelStage } from '@/types/admission';
+import { useAuth } from '@/hooks/use-auth';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { useQuery } from '@tanstack/react-query';
 
 const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
