@@ -501,7 +501,7 @@ export class NPSService {
     const detractors = responses.filter(r => r.sentiment === 'detractor').length;
 
     // NPS = ((Promoters - Detractors) / Total) * 100
-    const nps_score = Math.round(((promoters - detractors) / total) * 100);
+    const nps_score = total > 0 ? Math.round(((promoters - detractors) / total) * 100) : 0;
 
     // Calculate average score
     const totalScore = responses.reduce((sum, r) => sum + r.score, 0);
