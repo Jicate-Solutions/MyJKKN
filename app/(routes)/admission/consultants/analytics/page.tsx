@@ -474,8 +474,6 @@ export default function ConsultantAnalyticsPage() {
             value={dashboardStats?.total_leads_referred || 0}
             subtitle={`${dashboardStats?.leads_this_month || 0} this month`}
             icon={Target}
-            trend="up"
-            trendValue="+12%"
             loading={statsLoading}
           />
           <KPICard
