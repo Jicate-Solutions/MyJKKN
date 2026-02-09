@@ -56,10 +56,16 @@ export default async function LearnerDetailPage({ params }: LearnerDetailPagePro
     );
   }
 
-  // Fetch data on server with caching
+  // Fetch data on server with caching (billing in parallel, non-blocking)
   let learner;
+  let billing = null;
   try {
-    learner = await getLearnerProfile(id);
+    const [learnerResult, billingResult] = await Promise.all([
+      getLearnerProfile(id),
+      getLearnerBilling(id),
+    ]);
+    learner = learnerResult;
+    billing = billingResult;
   } catch (error) {
     console.error('[learners/profiles/[id]] Error fetching learner:', error);
     return (
