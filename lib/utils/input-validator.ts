@@ -400,10 +400,16 @@ export class InputValidator {
       }
     }
 
-    // Prevent double extensions (e.g., file.pdf.exe)
+    // Prevent dangerous double extensions (e.g., file.pdf.exe)
+    // Allow legitimate multi-dot names like "document.v2.pdf" or "my.report.xlsx"
     const parts = file.name.split('.');
     if (parts.length > 2) {
-      throw new Error('File name cannot contain multiple extensions');
+      const dangerousExtensions = ['exe', 'bat', 'cmd', 'com', 'msi', 'scr', 'pif', 'js', 'vbs', 'wsf', 'ps1', 'sh'];
+      const allExtensions = parts.slice(1).map(p => p.toLowerCase());
+      const hasDangerousExt = allExtensions.some(ext => dangerousExtensions.includes(ext));
+      if (hasDangerousExt) {
+        throw new Error('File name contains a potentially dangerous extension');
+      }
     }
   }
 
