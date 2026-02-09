@@ -223,7 +223,8 @@ export function ProfileClient() {
                 <div className="space-y-4">
                   {learners.map((learnerData) => {
                     const learner = learnerData.learner;
-                    const learnerInitials = learner.name
+                    const learnerFullName = `${learner.first_name || ''} ${learner.last_name || ''}`.trim() || 'Learner';
+                    const learnerInitials = learnerFullName
                       .split(' ')
                       .filter((n: string) => n.length > 0)
                       .map((n: string) => n[0])
