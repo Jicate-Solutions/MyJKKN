@@ -142,7 +142,7 @@ function PublishersPageContent() {
 
   const totalLeads = mockPublishers.reduce((sum, p) => sum + p.leadsThisMonth, 0);
   const totalConversions = mockPublishers.reduce((sum, p) => sum + p.conversions, 0);
-  const avgConversionRate = (totalConversions / totalLeads * 100).toFixed(1);
+  const avgConversionRate = totalLeads > 0 ? (totalConversions / totalLeads * 100).toFixed(1) : '0.0';
   const totalPendingCommission = mockPublishers.reduce((sum, p) => sum + p.pendingCommission, 0);
 
   const getStatusBadge = (status: string) => {
