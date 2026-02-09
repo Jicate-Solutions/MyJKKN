@@ -240,7 +240,7 @@ export function ProfileClient() {
                         <Avatar className="h-12 w-12 shrink-0">
                           <AvatarImage
                             src={learner.photo_url || undefined}
-                            alt={learner.name}
+                            alt={learnerFullName}
                           />
                           <AvatarFallback className="bg-blue-100 text-sm font-medium text-blue-700">
                             {learnerInitials}
@@ -249,10 +249,10 @@ export function ProfileClient() {
 
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-gray-900 truncate">
-                            {learner.name}
+                            {learnerFullName}
                           </p>
                           <p className="text-sm text-gray-500">
-                            {learner.enrollment_number}
+                            {learner.roll_number}
                           </p>
                           <div className="mt-1 flex flex-wrap gap-2">
                             {learner.program?.name && (
