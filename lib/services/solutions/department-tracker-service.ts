@@ -151,7 +151,7 @@ export class DepartmentTrackerService extends BaseService {
     }
 
     const { data, error } = await query;
-    if (error) throw new Error(`listDepartments: ${error.message} (code: ${error.code}, details: ${error.details})`);
+    if (error) throw error;
     return data || [];
   }
 
