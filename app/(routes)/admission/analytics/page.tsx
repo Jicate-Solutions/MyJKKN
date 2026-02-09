@@ -182,7 +182,7 @@ function EnhancedFunnelChart({
   return (
     <div className="space-y-4">
       {data.map((stage, index) => {
-        const width = (stage.leadCount / maxCount) * 100;
+        const width = maxCount > 0 ? (stage.leadCount / maxCount) * 100 : 0;
         const stageConfig = FUNNEL_STAGES.find((s) => s.key === stage.stage);
         const dropOffData = dropOff.find((d) => d.stage === stage.stage);
 
