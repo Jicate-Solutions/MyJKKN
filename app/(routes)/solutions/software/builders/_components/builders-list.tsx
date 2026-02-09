@@ -91,6 +91,22 @@ export function BuildersList() {
 
   const builders = buildersData?.data || [];
 
+  // Extract unique departments from builders for filter dropdown
+  const departments = useMemo(() => {
+    const deptMap = new Map<string, string>();
+    builders.forEach((b) => {
+      if (b.department?.id) {
+        deptMap.set(
+          b.department.id,
+          b.department.name || b.department.department_name || 'Unknown'
+        );
+      }
+    });
+    return Array.from(deptMap, ([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  }, [builders]);
+
   return (
     <div className="space-y-4">
       {/* Error State */}
