@@ -733,7 +733,7 @@ function ScreeningExamPageContent() {
                                 <span className="text-lg font-bold">
                                   {result.totalScore}/{currentExam.totalMarks}
                                 </span>
-                                <Progress value={(result.totalScore / currentExam.totalMarks) * 100} className="w-16 h-1.5" />
+                                <Progress value={currentExam.totalMarks > 0 ? (result.totalScore / currentExam.totalMarks) * 100 : 0} className="w-16 h-1.5" />
                               </div>
                             ) : (
                               <span className="text-muted-foreground">-</span>
