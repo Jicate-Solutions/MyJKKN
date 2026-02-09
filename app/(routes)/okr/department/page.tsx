@@ -98,7 +98,7 @@ export default function DepartmentAdminPage() {
     const compliant = teamSummary.team_members.filter(
       m => m.badge === 'green'
     ).length;
-    return Math.round((compliant / total) * 100);
+    return total > 0 ? Math.round((compliant / total) * 100) : 0;
   }, [teamSummary]);
 
   // Distribution of badges
