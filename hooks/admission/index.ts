@@ -552,24 +552,30 @@ export function useCommunicationMutations() {
   const queryClient = useQueryClient();
 
   const sendMessage = useMutation({
-    mutationFn: async (data: any) => {
-      const { CommunicationService } = await import('@/lib/services/admission/communication-service');
-      return CommunicationService.sendMessage(data);
+    mutationFn: async (_data: any) => {
+      // TODO: Implement actual message sending via communication service
+      throw new Error('Message sending is not yet implemented');
     },
     onSuccess: () => {
       toast.success('Message sent successfully');
       queryClient.invalidateQueries({ queryKey: ['lead-communication-history'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to send message');
     }
   });
 
   const scheduleMessage = useMutation({
-    mutationFn: async (data: any) => {
-      const { CommunicationService } = await import('@/lib/services/admission/communication-service');
-      return CommunicationService.scheduleMessage(data);
+    mutationFn: async (_data: any) => {
+      // TODO: Implement actual message scheduling via communication service
+      throw new Error('Message scheduling is not yet implemented');
     },
     onSuccess: () => {
       toast.success('Message scheduled successfully');
       queryClient.invalidateQueries({ queryKey: ['lead-communication-history'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to schedule message');
     }
   });
 
