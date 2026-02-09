@@ -59,8 +59,13 @@ export interface BuilderFilters extends PaginationParams {
 export interface UpdateBuilderInput {
   name?: string;
   email?: string;
+  phone?: string;
   department_id?: string;
   is_active?: boolean;
+  hourly_rate?: number;
+  specialization?: string;
+  availability_status?: string;
+  bio?: string;
 }
 
 export interface AddSkillInput {
