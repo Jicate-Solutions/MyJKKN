@@ -541,7 +541,7 @@ export class BuildersService extends BaseService {
       .eq('phase_id', phaseId)
       .in('status', ['requested', 'approved', 'active']);
 
-    const assignedBuilderIds = existingAssignments?.map((a) => a.builder_id) || [];
+    const assignedBuilderIds = existingAssignments?.map((a: { builder_id: string }) => a.builder_id) || [];
 
     // Get all active builders not assigned
     let query = this.supabase.from('sh_builders')
