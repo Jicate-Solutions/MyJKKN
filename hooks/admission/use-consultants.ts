@@ -292,10 +292,10 @@ export function useUpdateRewardConfig() {
   return useMutation({
     mutationFn: async ({ id, configId, data }: { id?: string; configId?: string; data: any }) => {
       // TODO: Implement update reward config
-      toast.success('Reward configuration updated successfully');
-      return id || configId;
+      throw new Error('Update reward configuration is not yet implemented');
     },
     onSuccess: () => {
+      toast.success('Reward configuration updated successfully');
       queryClient.invalidateQueries({ queryKey: ['reward-configs'] });
     },
     onError: (error: Error) => {
