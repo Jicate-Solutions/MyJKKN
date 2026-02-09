@@ -54,17 +54,17 @@ export interface UpdateCohortMemberInput {
 // ============================================
 
 export const COHORT_LEVELS = [
-  { level: 0, title: 'Observer', description: 'New member, observing sessions' },
-  { level: 1, title: 'Co-Lead', description: 'Can co-lead sessions with supervision' },
-  { level: 2, title: 'Lead', description: 'Can lead standard sessions independently' },
-  { level: 3, title: 'Master Trainer', description: 'Can lead all sessions and train others' },
+  { level: 'observer', title: 'Observer', description: 'New member, observing sessions' },
+  { level: 'co_lead', title: 'Co-Lead', description: 'Can co-lead sessions with supervision' },
+  { level: 'lead', title: 'Lead', description: 'Can lead standard sessions independently' },
+  { level: 'master', title: 'Master Trainer', description: 'Can lead all sessions and train others' },
 ];
 
-export const LEVEL_COLORS: Record<number, string> = {
-  0: 'bg-gray-100 text-gray-800',
-  1: 'bg-blue-100 text-blue-800',
-  2: 'bg-green-100 text-green-800',
-  3: 'bg-purple-100 text-purple-800',
+export const LEVEL_COLORS: Record<string, string> = {
+  observer: 'bg-gray-100 text-gray-800',
+  co_lead: 'bg-blue-100 text-blue-800',
+  lead: 'bg-green-100 text-green-800',
+  master: 'bg-purple-100 text-purple-800',
 };
 
 // ============================================
