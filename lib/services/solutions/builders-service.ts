@@ -21,8 +21,10 @@ export interface BuilderWithDetails extends Builder {
   assignments?: BuilderAssignmentWithPhase[];
   department?: {
     id: string;
-    department_name: string;
-    department_code: string;
+    name: string;
+    code: string;
+    department_name?: string;
+    department_code?: string;
   };
 }
 
