@@ -38,7 +38,7 @@ export function COPQTrendChart({ trend, loading }: COPQTrendChartProps) {
 
   const maxCopq = Math.max(...trend.map((t) => t.copq), 1);
   const totalCopq = trend.reduce((sum, t) => sum + t.copq, 0);
-  const avgCopq = totalCopq / trend.length;
+  const avgCopq = trend.length > 0 ? totalCopq / trend.length : 0;
 
   // Calculate month-over-month changes
   const monthlyChanges = trend.map((t, i) => {
