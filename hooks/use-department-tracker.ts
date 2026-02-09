@@ -29,8 +29,8 @@ export function useSolutionDepartments(filters: DepartmentListFilters = {}) {
       setError(null);
       const data = await DepartmentTrackerService.listDepartments(filters);
       setDepartments(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load departments');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load departments');
     } finally {
       setLoading(false);
     }
@@ -63,8 +63,8 @@ export function useSolutionDepartment(id: string | null) {
       setError(null);
       const data = await DepartmentTrackerService.getDepartment(id);
       setDepartment(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load department');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load department');
     } finally {
       setLoading(false);
     }
@@ -91,8 +91,8 @@ export function useDepartmentSummary() {
       setLoading(true);
       const data = await DepartmentTrackerService.getSummary();
       setSummary(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load summary');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load summary');
     } finally {
       setLoading(false);
     }
@@ -119,8 +119,8 @@ export function useDepartmentRevenueList(quarter?: string) {
       setLoading(true);
       const data = await DepartmentTrackerService.getDepartmentRevenueList(quarter);
       setRevenues(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load revenue data');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load revenue data');
     } finally {
       setLoading(false);
     }
@@ -147,8 +147,8 @@ export function useDepartmentLeaderboard(limit = 5, quarter?: string) {
       setLoading(true);
       const data = await DepartmentTrackerService.getLeaderboard(limit, quarter);
       setLeaderboard(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load leaderboard');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load leaderboard');
     } finally {
       setLoading(false);
     }
@@ -175,8 +175,8 @@ export function useQuarterlyTrend(quarters = 4) {
       setLoading(true);
       const data = await DepartmentTrackerService.getQuarterlyTrend(quarters);
       setTrend(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load trend');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load trend');
     } finally {
       setLoading(false);
     }
@@ -208,8 +208,8 @@ export function useDepartmentStatusHistory(solutionDepartmentId: string | null) 
       setLoading(true);
       const data = await DepartmentTrackerService.getStatusHistory(solutionDepartmentId);
       setHistory(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load history');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load history');
     } finally {
       setLoading(false);
     }
@@ -241,8 +241,8 @@ export function useDepartmentTargets(solutionDepartmentId: string | null) {
       setLoading(true);
       const data = await DepartmentTrackerService.getDepartmentTargets(solutionDepartmentId);
       setTargets(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load targets');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load targets');
     } finally {
       setLoading(false);
     }
@@ -278,8 +278,8 @@ export function useSolutionTypes(activeOnly = true) {
       setLoading(true);
       const data = await DepartmentTrackerService.listSolutionTypes(activeOnly);
       setTypes(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load solution types');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load solution types');
     } finally {
       setLoading(false);
     }

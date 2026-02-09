@@ -307,15 +307,14 @@ BEGIN
         WHERE sd.status NOT IN ('pending_approval')
     LOOP
         -- Calculate months since last revenue
-        IF v_dept.last_revenue_at IS NULL THEN
+        IF v_dept.last_revenue_at IS NOT NULL THEN
             v_months_since_revenue := EXTRACT(EPOCH FROM (now() - v_dept.last_revenue_at)) / (30 * 24 * 3600);
-            -- If never had revenue, use activated_at
+        ELSE
+            -- Never had revenue, use activated_at as baseline
             SELECT EXTRACT(EPOCH FROM (now() - sd.activated_at)) / (30 * 24 * 3600)
             INTO v_months_since_revenue
             FROM public.sh_solution_departments sd
             WHERE sd.id = v_dept.id;
-        ELSE
-            v_months_since_revenue := EXTRACT(EPOCH FROM (now() - v_dept.last_revenue_at)) / (30 * 24 * 3600);
         END IF;
 
         -- Determine new status

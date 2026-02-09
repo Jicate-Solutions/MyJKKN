@@ -7,7 +7,7 @@ import {
   useDepartmentStatusHistory,
   useDepartmentTargets,
 } from '@/hooks/use-department-tracker';
-import { DepartmentTrackerService } from '@/lib/services/solutions/department-tracker-service';
+import { DepartmentTrackerService, type DepartmentSolution } from '@/lib/services/solutions/department-tracker-service';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -107,7 +107,7 @@ export function DepartmentDetailClient({ id }: DepartmentDetailClientProps) {
   const [revenueLoading, setRevenueLoading] = useState(true);
 
   // Solutions pipeline
-  const [solutions, setSolutions] = useState<any[]>([]);
+  const [solutions, setSolutions] = useState<DepartmentSolution[]>([]);
   const [solutionsLoading, setSolutionsLoading] = useState(true);
 
   // Load revenue data once we have the department
@@ -134,8 +134,8 @@ export function DepartmentDetailClient({ id }: DepartmentDetailClientProps) {
         setQuarterRevenue(quarter);
         setYearRevenue(year);
         setAllTimeRevenue(allTime);
-      } catch {
-        // Silently fail - show 0
+      } catch (err) {
+        console.error('[solutions/department-detail] Failed to load revenue:', err);
         setMonthRevenue(0);
         setQuarterRevenue(0);
         setYearRevenue(0);
@@ -157,7 +157,8 @@ export function DepartmentDetailClient({ id }: DepartmentDetailClientProps) {
       try {
         const data = await DepartmentTrackerService.getDepartmentSolutions(department.department_id);
         setSolutions(data);
-      } catch {
+      } catch (err) {
+        console.error('[solutions/department-detail] Failed to load solutions:', err);
         setSolutions([]);
       } finally {
         setSolutionsLoading(false);

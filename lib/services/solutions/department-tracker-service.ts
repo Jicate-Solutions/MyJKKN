@@ -101,6 +101,24 @@ export interface DepartmentListFilters extends BaseFilters {
   institution_id?: string;
 }
 
+// Query result interfaces
+interface PaymentWithSolution {
+  amount: number;
+  solution: { lead_department_id: string } | null;
+}
+
+export interface DepartmentSolution {
+  id: string;
+  title: string;
+  solution_code: string | null;
+  status: string;
+  solution_type: string | null;
+  final_price: number | null;
+  start_date: string | null;
+  target_date: string | null;
+  client: { id: string; name: string } | null;
+}
+
 // ============================================
 // SERVICE CLASS
 // ============================================
@@ -271,8 +289,8 @@ export class DepartmentTrackerService extends BaseService {
 
     // Filter by department and sum
     return (data || [])
-      .filter((p: any) => p.solution?.lead_department_id === departmentId)
-      .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+      .filter((p: PaymentWithSolution) => p.solution?.lead_department_id === departmentId)
+      .reduce((sum: number, p: PaymentWithSolution) => sum + (Number(p.amount) || 0), 0);
   }
 
   /**
@@ -294,7 +312,7 @@ export class DepartmentTrackerService extends BaseService {
     if (error) throw error;
 
     const revenues: Record<string, number> = {};
-    (data || []).forEach((p: any) => {
+    (data || []).forEach((p: PaymentWithSolution) => {
       const deptId = p.solution?.lead_department_id;
       if (deptId) {
         revenues[deptId] = (revenues[deptId] || 0) + (Number(p.amount) || 0);
@@ -344,7 +362,7 @@ export class DepartmentTrackerService extends BaseService {
       .eq('quarter', currentQuarter);
 
     const targetMap: Record<string, number> = {};
-    (targets || []).forEach((t: any) => {
+    (targets || []).forEach((t: { solution_department_id: string; target_revenue: number }) => {
       targetMap[t.solution_department_id] = Number(t.target_revenue) || 0;
     });
 
@@ -355,7 +373,7 @@ export class DepartmentTrackerService extends BaseService {
       .eq('status', 'active');
 
     const solutionCounts: Record<string, number> = {};
-    (solutions || []).forEach((s: any) => {
+    (solutions || []).forEach((s: { lead_department_id: string }) => {
       solutionCounts[s.lead_department_id] = (solutionCounts[s.lead_department_id] || 0) + 1;
     });
 
@@ -585,7 +603,7 @@ export class DepartmentTrackerService extends BaseService {
   /**
    * Get active solutions for a specific department
    */
-  static async getDepartmentSolutions(departmentId: string): Promise<any[]> {
+  static async getDepartmentSolutions(departmentId: string): Promise<DepartmentSolution[]> {
     const { data, error } = await this.supabase
       .from('sh_solutions')
       .select(`
