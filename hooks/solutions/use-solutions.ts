@@ -35,6 +35,10 @@ export interface CreateSolutionInput {
   target_date?: string;
   notes?: string;
   created_by: string;
+  // Networker integration fields
+  networker_contact_id?: string;
+  client_name?: string;
+  client_organization?: string;
 }
 
 export interface UpdateSolutionInput {
