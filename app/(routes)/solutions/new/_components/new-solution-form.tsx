@@ -21,6 +21,11 @@ import { useCreateSolution } from '@/hooks/solutions/use-solutions';
 import { useClients } from '@/hooks/solutions/use-clients';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  NetworkerContactPicker,
+  type SelectedContact,
+} from '../../_components/networker-contact-picker';
+import { notifyNetworkerEvent } from '../../actions';
 
 type SolutionType = 'software' | 'training' | 'content';
 
