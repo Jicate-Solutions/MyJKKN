@@ -309,8 +309,15 @@ export function BuildersList() {
                     <TableCell colSpan={6} className="text-center py-8">
                       <Users className="mx-auto h-10 w-10 text-muted-foreground mb-2" />
                       <p className="text-muted-foreground">
-                        {searchQuery ? 'No builders match your search' : 'No builders found'}
+                        {searchQuery || activeFilterCount > 0
+                          ? 'No builders match your filters'
+                          : 'No builders found'}
                       </p>
+                      {activeFilterCount > 0 && (
+                        <Button variant="link" size="sm" onClick={clearFilters} className="mt-1">
+                          Clear filters
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ) : (
