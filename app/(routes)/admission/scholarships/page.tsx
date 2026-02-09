@@ -435,7 +435,7 @@ function ScholarshipsPageContent() {
                     </div>
                   </div>
                   <Progress
-                    value={(scholarship.usedSlots / scholarship.totalSlots) * 100}
+                    value={scholarship.totalSlots > 0 ? (scholarship.usedSlots / scholarship.totalSlots) * 100 : 0}
                     className="h-2"
                   />
                   <div className="flex gap-2">
