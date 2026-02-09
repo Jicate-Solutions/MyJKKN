@@ -233,10 +233,11 @@ export default function BulkRefundPage() {
 
     const billsWithRefundAmounts = selectedBillsInfo.map((bill) => {
       const paidAmount = calculatePaidAmount(bill);
-      const proportionalRefund = paidAmount; // Each bill gets refunded its full paid amount
+      // Spread processing fee proportionally across bills based on paid amount
+      const billFeeShare = totalPaidAmount > 0 ? (paidAmount / totalPaidAmount) * processingFee : 0;
       return {
         ...bill,
-        refund_amount: Math.max(0, proportionalRefund - processingFee)
+        refund_amount: Math.max(0, paidAmount - billFeeShare)
       };
     });
 
