@@ -79,9 +79,6 @@ import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { FunnelStage } from '@/types/admission';
-import { useAuth } from '@/hooks/use-auth';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { useQuery } from '@tanstack/react-query';
 
 const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
