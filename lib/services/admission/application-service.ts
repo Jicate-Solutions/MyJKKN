@@ -146,27 +146,29 @@ export class ApplicationService {
     const applicationNumber = await this.generateApplicationNumber(input.institution_id);
 
     // Create the application record
+    // Note: admission_applications table stores personal details in form_data JSONB
+    const formData: Record<string, any> = {};
+    if (input.full_name) formData.full_name = input.full_name;
+    if (input.email) formData.email = input.email;
+    if (input.phone) formData.phone = input.phone;
+    if (input.date_of_birth) formData.date_of_birth = input.date_of_birth;
+    if (input.gender) formData.gender = input.gender;
+    if (input.address) formData.address = input.address;
+    if (input.city) formData.city = input.city;
+    if (input.state) formData.state = input.state;
+    if (input.pincode) formData.pincode = input.pincode;
+    if (input.father_name) formData.father_name = input.father_name;
+    if (input.mother_name) formData.mother_name = input.mother_name;
+    if (input.guardian_phone) formData.guardian_phone = input.guardian_phone;
+
     const insertData: any = {
       institution_id: input.institution_id,
       lead_id: input.lead_id,
       application_number: applicationNumber,
       status: 'draft' as ApplicationStatus,
-      program_id: input.program_id || null,
-      batch_id: input.batch_id || null,
-      full_name: input.full_name,
-      email: input.email,
-      phone: input.phone,
-      date_of_birth: input.date_of_birth || null,
-      gender: input.gender || null,
-      address: input.address || null,
-      city: input.city || null,
-      state: input.state || null,
-      pincode: input.pincode || null,
-      father_name: input.father_name || null,
-      mother_name: input.mother_name || null,
-      guardian_phone: input.guardian_phone || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      program_id: input.program_id,
+      academic_year: input.batch_id || new Date().getFullYear().toString(),
+      form_data: formData,
     };
 
     const { data, error } = await this.supabase
