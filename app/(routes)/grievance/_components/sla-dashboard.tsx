@@ -88,9 +88,9 @@ export function SLADashboard({ report, institutionId }: SLADashboardProps) {
               <AlertTriangle className="h-8 w-8 text-yellow-600" />
               <div>
                 <div className="text-3xl font-bold">
-                  {report.by_status.breached || 0}
+                  {report.by_status.reopened || 0}
                 </div>
-                <p className="text-xs text-muted-foreground">SLA breached / at risk</p>
+                <p className="text-xs text-muted-foreground">Reopened tickets</p>
               </div>
             </div>
           </CardContent>
