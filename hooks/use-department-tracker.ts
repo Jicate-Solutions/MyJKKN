@@ -120,7 +120,7 @@ export function useDepartmentRevenueList(quarter?: string) {
       const data = await DepartmentTrackerService.getDepartmentRevenueList(quarter);
       setRevenues(data);
     } catch (err: unknown) {
-      setError('XYZZY-DEBUG: ' + String(err));
+      try { setError('XYZZY: ' + JSON.stringify(err)); } catch { setError('XYZZY: ' + String(err)); }
     } finally {
       setLoading(false);
     }
