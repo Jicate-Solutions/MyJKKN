@@ -45,9 +45,14 @@ BEGIN
 
             -- Record status history
             INSERT INTO public.sh_department_status_history
-                (solution_department_id, previous_status, new_status, reason, changed_by)
+                (solution_department_id, previous_status, new_status, reason)
             VALUES
-                (v_dept.id, v_dept.status, v_new_status, 'Automated status check', 'system');
+                (v_dept.id, v_dept.status, v_new_status,
+                 CASE
+                    WHEN v_new_status = 'dormant' THEN 'Auto-dormant: ' || ROUND(v_months_since_revenue, 1) || ' months without revenue'
+                    WHEN v_new_status = 'at_risk' THEN 'At risk: ' || ROUND(v_months_since_revenue, 1) || ' months without revenue'
+                    WHEN v_new_status = 'active' THEN 'Reactivated: Revenue received'
+                 END);
         END IF;
     END LOOP;
 END;
