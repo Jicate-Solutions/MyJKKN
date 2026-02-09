@@ -62,9 +62,9 @@ export interface TrainingSessionFilters {
 export interface CohortMemberFilters {
   [key: string]: unknown;
   department_id?: string;
-  level?: number;
+  level?: string;
   track?: CohortTrack;
-  status?: string;
+  is_active?: boolean;
   search?: string;
   page?: number;
   limit?: number;
