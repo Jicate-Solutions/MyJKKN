@@ -313,6 +313,7 @@ export function useDeliverableStats(orderId?: string) {
   return useQuery({
     queryKey: [...solutionsHubKeys.contentDeliverables.all, 'stats', orderId],
     queryFn: () => contentService.getDeliverableStats(orderId),
+    enabled: !!orderId,
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
