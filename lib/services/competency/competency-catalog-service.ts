@@ -107,8 +107,9 @@ export class CompetencyCatalogService {
       }
 
       if (filters.search) {
+        const safeSearch = filters.search.replace(/[%_\\]/g, '\\$&');
         query = query.or(
-          `competency_code.ilike.%${filters.search}%,competency_name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`
+          `competency_code.ilike.%${safeSearch}%,competency_name.ilike.%${safeSearch}%,description.ilike.%${safeSearch}%`
         );
       }
 
