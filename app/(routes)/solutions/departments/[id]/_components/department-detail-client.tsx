@@ -6,8 +6,10 @@ import {
   useSolutionDepartment,
   useDepartmentStatusHistory,
   useDepartmentTargets,
+  useDepartmentBuilders,
 } from '@/hooks/use-department-tracker';
 import { DepartmentTrackerService, type DepartmentSolution } from '@/lib/services/solutions/department-tracker-service';
+import type { DepartmentBuilder } from '@/hooks/use-department-tracker';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
