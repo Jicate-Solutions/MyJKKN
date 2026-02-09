@@ -152,6 +152,34 @@ Implemented per NETWORKER-INTEGRATION.md spec:
 - Webhook is fire-and-forget — if Networker is down, solution creation still succeeds
 - client_name/client_organization cached locally to avoid API calls on every page load
 
+### Browser Testing & Bug Fixes (Session 2)
+
+**Bugs Found & Fixed:**
+
+1. **CRITICAL: Payment status enum mismatch**
+   - `department-tracker-service.ts` used `.eq('status', 'received')` but `sh_payment_status` enum only has `{pending, processing, completed, failed, refunded}`
+   - Error: `invalid input value for enum sh_payment_status: "received" (code: 22P02)`
+   - Fix: Changed 2 occurrences of `'received'` to `'completed'` in `getAllDepartmentRevenues` and `getDepartmentRevenue`
+
+2. **CRITICAL: Wrong ID used for department detail navigation**
+   - List page used `dept.department_id` (FK to departments table) for URL routing
+   - Detail page's `getDepartment(id)` queries by `sh_solution_departments.id` (PK) — different UUID
+   - Fix: Added `solution_department_id` field to `DepartmentRevenue` interface + construction, used it in list navigation
+
+**Browser Test Results:**
+
+| Page | Status | Actions Tested |
+|------|--------|----------------|
+| `/solutions/departments` | PASS | List loads (44 depts), filters work (status dropdown), column sorting, row click navigation |
+| `/solutions/departments/[id]` | PASS | Detail loads (revenue, team, clients, trend, comparison, history, targets), Back button works |
+| `/solutions/settings/types` | PASS | Types listed, Add Type dialog opens/cancels, Edit dialog opens/cancels, Toggle active/inactive works |
+| `/solutions` (dashboard) | PASS | All 4 SDT summary components render (status cards, leaderboard, health grid, trend chart) |
+| `/solutions/new` | PASS | Type selection cards, Networker contact search picker fires server action, graceful fallback on no results |
+
+**Build Status:**
+- Build passes with zero new errors
+- All SDT routes compile successfully
+- Code pushed to remote (omm-dev)
+
 ### Next Steps
-- Browser test all pages (SDT + Networker integration)
 - Vercel deployment verification
