@@ -554,7 +554,7 @@ export function PhasesList() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  phases.map((phase) => {
+                  phases.map((phase: PhaseWithDetails) => {
                     const status = statusConfig[phase.status] || statusConfig.prospecting;
                     return (
                       <TableRow key={phase.id}>
