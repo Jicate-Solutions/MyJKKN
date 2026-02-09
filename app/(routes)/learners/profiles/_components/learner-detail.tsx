@@ -51,7 +51,7 @@ interface LearnerDetailProps {
   billing?: LearnerBillingSummary | null;
 }
 
-export function LearnerDetail({ learner }: LearnerDetailProps) {
+export function LearnerDetail({ learner, billing }: LearnerDetailProps) {
   const [activeSection, setActiveSection] = useState('personal');
   const {
     canAccess,
