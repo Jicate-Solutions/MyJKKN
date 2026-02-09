@@ -728,6 +728,10 @@ export interface CreateSolutionInput {
   start_date?: string;
   target_date?: string;
   created_by: string;
+  // Networker integration fields (optional — solutions can exist without Networker link)
+  networker_contact_id?: string;
+  client_name?: string;
+  client_organization?: string;
 }
 
 export interface CreatePhaseInput {
