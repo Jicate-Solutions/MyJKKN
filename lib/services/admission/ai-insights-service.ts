@@ -418,7 +418,7 @@ export class AIInsightsService {
 
     Object.entries(sourceStats).forEach(([source, stats]) => {
       if (stats.total >= 10) { // Minimum sample size
-        const rate = stats.converted / stats.total;
+        const rate = stats.total > 0 ? stats.converted / stats.total : 0;
         if (rate > bestRate) {
           bestRate = rate;
           bestSource = source;
