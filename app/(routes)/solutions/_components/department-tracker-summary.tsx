@@ -509,7 +509,7 @@ export function DepartmentTrackerSummary() {
 
       {/* Two-column layout: Leaderboard + Health Grid */}
       <div className="grid gap-4 md:grid-cols-2">
-        <RevenueLeaderboard loading={summaryLoading} />
+        <RevenueLeaderboard loading={summaryLoading} quarter={selectedQuarter} />
         <HealthGrid loading={summaryLoading} />
       </div>
 
