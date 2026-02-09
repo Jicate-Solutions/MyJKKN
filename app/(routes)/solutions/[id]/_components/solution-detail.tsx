@@ -105,7 +105,7 @@ const commTypeIcons: Record<string, React.ElementType> = {
 };
 
 function formatCurrency(amount: number | null | undefined): string {
-  if (!amount) return '-';
+  if (amount == null) return '-';
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
