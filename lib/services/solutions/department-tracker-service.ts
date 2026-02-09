@@ -390,6 +390,7 @@ export class DepartmentTrackerService extends BaseService {
       }
 
       return {
+        solution_department_id: dept.id,
         department_id: dept.department_id,
         department_name: dept.department?.department_name || '',
         department_code: dept.department?.department_code || '',
