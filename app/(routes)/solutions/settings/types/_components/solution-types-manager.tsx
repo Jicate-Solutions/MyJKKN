@@ -410,11 +410,34 @@ export function SolutionTypesManager() {
 
     setTogglingId(type.id);
     try {
+      // Check if type has active solutions
+      const hasActiveSolutions = await DepartmentTrackerService.solutionTypeHasActiveSolutions(type.id);
+
+      if (hasActiveSolutions) {
+        toast({
+          title: 'Cannot delete solution type',
+          description: 'This type has active solutions using it. Please reassign or close those solutions first.',
+          variant: 'destructive',
+        });
+        setDeleteConfirmId(null);
+        setTogglingId(null);
+        return;
+      }
+
       // Soft-delete by deactivating
       await updateType(type.id, { is_active: false });
       setDeleteConfirmId(null);
+      toast({
+        title: 'Solution type deleted',
+        description: `"${type.name}" has been deactivated successfully.`,
+      });
     } catch (err: any) {
       console.error('Failed to delete solution type:', err.message || err);
+      toast({
+        title: 'Error',
+        description: err.message || 'Failed to delete solution type',
+        variant: 'destructive',
+      });
     } finally {
       setTogglingId(null);
     }
