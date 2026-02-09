@@ -229,12 +229,12 @@ export class DepartmentService {
         .select(
           `
           *,
-          institution:institutions!inner (
+          institution:institutions!departments_institution_id_fkey (
             id,
             name,
             counselling_code
           ),
-          degree:degrees!inner (
+          degree:degrees!departments_degree_id_fkey (
             id,
             degree_id,
             degree_name
