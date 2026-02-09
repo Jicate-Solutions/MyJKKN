@@ -350,12 +350,15 @@ export function useRedeemReward() {
   return useMutation({
     mutationFn: async (input: string | { id: string; redemptionReference?: string }) => {
       // TODO: Implement redemption
-      toast.success('Reward redeemed successfully');
-      return typeof input === 'string' ? input : input.id;
+      throw new Error('Reward redemption is not yet implemented');
     },
     onSuccess: () => {
+      toast.success('Reward redeemed successfully');
       queryClient.invalidateQueries({ queryKey: ['consultant-rewards'] });
       queryClient.invalidateQueries({ queryKey: ['referrer-rewards'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to redeem reward');
     }
   });
 }
