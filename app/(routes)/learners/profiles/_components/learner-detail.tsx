@@ -22,6 +22,12 @@ import {
   ExternalLink,
   Target,
   TrendingUp,
+  CreditCard,
+  IndianRupee,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Receipt,
 } from 'lucide-react';
 import {
   Card,
