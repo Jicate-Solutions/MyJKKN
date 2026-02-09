@@ -39,7 +39,7 @@ export class ParentCommunicationService {
         .select(
           `
           *,
-          learner:learners_profiles(id, name, enrollment_number)
+          learner:learners_profiles(id, first_name, last_name, roll_number)
         `,
           { count: 'exact' }
         );
@@ -118,7 +118,7 @@ export class ParentCommunicationService {
         .select(
           `
           *,
-          learner:learners_profiles(id, name, enrollment_number)
+          learner:learners_profiles(id, first_name, last_name, roll_number)
         `
         )
         .eq('id', id)
