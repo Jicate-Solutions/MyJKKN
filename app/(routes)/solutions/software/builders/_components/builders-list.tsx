@@ -361,7 +361,7 @@ export function BuildersList() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-medium">
-                        {builder.skills?.length || 0} skills
+                        {builder.hourly_rate ? `₹${builder.hourly_rate}/hr` : '-'}
                       </TableCell>
                       <TableCell>
                         <Badge variant={builder.is_active ? 'default' : 'secondary'}>
