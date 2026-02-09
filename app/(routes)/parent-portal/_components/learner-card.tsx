@@ -43,7 +43,7 @@ export function LearnerCard({ data, onViewDetails }: LearnerCardProps) {
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             <Avatar className="h-12 w-12 border-2 border-white shadow">
-              <AvatarImage src={learner.photo_url || undefined} />
+              <AvatarImage src={learner.student_photo_url || undefined} />
               <AvatarFallback className="bg-blue-100 text-blue-700">
                 {initials}
               </AvatarFallback>
