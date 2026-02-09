@@ -30,6 +30,8 @@ export interface BuilderFilters {
 
 export interface CreateBuilderInput {
   user_id?: string;
+  learner_id?: string;
+  staff_id?: string;
   name: string;
   email?: string;
   phone?: string;
