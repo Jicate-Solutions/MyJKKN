@@ -59,6 +59,7 @@ export function NewSolutionForm() {
   const [selectedType, setSelectedType] = useState<SolutionType | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string>('');
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('');
+  const [networkerContact, setNetworkerContact] = useState<SelectedContact | null>(null);
 
   // Fetch clients from database
   const { data: clientsData, isLoading: clientsLoading, error: clientsError } = useClients({
