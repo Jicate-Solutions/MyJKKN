@@ -380,7 +380,7 @@ export class MaturityAssessmentService {
     }
 
     const sum: number = scores.reduce((a: number, b: number) => a + b, 0);
-    const average = sum / scores.length;
+    const average = scores.length > 0 ? sum / scores.length : 0;
     return Math.max(1, Math.min(4, Math.floor(average))) as MaturityStage;
   }
 
