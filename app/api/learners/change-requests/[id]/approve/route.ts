@@ -27,7 +27,7 @@ export async function POST(
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
-    // 2. Get user profile and verify role
+    // 2. Get user profile and verify role (supports multi-role)
     const { data: profile } = await supabase
       .from('profiles')
       .select('role, institution_id, department_id')
@@ -38,9 +38,25 @@ export async function POST(
       return NextResponse.json({ message: 'User profile not found' }, { status: 404 });
     }
 
-    // 3. Verify role is HOD, Staff, or Super Admin
+    // 3. Get effective roles (profiles.role + user_roles for multi-role support)
+    const effectiveRoles = new Set<string>();
+    if (profile.role) effectiveRoles.add(profile.role);
+
+    const { data: userRoles } = await supabase
+      .from('user_roles')
+      .select('custom_roles!inner(role_key)')
+      .eq('user_id', user.id);
+
+    if (userRoles) {
+      userRoles.forEach((ur: any) => {
+        if (ur.custom_roles?.role_key) effectiveRoles.add(ur.custom_roles.role_key);
+      });
+    }
+
+    // Verify user has an allowed role (legacy or multi-role)
     const allowedRoles = ['super_admin', 'hod', 'staff'];
-    if (!allowedRoles.includes(profile.role)) {
+    const hasAllowedRole = allowedRoles.some((r) => effectiveRoles.has(r));
+    if (!hasAllowedRole) {
       return NextResponse.json(
         { message: 'Insufficient permissions to approve requests' },
         { status: 403 }

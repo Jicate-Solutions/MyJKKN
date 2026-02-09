@@ -48,11 +48,36 @@ export default async function ChangeRequestsPage() {
     redirect('/unauthorized');
   }
 
-  // 3. Verify role is HOD, Staff, or Super Admin
+  // 3. Get effective roles (profiles.role + user_roles for multi-role support)
+  const effectiveRoles = new Set<string>();
+  if (profile.role) effectiveRoles.add(profile.role);
+
+  const { data: userRoles } = await supabase
+    .from('user_roles')
+    .select('custom_roles!inner(role_key)')
+    .eq('user_id', user.id);
+
+  if (userRoles) {
+    userRoles.forEach((ur: any) => {
+      if (ur.custom_roles?.role_key) effectiveRoles.add(ur.custom_roles.role_key);
+    });
+  }
+
+  // Verify user has an allowed role (legacy or multi-role)
   const allowedRoles = ['super_admin', 'hod', 'staff'];
-  if (!allowedRoles.includes(profile.role)) {
+  const hasAllowedRole = allowedRoles.some((r) => effectiveRoles.has(r));
+  if (!hasAllowedRole) {
     redirect('/unauthorized');
   }
+
+  // Determine effective role for filtering (priority: super_admin > hod > staff)
+  const effectiveRole = effectiveRoles.has('super_admin')
+    ? 'super_admin'
+    : effectiveRoles.has('hod')
+      ? 'hod'
+      : effectiveRoles.has('staff')
+        ? 'staff'
+        : profile.role;
 
   // 4. Fetch pending requests with role-based filtering
   let filters: {
@@ -62,15 +87,15 @@ export default async function ChangeRequestsPage() {
   } = {};
 
   // Apply role-based filters
-  if (profile.role === 'super_admin') {
+  if (effectiveRole === 'super_admin') {
     // Super Admin sees all requests (no filters)
     filters = {};
-  } else if (profile.role === 'hod') {
+  } else if (effectiveRole === 'hod') {
     // HOD sees institution-wide requests
     filters = {
       institution_id: profile.institution_id || undefined,
     };
-  } else if (profile.role === 'staff') {
+  } else if (effectiveRole === 'staff') {
     // Staff sees department-only requests
     filters = {
       department_id: profile.department_id || undefined,

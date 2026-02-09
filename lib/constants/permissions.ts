@@ -582,6 +582,26 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'Service Requests',
+    key: 'service_requests',
+    permissions: [
+      { key: 'service_requests.types.view', label: 'View Service Types' },
+      { key: 'service_requests.types.create', label: 'Create Service Types' },
+      { key: 'service_requests.types.edit', label: 'Edit Service Types' },
+      { key: 'service_requests.types.delete', label: 'Delete Service Types' },
+      { key: 'service_requests.submit', label: 'Submit Service Requests' },
+      { key: 'service_requests.view_own', label: 'View Own Requests' },
+      { key: 'service_requests.view_all', label: 'View All Requests' },
+      { key: 'service_requests.edit_own', label: 'Edit Own Requests' },
+      { key: 'service_requests.cancel_own', label: 'Cancel Own Requests' },
+      { key: 'service_requests.approve', label: 'Approve/Reject Requests' },
+      { key: 'service_requests.fulfill', label: 'Mark Requests Fulfilled' },
+      { key: 'service_requests.close', label: 'Close Requests' },
+      { key: 'service_requests.analytics.view', label: 'View Analytics' },
+      { key: 'service_requests.external_api.manage', label: 'Manage External API' },
+    ]
+  },
+  {
     name: 'Administration',
     key: 'admin',
     permissions: [

@@ -495,7 +495,12 @@ export class LearnerProfileService {
     if (entry_type) query = query.eq('entry_type', entry_type);
 
     if (typeof is_profile_complete === 'boolean') {
-      query = query.eq('is_profile_complete', is_profile_complete);
+      if (is_profile_complete === false) {
+        // Include both explicit false AND null values (treat null as incomplete)
+        query = query.or('is_profile_complete.eq.false,is_profile_complete.is.null');
+      } else {
+        query = query.eq('is_profile_complete', true);
+      }
     }
 
     // Pagination
@@ -534,12 +539,15 @@ export class LearnerProfileService {
     const { data: userData } = await supabase.auth.getUser();
     const currentUserId = userData.user?.id;
 
+    // Calculate is_profile_complete from the actual data instead of relying on the DTO flag
+    const isComplete = this.calculateProfileCompleteness(dto);
+
     const insertQuery: any = supabase.from('learners_profiles');
     const { data, error } = await insertQuery
       .insert({
         ...dto,
         lifecycle_status: (dto.lifecycle_status || 'enquiry') as LifecycleStatus,
-        is_profile_complete: dto.is_profile_complete || false,
+        is_profile_complete: isComplete,
         migration_source: 'direct' as const, // Mark as directly created (not migrated)
         created_by: currentUserId,
       })
@@ -1210,7 +1218,11 @@ export class LearnerProfileService {
       // Keeping this here was causing enum type errors
 
       if (filters.isProfileComplete !== undefined) {
-        baseQuery = baseQuery.eq('is_profile_complete', filters.isProfileComplete);
+        if (filters.isProfileComplete === false) {
+          baseQuery = baseQuery.or('is_profile_complete.eq.false,is_profile_complete.is.null');
+        } else {
+          baseQuery = baseQuery.eq('is_profile_complete', true);
+        }
       }
 
       if (filters.gender) {
@@ -1335,7 +1347,7 @@ export class LearnerProfileService {
       if (filters.institutionIds && filters.institutionIds.length > 0) {
         incompleteQuery = incompleteQuery.in('institution_id', filters.institutionIds);
       }
-      incompleteQuery = incompleteQuery.eq('is_profile_complete', false);
+      incompleteQuery = incompleteQuery.or('is_profile_complete.eq.false,is_profile_complete.is.null');
       const { count: incompleteProfilesCount } = await incompleteQuery;
 
       const completionRate = totalCount > 0 ? ((completeProfilesCount || 0) / totalCount) * 100 : 0;
@@ -1713,7 +1725,11 @@ export class LearnerProfileService {
       // Keeping this here was causing enum type errors with text array comparison
 
       if (filters.isProfileComplete !== undefined) {
-        query = query.eq('is_profile_complete', filters.isProfileComplete);
+        if (filters.isProfileComplete === false) {
+          query = query.or('is_profile_complete.eq.false,is_profile_complete.is.null');
+        } else {
+          query = query.eq('is_profile_complete', true);
+        }
       }
 
       if (filters.gender) {

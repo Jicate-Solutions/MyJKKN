@@ -37,7 +37,8 @@ WITH CHECK (
   request_status = 'cancelled'
 );
 
--- HOD can view institution-wide requests
+-- HOD can view institution-wide requests (supports multi-role via user_roles)
+-- Updated: 2026-02-09 - Added multi-role support for HOD users assigned via user_roles table
 CREATE POLICY "HOD can view institution requests"
 ON profile_change_requests FOR SELECT
 USING (
@@ -45,8 +46,15 @@ USING (
     SELECT 1 FROM profiles p
     JOIN learners_profiles lp ON lp.id = profile_change_requests.learner_id
     WHERE p.id = auth.uid()
-      AND p.role = 'hod'
       AND p.institution_id = lp.institution_id
+      AND (
+        p.role = 'hod'
+        OR EXISTS (
+          SELECT 1 FROM user_roles ur
+          JOIN custom_roles cr ON cr.id = ur.role_id
+          WHERE ur.user_id = p.id AND cr.role_key = 'hod'
+        )
+      )
   )
 );
 
@@ -63,7 +71,8 @@ USING (
   )
 );
 
--- HOD/Staff can update requests (approve/reject)
+-- HOD/Staff can update requests (approve/reject) - supports multi-role via user_roles
+-- Updated: 2026-02-09 - Added multi-role support for HOD/Staff users assigned via user_roles table
 CREATE POLICY "Approvers can update requests"
 ON profile_change_requests FOR UPDATE
 USING (
@@ -72,9 +81,32 @@ USING (
     JOIN learners_profiles lp ON lp.id = profile_change_requests.learner_id
     WHERE p.id = auth.uid()
       AND (
-        (p.role = 'hod' AND p.institution_id = lp.institution_id)
-        OR (p.role = 'staff' AND p.department_id = lp.department_id)
-        OR p.role = 'super_admin'
+        -- Super admin
+        p.role = 'super_admin'
+        -- HOD (legacy or multi-role) with institution match
+        OR (
+          p.institution_id = lp.institution_id
+          AND (
+            p.role = 'hod'
+            OR EXISTS (
+              SELECT 1 FROM user_roles ur
+              JOIN custom_roles cr ON cr.id = ur.role_id
+              WHERE ur.user_id = p.id AND cr.role_key = 'hod'
+            )
+          )
+        )
+        -- Staff (legacy or multi-role) with department match
+        OR (
+          p.department_id = lp.department_id
+          AND (
+            p.role = 'staff'
+            OR EXISTS (
+              SELECT 1 FROM user_roles ur
+              JOIN custom_roles cr ON cr.id = ur.role_id
+              WHERE ur.user_id = p.id AND cr.role_key = 'staff'
+            )
+          )
+        )
       )
   )
 )
@@ -104,7 +136,8 @@ USING (
   )
 );
 
--- HOD can view institution audit logs
+-- HOD can view institution audit logs (supports multi-role via user_roles)
+-- Updated: 2026-02-09 - Added multi-role support for HOD users assigned via user_roles table
 CREATE POLICY "HOD can view institution audit logs"
 ON profile_change_audit_log FOR SELECT
 USING (
@@ -112,8 +145,15 @@ USING (
     SELECT 1 FROM profiles p
     JOIN learners_profiles lp ON lp.id = profile_change_audit_log.learner_id
     WHERE p.id = auth.uid()
-      AND p.role = 'hod'
       AND p.institution_id = lp.institution_id
+      AND (
+        p.role = 'hod'
+        OR EXISTS (
+          SELECT 1 FROM user_roles ur
+          JOIN custom_roles cr ON cr.id = ur.role_id
+          WHERE ur.user_id = p.id AND cr.role_key = 'hod'
+        )
+      )
   )
 );
 
