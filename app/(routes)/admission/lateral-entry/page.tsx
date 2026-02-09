@@ -567,7 +567,7 @@ function LateralEntryPageContent() {
                     <span>Lateral Entry</span>
                     <span className="font-bold">{lateralCount}</span>
                   </div>
-                  <Progress value={(lateralCount / totalApplications) * 100} className="h-2" />
+                  <Progress value={totalApplications > 0 ? (lateralCount / totalApplications) * 100 : 0} className="h-2" />
                   <div className="flex justify-between items-center">
                     <span>Branch Transfer</span>
                     <span className="font-bold">{branchTransferCount}</span>
