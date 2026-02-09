@@ -68,6 +68,7 @@ export function useMyGrievanceTickets(filters: GrievanceTicketFilters) {
   return useQuery({
     queryKey: grievanceTicketKeys.my(filters),
     queryFn: () => GrievanceService.getMyTickets(filters),
+    enabled: !!filters.institution_id,
     staleTime: 30 * 1000
   });
 }
