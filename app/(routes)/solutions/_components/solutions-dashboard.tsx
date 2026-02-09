@@ -53,6 +53,9 @@ export function SolutionsDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Department Tracker Summary */}
+      <DepartmentTrackerSummary />
+
       {/* Quick Actions */}
       <div className="flex flex-wrap gap-2">
         <Button asChild>
