@@ -208,7 +208,8 @@ export class BillingDiscountService {
       // Apply filters
       if (filters.search) {
         // Search only in discount_reason as nested relation search doesn't work in or() clause
-        query = query.ilike('discount_reason', `%${filters.search}%`);
+        const safeSearch = filters.search.replace(/[%_\\]/g, '\\$&');
+        query = query.ilike('discount_reason', `%${safeSearch}%`);
       }
 
       if (filters.bill_id) {
