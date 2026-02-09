@@ -467,12 +467,14 @@ function TrendChart({ loading }: { loading: boolean }) {
 
 export function DepartmentTrackerSummary() {
   const { summary, loading: summaryLoading } = useDepartmentSummary();
+  const [selectedQuarter, setSelectedQuarter] = useState<string>(getCurrentQuarter());
+  const quarterOptions = useMemo(() => generateQuarterOptions(6), []);
 
   return (
     <div className="space-y-4">
       {/* Section Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Activity className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-semibold">Department Tracker</h2>
           {!summaryLoading && summary && (
@@ -480,6 +482,19 @@ export function DepartmentTrackerSummary() {
               {summary.total} departments
             </Badge>
           )}
+          {/* Quarter Selector */}
+          <Select value={selectedQuarter} onValueChange={setSelectedQuarter}>
+            <SelectTrigger className="w-[130px] h-8 text-xs">
+              <SelectValue placeholder="Select quarter" />
+            </SelectTrigger>
+            <SelectContent>
+              {quarterOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value} className="text-xs">
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <Button variant="outline" size="sm" asChild>
           <Link href="/solutions/departments">
