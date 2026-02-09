@@ -121,6 +121,22 @@ export interface DepartmentSolution {
   client: { id: string; name: string } | null;
 }
 
+export interface DepartmentBuilder {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  builder_code: string | null;
+  specialization: string | null;
+  learner_id: string | null;
+  staff_id: string | null;
+  availability_status: string | null;
+  projects_completed: number | null;
+  average_rating: number | null;
+  tags: string[] | null;
+  role: 'learner' | 'facilitator' | 'builder';
+}
+
 // ============================================
 // SERVICE CLASS
 // ============================================
