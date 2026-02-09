@@ -1,0 +1,131 @@
+{
+  "project": "Solution Department Tracker",
+  "total_features": 7,
+  "features": [
+    {
+      "id": "SDT-1",
+      "name": "Database Schema & Migration",
+      "description": "Create sh_solution_departments, sh_department_status_history, sh_solution_types, sh_department_targets tables. Seed 44 departments and 3 default solution types. Add solution_type_id to sh_solutions.",
+      "status": "pending",
+      "priority": 1,
+      "test_steps": [
+        "Run migration on staging Supabase",
+        "Verify all 4 tables created with correct columns",
+        "Verify 44 departments seeded in sh_solution_departments",
+        "Verify 3 default solution types seeded (Software, Training, Content)",
+        "Verify sh_solutions has new solution_type_id column",
+        "Verify existing solutions still work (backward compat)",
+        "Query sh_solution_departments to confirm all 44 entries with status 'active'"
+      ]
+    },
+    {
+      "id": "SDT-2",
+      "name": "Solution Department Service & Hooks",
+      "description": "Create service layer for solution departments: CRUD operations, status calculation (revenue-based), auto-dormancy logic, status history recording, revenue aggregation per department. Create React Query hooks.",
+      "status": "pending",
+      "priority": 2,
+      "test_steps": [
+        "Service can list all solution departments with computed status",
+        "Service correctly calculates revenue per department from sh_payments",
+        "Service correctly identifies at_risk departments (1-2 months no revenue)",
+        "Service correctly identifies dormant departments (3+ months no revenue)",
+        "Status history is recorded on every status change",
+        "React hooks fetch and cache department data correctly",
+        "Revenue aggregation returns correct totals by period (month/quarter/year)"
+      ]
+    },
+    {
+      "id": "SDT-3",
+      "name": "Dashboard Summary Section",
+      "description": "Add department tracker summary to /solutions dashboard page: status count cards (Active/At Risk/Dormant), revenue leaderboard (top 5 + growth rate), health grid (44 depts color-coded by institution), quarterly trend chart.",
+      "status": "pending",
+      "priority": 3,
+      "test_steps": [
+        "Navigate to /solutions - see department summary section",
+        "Status counts show correct numbers (green/amber/red)",
+        "Click status card to filter department list",
+        "Revenue leaderboard shows top 5 departments",
+        "Growth rate displayed alongside absolute revenue",
+        "Health grid shows all 44 departments grouped by institution",
+        "Health grid color-coding matches status (green/amber/red)",
+        "Click department in grid navigates to detail page",
+        "Trend chart shows quarterly revenue data",
+        "Time period selector works (Month/Quarter/Year)",
+        "Default view is current quarter"
+      ]
+    },
+    {
+      "id": "SDT-4",
+      "name": "Department List & Detail Pages",
+      "description": "Create /solutions/departments list page (sortable table with all 44 depts) and /solutions/departments/[id] detail page (full 360 view: revenue, pipeline, team, clients, history, comparison).",
+      "status": "pending",
+      "priority": 4,
+      "test_steps": [
+        "Navigate to /solutions/departments - see all 44 departments in table",
+        "Table columns: Department, Institution, Status, Revenue, Target, Achievement%, Growth, Active Solutions",
+        "Sort by any column works",
+        "Filter by status works",
+        "Filter by institution works",
+        "Click department row navigates to detail page",
+        "Detail page shows department header with status badge",
+        "Revenue section shows month/quarter/year/all-time",
+        "Pipeline section shows active solutions with statuses",
+        "Status history timeline shows all transitions",
+        "Comparison section shows rank among all departments",
+        "Back button returns to list page"
+      ]
+    },
+    {
+      "id": "SDT-5",
+      "name": "Solution Types CRUD",
+      "description": "Create admin page to manage solution types (replacing fixed enum). Full CRUD: create, edit, toggle active, delete. Icon and color picker. Seed defaults (Software, Training, Content).",
+      "status": "pending",
+      "priority": 5,
+      "test_steps": [
+        "Navigate to solution types management page",
+        "See 3 default types (Software, Training, Content)",
+        "Create new custom type with name, description, icon, color",
+        "Edit existing type",
+        "Toggle type active/inactive",
+        "New type appears in solution creation form",
+        "Existing solutions with old types still display correctly",
+        "Cannot delete a type that has active solutions"
+      ]
+    },
+    {
+      "id": "SDT-6",
+      "name": "Quarterly Targets & HOD Self-Set",
+      "description": "Enable HODs to set quarterly revenue targets for their department. Show target vs actual on dashboard and detail page with progress bar. Achievement percentage calculated automatically.",
+      "status": "pending",
+      "priority": 6,
+      "test_steps": [
+        "HOD can navigate to their department settings",
+        "HOD can set target for current quarter",
+        "HOD can set target for next quarter",
+        "Target appears on department detail page with progress bar",
+        "Achievement % calculated correctly (actual/target * 100)",
+        "Dashboard leaderboard shows target achievement",
+        "Cannot set target for past quarters",
+        "Only HOD of that department can set targets"
+      ]
+    },
+    {
+      "id": "SDT-7",
+      "name": "Auto-Dormancy Engine & Tiered Alerts",
+      "description": "Implement automated status transitions: at_risk after 1 month, dormant after 3 months. Tiered notifications: 1mo=dashboard indicator, 2mo=HOD alert, 3mo=Director+HOD alert. Auto-reactivation on revenue.",
+      "status": "pending",
+      "priority": 7,
+      "test_steps": [
+        "Department with 1 month no revenue shows 'at_risk' on dashboard",
+        "Department with 2 months no revenue triggers HOD notification",
+        "Department with 3 months no revenue auto-transitions to dormant",
+        "Dormant transition triggers notification to Director AND HOD",
+        "All status transitions recorded in history table",
+        "Logging revenue for dormant department auto-reactivates to active",
+        "Reactivation recorded in history with reason",
+        "Status check runs on dashboard load (or via scheduled function)",
+        "Notification appears in sh_notifications table"
+      ]
+    }
+  ]
+}

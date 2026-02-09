@@ -1,0 +1,45 @@
+# Solution Department Tracker - Progress
+
+## Session: 2026-02-09
+
+### Interview Completed
+- Conducted 14-question deep interview with Director
+- All requirements captured in SPECS.md
+- Features broken into 7 implementable units in features.json
+
+### Key Decisions Made
+1. Solution departments = existing academic departments (not cross-functional teams)
+2. 44 departments across 6 JKKN institutions designated
+3. Primary KPI: Revenue generated (secondary: pipeline health)
+4. Dormancy: 3 months no revenue = auto-dormant, NO EXCEPTIONS (no grace period, no pipeline exceptions)
+5. Reactivation: Automatic on any revenue entry
+6. Solution types: Fully custom CRUD (replacing fixed enum), departments create own labels
+7. Revenue entry: Full solution workflow (every revenue item = a solution)
+8. Dashboard: Status counts + leaderboard + health grid + trend chart (all 4)
+9. Detail page: Full 360 view (revenue, pipeline, team, clients, history, comparison)
+10. Targets: HOD self-set quarterly
+11. Alerts: Tiered (1mo indicator, 2mo HOD, 3mo Director+HOD)
+12. Comparison: Leaderboard + growth rate recognition
+13. Default period: Quarterly
+14. Governance: HOD nominates, Director approves
+15. Permissions: HOD + designated staff can create solutions
+
+### Departments Mapped to Production DB IDs
+- CET: 6 departments (CET-2,3,4,5,6,8)
+- CAS-SF: 9 departments (CAS-SF-1,2,3,4,5,6,7,8,13)
+- DCH: 9 departments (DCH-2,3,4,5,6,7,8,9,10)
+- COP: 6 departments (COP-2,3,4,5,6,7)
+- CNR: 5 departments (CNR-2,3,4,5,6)
+- AHS: 9 departments (AHS-2,3,4,5,6,7,8,9,10)
+
+### Current Status
+- [ ] SDT-1: Database Schema & Migration
+- [ ] SDT-2: Service & Hooks
+- [ ] SDT-3: Dashboard Summary
+- [ ] SDT-4: Department List & Detail Pages
+- [ ] SDT-5: Solution Types CRUD
+- [ ] SDT-6: Quarterly Targets
+- [ ] SDT-7: Auto-Dormancy Engine & Alerts
+
+### Next Step
+Start with SDT-1: Database Schema & Migration

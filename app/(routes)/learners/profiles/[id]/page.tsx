@@ -12,6 +12,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { getLearnerProfile } from '../_data/get-learner-profile';
+import { getLearnerBilling } from '../_data/get-learner-billing';
 import { LearnerDetail } from '../_components/learner-detail';
 import { LearnerDetailActions } from '../_components/learner-detail-actions';
 
