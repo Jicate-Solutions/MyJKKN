@@ -65,6 +65,7 @@ export function useOverdueMaturityProgress(institutionId?: string) {
   return useQuery({
     queryKey: [...maturityProgressKeys.all, 'overdue', institutionId],
     queryFn: () => MaturityAssessmentService.getProgressItems({ overdue: true }),
+    enabled: !!institutionId,
     staleTime: 1 * 60 * 1000
   });
 }
