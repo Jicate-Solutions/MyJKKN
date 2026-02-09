@@ -179,7 +179,7 @@ export function BuildersList() {
                   </TableRow>
                 ) : (
                   builders.map((builder) => (
-                    <TableRow key={builder.id}>
+                    <TableRow key={builder.id} className="cursor-pointer hover:bg-muted/50" onClick={() => window.location.href = `/solutions/software/builders/${builder.id}`}>
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <Avatar className="h-8 w-8">
@@ -191,7 +191,9 @@ export function BuildersList() {
                             </AvatarFallback>
                           </Avatar>
                           <div>
-                            <p className="font-medium">{builder.name}</p>
+                            <Link href={`/solutions/software/builders/${builder.id}`} className="font-medium hover:underline" onClick={(e) => e.stopPropagation()}>
+                              {builder.name}
+                            </Link>
                             <p className="text-sm text-muted-foreground">{builder.email || '-'}</p>
                           </div>
                         </div>
