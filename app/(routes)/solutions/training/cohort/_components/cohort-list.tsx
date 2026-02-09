@@ -182,8 +182,8 @@ export function CohortList() {
                         {formatCurrency(member.total_earnings || 0)}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={member.status === 'active' ? 'default' : 'secondary'}>
-                          {member.status === 'active' ? 'Active' : member.status || 'Unknown'}
+                        <Badge variant={member.is_active ? 'default' : 'secondary'}>
+                          {member.is_active ? 'Active' : 'Inactive'}
                         </Badge>
                       </TableCell>
                     </TableRow>
