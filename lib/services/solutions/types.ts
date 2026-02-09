@@ -174,6 +174,10 @@ export interface Solution extends BaseEntity {
   notes?: string;
   metadata?: Record<string, unknown>;
   created_by?: string;
+  // Networker integration fields
+  networker_contact_id?: string;
+  client_name?: string;
+  client_organization?: string;
 }
 
 export interface SolutionPhase extends BaseEntity {
