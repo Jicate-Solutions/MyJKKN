@@ -583,7 +583,7 @@ function ScholarshipsPageContent() {
                 <div className="space-y-4">
                   {['merit', 'sports', 'need_based', 'diversity'].map((type) => {
                     const count = mockScholarships.filter(s => s.type === type).reduce((sum, s) => sum + s.awardedCount, 0);
-                    const percentage = (count / totalAwarded) * 100;
+                    const percentage = totalAwarded > 0 ? (count / totalAwarded) * 100 : 0;
                     return (
                       <div key={type} className="space-y-1">
                         <div className="flex items-center justify-between text-sm">
