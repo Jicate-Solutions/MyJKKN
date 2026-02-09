@@ -126,7 +126,7 @@ export interface CreateCohortMemberInput {
   email?: string;
   phone?: string;
   department_id?: string;
-  level?: number;
+  level?: string;
   track?: CohortTrack;
 }
 
@@ -135,9 +135,9 @@ export interface UpdateCohortMemberInput {
   email?: string;
   phone?: string;
   department_id?: string;
-  level?: number;
+  level?: string;
   track?: CohortTrack;
-  status?: string;
+  is_active?: boolean;
 }
 
 // ============================================
