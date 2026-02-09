@@ -959,11 +959,53 @@ function LeadDetailPageContent() {
                     </DialogContent>
                   </Dialog>
 
-                  {/* Create Application Button */}
-                  <Button variant="outline" className="w-full justify-start" size="sm" onClick={handleCreateApplication}>
-                    <Send className="h-4 w-4 mr-2" />
-                    Create Application
-                  </Button>
+                  {/* Create Application Dialog */}
+                  <Dialog open={showCreateAppDialog} onOpenChange={setShowCreateAppDialog}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start" size="sm">
+                        <Send className="h-4 w-4 mr-2" />
+                        Create Application
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Create Application</DialogTitle>
+                        <DialogDescription>
+                          Start an application for {(lead as any).full_name || 'this lead'}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div>
+                          <Label htmlFor="app-program">Program *</Label>
+                          <Select value={selectedProgramId} onValueChange={setSelectedProgramId}>
+                            <SelectTrigger className="mt-2">
+                              <SelectValue placeholder="Select a program" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {programs.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                              ))}
+                              {programs.length === 0 && (
+                                <SelectItem value="_none" disabled>No programs found</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="rounded-md bg-muted p-3 text-sm space-y-1">
+                          <p><span className="text-muted-foreground">Name:</span> {(lead as any).full_name || '-'}</p>
+                          <p><span className="text-muted-foreground">Email:</span> {(lead as any).email || '-'}</p>
+                          <p><span className="text-muted-foreground">Phone:</span> {(lead as any).phone || '-'}</p>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => { setShowCreateAppDialog(false); setSelectedProgramId(''); }}>Cancel</Button>
+                        <Button onClick={handleCreateApplication} disabled={createApplication.isPending || !selectedProgramId}>
+                          {createApplication.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                          Create Application
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </CardContent>
               </Card>
 
