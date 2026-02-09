@@ -1,7 +1,7 @@
 // lib/services/solutions/solutions-service.ts
 // CRUD operations for sh_solutions table
 
-import { BaseService, type BaseFilters, type BaseListResponse } from '../base-service';
+import { BaseService, type BaseListResponse } from '../base-service';
 import type {
   Solution,
   SolutionType,
@@ -10,7 +10,6 @@ import type {
   PaginationParams,
   Client,
 } from './types';
-import { notifySolutionEvent, isNetworkerConfigured } from '@/lib/networker/client';
 
 // ============================================
 // TYPES
