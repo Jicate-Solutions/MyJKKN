@@ -792,7 +792,7 @@ function FeedbackPageContent() {
                 <div className="space-y-3">
                   {[5, 4, 3, 2, 1].map((rating) => {
                     const count = mockFeedback.filter(f => f.overallRating === rating).length;
-                    const percent = (count / respondedCount) * 100;
+                    const percent = respondedCount > 0 ? (count / respondedCount) * 100 : 0;
                     return (
                       <div key={rating} className="flex items-center gap-4">
                         <div className="flex items-center gap-1 w-24">
