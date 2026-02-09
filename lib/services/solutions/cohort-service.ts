@@ -35,7 +35,7 @@ export interface CreateCohortMemberInput {
   email?: string;
   phone?: string;
   department_id?: string;
-  level?: number;
+  level?: string;
   track?: CohortTrack;
 }
 
