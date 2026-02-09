@@ -307,12 +307,27 @@ export async function GET(request: NextRequest) {
       // If no profile exists, create one using admin client to bypass RLS
       // Fixed: 2025-12-27 - Use service role client to prevent RLS policy violations
       if (!actualProfile) {
+        // Auto-assign institution for JKKN domain users
+        let defaultInstitutionId: string | null = null;
+        if (user.email?.endsWith('@jkkn.ac.in') || user.email?.endsWith('@jkkn.local')) {
+          // Lookup the default JKKN institution
+          const { data: defaultInst } = await adminClient
+            .from('institutions')
+            .select('id')
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .single();
+          defaultInstitutionId = defaultInst?.id || null;
+          console.log('[Auth Callback] Auto-assigned institution for JKKN user:', defaultInstitutionId);
+        }
+
         const newProfile = {
           id: user.id,
           email: user.email,
           role: 'guest',
           profile_completed: false,
-          is_active: true
+          is_active: true,
+          institution_id: defaultInstitutionId
         };
 
         const { error: insertError } = await adminClient
