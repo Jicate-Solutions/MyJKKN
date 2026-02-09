@@ -802,16 +802,7 @@ export function useLeadCommunicationHistory(leadId: string) {
   };
 }
 
-export function useLeadAttributions(leadId: string) {
-  return useQuery({
-    queryKey: ['lead-attributions', leadId],
-    queryFn: async () => {
-      // TODO: Implement
-      return [];
-    },
-    enabled: !!leadId
-  });
-}
+// useLeadAttributions is exported from use-consultants.ts — do not duplicate here
 
 export function useFunnelHistory(filters?: any) {
   return useQuery({
