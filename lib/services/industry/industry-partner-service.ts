@@ -84,7 +84,8 @@ export class IndustryPartnerService {
     }
 
     if (search) {
-      query = query.or(`company_name.ilike.%${search}%,contact_person.ilike.%${search}%`);
+      const safeSearch = search.replace(/[%_\\]/g, '\\$&');
+      query = query.or(`company_name.ilike.%${safeSearch}%,contact_person.ilike.%${safeSearch}%`);
     }
 
     // Apply sorting
