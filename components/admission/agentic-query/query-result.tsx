@@ -100,9 +100,14 @@ export function QueryResult({
   }
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(result.summary);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(result.summary);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API may not be available in insecure contexts
+      console.warn('Clipboard API unavailable');
+    }
   };
 
   const handleExportCSV = () => {
