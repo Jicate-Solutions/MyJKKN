@@ -1568,6 +1568,19 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/solutions/publications/new'
             }
           ]
+        },
+        {
+          href: '/solutions/settings/types',
+          label: 'Settings',
+          active: pathname.startsWith('/solutions/settings'),
+          icon: Settings,
+          submenus: [
+            {
+              href: '/solutions/settings/types',
+              label: 'Solution Types',
+              active: pathname === '/solutions/settings/types'
+            }
+          ]
         }
       ]
     },
