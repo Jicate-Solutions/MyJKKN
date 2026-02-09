@@ -639,6 +639,28 @@ export class DepartmentTrackerService extends BaseService {
   }
 
   // ----------------------------------------
+  // DEPARTMENT BUILDERS (Team)
+  // ----------------------------------------
+
+  /**
+   * Get all builders belonging to a department (auto-populated from learners + staff)
+   */
+  static async getDepartmentBuilders(departmentId: string): Promise<DepartmentBuilder[]> {
+    const { data, error } = await this.supabase
+      .from('sh_builders')
+      .select('id, name, email, phone, builder_code, specialization, learner_id, staff_id, availability_status, projects_completed, average_rating, tags')
+      .eq('department_id', departmentId)
+      .eq('is_active', true)
+      .order('name');
+
+    if (error) throw error;
+    return (data || []).map((b) => ({
+      ...b,
+      role: b.staff_id ? 'facilitator' : b.learner_id ? 'learner' : 'builder',
+    }));
+  }
+
+  // ----------------------------------------
   // REFRESH STATUSES
   // ----------------------------------------
 
