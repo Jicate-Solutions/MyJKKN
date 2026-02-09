@@ -256,8 +256,8 @@ export function useDashboardStats(memberId: string) {
       ).length;
 
       return {
-        level: member.level || 0,
-        levelTitle: cohortService.getLevelInfo(member.level || 0).title,
+        level: member.level || 'observer',
+        levelTitle: cohortService.getLevelInfo(member.level || 'observer').title,
         track: member.track,
         totalEarnings: member.total_earnings || 0,
         sessionsObserved: member.sessions_observed || 0,
