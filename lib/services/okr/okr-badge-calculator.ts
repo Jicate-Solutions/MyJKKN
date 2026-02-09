@@ -124,7 +124,7 @@ export function getTimeProgressPercent(startDate: Date, endDate: Date): number {
 
   if (total <= 0) return 100;
 
-  return Math.min(100, Math.max(0, (elapsed / total) * 100));
+  return total > 0 ? Math.min(100, Math.max(0, (elapsed / total) * 100)) : 0;
 }
 
 /**
