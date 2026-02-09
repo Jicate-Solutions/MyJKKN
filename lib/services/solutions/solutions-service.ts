@@ -286,30 +286,7 @@ export class SolutionsService extends BaseService {
       .single();
 
     if (error) throw new Error(`Failed to create solution: ${error.message}`);
-
-    const solution = data as Solution;
-
-    // Fire-and-forget webhook to Networker (only if contact is linked)
-    if (solution.networker_contact_id && isNetworkerConfigured()) {
-      // Get department name for the webhook payload
-      const { data: dept } = await this.supabase
-        .from('departments')
-        .select('department_name')
-        .eq('id', input.lead_department_id)
-        .single();
-
-      notifySolutionEvent({
-        type: 'solution.created',
-        contact_id: solution.networker_contact_id,
-        solution_name: solution.title,
-        department_name: dept?.department_name || 'Unknown Department',
-      }).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[solutions-service] Webhook fire-and-forget failed:', msg);
-      });
-    }
-
-    return solution;
+    return data as Solution;
   }
 
   /**
