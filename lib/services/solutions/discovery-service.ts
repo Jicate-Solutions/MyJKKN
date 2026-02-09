@@ -150,7 +150,7 @@ export class DiscoveryService extends BaseService {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
     let query = this.supabase.from('sh_discovery_visits')
-      .select('*, client:sh_clients(id, name), department:departments(id, name)', { count: 'exact' })
+      .select('*, client:sh_clients(id, name), department:departments(id, department_name)', { count: 'exact' })
       .order('visit_date', { ascending: false });
 
     // Apply filters
