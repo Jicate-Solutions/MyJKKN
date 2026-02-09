@@ -500,6 +500,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/solutions/payments': 'solutions.payments.view',
   '/solutions/payments/new': 'solutions.payments.create',
   '/solutions/earnings': 'solutions.earnings.view',
+  '/solutions/departments': 'solutions.view',
+  '/solutions/departments/[id]': 'solutions.view',
+  '/solutions/settings/types': 'solutions.view',
   '/solutions/publications': 'solutions.publications.view',
   '/solutions/publications/new': 'solutions.publications.create',
 
