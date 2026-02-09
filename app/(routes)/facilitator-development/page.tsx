@@ -194,7 +194,7 @@ export default function FacilitatorDevelopmentDashboard() {
             ) : (
               <div className='space-y-4'>
                 {stageEntries.map(([stage, count]) => {
-                  const percentage = Math.round((count / totalForPercentage) * 100);
+                  const percentage = totalForPercentage > 0 ? Math.round((count / totalForPercentage) * 100) : 0;
                   return (
                     <div key={stage} className='space-y-2'>
                       <div className='flex items-center justify-between'>
