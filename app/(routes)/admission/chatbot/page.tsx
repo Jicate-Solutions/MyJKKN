@@ -229,7 +229,7 @@ function ChatbotPageContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {((chatbotStats.resolvedWithoutHuman / chatbotStats.totalConversations) * 100).toFixed(0)}%
+              {chatbotStats.totalConversations > 0 ? ((chatbotStats.resolvedWithoutHuman / chatbotStats.totalConversations) * 100).toFixed(0) : '0'}%
             </div>
             <p className="text-xs text-muted-foreground">Without human intervention</p>
           </CardContent>
