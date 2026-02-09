@@ -286,7 +286,7 @@ export default function CommunicationsPage() {
                           {formatDate(comm.created_at)}
                         </TableCell>
                         <TableCell className="text-sm">
-                          {comm.learner?.name || '--'}
+                          {comm.learner ? `${comm.learner.first_name} ${comm.learner.last_name}`.trim() : '--'}
                         </TableCell>
                       </TableRow>
                     ))}
