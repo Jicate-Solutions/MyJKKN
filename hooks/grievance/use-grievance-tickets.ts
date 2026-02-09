@@ -80,6 +80,7 @@ export function useAssignedGrievanceTickets(filters: GrievanceTicketFilters) {
   return useQuery({
     queryKey: grievanceTicketKeys.assigned(filters),
     queryFn: () => GrievanceService.getAssignedTickets(filters),
+    enabled: !!filters.institution_id,
     staleTime: 30 * 1000
   });
 }
