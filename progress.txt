@@ -3,9 +3,20 @@
 ## Current Session: 2026-02-09
 
 ### Working On
-- Talent Portals + Client Portal end-to-end verification COMPLETE
+- FST High-Priority Tasks - ALL 7 COMPLETE
 
 ### Completed This Session (2026-02-09)
+
+#### FST High-Priority Tasks (7/7 Done)
+| Task | FST Ref | Result |
+|------|---------|--------|
+| Verify Talent Portals | 1.4 | All 16+ pages verified - Builder(5), Cohort(5), Production(6) all connected to real hooks/services |
+| Verify Client Portal | 1.5 | All 5 pages verified - Dashboard, Projects, Deliverables, Invoices, Communications. DB has data |
+| Deduplicate activity-service | 2.2 | NOT duplicates - global audit (`user_activity_logs`) vs CRM timeline (`admission_lead_activities`). No action needed |
+| Wire 5 orphan pages | 3.1 | Already done in previous session - all 5 in sidebarMenuLink.ts |
+| Add permissions | 3.2 | Already done - all 5 permissions exist for super_admin in staging DB |
+| RLS Policy Audit | 2.1 | 11 tables enabled, 2 policy gaps fixed, ~26 new policies created via migration |
+| Performance Indexes | 2.3 | 45 critical FK indexes added (institution_id, OKR, learner, solutions, hostel columns) |
 
 #### Talent Portals & Client Portal Verification
 All portal modules verified end-to-end: pages exist, hooks connect to real Supabase services, DB tables have data, build passes.
