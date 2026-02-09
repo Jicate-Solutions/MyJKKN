@@ -309,7 +309,7 @@ export class DepartmentTrackerService extends BaseService {
     if (endDate) query = query.lte('payment_date', endDate);
 
     const { data, error } = await query;
-    if (error) throw new Error(`getAllDepartmentRevenues: ${error.message} (code: ${error.code}, details: ${error.details})`);
+    if (error) throw error;
 
     const revenues: Record<string, number> = {};
     (data || []).forEach((p: PaymentWithSolution) => {
