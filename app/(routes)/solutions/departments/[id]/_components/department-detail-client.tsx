@@ -490,6 +490,206 @@ export function DepartmentDetailClient({ id }: DepartmentDetailClientProps) {
         </CardContent>
       </Card>
 
+      {/* Department Team */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-base">Department Team</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {solutionsLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : solutions.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No team assignments yet.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between py-2 px-3 bg-muted/50 rounded-md">
+                <span className="text-sm text-muted-foreground">
+                  Team members are visible through individual solution assignments
+                </span>
+                <Badge variant="secondary" className="text-xs">
+                  {solutions.length} active {solutions.length === 1 ? 'solution' : 'solutions'}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                View individual solutions above to see builders, phase owners, and other team members.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Clients Served */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Building className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-base">Clients Served</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {solutionsLoading ? (
+            <Skeleton className="h-20 w-full" />
+          ) : (() => {
+              // Extract unique clients
+              const uniqueClients = solutions
+                .filter((sol) => sol.client?.id)
+                .reduce((acc, sol) => {
+                  if (sol.client && !acc.some((c) => c.id === sol.client!.id)) {
+                    acc.push(sol.client);
+                  }
+                  return acc;
+                }, [] as { id: string; name: string }[]);
+
+              return uniqueClients.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No clients yet.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium">
+                      {uniqueClients.length} unique {uniqueClients.length === 1 ? 'client' : 'clients'}
+                    </span>
+                  </div>
+                  <div className="grid gap-2">
+                    {uniqueClients.map((client) => (
+                      <div
+                        key={client.id}
+                        className="flex items-center gap-2 py-1.5 px-3 bg-muted/30 rounded-md text-sm"
+                      >
+                        <Building className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                        <span className="flex-1">{client.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+        </CardContent>
+      </Card>
+
+      {/* Revenue Trend Chart */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-base">Revenue Trend (Last 4 Quarters)</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {quarterlyLoading ? (
+            <Skeleton className="h-[240px] w-full" />
+          ) : quarterlyData.length === 0 || quarterlyData.every((q) => q.revenue === 0) ? (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              No revenue data available for the last 4 quarters.
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={quarterlyData}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis
+                  dataKey="quarter"
+                  tick={{ fontSize: 12 }}
+                  className="text-muted-foreground"
+                />
+                <YAxis
+                  tick={{ fontSize: 12 }}
+                  tickFormatter={(value) => {
+                    if (value >= 10000000) return `₹${(value / 10000000).toFixed(1)}Cr`;
+                    if (value >= 100000) return `₹${(value / 100000).toFixed(1)}L`;
+                    if (value >= 1000) return `₹${(value / 1000).toFixed(1)}K`;
+                    return `₹${value}`;
+                  }}
+                  className="text-muted-foreground"
+                />
+                <RechartsTooltip
+                  contentStyle={{
+                    fontSize: 13,
+                    borderRadius: 8,
+                    border: '1px solid hsl(var(--border))',
+                    background: 'hsl(var(--card))',
+                    color: 'hsl(var(--card-foreground))',
+                  }}
+                  formatter={(value: number) => [formatCurrency(value), 'Revenue']}
+                />
+                <Bar
+                  dataKey="revenue"
+                  fill="hsl(var(--primary))"
+                  radius={[6, 6, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Peer Comparison */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-base">Department Ranking</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {peerLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : !peerData ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              Ranking data not available.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Current Rank</p>
+                  <p className="text-2xl font-bold">
+                    #{peerData.rank}
+                    <span className="text-sm text-muted-foreground font-normal ml-1">
+                      of {peerData.totalDepartments}
+                    </span>
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Revenue Percentile</p>
+                  <p className="text-2xl font-bold">
+                    {peerData.percentile.toFixed(0)}
+                    <span className="text-sm text-muted-foreground font-normal">th</span>
+                  </p>
+                </div>
+              </div>
+
+              {peerData.growthRate !== null && (
+                <div className="pt-3 border-t">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Growth Rate (vs Last Quarter)</span>
+                    <Badge
+                      variant="secondary"
+                      className={`text-sm px-2 py-0.5 ${
+                        peerData.growthRate >= 0
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400'
+                          : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400'
+                      }`}
+                    >
+                      {peerData.growthRate >= 0 ? '+' : ''}
+                      {peerData.growthRate.toFixed(1)}%
+                    </Badge>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Status History Timeline */}
       <Card>
         <CardHeader className="pb-3">
