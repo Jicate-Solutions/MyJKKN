@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/dialog';
 import { Plus, Pencil, Trash2, Check } from 'lucide-react';
 import { useSolutionTypes, type SolutionTypeRecord } from '@/hooks/use-department-tracker';
+import { DepartmentTrackerService } from '@/lib/services/solutions/department-tracker-service';
+import { useToast } from '@/hooks/use-toast';
 
 // ============================================
 // CONSTANTS
