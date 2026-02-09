@@ -551,7 +551,7 @@ export function calculateAttendanceStatistics(
 
   if (stats.total_periods > 0) {
     stats.attendance_percentage =
-      (stats.total_present_including_onduty / stats.total_periods) * 100;
+      stats.total_periods > 0 ? (stats.total_present_including_onduty / stats.total_periods) * 100 : 0;
   }
 
   return stats;

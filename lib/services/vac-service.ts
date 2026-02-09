@@ -352,7 +352,7 @@ export class VACService {
 
     const completedCount = (progress || []).filter(p => p.status === 'completed').length;
     const inProgressCount = (progress || []).filter(p => p.status === 'in_progress').length;
-    const percentage = Math.round((completedCount / totalLessons) * 100);
+    const percentage = totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0;
 
     return {
       completed: completedCount,

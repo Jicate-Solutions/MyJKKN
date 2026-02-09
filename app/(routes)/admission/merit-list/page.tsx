@@ -896,7 +896,7 @@ function MeritListPageContent() {
                       <div className="flex-1 h-6 bg-muted rounded overflow-hidden">
                         <div
                           className={`h-full ${bucket.color}`}
-                          style={{ width: `${(bucket.count / totalCandidates) * 100}%` }}
+                          style={{ width: `${totalCandidates > 0 ? (bucket.count / totalCandidates) * 100 : 0}%` }}
                         />
                       </div>
                       <span className="w-10 text-sm text-right font-medium">{bucket.count}</span>
