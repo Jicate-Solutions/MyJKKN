@@ -584,7 +584,7 @@ function LateralEntryPageContent() {
               <CardContent>
                 <div className="text-center py-4">
                   <div className="text-4xl font-bold text-green-600">
-                    {((approvedCount / totalApplications) * 100).toFixed(0)}%
+                    {totalApplications > 0 ? ((approvedCount / totalApplications) * 100).toFixed(0) : '0'}%
                   </div>
                   <p className="text-sm text-muted-foreground">Applications approved</p>
                 </div>
