@@ -750,6 +750,8 @@ export interface CreateBuilderInput {
   email?: string;
   phone?: string;
   user_id?: string;
+  learner_id?: string;
+  staff_id?: string;
   department_id?: string;
   trained_date?: string;
   hourly_rate?: number;
