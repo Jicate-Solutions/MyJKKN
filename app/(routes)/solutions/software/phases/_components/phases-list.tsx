@@ -49,6 +49,7 @@ import { useDebounceValue } from '@/hooks/use-debounce-value';
 import type { PhaseStatus } from '@/lib/services/solutions/types';
 import type { PhaseWithDetails } from '@/lib/services/solutions/phases-service';
 import type { BuilderRole } from '@/lib/services/solutions/types';
+import type { BuilderWithDetails } from '@/lib/services/solutions/builders-service';
 
 function formatCurrency(amount: number | null): string {
   if (!amount) return '-';
