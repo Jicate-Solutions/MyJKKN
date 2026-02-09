@@ -88,13 +88,13 @@ export function ProfileClient() {
     );
   }
 
-  const initials = parent.name
+  const initials = (parent.name ?? '')
     .split(' ')
     .filter((n: string) => n.length > 0)
     .map((n: string) => n[0])
     .join('')
     .toUpperCase()
-    .slice(0, 2);
+    .slice(0, 2) || 'P';
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'Never';
