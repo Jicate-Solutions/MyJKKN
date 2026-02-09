@@ -328,7 +328,7 @@ function HostelsPageContent() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {mockHostels.map((hostel) => {
               const availableInHostel = hostel.totalBeds - hostel.occupiedBeds;
-              const hostelOccupancy = (hostel.occupiedBeds / hostel.totalBeds) * 100;
+              const hostelOccupancy = hostel.totalBeds > 0 ? (hostel.occupiedBeds / hostel.totalBeds) * 100 : 0;
 
               return (
                 <Card key={hostel.id} className="hover:shadow-md transition-shadow">
