@@ -20,7 +20,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ArrowLeft, Calendar, TrendingUp, DollarSign, Target, Activity } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import { ArrowLeft, Calendar, TrendingUp, DollarSign, Target, Activity, Users, Building } from 'lucide-react';
 import type { DepartmentStatus, DepartmentStatusHistory } from '@/hooks/use-department-tracker';
 
 const formatCurrency = (amount: number) =>
