@@ -137,7 +137,7 @@ export default async function LearnerDetailPage({ params }: LearnerDetailPagePro
         </div>
 
         <div className="flex flex-col lg:flex-row gap-8">
-          <LearnerDetail learner={learner} />
+          <LearnerDetail learner={learner} billing={billing} />
         </div>
       </div>
     </ContentLayout>
