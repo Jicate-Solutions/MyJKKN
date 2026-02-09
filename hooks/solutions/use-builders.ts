@@ -156,6 +156,18 @@ export function useCheckAssignmentApproval(phaseId: string) {
   });
 }
 
+/**
+ * Search learners and staff who are not yet builders
+ */
+export function useSearchPeople(search: string) {
+  return useQuery({
+    queryKey: [...solutionsHubKeys.builders.all, 'search-people', search],
+    queryFn: () => buildersService.searchPeople(search),
+    enabled: search.trim().length >= 2,
+    staleTime: 30_000,
+  });
+}
+
 // ============================================
 // MUTATION HOOKS - BUILDERS
 // ============================================
