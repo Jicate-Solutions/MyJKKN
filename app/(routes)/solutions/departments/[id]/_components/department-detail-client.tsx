@@ -190,6 +190,91 @@ export function DepartmentDetailClient({ id }: DepartmentDetailClientProps) {
     loadSolutions();
   }, [department?.department_id]);
 
+  // Load quarterly revenue trend
+  useEffect(() => {
+    if (!department?.department_id) return;
+
+    const loadQuarterlyTrend = async () => {
+      setQuarterlyLoading(true);
+      try {
+        const now = new Date();
+        const currentQ = Math.ceil((now.getMonth() + 1) / 3);
+        const currentYear = now.getFullYear();
+
+        const quarters: { quarter: string; revenue: number }[] = [];
+
+        // Get last 4 quarters
+        for (let i = 3; i >= 0; i--) {
+          let q = currentQ - i;
+          let y = currentYear;
+          while (q <= 0) { q += 4; y--; }
+
+          const label = `${y}-Q${q}`;
+          const start = new Date(y, (q - 1) * 3, 1).toISOString();
+          const end = new Date(y, q * 3, 0, 23, 59, 59).toISOString();
+
+          const revenue = await DepartmentTrackerService.getDepartmentRevenue(
+            department.department_id,
+            start,
+            end
+          );
+
+          quarters.push({ quarter: label, revenue });
+        }
+
+        setQuarterlyData(quarters);
+      } catch (err) {
+        console.error('[solutions/department-detail] Failed to load quarterly trend:', err);
+        setQuarterlyData([]);
+      } finally {
+        setQuarterlyLoading(false);
+      }
+    };
+
+    loadQuarterlyTrend();
+  }, [department?.department_id]);
+
+  // Load peer comparison data
+  useEffect(() => {
+    if (!department?.department_id) return;
+
+    const loadPeerComparison = async () => {
+      setPeerLoading(true);
+      try {
+        const allDepartments = await DepartmentTrackerService.getDepartmentRevenueList();
+
+        // Sort by revenue descending
+        const sorted = [...allDepartments].sort((a, b) => b.revenue - a.revenue);
+
+        // Find this department's position
+        const deptIndex = sorted.findIndex((d) => d.department_id === department.department_id);
+
+        if (deptIndex !== -1) {
+          const rank = deptIndex + 1;
+          const totalDepartments = sorted.length;
+          const percentile = totalDepartments > 1 ? ((totalDepartments - rank) / (totalDepartments - 1)) * 100 : 100;
+          const growthRate = sorted[deptIndex].growth_rate;
+
+          setPeerData({
+            rank,
+            totalDepartments,
+            percentile,
+            growthRate,
+          });
+        } else {
+          setPeerData(null);
+        }
+      } catch (err) {
+        console.error('[solutions/department-detail] Failed to load peer comparison:', err);
+        setPeerData(null);
+      } finally {
+        setPeerLoading(false);
+      }
+    };
+
+    loadPeerComparison();
+  }, [department?.department_id]);
+
   // Loading state
   if (deptLoading) {
     return (
