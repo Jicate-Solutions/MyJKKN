@@ -197,5 +197,5 @@ function calculateUserProgress(objectives: any[], userId: string): number {
     sum + (obj.overall_progress || 0), 0
   );
 
-  return Math.round(totalProgress / userObjectives.length);
+  return userObjectives.length > 0 ? Math.round(totalProgress / userObjectives.length) : 0;
 }
