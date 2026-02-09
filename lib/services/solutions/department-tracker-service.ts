@@ -1,7 +1,7 @@
 // lib/services/solutions/department-tracker-service.ts
 // Service for Solution Department Tracker - status management, revenue tracking, targets
 
-import { BaseService, type BaseFilters, type BaseListResponse } from '../base-service';
+import { BaseService, type BaseFilters } from '../base-service';
 
 // ============================================
 // TYPES
