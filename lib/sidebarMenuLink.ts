@@ -1394,6 +1394,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          href: '/solutions/builders',
+          label: 'Builders',
+          active: pathname.startsWith('/solutions/builders'),
+          icon: Hammer,
+          submenus: [
+            {
+              href: '/solutions/builders',
+              label: 'All Builders',
+              active: pathname === '/solutions/builders'
+            },
+            {
+              href: '/solutions/builders/new',
+              label: 'Add Builder',
+              active: pathname === '/solutions/builders/new'
+            }
+          ]
+        },
+        {
           href: '/solutions/clients',
           label: 'Clients',
           active: pathname.startsWith('/solutions/clients'),
