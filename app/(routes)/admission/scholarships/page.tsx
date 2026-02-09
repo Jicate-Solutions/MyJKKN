@@ -340,7 +340,7 @@ function ScholarshipsPageContent() {
           <CardContent>
             <div className="text-2xl font-bold">{totalAwarded}</div>
             <p className="text-xs text-muted-foreground">
-              {((totalAwarded / totalApplications) * 100).toFixed(0)}% approval rate
+              {totalApplications > 0 ? ((totalAwarded / totalApplications) * 100).toFixed(0) : '0'}% approval rate
             </p>
           </CardContent>
         </Card>
