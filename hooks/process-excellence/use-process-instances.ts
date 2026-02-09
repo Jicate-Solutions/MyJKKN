@@ -133,6 +133,7 @@ export function useActiveProcessInstances(institutionId?: string, processId?: st
         is_completed: false,
         limit: 100
       }),
+    enabled: !!institutionId,
     staleTime: 1 * 60 * 1000, // 1 minute
     select: (data) => data.data
   });
