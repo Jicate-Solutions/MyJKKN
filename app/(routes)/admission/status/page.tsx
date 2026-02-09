@@ -265,7 +265,7 @@ function StatusPageContent() {
                   </div>
                   <p className="text-sm font-medium mt-2">{stage.name}</p>
                   <p className="text-xs text-gray-500">
-                    {((stage.count / statusStats.total) * 100).toFixed(1)}%
+                    {statusStats.total > 0 ? ((stage.count / statusStats.total) * 100).toFixed(1) : '0.0'}%
                   </p>
                 </div>
                 {index < statusFlow.length - 1 && (
