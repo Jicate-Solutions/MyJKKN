@@ -337,7 +337,7 @@ export class CohortService extends BaseService {
   /**
    * Get level display info
    */
-  static getLevelInfo(level: number): {
+  static getLevelInfo(level: string | null): {
     title: string;
     description: string;
     color: string;
@@ -347,7 +347,7 @@ export class CohortService extends BaseService {
     return {
       title: levelInfo?.title || 'Unknown',
       description: levelInfo?.description || '',
-      color: LEVEL_COLORS[level] || 'bg-gray-100 text-gray-800',
+      color: LEVEL_COLORS[level || ''] || 'bg-gray-100 text-gray-800',
     };
   }
 
