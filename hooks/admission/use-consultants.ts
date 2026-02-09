@@ -527,11 +527,14 @@ export function useSubmitLeadFromPortal() {
   return useMutation({
     mutationFn: async (data: any) => {
       // TODO: Implement portal lead submission
-      toast.success('Lead submitted successfully');
-      return data;
+      throw new Error('Submit lead from portal is not yet implemented');
     },
     onSuccess: () => {
+      toast.success('Lead submitted successfully');
       queryClient.invalidateQueries({ queryKey: ['portal-leads'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to submit lead');
     }
   });
 }
