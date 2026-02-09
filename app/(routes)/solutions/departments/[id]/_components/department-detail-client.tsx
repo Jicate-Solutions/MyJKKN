@@ -493,34 +493,78 @@ export function DepartmentDetailClient({ id }: DepartmentDetailClientProps) {
         </CardContent>
       </Card>
 
-      {/* Department Team */}
+      {/* Department Team (Builders) */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-base">Department Team</CardTitle>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-base">Department Team</CardTitle>
+            </div>
+            {!buildersLoading && (
+              <Badge variant="secondary" className="text-xs">
+                {builders.length} {builders.length === 1 ? 'builder' : 'builders'}
+              </Badge>
+            )}
           </div>
         </CardHeader>
         <CardContent>
-          {solutionsLoading ? (
-            <Skeleton className="h-16 w-full" />
-          ) : solutions.length === 0 ? (
+          {buildersLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : builders.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No team assignments yet.
+              No builders registered in this department yet.
             </p>
           ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between py-2 px-3 bg-muted/50 rounded-md">
-                <span className="text-sm text-muted-foreground">
-                  Team members are visible through individual solution assignments
-                </span>
-                <Badge variant="secondary" className="text-xs">
-                  {solutions.length} active {solutions.length === 1 ? 'solution' : 'solutions'}
-                </Badge>
+            <div className="space-y-2">
+              {/* Summary row */}
+              <div className="flex gap-4 mb-3 text-xs text-muted-foreground">
+                <span>{builders.filter(b => b.role === 'learner').length} Learners</span>
+                <span>{builders.filter(b => b.role === 'facilitator').length} Facilitators</span>
+                {builders.filter(b => b.role === 'builder').length > 0 && (
+                  <span>{builders.filter(b => b.role === 'builder').length} Builders</span>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                View individual solutions above to see builders, phase owners, and other team members.
-              </p>
+              {/* Builder list */}
+              <div className="divide-y divide-border">
+                {builders.map((builder) => (
+                  <div key={builder.id} className="flex items-center gap-3 py-2.5">
+                    {/* Avatar */}
+                    <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-medium text-white shrink-0 ${
+                      builder.role === 'facilitator' ? 'bg-violet-500' :
+                      builder.role === 'learner' ? 'bg-blue-500' : 'bg-emerald-500'
+                    }`}>
+                      {builder.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                    </div>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium truncate">{builder.name}</span>
+                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${
+                          builder.role === 'facilitator' ? 'border-violet-300 text-violet-700' :
+                          builder.role === 'learner' ? 'border-blue-300 text-blue-700' : 'border-emerald-300 text-emerald-700'
+                        }`}>
+                          {builder.role === 'facilitator' ? 'Facilitator' : builder.role === 'learner' ? 'Learner' : 'Builder'}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {builder.specialization && <span>{builder.specialization}</span>}
+                        {builder.email && <span className="truncate">{builder.email}</span>}
+                        {builder.builder_code && <span className="font-mono">{builder.builder_code}</span>}
+                      </div>
+                    </div>
+                    {/* Status dot */}
+                    <div className={`h-2 w-2 rounded-full shrink-0 ${
+                      builder.availability_status === 'available' ? 'bg-green-500' :
+                      builder.availability_status === 'busy' ? 'bg-amber-500' : 'bg-gray-400'
+                    }`} title={builder.availability_status || 'unknown'} />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </CardContent>
