@@ -181,30 +181,34 @@ export function useLevelProgress(memberId: string) {
       const member = await cohortService.getCohortMemberById(memberId);
       if (!member) return null;
 
-      const levelInfo = cohortService.getLevelInfo(member.level || 0);
-      const nextLevel = cohortService.getLevelInfo((member.level || 0) + 1);
+      const LEVEL_ORDER = ['observer', 'co_lead', 'lead', 'master'];
+      const currentLevel = member.level || 'observer';
+      const currentIndex = LEVEL_ORDER.indexOf(currentLevel);
+      const nextLevelKey = currentIndex < LEVEL_ORDER.length - 1 ? LEVEL_ORDER[currentIndex + 1] : null;
+
+      const levelInfo = cohortService.getLevelInfo(currentLevel);
+      const nextLevel = cohortService.getLevelInfo(nextLevelKey);
 
       // Calculate progress to next level
-      const sessionsForNextLevel: Record<number, number> = {
-        0: 5, // Observer -> Co-Lead: 5 sessions
-        1: 10, // Co-Lead -> Lead: 10 sessions
-        2: 20, // Lead -> Master: 20 sessions
-        3: 0, // Already master
+      const sessionsForNextLevel: Record<string, number> = {
+        observer: 5, // Observer -> Co-Lead: 5 sessions
+        co_lead: 10, // Co-Lead -> Lead: 10 sessions
+        lead: 20, // Lead -> Master: 20 sessions
+        master: 0, // Already master
       };
 
-      const currentLevel = member.level || 0;
       const currentSessions =
-        currentLevel === 0
+        currentLevel === 'observer'
           ? member.sessions_observed || 0
-          : currentLevel === 1
+          : currentLevel === 'co_lead'
           ? member.sessions_co_led || 0
           : member.sessions_led || 0;
 
-      const sessionsNeeded = sessionsForNextLevel[currentLevel];
+      const sessionsNeeded = sessionsForNextLevel[currentLevel] || 0;
       const progress = sessionsNeeded > 0 ? Math.min((currentSessions / sessionsNeeded) * 100, 100) : 100;
 
       return {
-        currentLevel: member.level || 0,
+        currentLevel,
         levelTitle: levelInfo.title,
         levelDescription: levelInfo.description,
         nextLevelTitle: nextLevel.title,
@@ -214,7 +218,7 @@ export function useLevelProgress(memberId: string) {
         sessionsNeeded,
         currentSessions,
         progress,
-        canLevelUp: progress >= 100 && currentLevel < 3,
+        canLevelUp: progress >= 100 && currentLevel !== 'master',
       };
     },
     enabled: !!memberId,
