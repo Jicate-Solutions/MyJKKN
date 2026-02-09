@@ -267,6 +267,8 @@ export class BuildersService extends BaseService {
         email: input.email,
         phone: input.phone,
         user_id: input.user_id,
+        learner_id: input.learner_id,
+        staff_id: input.staff_id,
         department_id: input.department_id,
         trained_date: input.trained_date || new Date().toISOString().split('T')[0],
         hourly_rate: input.hourly_rate,
@@ -280,6 +282,103 @@ export class BuildersService extends BaseService {
 
     if (error) throw new Error(`Failed to create builder: ${error.message}`);
     return data as Builder;
+  }
+
+  /**
+   * Search learners and staff who are not yet builders
+   */
+  static async searchPeople(
+    search: string,
+    limit = 20
+  ): Promise<Array<{
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    department_id: string | null;
+    department_name: string | null;
+    type: 'learner' | 'staff';
+    designation: string | null;
+    roll_number: string | null;
+  }>> {
+    const escaped = escapeSearchString(search);
+    const results: Array<{
+      id: string;
+      name: string;
+      email: string | null;
+      phone: string | null;
+      department_id: string | null;
+      department_name: string | null;
+      type: 'learner' | 'staff';
+      designation: string | null;
+      roll_number: string | null;
+    }> = [];
+
+    // Get existing builder learner_ids and staff_ids to exclude
+    const { data: existingBuilders } = await this.supabase.from('sh_builders')
+      .select('learner_id, staff_id');
+    const existingLearnerIds = new Set(
+      (existingBuilders || [])
+        .map((b: { learner_id: string | null }) => b.learner_id)
+        .filter(Boolean)
+    );
+    const existingStaffIds = new Set(
+      (existingBuilders || [])
+        .map((b: { staff_id: string | null }) => b.staff_id)
+        .filter(Boolean)
+    );
+
+    // Search learners
+    const { data: learners } = await this.supabase.from('learners_profiles')
+      .select('id, first_name, last_name, student_email, student_mobile, college_email, department_id, roll_number, department:departments(department_name)')
+      .or(`first_name.ilike.%${escaped}%,last_name.ilike.%${escaped}%,roll_number.ilike.%${escaped}%`)
+      .in('lifecycle_status', ['approved', 'active', 'graduated'])
+      .limit(limit);
+
+    if (learners) {
+      for (const l of learners) {
+        if (existingLearnerIds.has(l.id)) continue;
+        const dept = l.department as { department_name?: string } | null;
+        results.push({
+          id: l.id,
+          name: `${l.first_name || ''} ${l.last_name || ''}`.trim(),
+          email: l.college_email || l.student_email || null,
+          phone: l.student_mobile || null,
+          department_id: l.department_id,
+          department_name: dept?.department_name || null,
+          type: 'learner',
+          designation: null,
+          roll_number: l.roll_number || null,
+        });
+      }
+    }
+
+    // Search staff
+    const { data: staffMembers } = await this.supabase.from('staff')
+      .select('id, first_name, last_name, email, institution_email, phone, department_id, designation, department:departments(department_name)')
+      .or(`first_name.ilike.%${escaped}%,last_name.ilike.%${escaped}%,email.ilike.%${escaped}%,designation.ilike.%${escaped}%`)
+      .eq('is_active', true)
+      .limit(limit);
+
+    if (staffMembers) {
+      for (const s of staffMembers) {
+        if (existingStaffIds.has(s.id)) continue;
+        const dept = s.department as { department_name?: string } | null;
+        results.push({
+          id: s.id,
+          name: `${s.first_name || ''} ${s.last_name || ''}`.trim(),
+          email: s.institution_email || s.email || null,
+          phone: s.phone || null,
+          department_id: s.department_id,
+          department_name: dept?.department_name || null,
+          type: 'staff',
+          designation: s.designation || null,
+          roll_number: null,
+        });
+      }
+    }
+
+    return results.slice(0, limit);
   }
 
   /**
