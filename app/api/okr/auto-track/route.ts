@@ -28,7 +28,7 @@ const autoTrackHandlers: Record<string, (supabase: any, config: any) => Promise<
 
     if (!data || data.length === 0) return 0;
     const present = data.filter((a: any) => a.is_present).length;
-    return Math.round((present / data.length) * 100);
+    return data.length > 0 ? Math.round((present / data.length) * 100) : 0;
   },
 
   // Academic module
