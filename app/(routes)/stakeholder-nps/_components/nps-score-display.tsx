@@ -138,9 +138,9 @@ export function NPSDistributionBar({
     );
   }
 
-  const promoterPct = (promoters / total) * 100;
-  const passivePct = (passives / total) * 100;
-  const detractorPct = (detractors / total) * 100;
+  const promoterPct = total > 0 ? (promoters / total) * 100 : 0;
+  const passivePct = total > 0 ? (passives / total) * 100 : 0;
+  const detractorPct = total > 0 ? (detractors / total) * 100 : 0;
 
   return (
     <div className={cn('space-y-2', className)}>
