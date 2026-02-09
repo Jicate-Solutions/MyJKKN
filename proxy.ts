@@ -45,6 +45,23 @@ export async function proxy(request: NextRequest) {
   try {
     const currentPath = request.nextUrl.pathname;
 
+    // Helper: inject preconnect hints to speed up Supabase and Google connections
+    const addPreconnectHeaders = (response: NextResponse) => {
+      response.headers.set(
+        'Link',
+        [
+          '<https://kvizhngldtiuufknvehv.supabase.co>; rel=preconnect; crossorigin',
+          '<https://accounts.google.com>; rel=preconnect',
+          '<https://apis.google.com>; rel=preconnect'
+        ].join(', ')
+      );
+      // Security headers
+      response.headers.set('X-Content-Type-Options', 'nosniff');
+      response.headers.set('X-Frame-Options', 'SAMEORIGIN');
+      response.headers.set('X-XSS-Protection', '1; mode=block');
+      return response;
+    };
+
     // Special handling for PWA files
     if (currentPath === '/manifest.json') {
       const response = NextResponse.next();
@@ -70,35 +87,29 @@ export async function proxy(request: NextRequest) {
       return response;
     }
 
-    // Special handling for root path to prevent cache issues
+    // Root path — allow CDN caching with short revalidation (was: aggressive no-store killing perf)
     if (currentPath === '/') {
       const response = NextResponse.next();
       response.headers.set(
         'Cache-Control',
-        'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+        'public, s-maxage=60, stale-while-revalidate=300'
       );
-      response.headers.set('Pragma', 'no-cache');
-      response.headers.set('Expires', '0');
-      // Use static app version to prevent refresh loops
       const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
       response.headers.set('X-App-Version', appVersion);
-      return response;
+      return addPreconnectHeaders(response);
     }
 
-    // Child app CORS removed - authentication now handled by separate auth server
-
-    // Skip middleware for public paths BEFORE creating Supabase client
+    // Skip proxy for public paths BEFORE creating Supabase client
     if (isPublicPath(currentPath)) {
       const res = NextResponse.next();
-      // Add cache headers for public paths too (but don't force reload)
-      res.headers.set('Cache-Control', 'no-store, must-revalidate');
-      // Remove dynamic timestamp that causes refreshes
+      // Allow short CDN caching for public paths (was: no-store blocking CDN)
+      res.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
       const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
       res.headers.set('X-App-Version', appVersion);
-      return res;
+      return addPreconnectHeaders(res);
     }
 
-    const res = NextResponse.next();
+    const res = addPreconnectHeaders(NextResponse.next());
 
     // Create supabase client only for non-public paths
     const supabase = createServerClient(

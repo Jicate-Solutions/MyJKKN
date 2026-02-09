@@ -1,4 +1,5 @@
-const CACHE_NAME = 'myjkkn-v2';
+const CACHE_NAME = 'myjkkn-v3';
+const STATIC_CACHE = 'myjkkn-static-v3';
 const urlsToCache = [
   '/',
   '/manifest.json',
@@ -30,7 +31,7 @@ self.addEventListener('activate', (event) => {
       .then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName !== CACHE_NAME) {
+            if (cacheName !== CACHE_NAME && cacheName !== STATIC_CACHE) {
               return caches.delete(cacheName);
             }
           })
@@ -43,7 +44,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch event - serve from cache, fallback to network
+// Fetch event - optimized caching strategies
 self.addEventListener('fetch', (event) => {
   // Skip cross-origin requests
   if (!event.request.url.startsWith(self.location.origin)) {
@@ -51,9 +52,8 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Skip requests with unresolved Next.js DRP (Dynamic Route Params) placeholders
-  // These contain %%drp:id:<hash>%% patterns that haven't been resolved yet
   if (event.request.url.includes('%drp:') || event.request.url.includes('%%drp:')) {
-    return; // Let the browser handle it naturally
+    return;
   }
 
   // Don't cache API requests - always fetch fresh
@@ -62,12 +62,47 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Handle navigation requests
+  // Static assets from Next.js build — cache-first (immutable content-hashed files)
+  if (event.request.url.includes('/_next/static/')) {
+    event.respondWith(
+      caches.open(STATIC_CACHE).then((cache) => {
+        return cache.match(event.request).then((cached) => {
+          if (cached) return cached;
+          return fetch(event.request).then((response) => {
+            if (response.status === 200) {
+              cache.put(event.request, response.clone());
+            }
+            return response;
+          });
+        });
+      })
+    );
+    return;
+  }
+
+  // Navigation requests — stale-while-revalidate
+  // Serve cached page instantly, fetch fresh copy in background
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(() => {
-        // If network fails, serve offline page
-        return caches.match('/offline');
+      caches.match(event.request).then((cached) => {
+        const fetchPromise = fetch(event.request)
+          .then((response) => {
+            // Update cache with fresh response
+            if (response.status === 200) {
+              const responseToCache = response.clone();
+              caches.open(CACHE_NAME).then((cache) => {
+                cache.put(event.request, responseToCache);
+              });
+            }
+            return response;
+          })
+          .catch(() => {
+            // If network fails and no cache, serve offline page
+            return caches.match('/offline');
+          });
+
+        // Return cached version immediately if available, otherwise wait for network
+        return cached || fetchPromise;
       })
     );
     return;
@@ -85,7 +120,7 @@ self.addEventListener('fetch', (event) => {
             !response ||
             response.status !== 200 ||
             response.type !== 'basic' ||
-            event.request.method !== 'GET' // Only cache GET requests
+            event.request.method !== 'GET'
           ) {
             return response;
           }
@@ -110,7 +145,7 @@ self.addEventListener('message', (event) => {
   }
 });
 
-// Handle push notifications (optional)
+// Handle push notifications
 self.addEventListener('push', (event) => {
   const options = {
     body: event.data ? event.data.text() : 'New notification from MyJKKN',

@@ -2,13 +2,17 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   // Enable Cache Components for server-side caching (Next.js 16.1.1)
-  // In 16.1.1, this is at root level (no longer experimental)
   cacheComponents: true,
 
-  // Fix for Windows EPERM error during build
   experimental: {
-    workerThreads: false,
-    cpus: 1
+    // Optimize large package imports — tree-shake unused exports
+    optimizePackageImports: [
+      'lucide-react',
+      'react-icons',
+      '@radix-ui/react-icons',
+      'date-fns',
+      'react-hot-toast'
+    ]
   },
 
   images: {
@@ -24,24 +28,26 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // Root page — allow CDN/ISR caching (was: no-store killing performance)
         source: '/',
         headers: [
           {
             key: 'Cache-Control',
-            value:
-              'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+            value: 'public, s-maxage=60, stale-while-revalidate=300'
+          }
+        ]
+      },
+      {
+        // Auth pages — never cache
+        source: '/auth/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store, no-cache, must-revalidate'
           },
           {
             key: 'Pragma',
             value: 'no-cache'
-          },
-          {
-            key: 'Expires',
-            value: '0'
-          },
-          {
-            key: 'Surrogate-Control',
-            value: 'no-store'
           }
         ]
       },
@@ -96,24 +102,9 @@ const nextConfig: NextConfig = {
             value: 'public, max-age=31536000, immutable'
           }
         ]
-      },
-      {
-        source: '/:path*',
-        headers: [
-          {
-            key: 'X-Content-Type-Options',
-            value: 'nosniff'
-          },
-          {
-            key: 'X-Frame-Options',
-            value: 'SAMEORIGIN'
-          },
-          {
-            key: 'X-XSS-Protection',
-            value: '1; mode=block'
-          }
-        ]
       }
+      // Security headers (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection)
+      // are now injected by proxy.ts for better performance
     ];
   }
 };

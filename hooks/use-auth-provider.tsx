@@ -27,6 +27,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
+    // Skip profile fetch on auth pages — user isn't authenticated yet
+    const isAuthPage =
+      typeof window !== 'undefined' &&
+      window.location.pathname.startsWith('/auth/');
+
     const loadUserAndProfile = async () => {
       try {
         // 1. Get User from Supabase Auth
@@ -72,17 +77,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Initial load on component mount
-    loadUserAndProfile();
+    // On auth pages, skip initial fetch and just mark as loaded
+    if (isAuthPage) {
+      setIsLoading(false);
+    } else {
+      loadUserAndProfile();
+    }
 
     // Set up a listener for auth changes (login, logout)
+    // Only trigger profile fetch for meaningful events
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange((event, session) => {
-      if (isMounted) {
-        setIsLoading(true);
-        loadUserAndProfile();
+      if (!isMounted) return;
+
+      // Skip redundant events — TOKEN_REFRESHED doesn't change the profile
+      if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+        return;
       }
+
+      setIsLoading(true);
+      loadUserAndProfile();
     });
 
     return () => {
