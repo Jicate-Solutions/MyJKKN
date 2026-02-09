@@ -180,7 +180,7 @@ export default function DiscoveryPage() {
                         </CardTitle>
                         {visit.department_id && (
                           <CardDescription>
-                            Department: {(visit as any).department?.name || visit.department_id}
+                            Department: {(visit as any).department?.department_name || visit.department_id}
                           </CardDescription>
                         )}
                       </div>
