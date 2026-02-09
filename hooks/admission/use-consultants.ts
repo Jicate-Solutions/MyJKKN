@@ -157,13 +157,16 @@ export function useRewardMutations() {
   });
 
   const redeemReward = useMutation({
-    mutationFn: async (rewardId: string) => {
-      // TODO: Implement reward redemption
-      toast.success('Reward redeemed successfully');
-      return rewardId;
+    mutationFn: async (_rewardId: string) => {
+      // TODO: Implement reward redemption via ConsultantService
+      throw new Error('Reward redemption is not yet implemented');
     },
     onSuccess: () => {
+      toast.success('Reward redeemed successfully');
       queryClient.invalidateQueries({ queryKey: ['consultant-rewards'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to redeem reward');
     }
   });
 
