@@ -66,12 +66,12 @@ export function SLADashboard({ report, institutionId }: SLADashboardProps) {
               <CheckCircle2 className="h-8 w-8 text-green-600" />
               <div>
                 <div className="text-3xl font-bold">
-                  {Object.values(report.by_status).reduce((a, b) => a + b, 0) -
-                    (report.by_status.resolved || 0) -
-                    (report.by_status.closed || 0) -
-                    (report.by_status.breached || 0)}
+                  {(report.by_status.open || 0) +
+                    (report.by_status.in_progress || 0) +
+                    (report.by_status.pending_info || 0) +
+                    (report.by_status.reopened || 0)}
                 </div>
-                <p className="text-xs text-muted-foreground">Active tickets on track</p>
+                <p className="text-xs text-muted-foreground">Active open tickets</p>
               </div>
             </div>
           </CardContent>
