@@ -73,6 +73,7 @@ export interface SolutionTypeRecord {
 }
 
 export interface DepartmentRevenue {
+  solution_department_id: string;
   department_id: string;
   department_name: string;
   department_code: string;
