@@ -172,10 +172,10 @@ function FeedbackPageContent() {
   // Stats
   const totalCandidates = mockFeedback.length;
   const respondedCount = mockFeedback.filter(f => f.responded).length;
-  const responseRate = (respondedCount / totalCandidates) * 100;
-  const avgNPS = mockFeedback.filter(f => f.npsScore).reduce((acc, f) => acc + (f.npsScore || 0), 0) / respondedCount;
-  const avgRating = mockFeedback.filter(f => f.overallRating).reduce((acc, f) => acc + (f.overallRating || 0), 0) / respondedCount;
-  const recommendRate = (mockFeedback.filter(f => f.wouldRecommend).length / respondedCount) * 100;
+  const responseRate = totalCandidates > 0 ? (respondedCount / totalCandidates) * 100 : 0;
+  const avgNPS = respondedCount > 0 ? mockFeedback.filter(f => f.npsScore).reduce((acc, f) => acc + (f.npsScore || 0), 0) / respondedCount : 0;
+  const avgRating = respondedCount > 0 ? mockFeedback.filter(f => f.overallRating).reduce((acc, f) => acc + (f.overallRating || 0), 0) / respondedCount : 0;
+  const recommendRate = respondedCount > 0 ? (mockFeedback.filter(f => f.wouldRecommend).length / respondedCount) * 100 : 0;
 
   // Filter feedback
   const filteredFeedback = mockFeedback.filter(fb => {
