@@ -153,7 +153,7 @@ export default function NewCohortMemberPage() {
                   >
                     {COHORT_LEVELS.map((l) => (
                       <option key={l.level} value={l.level}>
-                        Level {l.level} - {l.title}
+                        {l.title}
                       </option>
                     ))}
                   </select>
