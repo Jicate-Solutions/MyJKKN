@@ -84,9 +84,8 @@ export class ApplicationService {
     }
     if (filters.search) {
       const s = filters.search.replace(/[%_\\]/g, '\\$&');
-      query = query.or(
-        `full_name.ilike.%${s}%,application_number.ilike.%${s}%,email.ilike.%${s}%,phone.ilike.%${s}%`
-      );
+      // Only application_number is a flat column; personal details are in form_data JSONB
+      query = query.ilike('application_number', `%${s}%`);
     }
 
     // Pagination
