@@ -239,7 +239,7 @@ export function ProfileClient() {
                       >
                         <Avatar className="h-12 w-12 shrink-0">
                           <AvatarImage
-                            src={learner.photo_url || undefined}
+                            src={learner.student_photo_url || undefined}
                             alt={learnerFullName}
                           />
                           <AvatarFallback className="bg-blue-100 text-sm font-medium text-blue-700">
