@@ -120,11 +120,7 @@ export function useDepartmentRevenueList(quarter?: string) {
       const data = await DepartmentTrackerService.getDepartmentRevenueList(quarter);
       setRevenues(data);
     } catch (err: unknown) {
-      let msg = 'Unknown error';
-      try { msg = JSON.stringify(err); } catch { msg = String(err); }
-      if (err instanceof Error) msg = err.message;
-      else if (typeof err === 'object' && err !== null && 'message' in err) msg = String((err as Record<string, unknown>).message);
-      setError(msg);
+      setError('XYZZY-DEBUG: ' + String(err));
     } finally {
       setLoading(false);
     }
