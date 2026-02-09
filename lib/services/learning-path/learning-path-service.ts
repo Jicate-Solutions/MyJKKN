@@ -81,8 +81,9 @@ export class LearningPathService {
       }
 
       if (filters.search) {
+        const safeSearch = filters.search.replace(/[%_\\]/g, '\\$&');
         query = query.or(
-          `title.ilike.%${filters.search}%,description.ilike.%${filters.search}%,target_role.ilike.%${filters.search}%`
+          `title.ilike.%${safeSearch}%,description.ilike.%${safeSearch}%,target_role.ilike.%${safeSearch}%`
         );
       }
 
