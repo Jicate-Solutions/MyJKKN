@@ -1381,6 +1381,19 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/solutions/departments',
+          label: 'Departments',
+          active: pathname.startsWith('/solutions/departments'),
+          icon: Building2,
+          submenus: [
+            {
+              href: '/solutions/departments',
+              label: 'All Departments',
+              active: pathname === '/solutions/departments'
+            }
+          ]
+        },
+        {
           href: '/solutions/clients',
           label: 'Clients',
           active: pathname.startsWith('/solutions/clients'),
