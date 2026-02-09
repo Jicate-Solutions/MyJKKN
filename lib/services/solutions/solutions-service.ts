@@ -260,6 +260,18 @@ export class SolutionsService extends BaseService {
 
     const totalDiscountPct = partnerDiscount > 0 ? (partnerDiscount * 100) + discountPct : discountPct;
 
+    // Build metadata with networker integration data (if provided)
+    const metadata: Record<string, unknown> = {};
+    if (input.networker_contact_id) {
+      metadata.networker_contact_id = input.networker_contact_id;
+    }
+    if (input.client_name) {
+      metadata.client_name = input.client_name;
+    }
+    if (input.client_organization) {
+      metadata.client_organization = input.client_organization;
+    }
+
     const { data, error } = await this.supabase
       .from('sh_solutions')
       .insert({
@@ -277,10 +289,7 @@ export class SolutionsService extends BaseService {
         target_date: input.target_date || null,
         created_by: input.created_by,
         status: 'active' as SolutionStatus,
-        // Networker integration fields
-        networker_contact_id: input.networker_contact_id || null,
-        client_name: input.client_name || null,
-        client_organization: input.client_organization || null,
+        metadata: Object.keys(metadata).length > 0 ? metadata : null,
       })
       .select()
       .single();

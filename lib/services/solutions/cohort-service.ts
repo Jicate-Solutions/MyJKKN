@@ -303,30 +303,30 @@ export class CohortService extends BaseService {
    */
   static async getCohortStats(): Promise<{
     total: number;
-    byLevel: Record<number, number>;
+    byLevel: Record<string, number>;
     byTrack: Record<string, number>;
     activeMembers: number;
   }> {
     const { data, error } = await this.supabase.from('sh_cohort_members')
-      .select('level, track, status');
+      .select('level, track, is_active');
 
     if (error) throw new Error(`Failed to fetch cohort stats: ${error.message}`);
 
     const stats = {
       total: data?.length || 0,
-      byLevel: { 0: 0, 1: 0, 2: 0, 3: 0 } as Record<number, number>,
+      byLevel: { observer: 0, co_lead: 0, lead: 0, master: 0 } as Record<string, number>,
       byTrack: { track_a: 0, track_b: 0, both: 0 } as Record<string, number>,
       activeMembers: 0,
     };
 
     data?.forEach((member) => {
-      if (member.level !== null && member.level !== undefined) {
+      if (member.level) {
         stats.byLevel[member.level] = (stats.byLevel[member.level] || 0) + 1;
       }
       if (member.track) {
         stats.byTrack[member.track] = (stats.byTrack[member.track] || 0) + 1;
       }
-      if (member.status === 'active') {
+      if (member.is_active) {
         stats.activeMembers++;
       }
     });
