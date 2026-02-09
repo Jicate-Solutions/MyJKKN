@@ -22,6 +22,7 @@ import { useBuilderStats } from '@/hooks/solutions/use-builders';
 import { useCohortMemberStats } from '@/hooks/solutions/use-training';
 import { useContentOrderStats } from '@/hooks/solutions/use-content';
 import { usePhaseStats } from '@/hooks/solutions/use-phases';
+import { DepartmentTrackerSummary } from './department-tracker-summary';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
