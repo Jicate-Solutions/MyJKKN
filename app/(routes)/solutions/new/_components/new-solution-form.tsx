@@ -199,6 +199,15 @@ export function NewSolutionForm() {
         <form onSubmit={handleSubmit} className="space-y-6">
           <input type="hidden" name="solution_type" value={selectedType} />
 
+          {/* Networker Contact Picker — search contacts from CRM */}
+          <div className="relative">
+            <NetworkerContactPicker
+              value={networkerContact}
+              onChange={setNetworkerContact}
+              disabled={createSolution.isPending}
+            />
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="title">Title *</Label>
