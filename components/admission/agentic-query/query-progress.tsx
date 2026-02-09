@@ -257,7 +257,7 @@ function QueryProgressMinimal({ steps, className }: { steps: any[]; className?: 
 export function QueryProgressBar({ steps, className }: QueryProgressProps) {
   const completedCount = steps.filter((s) => s.status === 'completed').length;
   const totalSteps = STEP_ORDER.length;
-  const progress = (completedCount / totalSteps) * 100;
+  const progress = totalSteps > 0 ? (completedCount / totalSteps) * 100 : 0;
 
   const activeStep = steps.find((s) => s.status === 'in_progress');
   const hasError = steps.some((s) => s.status === 'error');
