@@ -536,6 +536,21 @@ COMMENT ON TRIGGER trg_sync_learner_status_to_profile ON learners_profiles IS
 'Auto-syncs lifecycle_status changes to profile is_active. Only active learners can log in.';
 
 -- ================================================================================
+-- SERVICE REQUEST MODULE TRIGGERS
+-- Updated: 2026-02-09
+-- ================================================================================
+
+CREATE TRIGGER update_service_types_updated_at
+    BEFORE UPDATE ON service_types
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_service_requests_updated_at
+    BEFORE UPDATE ON service_requests
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- ================================================================================
 -- End of Triggers File
--- Total Triggers: 75 (Updated: 2026-01-28)
+-- Total Triggers: 77 (Updated: 2026-02-09)
 -- ================================================================================

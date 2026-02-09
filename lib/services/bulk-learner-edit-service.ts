@@ -465,9 +465,9 @@ export class BulkLearnerEditService {
         query = query.eq('section_id', sectionId);
       }
 
-      // Filter by profile completeness if requested
+      // Filter by profile completeness if requested (include NULL as incomplete)
       if (!includeComplete) {
-        query = query.eq('is_profile_complete', false);
+        query = query.or('is_profile_complete.eq.false,is_profile_complete.is.null');
       }
 
       return query;

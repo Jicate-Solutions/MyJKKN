@@ -170,7 +170,12 @@ export async function getLearnerProfiles(
   }
 
   if (is_profile_complete !== undefined) {
-    query = query.eq('is_profile_complete', is_profile_complete);
+    if (is_profile_complete === false) {
+      // Include both explicit false AND null values (treat null as incomplete)
+      query = query.or('is_profile_complete.eq.false,is_profile_complete.is.null');
+    } else {
+      query = query.eq('is_profile_complete', true);
+    }
   }
 
   // Apply sorting
@@ -243,7 +248,12 @@ export async function getLearnerProfiles(
     countQuery = countQuery.eq('gender', gender);
   }
   if (is_profile_complete !== undefined) {
-    countQuery = countQuery.eq('is_profile_complete', is_profile_complete);
+    if (is_profile_complete === false) {
+      // Include both explicit false AND null values (treat null as incomplete)
+      countQuery = countQuery.or('is_profile_complete.eq.false,is_profile_complete.is.null');
+    } else {
+      countQuery = countQuery.eq('is_profile_complete', true);
+    }
   }
 
   const { count, error: countError } = await countQuery;

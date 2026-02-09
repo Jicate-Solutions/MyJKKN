@@ -51,7 +51,7 @@ When updating any SQL file:
 
 ## 📊 Current Database Objects
 
-### Tables (65 total in database - Updated 2026-02-06)
+### Tables (72 total in database - Updated 2026-02-09)
 
 | Module          | Tables                                                                                                                                                                                                                  | Count | Status                      |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | --------------------------- |
@@ -74,9 +74,10 @@ When updating any SQL file:
 | **Lifecycle Analytics** | **usage_events, module_usage_daily, institution_health_scores, feature_usage_summary, usage_events_archive, mv_lifecycle_dashboard (materialized view)** | **6** | **✅ NEW - Cross-institution usage tracking and health scoring** |
 | Child App Auth  | ~~child_app_analytics, child_app_auth_codes_bucket, child_app_unified_sessions~~ (REMOVED 2025-01-20)                                                                                                     | 0     | ❌ Dropped - moved to auth server                          |
 | LTI Integration | lti_tools, lti_launches, lti_grades                                                                                                                                                                                         | 3     | ✅ Complete - MATLAB integration |
+| **Service Requests** | **service_types, service_type_fields, service_request_approval_steps, service_requests, service_request_approvals, service_request_timeline, service_request_attachments** | **7** | **✅ NEW - Dynamic configurable service request system** |
 | Other           | applications (with parent auth + LTI), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth + LTI  |
 
-### Functions (242 total - Updated 2025-01-19)
+### Functions (244 total - Updated 2026-02-09)
 
 | Category              | Location               | Count | Purpose                         |
 | --------------------- | ---------------------- | ----- | ------------------------------- |
@@ -92,6 +93,7 @@ When updating any SQL file:
 | Resources             | setup/02_functions.sql | 6     | Resource management             |
 | Notifications         | setup/02_functions.sql | 1     | User notifications              |
 | API Keys              | setup/02_functions.sql | 4     | API key management              |
+| **Service Requests**  | setup/02_functions.sql | **2** | **generate_service_request_number(), count_active_service_requests()** |
 | Activity Logging      | setup/02_functions.sql | 2     | Log cleanup, stats              |
 | **Engagement Analytics** | **Migrations**         | **6** | **Session management, metrics computation, engagement scoring** |
 | Utilities             | setup/02_functions.sql | 10+   | Helper functions                |

@@ -8,19 +8,33 @@
 
 'use client';
 
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import {
   UserCheck,
   AlertTriangle,
   CheckCircle2,
   XCircle,
   TrendingUp,
-  ListChecks
+  ListChecks,
+  Loader2,
+  ExternalLink,
+  Eye,
 } from 'lucide-react';
 import type { LearnerDashboardStats, LearnerDashboardFilters } from '@/types/learner-dashboard';
+import { useIncompleteProfiles } from '@/hooks/use-learner-profiles';
 import {
   BarChart,
   Bar,
@@ -62,7 +76,16 @@ const TIER_COLORS = {
   critical: '#ef4444'    // red
 };
 
+// Missing field badge color map
+const MISSING_FIELD_COLORS: Record<string, string> = {
+  'College Email': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+  'Academic Year': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+  'Semester': 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  'Section': 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
+};
+
 export function ProfileCompletionTab({ data, filters }: ProfileCompletionTabProps) {
+  const router = useRouter();
   const { profileCompletion } = data;
 
   // Calculate completion percentage
@@ -159,7 +182,10 @@ export function ProfileCompletionTab({ data, filters }: ProfileCompletionTabProp
           </CardContent>
         </Card>
 
-        <Card>
+        <Card
+          className="cursor-pointer transition-shadow hover:shadow-md"
+          onClick={() => router.push('/learners/profiles?is_profile_complete=true')}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Complete Profiles</CardTitle>
             <UserCheck className="h-4 w-4 text-blue-600" />
@@ -172,7 +198,10 @@ export function ProfileCompletionTab({ data, filters }: ProfileCompletionTabProp
           </CardContent>
         </Card>
 
-        <Card>
+        <Card
+          className="cursor-pointer transition-shadow hover:shadow-md"
+          onClick={() => router.push('/learners/profiles?is_profile_complete=false')}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Incomplete Profiles</CardTitle>
             <XCircle className="h-4 w-4 text-orange-600" />
@@ -216,8 +245,11 @@ export function ProfileCompletionTab({ data, filters }: ProfileCompletionTabProp
                   Review and activate them from the learner profiles page.
                 </p>
               </div>
-              <Button variant="outline" size="sm" className="flex-shrink-0">
-                View Profiles
+              <Button variant="outline" size="sm" className="flex-shrink-0" asChild>
+                <Link href="/learners/profiles?is_profile_complete=true">
+                  View Profiles
+                  <ExternalLink className="ml-1 h-3 w-3" />
+                </Link>
               </Button>
             </div>
           </CardContent>
@@ -553,6 +585,134 @@ export function ProfileCompletionTab({ data, filters }: ProfileCompletionTabProp
           </div>
         </CardContent>
       </Card>
+
+      {/* Incomplete Profiles Detail Table */}
+      {profileCompletion.incompleteProfiles > 0 && (
+        <IncompleteProfilesTable filters={filters} />
+      )}
     </div>
+  );
+}
+
+// ============================================
+// INCOMPLETE PROFILES DETAIL TABLE
+// ============================================
+
+function IncompleteProfilesTable({ filters }: { filters: LearnerDashboardFilters }) {
+  const { data, isLoading, isError } = useIncompleteProfiles({
+    institutionIds: filters.institutionIds,
+    limit: 50,
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-orange-600" />
+              Incomplete Profiles
+            </CardTitle>
+            <CardDescription className="mt-1">
+              Learners with missing required fields
+              {data?.total ? ` (showing ${data.profiles.length} of ${data.total})` : ''}
+            </CardDescription>
+          </div>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/learners/profiles?is_profile_complete=false">
+              View All
+              <ExternalLink className="ml-1 h-3 w-3" />
+            </Link>
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-sm text-muted-foreground">Loading incomplete profiles...</span>
+          </div>
+        )}
+
+        {isError && (
+          <div className="flex items-center justify-center py-8 text-sm text-destructive">
+            Failed to load incomplete profiles. Please try again.
+          </div>
+        )}
+
+        {data && data.profiles.length > 0 && (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>College Email</TableHead>
+                  <TableHead>Program</TableHead>
+                  <TableHead>Missing Fields</TableHead>
+                  <TableHead className="w-[60px]">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.profiles.map((profile) => (
+                  <TableRow key={profile.id}>
+                    <TableCell>
+                      <div>
+                        <p className="font-medium">
+                          {profile.first_name} {profile.last_name}
+                        </p>
+                        {profile.application_id && (
+                          <p className="text-xs text-muted-foreground">
+                            {profile.application_id}
+                          </p>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {profile.college_email ? (
+                        <span className="text-sm">{profile.college_email}</span>
+                      ) : (
+                        <span className="text-sm text-muted-foreground italic">Missing</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm">
+                        {profile.program_name || <span className="text-muted-foreground italic">—</span>}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {profile.missingFields.map((field) => (
+                          <Badge
+                            key={field}
+                            variant="secondary"
+                            className={`text-xs ${MISSING_FIELD_COLORS[field] || ''}`}
+                          >
+                            {field}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="icon" asChild>
+                        <Link href={`/learners/profiles/${profile.id}`}>
+                          <Eye className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {data && data.profiles.length === 0 && (
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <CheckCircle2 className="mr-2 h-5 w-5 text-green-500" />
+            <span className="text-sm">All profiles are complete!</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

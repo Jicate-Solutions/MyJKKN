@@ -291,3 +291,34 @@ export interface StaffDashboardStats {
   tenureAnalytics: StaffTenureAnalytics;
   profileAnalytics: StaffProfileAnalytics;
 }
+
+/**
+ * Incomplete Staff Profile Detail
+ * Individual staff member with missing field details for drill-down views
+ */
+export interface IncompleteStaffDetail {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  designation: string;
+  staff_id: string | null;
+  institution_email: string | null;
+  is_active: boolean;
+  created_at: string;
+  missingFields: string[];
+  institution_name: string | null;
+  department_name: string | null;
+  category_name: string | null;
+}
+
+/**
+ * Incomplete Staff Profiles Response
+ * Paginated response for incomplete staff profiles API
+ */
+export interface IncompleteStaffResponse {
+  profiles: IncompleteStaffDetail[];
+  total: number;
+  limit: number;
+}

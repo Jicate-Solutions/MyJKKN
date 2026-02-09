@@ -4203,3 +4203,53 @@ $$;
 
 COMMENT ON FUNCTION compute_feature_usage_summary IS
 'Aggregates feature-level usage from usage_events into feature_usage_summary. Run daily via pg_cron.';
+
+-- ================================================================================
+-- SERVICE REQUEST MODULE FUNCTIONS
+-- Updated: 2026-02-09
+-- ================================================================================
+
+-- Generate service request number (SR-YYYY-####)
+CREATE OR REPLACE FUNCTION generate_service_request_number()
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    current_year TEXT;
+    next_sequence INTEGER;
+    new_number TEXT;
+BEGIN
+    current_year := EXTRACT(YEAR FROM NOW())::TEXT;
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(request_number FROM 9) AS INTEGER)
+    ), 0) + 1
+    INTO next_sequence
+    FROM service_requests
+    WHERE request_number LIKE 'SR-' || current_year || '-%';
+
+    new_number := 'SR-' || current_year || '-' || LPAD(next_sequence::TEXT, 4, '0');
+
+    RETURN new_number;
+END;
+$$;
+
+-- Count active (non-closed/cancelled/rejected) requests for max check
+CREATE OR REPLACE FUNCTION count_active_service_requests(
+    p_user_id UUID,
+    p_service_type_id UUID
+)
+RETURNS INTEGER
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT COUNT(*)::INTEGER
+    FROM service_requests
+    WHERE requester_id = p_user_id
+    AND service_type_id = p_service_type_id
+    AND status NOT IN ('closed', 'cancelled', 'rejected');
+$$;

@@ -115,6 +115,36 @@ export interface ProfileCompletionStats {
 }
 
 /**
+ * Incomplete Profile Detail
+ * Individual learner profile with missing field details
+ */
+export interface IncompleteProfileDetail {
+  id: string;
+  first_name: string;
+  last_name: string;
+  college_email: string | null;
+  lifecycle_status: LifecycleStatus;
+  roll_number: string | null;
+  application_id: string | null;
+  created_at: string;
+  missingFields: string[];
+  program_name: string | null;
+  semester_name: string | null;
+  section_name: string | null;
+  academic_year_name: string | null;
+}
+
+/**
+ * Incomplete Profiles Response
+ * Paginated response for incomplete profiles API
+ */
+export interface IncompleteProfilesResponse {
+  profiles: IncompleteProfileDetail[];
+  total: number;
+  limit: number;
+}
+
+/**
  * Trend Metrics
  * Metrics showing trends over time
  */

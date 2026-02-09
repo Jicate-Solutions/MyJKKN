@@ -416,7 +416,8 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     register_number TEXT,
     college_email TEXT,
     student_photo_url TEXT,
-    is_profile_complete BOOLEAN DEFAULT false,
+    -- Updated: 2026-02-09 - Added NOT NULL constraint to prevent NULL values causing filter issues
+    is_profile_complete BOOLEAN NOT NULL DEFAULT false,
 
     -- Audit fields
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
@@ -509,7 +510,8 @@ CREATE TABLE IF NOT EXISTS public.students (
     roll_number TEXT,
     student_photo_url TEXT,
     college_email TEXT,
-    is_profile_complete BOOLEAN DEFAULT false,
+    -- Updated: 2026-02-09 - Added NOT NULL constraint to prevent NULL values causing filter issues
+    is_profile_complete BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     created_by UUID,
@@ -1667,6 +1669,193 @@ CREATE INDEX IF NOT EXISTS idx_usage_events_archive_institution
 -- Enable RLS
 ALTER TABLE usage_events_archive ENABLE ROW LEVEL SECURITY;
 
+
+-- =====================================================
+-- SERVICE REQUEST MODULE
+-- Updated: 2026-02-09 - Service Request Module (7 tables, 5 enums)
+-- =====================================================
+
+-- Service request status enum
+CREATE TYPE service_request_status AS ENUM (
+    'draft', 'submitted', 'in_review', 'approved', 'rejected',
+    'returned', 'fulfilled', 'closed', 'cancelled'
+);
+
+CREATE TYPE service_field_type AS ENUM (
+    'text', 'select', 'date', 'number', 'boolean', 'textarea', 'file'
+);
+
+CREATE TYPE service_request_priority AS ENUM ('low', 'normal', 'high', 'urgent');
+
+CREATE TYPE service_approval_action AS ENUM ('pending', 'approved', 'rejected', 'returned');
+
+CREATE TYPE service_timeline_event_type AS ENUM (
+    'status_change', 'comment', 'internal_note', 'edit', 'attachment_added', 'system'
+);
+
+-- Service Types: Defines available service request types (Super Admin manages)
+CREATE TABLE service_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    icon VARCHAR(50) DEFAULT 'FileText',
+    color VARCHAR(20) DEFAULT '#3B82F6',
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    is_system_default BOOLEAN NOT NULL DEFAULT false,
+    allowed_roles TEXT[] NOT NULL DEFAULT '{}',
+    max_active_requests INTEGER NOT NULL DEFAULT 1,
+    auto_fulfill_on_approval BOOLEAN NOT NULL DEFAULT false,
+    enable_priority BOOLEAN NOT NULL DEFAULT false,
+    enable_attachments BOOLEAN NOT NULL DEFAULT false,
+    enable_email_notifications BOOLEAN NOT NULL DEFAULT true,
+    approval_workflow_type TEXT NOT NULL DEFAULT 'sequential' CHECK (approval_workflow_type IN ('sequential', 'parallel')),
+    attachment_config JSONB DEFAULT '{"max_files": 3, "max_size_mb": 10, "allowed_types": ["pdf", "jpg", "png", "doc", "docx"]}'::jsonb,
+    validity_period_days INTEGER,
+    created_by UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_service_types_slug ON service_types(slug);
+CREATE INDEX idx_service_types_is_active ON service_types(is_active);
+CREATE INDEX idx_service_types_is_system_default ON service_types(is_system_default);
+
+-- Service Type Fields: Dynamic form fields per service type
+CREATE TABLE service_type_fields (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    service_type_id UUID NOT NULL REFERENCES service_types(id) ON DELETE CASCADE,
+    field_key VARCHAR(100) NOT NULL,
+    field_label VARCHAR(255) NOT NULL,
+    field_type service_field_type NOT NULL,
+    field_options JSONB,
+    is_required BOOLEAN NOT NULL DEFAULT false,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    placeholder VARCHAR(255),
+    help_text TEXT,
+    default_value TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(service_type_id, field_key)
+);
+
+CREATE INDEX idx_service_type_fields_type_id ON service_type_fields(service_type_id);
+CREATE INDEX idx_service_type_fields_order ON service_type_fields(service_type_id, display_order);
+
+-- Service Request Approval Steps
+CREATE TABLE service_request_approval_steps (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    service_type_id UUID NOT NULL REFERENCES service_types(id) ON DELETE CASCADE,
+    step_order INTEGER NOT NULL,
+    step_name VARCHAR(255) NOT NULL,
+    approver_role VARCHAR(50) NOT NULL,
+    is_required BOOLEAN NOT NULL DEFAULT true,
+    on_return_restart_from_step INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(service_type_id, step_order)
+);
+
+CREATE INDEX idx_sr_approval_steps_type_id ON service_request_approval_steps(service_type_id);
+CREATE INDEX idx_sr_approval_steps_order ON service_request_approval_steps(service_type_id, step_order);
+CREATE INDEX idx_sr_approval_steps_role ON service_request_approval_steps(approver_role);
+
+-- Service Requests: Actual request submissions
+CREATE TABLE service_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    request_number VARCHAR(20) NOT NULL UNIQUE,
+    service_type_id UUID NOT NULL REFERENCES service_types(id),
+    requester_id UUID NOT NULL REFERENCES profiles(id),
+    institution_id UUID REFERENCES institutions(id),
+    status service_request_status NOT NULL DEFAULT 'draft',
+    priority service_request_priority DEFAULT 'normal',
+    current_approval_step INTEGER DEFAULT 0,
+    form_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    requester_context JSONB DEFAULT '{}'::jsonb,
+    submitted_at TIMESTAMPTZ,
+    approved_at TIMESTAMPTZ,
+    fulfilled_at TIMESTAMPTZ,
+    closed_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    validity_expires_at TIMESTAMPTZ,
+    cancellation_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID REFERENCES profiles(id),
+    updated_by UUID REFERENCES profiles(id)
+);
+
+CREATE INDEX idx_service_requests_number ON service_requests(request_number);
+CREATE INDEX idx_service_requests_type_id ON service_requests(service_type_id);
+CREATE INDEX idx_service_requests_requester ON service_requests(requester_id);
+CREATE INDEX idx_service_requests_institution ON service_requests(institution_id);
+CREATE INDEX idx_service_requests_status ON service_requests(status);
+CREATE INDEX idx_service_requests_priority ON service_requests(priority);
+CREATE INDEX idx_service_requests_submitted_at ON service_requests(submitted_at DESC);
+CREATE INDEX idx_service_requests_created_at ON service_requests(created_at DESC);
+CREATE INDEX idx_service_requests_requester_type ON service_requests(requester_id, service_type_id);
+CREATE INDEX idx_service_requests_status_type ON service_requests(status, service_type_id);
+CREATE INDEX idx_service_requests_institution_status ON service_requests(institution_id, status);
+CREATE INDEX idx_service_requests_active ON service_requests(requester_id, service_type_id)
+    WHERE status NOT IN ('closed', 'cancelled', 'rejected');
+
+-- Service Request Approvals
+CREATE TABLE service_request_approvals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    service_request_id UUID NOT NULL REFERENCES service_requests(id) ON DELETE CASCADE,
+    approval_step_id UUID REFERENCES service_request_approval_steps(id),
+    step_order INTEGER NOT NULL,
+    approver_id UUID NOT NULL REFERENCES profiles(id),
+    action service_approval_action NOT NULL DEFAULT 'pending',
+    comments TEXT,
+    acted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_sr_approvals_request ON service_request_approvals(service_request_id);
+CREATE INDEX idx_sr_approvals_approver ON service_request_approvals(approver_id);
+CREATE INDEX idx_sr_approvals_action ON service_request_approvals(action);
+CREATE INDEX idx_sr_approvals_pending ON service_request_approvals(approver_id, action)
+    WHERE action = 'pending';
+
+-- Service Request Timeline
+CREATE TABLE service_request_timeline (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    service_request_id UUID NOT NULL REFERENCES service_requests(id) ON DELETE CASCADE,
+    actor_id UUID REFERENCES profiles(id),
+    event_type service_timeline_event_type NOT NULL,
+    old_status service_request_status,
+    new_status service_request_status,
+    content TEXT,
+    is_internal BOOLEAN NOT NULL DEFAULT false,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_sr_timeline_request ON service_request_timeline(service_request_id);
+CREATE INDEX idx_sr_timeline_created ON service_request_timeline(service_request_id, created_at DESC);
+CREATE INDEX idx_sr_timeline_internal ON service_request_timeline(service_request_id, is_internal);
+
+-- Service Request Attachments
+CREATE TABLE service_request_attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    service_request_id UUID NOT NULL REFERENCES service_requests(id) ON DELETE CASCADE,
+    file_name VARCHAR(255) NOT NULL,
+    file_url TEXT NOT NULL,
+    file_size INTEGER,
+    file_type VARCHAR(50),
+    uploaded_by UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_sr_attachments_request ON service_request_attachments(service_request_id);
+
+-- Enable RLS on all service request tables
+ALTER TABLE service_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_type_fields ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_request_approval_steps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_request_approvals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_request_timeline ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_request_attachments ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
 -- END OF TABLE DEFINITIONS

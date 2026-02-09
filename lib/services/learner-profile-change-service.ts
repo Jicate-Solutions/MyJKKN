@@ -1,5 +1,5 @@
 // lib/services/learner-profile-change-service.ts
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   ProfileChangeRequest,
   CreateChangeRequestDto,
@@ -10,6 +10,39 @@ import {
 import { LearnerProfileAuditService } from './learner-profile-audit-service';
 
 export class LearnerProfileChangeService {
+  /**
+   * Get user's effective roles (profiles.role + user_roles assignments)
+   * Used for multi-role access checks
+   */
+  static async getUserEffectiveRoles(userId: string): Promise<string[]> {
+    const supabase = createServiceRoleClient();
+
+    const roles = new Set<string>();
+
+    // Get legacy profile role
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single();
+
+    if (profile?.role) roles.add(profile.role);
+
+    // Get multi-role assignments
+    const { data: userRoles } = await supabase
+      .from('user_roles')
+      .select('custom_roles!inner(role_key)')
+      .eq('user_id', userId);
+
+    if (userRoles) {
+      userRoles.forEach((ur: any) => {
+        if (ur.custom_roles?.role_key) roles.add(ur.custom_roles.role_key);
+      });
+    }
+
+    return Array.from(roles);
+  }
+
   /**
    * Create a new profile change request
    * Validates: No pending request exists, only active students, only editable fields
@@ -88,7 +121,7 @@ export class LearnerProfileChangeService {
    * Get a single change request by ID
    */
   static async getChangeRequest(id: string): Promise<ProfileChangeRequest> {
-    const supabase = await createClient();
+    const supabase = createServiceRoleClient();
 
     const { data, error } = await supabase
       .from('profile_change_requests')
@@ -174,7 +207,8 @@ export class LearnerProfileChangeService {
   static async getPendingRequests(
     filters: ChangeRequestFilters = {}
   ): Promise<{ data: ProfileChangeRequest[]; total: number }> {
-    const supabase = await createClient();
+    // Use service role client for admin queries - filtering is applied at the page level
+    const supabase = createServiceRoleClient();
 
     // Step 1: If filtering by institution or department, resolve matching learner IDs first.
     // This avoids PostgREST nested-relation filtering (learner.institution_id) which is very slow.
@@ -278,7 +312,7 @@ export class LearnerProfileChangeService {
     dto: ApproveRequestDto,
     reviewedBy: string
   ): Promise<ProfileChangeRequest> {
-    const supabase = await createClient();
+    const supabase = createServiceRoleClient();
 
     console.log('[learner-profile-change-service] Approving request:', requestId);
 
@@ -365,7 +399,7 @@ export class LearnerProfileChangeService {
     dto: RejectRequestDto,
     reviewedBy: string
   ): Promise<ProfileChangeRequest> {
-    const supabase = await createClient();
+    const supabase = createServiceRoleClient();
 
     console.log('[learner-profile-change-service] Rejecting request:', requestId);
 
@@ -479,12 +513,13 @@ export class LearnerProfileChangeService {
 
   /**
    * Check if user has permission to approve/reject a request
+   * Supports both legacy profiles.role and multi-role via user_roles table
    */
   private static async checkApprovalPermission(
     userId: string,
     learnerId: string
   ): Promise<boolean> {
-    const supabase = await createClient();
+    const supabase = createServiceRoleClient();
 
     // Get approver profile
     const { data: approver } = await supabase
@@ -495,8 +530,11 @@ export class LearnerProfileChangeService {
 
     if (!approver) return false;
 
+    // Get effective roles (profiles.role + user_roles)
+    const effectiveRoles = await this.getUserEffectiveRoles(userId);
+
     // Super admin can approve anything
-    if (approver.role === 'super_admin') return true;
+    if (effectiveRoles.includes('super_admin')) return true;
 
     // Get learner's institution and department
     const { data: learner } = await supabase
@@ -508,12 +546,12 @@ export class LearnerProfileChangeService {
     if (!learner) return false;
 
     // HOD can approve institution-wide
-    if (approver.role === 'hod' && approver.institution_id === learner.institution_id) {
+    if (effectiveRoles.includes('hod') && approver.institution_id === learner.institution_id) {
       return true;
     }
 
     // Staff can approve department-only
-    if (approver.role === 'staff' && approver.department_id === learner.department_id) {
+    if (effectiveRoles.includes('staff') && approver.department_id === learner.department_id) {
       return true;
     }
 

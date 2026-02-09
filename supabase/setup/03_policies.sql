@@ -2189,3 +2189,135 @@ CREATE POLICY "Super admin can view usage_events_archive" ON public.usage_events
 
 CREATE POLICY "Service role can manage usage_events_archive" ON public.usage_events_archive
     FOR ALL USING (true);
+
+-- ================================================================================
+-- SERVICE REQUEST MODULE RLS POLICIES
+-- Updated: 2026-02-09
+-- ================================================================================
+
+-- Service Types: All authenticated users can view active types
+CREATE POLICY "Authenticated users can view active service types"
+    ON service_types FOR SELECT
+    USING (auth.uid() IS NOT NULL AND is_active = true);
+
+CREATE POLICY "Super admin can manage service types"
+    ON service_types FOR ALL
+    USING (get_current_user_role() = 'super_admin')
+    WITH CHECK (get_current_user_role() = 'super_admin');
+
+CREATE POLICY "Authenticated users can view service type fields"
+    ON service_type_fields FOR SELECT
+    USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Super admin can manage service type fields"
+    ON service_type_fields FOR ALL
+    USING (get_current_user_role() = 'super_admin')
+    WITH CHECK (get_current_user_role() = 'super_admin');
+
+CREATE POLICY "Authenticated users can view approval steps"
+    ON service_request_approval_steps FOR SELECT
+    USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Super admin can manage approval steps"
+    ON service_request_approval_steps FOR ALL
+    USING (get_current_user_role() = 'super_admin')
+    WITH CHECK (get_current_user_role() = 'super_admin');
+
+CREATE POLICY "Users can view own service requests"
+    ON service_requests FOR SELECT
+    USING (requester_id = auth.uid());
+
+CREATE POLICY "Admins can view all service requests"
+    ON service_requests FOR SELECT
+    USING (
+        get_current_user_role() IN ('super_admin', 'administrator')
+        OR user_has_permission('service_requests.view_all')
+    );
+
+CREATE POLICY "Approvers can view pending requests"
+    ON service_requests FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM service_request_approval_steps sras
+            WHERE sras.service_type_id = service_requests.service_type_id
+            AND sras.step_order = service_requests.current_approval_step
+            AND sras.approver_role = get_current_user_role()
+        )
+    );
+
+CREATE POLICY "Users can create service requests"
+    ON service_requests FOR INSERT
+    WITH CHECK (requester_id = auth.uid());
+
+CREATE POLICY "Users can update own draft or returned requests"
+    ON service_requests FOR UPDATE
+    USING (requester_id = auth.uid() AND status IN ('draft', 'returned'));
+
+CREATE POLICY "Approvers can update request status"
+    ON service_requests FOR UPDATE
+    USING (
+        get_current_user_role() IN ('super_admin', 'administrator')
+        OR user_has_permission('service_requests.approve')
+    );
+
+CREATE POLICY "Users can view approvals for their requests"
+    ON service_request_approvals FOR SELECT
+    USING (
+        auth.uid() IS NOT NULL
+        AND (
+            approver_id = auth.uid()
+            OR EXISTS (
+                SELECT 1 FROM service_requests sr
+                WHERE sr.id = service_request_approvals.service_request_id
+                AND (sr.requester_id = auth.uid()
+                    OR get_current_user_role() IN ('super_admin', 'administrator'))
+            )
+        )
+    );
+
+CREATE POLICY "System can create approval records"
+    ON service_request_approvals FOR INSERT
+    WITH CHECK (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Approvers can update their approvals"
+    ON service_request_approvals FOR UPDATE
+    USING (approver_id = auth.uid() OR get_current_user_role() IN ('super_admin', 'administrator'));
+
+CREATE POLICY "Users can view timeline for own requests"
+    ON service_request_timeline FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM service_requests sr
+            WHERE sr.id = service_request_timeline.service_request_id
+            AND (
+                sr.requester_id = auth.uid()
+                OR get_current_user_role() IN ('super_admin', 'administrator')
+                OR user_has_permission('service_requests.approve')
+            )
+        )
+        AND (
+            is_internal = false
+            OR get_current_user_role() IN ('super_admin', 'administrator')
+            OR user_has_permission('service_requests.approve')
+        )
+    );
+
+CREATE POLICY "Authenticated users can add timeline entries"
+    ON service_request_timeline FOR INSERT
+    WITH CHECK (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Users can view attachments for accessible requests"
+    ON service_request_attachments FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM service_requests sr
+            WHERE sr.id = service_request_attachments.service_request_id
+            AND (sr.requester_id = auth.uid()
+                OR get_current_user_role() IN ('super_admin', 'administrator')
+                OR user_has_permission('service_requests.approve'))
+        )
+    );
+
+CREATE POLICY "Users can upload attachments to own requests"
+    ON service_request_attachments FOR INSERT
+    WITH CHECK (uploaded_by = auth.uid());

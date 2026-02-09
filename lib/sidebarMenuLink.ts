@@ -304,7 +304,20 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/resource-management/maintenance': 'resources.maintenance.view',
   '/resource-management/analytics': 'resources.analytics.view',
   '/resource-management/analytics-dashboard': 'resources.analytics.view',
-  '/audit-trail': 'audit.view'
+  '/audit-trail': 'audit.view',
+
+  // Service Requests
+  '/service-requests': 'service_requests.submit',
+  '/service-requests/my-requests': 'service_requests.view_own',
+  '/service-requests/new': 'service_requests.submit',
+  '/service-requests/approvals': 'service_requests.approve',
+  '/service-requests/analytics': 'service_requests.analytics.view',
+  '/service-requests/types': 'service_requests.types.view',
+  '/service-requests/types/new': 'service_requests.types.create',
+  '/service-requests/types/[id]': 'service_requests.types.view',
+  '/service-requests/types/[id]/edit': 'service_requests.types.edit',
+  '/service-requests/[id]': 'service_requests.view_own',
+  '/service-requests/[id]/edit': 'service_requests.edit_own'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -920,6 +933,44 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/resource-management/maintenance'),
           icon: Wrench,
           submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Service Requests',
+      menus: [
+        {
+          href: '/service-requests',
+          label: 'Service Requests',
+          active: pathname.startsWith('/service-requests'),
+          icon: ClipboardList,
+          submenus: [
+            {
+              href: '/service-requests/my-requests',
+              label: 'My Requests',
+              active: pathname === '/service-requests/my-requests'
+            },
+            {
+              href: '/service-requests/new',
+              label: 'New Request',
+              active: pathname === '/service-requests/new'
+            },
+            {
+              href: '/service-requests/approvals',
+              label: 'Pending Approvals',
+              active: pathname === '/service-requests/approvals'
+            },
+            {
+              href: '/service-requests/analytics',
+              label: 'Analytics',
+              active: pathname === '/service-requests/analytics'
+            },
+            {
+              href: '/service-requests/types',
+              label: 'Manage Types',
+              active: pathname.startsWith('/service-requests/types')
+            }
+          ]
         }
       ]
     },

@@ -14,7 +14,8 @@ import {
   CreateStaffDto,
   UpdateStaffDto,
   StaffDashboardFilters,
-  StaffDashboardStats
+  StaffDashboardStats,
+  IncompleteStaffResponse
 } from '@/types/staff';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { useAuth } from '../use-auth';
@@ -211,5 +212,44 @@ export function useStaffDashboardStats(filters: StaffDashboardFilters = {}) {
     queryKey: staffKeys.dashboardStats(filters),
     queryFn,
     enabled: !authLoading && !!profile
+  });
+}
+
+// ============================================
+// INCOMPLETE STAFF PROFILES HOOK
+// ============================================
+
+/**
+ * Fetch staff members with incomplete profiles for drill-down table
+ * Used by Staff Dashboard → Profiles Tab to show WHO has missing fields
+ */
+export function useIncompleteStaffProfiles(
+  filters: {
+    institutionId?: string;
+    departmentId?: string;
+    categoryId?: string;
+    requiredOnly?: boolean;
+    limit?: number;
+  } = {},
+  options?: Omit<import('@tanstack/react-query').UseQueryOptions<IncompleteStaffResponse, Error>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery<IncompleteStaffResponse, Error>({
+    queryKey: ['staff', 'incomplete-profiles', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.institutionId) params.set('institutionId', filters.institutionId);
+      if (filters.departmentId) params.set('departmentId', filters.departmentId);
+      if (filters.categoryId) params.set('categoryId', filters.categoryId);
+      if (filters.requiredOnly) params.set('requiredOnly', 'true');
+      if (filters.limit) params.set('limit', String(filters.limit));
+
+      const res = await fetch(`/api/staff/incomplete-profiles?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error('Failed to fetch incomplete staff profiles');
+      }
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    ...options,
   });
 }
