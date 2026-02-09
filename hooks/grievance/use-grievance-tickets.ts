@@ -32,6 +32,7 @@ export function useGrievanceTickets(filters: GrievanceTicketFilters) {
   return useQuery({
     queryKey: grievanceTicketKeys.list(filters),
     queryFn: () => GrievanceService.getTickets(filters),
+    enabled: !!filters.institution_id,
     staleTime: 30 * 1000 // 30 seconds - tickets need to be fresh
   });
 }
