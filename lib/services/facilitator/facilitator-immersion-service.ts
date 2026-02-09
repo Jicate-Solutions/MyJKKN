@@ -70,13 +70,15 @@ export class FacilitatorImmersionService {
       }
 
       if (filters.industry) {
-        query = query.ilike('industry', `%${filters.industry}%`);
+        const safeIndustry = filters.industry.replace(/[%_\\]/g, '\\$&');
+        query = query.ilike('industry', `%${safeIndustry}%`);
       }
 
       if (filters.search) {
         // Search in company_name (required field), industry and role_title can be null
+        const safeSearch = filters.search.replace(/[%_\\]/g, '\\$&');
         query = query.or(
-          `company_name.ilike.%${filters.search}%,industry.ilike.%${filters.search}%,role_title.ilike.%${filters.search}%`
+          `company_name.ilike.%${safeSearch}%,industry.ilike.%${safeSearch}%,role_title.ilike.%${safeSearch}%`
         );
       }
 
