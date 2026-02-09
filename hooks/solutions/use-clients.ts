@@ -72,7 +72,11 @@ export function useCreateClient() {
       const result = await clientsService.createClient(input);
       return result as { id: string } & Record<string, unknown>;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Pre-populate the detail cache so the redirect page has data immediately
+      if (data?.id) {
+        queryClient.setQueryData(solutionsHubKeys.clients.detail(data.id), data);
+      }
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.clients.all });
     },
   });
