@@ -658,16 +658,16 @@ function SeatConfirmationPageContent() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Fill Progress</span>
-                      <span className="font-medium">{((program.filled / program.total) * 100).toFixed(0)}%</span>
+                      <span className="font-medium">{program.total > 0 ? ((program.filled / program.total) * 100).toFixed(0) : '0'}%</span>
                     </div>
                     <div className="h-4 bg-muted rounded overflow-hidden flex">
                       <div
                         className="bg-green-500 h-full"
-                        style={{ width: `${(program.filled / program.total) * 100}%` }}
+                        style={{ width: `${program.total > 0 ? (program.filled / program.total) * 100 : 0}%` }}
                       />
                       <div
                         className="bg-yellow-500 h-full"
-                        style={{ width: `${(program.reserved / program.total) * 100}%` }}
+                        style={{ width: `${program.total > 0 ? (program.reserved / program.total) * 100 : 0}%` }}
                       />
                     </div>
                     <div className="grid grid-cols-3 gap-2 text-center text-sm">
