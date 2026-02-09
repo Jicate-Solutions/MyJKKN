@@ -55,7 +55,6 @@ export function LearnerDetail({ learner, billing }: LearnerDetailProps) {
   const {
     canAccess,
     isSuperAdmin,
-    isLoading: permissionsLoading,
   } = usePermissions();
 
   const isProfileComplete =
