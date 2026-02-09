@@ -393,8 +393,9 @@ export function SolutionTypesManager() {
     setTogglingId(type.id);
     try {
       await updateType(type.id, { is_active: !type.is_active });
-    } catch (err: any) {
-      console.error('Failed to toggle solution type:', err.message || err);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('Failed to toggle solution type:', message);
     } finally {
       setTogglingId(null);
     }
