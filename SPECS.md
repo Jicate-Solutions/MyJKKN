@@ -206,6 +206,339 @@ Transform MyJKKN from input-focused (attendance, fees) to outcome-focused (capab
 
 ---
 
+## Phase 5: AI-Solution Graduation Gate + Compliance Dashboard
+
+**Goal**: Every JKKN graduate from June 2026 must have **built a solution using AI** before degree conferment. Activate the existing Solutions Hub ecosystem — no new system needed.
+
+**Terminology**: Use "Solution" everywhere, never "Project." The word "Solution" triggers the Flywheel mindset. The word "Project" triggers academic compliance mindset.
+
+**Team Model**: Students work in teams of 4-5 (roles: lead, contributor). 609 students = ~120-150 solutions needed.
+
+**University Alignment**: Students already do a university-required final year project. JKKN says: "Do that same work using AI (Lovable), tracked in Solutions Hub." Zero additional burden.
+
+### What Already Exists
+
+| Component | Table/Module | Data |
+|-----------|-------------|------|
+| Builder profiles | `sh_builders` (learner_id FK) | 18 registered |
+| Solution tracking | `sh_solutions` | 8 solutions |
+| Team assignments | `sh_builder_assignments` (roles: lead/contributor) | 3 assignments |
+| Phase deliverables | `sh_solution_phases` | Hours, requirements docs |
+| Deployment tracking | `sh_phase_deployments` | Vercel/Supabase URLs |
+| Version history | `sh_prototype_iterations` | Client approval tracking |
+| Full Solutions Hub UI | `/solutions/*` routes | CRUD for all entities |
+| Builder Portal | `/talent/builder/*` | Self-service for builders |
+
+### 5.1 Graduation Gate Field
+
+| ID | Requirement | Status |
+|----|-------------|--------|
+| 5.1.1 | Add `ai_solution_cleared` BOOLEAN to `learners_profiles` (default false) | PENDING |
+| 5.1.2 | Add `ai_solution_cleared_at` TIMESTAMPTZ to `learners_profiles` | PENDING |
+| 5.1.3 | Add `ai_solution_cleared_by` UUID to `learners_profiles` | PENDING |
+| 5.1.4 | Create `check_ai_solution_clearance(learner_id)` database function | PENDING |
+| 5.1.5 | Create trigger on `sh_builder_assignments` — auto-check clearance when status → completed | PENDING |
+
+#### Database Migration
+
+```sql
+-- Add graduation gate fields
+ALTER TABLE learners_profiles
+  ADD COLUMN ai_solution_cleared BOOLEAN DEFAULT false,
+  ADD COLUMN ai_solution_cleared_at TIMESTAMPTZ,
+  ADD COLUMN ai_solution_cleared_by UUID REFERENCES auth.users(id);
+
+COMMENT ON COLUMN learners_profiles.ai_solution_cleared IS
+  'Whether learner completed an AI-collaboration solution via Solutions Hub. Required for June 2026+ graduation.';
+```
+
+#### Clearance Check Function
+
+```sql
+CREATE OR REPLACE FUNCTION check_ai_solution_clearance(p_learner_id UUID)
+RETURNS BOOLEAN AS $$
+DECLARE v_cleared BOOLEAN;
+BEGIN
+  SELECT EXISTS(
+    SELECT 1 FROM sh_builders b
+    JOIN sh_builder_assignments ba ON ba.builder_id = b.id
+    WHERE b.learner_id = p_learner_id
+      AND ba.status = 'completed'
+      AND ba.rating IS NOT NULL
+  ) INTO v_cleared;
+
+  UPDATE learners_profiles
+  SET ai_solution_cleared = v_cleared,
+      ai_solution_cleared_at = CASE WHEN v_cleared THEN NOW() ELSE NULL END
+  WHERE id = p_learner_id;
+
+  RETURN v_cleared;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+#### Auto-Trigger
+
+```sql
+CREATE OR REPLACE FUNCTION trigger_check_ai_clearance()
+RETURNS TRIGGER AS $$
+DECLARE v_learner_id UUID;
+BEGIN
+  SELECT b.learner_id INTO v_learner_id
+  FROM sh_builders b WHERE b.id = NEW.builder_id;
+
+  IF v_learner_id IS NOT NULL THEN
+    PERFORM check_ai_solution_clearance(v_learner_id);
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER trg_builder_assignment_clearance
+  AFTER UPDATE OF status ON sh_builder_assignments
+  FOR EACH ROW WHEN (NEW.status = 'completed')
+  EXECUTE FUNCTION trigger_check_ai_clearance();
+```
+
+---
+
+### 5.2 Compliance Dashboard
+
+| ID | Requirement | Status |
+|----|-------------|--------|
+| 5.2.1 | TypeScript types: `types/compliance.ts` | PENDING |
+| 5.2.2 | Service: `lib/services/solutions/compliance-service.ts` | PENDING |
+| 5.2.3 | React Query hook: `hooks/solutions/use-compliance-dashboard.ts` | PENDING |
+| 5.2.4 | Page: `/solutions/compliance/page.tsx` with 4 tabs | PENDING |
+| 5.2.5 | Component: Overview tab — stats cards + progress ring | PENDING |
+| 5.2.6 | Component: Department breakdown tab — department-level table | PENDING |
+| 5.2.7 | Component: Individual learners tab — searchable/filterable table | PENDING |
+| 5.2.8 | Component: Solutions tab — solutions with team composition | PENDING |
+| 5.2.9 | Sidebar: Add "Compliance" under Solutions Hub (icon: ShieldCheck) | PENDING |
+| 5.2.10 | Permissions: `solutions.compliance.view`, `solutions.compliance.manage` | PENDING |
+| 5.2.11 | Build passes with zero TypeScript errors | PENDING |
+| 5.2.12 | Browser test: All 4 tabs verified with real data | PENDING |
+
+#### File Structure
+
+```
+app/(routes)/solutions/compliance/
+├── page.tsx                          # Main compliance dashboard
+├── _components/
+│   ├── compliance-overview.tsx       # Tab 1: Stats + progress ring
+│   ├── department-breakdown.tsx      # Tab 2: Department table
+│   ├── learner-compliance-table.tsx  # Tab 3: Individual learners
+│   └── solution-teams-view.tsx       # Tab 4: Solutions with teams
+
+lib/services/solutions/
+├── compliance-service.ts             # Data fetching
+
+hooks/solutions/
+├── use-compliance-dashboard.ts       # React Query hook
+
+types/
+├── compliance.ts                     # TypeScript types
+```
+
+#### Tab 1: Overview
+
+| Card | Value | Source |
+|------|-------|--------|
+| Total Graduating Learners | Count of active learners | `learners_profiles` |
+| Cleared | Count where `ai_solution_cleared = true` | `learners_profiles` |
+| In Progress | Registered as builder, assignment not completed | `sh_builders` + `sh_builder_assignments` |
+| Not Started | Not registered as builder | No `sh_builders` record |
+| Clearance Rate | Cleared / Total * 100 | Calculated |
+| Progress Ring | Visual clearance rate | Animated component |
+
+#### Tab 2: Department Breakdown
+
+| Column | Source |
+|--------|--------|
+| Department Name | `departments` |
+| Total Learners | Count per department |
+| Cleared | `ai_solution_cleared = true` per department |
+| In Progress | Builder registered, not completed |
+| Not Started | No builder record |
+| Clearance Rate % | Calculated |
+
+Sortable by any column. Click row to expand individual learners.
+
+#### Tab 3: Individual Learners
+
+| Column | Source |
+|--------|--------|
+| Name | `learners_profiles.first_name + last_name` |
+| Roll Number | `learners_profiles.roll_number` |
+| Department | `departments.department_name` |
+| Builder Status | Derived: Not Registered / Registered / Assigned / Completed / Cleared |
+| Solution | `sh_solutions.title` via assignment chain |
+| Team Role | `sh_builder_assignments.role` (lead / contributor) |
+| Rating | `sh_builder_assignments.rating` |
+| Cleared | `ai_solution_cleared` badge (green/red) |
+
+Filters: Institution, Department, Status (All / Cleared / In Progress / Not Started)
+Search: By name or roll number
+
+#### Tab 4: Solutions
+
+| Column | Source |
+|--------|--------|
+| Solution Title | `sh_solutions.title` |
+| Solution Code | `sh_solutions.solution_code` |
+| Type | `sh_solutions.solution_type` |
+| Status | `sh_solutions.status` |
+| Team Members | Count from `sh_builder_assignments` |
+| Graduating Builders | Count where builder has `learner_id` with active status |
+| Deployment URL | `sh_phase_deployments.deployment_url` |
+
+#### Clearance Status Badge Colors
+
+| Status | Color | Meaning |
+|--------|-------|---------|
+| Cleared | Green | `ai_solution_cleared = true` |
+| Completed | Blue | Assignment done, clearance pending auto-update |
+| In Progress | Amber | Builder assigned, working on solution |
+| Registered | Gray | Builder registered, no assignment yet |
+| Not Started | Red | Not registered as builder |
+
+#### TypeScript Types
+
+```typescript
+export type ClearanceStatus = 'cleared' | 'completed' | 'in_progress' | 'registered' | 'not_started';
+
+export interface ComplianceOverview {
+  totalLearners: number;
+  cleared: number;
+  inProgress: number;
+  notStarted: number;
+  clearanceRate: number;
+}
+
+export interface DepartmentCompliance {
+  departmentId: string;
+  departmentName: string;
+  institutionId: string;
+  totalLearners: number;
+  cleared: number;
+  inProgress: number;
+  notStarted: number;
+  clearanceRate: number;
+}
+
+export interface LearnerCompliance {
+  learnerId: string;
+  firstName: string;
+  lastName: string;
+  rollNumber: string | null;
+  registerNumber: string | null;
+  institutionId: string;
+  departmentId: string | null;
+  aiSolutionCleared: boolean;
+  aiSolutionClearedAt: string | null;
+  builderId: string | null;
+  builderCode: string | null;
+  assignmentStatus: string | null;
+  assignmentRole: string | null;
+  assignmentRating: number | null;
+  solutionTitle: string | null;
+  solutionCode: string | null;
+  clearanceStatus: ClearanceStatus;
+}
+
+export interface SolutionTeam {
+  solutionId: string;
+  solutionTitle: string;
+  solutionCode: string;
+  solutionType: string;
+  solutionStatus: string;
+  deploymentUrl: string | null;
+  teamMembers: Array<{
+    builderId: string;
+    builderName: string;
+    role: string;
+    isGraduating: boolean;
+    clearanceStatus: ClearanceStatus;
+  }>;
+}
+
+export interface ComplianceDashboardData {
+  overview: ComplianceOverview;
+  departments: DepartmentCompliance[];
+  learners: LearnerCompliance[];
+  solutions: SolutionTeam[];
+}
+
+export interface ComplianceFilters {
+  institutionId?: string;
+  departmentId?: string;
+  clearanceStatus?: ClearanceStatus | 'all';
+  searchQuery?: string;
+}
+```
+
+#### Service Pattern
+
+Follow `FacilitatorImpactService` pattern:
+
+```typescript
+export class ComplianceService {
+  static async getOverview(filters): Promise<ComplianceOverview>
+  static async getDepartmentBreakdown(filters): Promise<DepartmentCompliance[]>
+  static async getLearnerCompliance(filters): Promise<LearnerCompliance[]>
+  static async getSolutionTeams(filters): Promise<SolutionTeam[]>
+  static async toggleClearance(learnerId, cleared, clearedBy): Promise<void>
+}
+```
+
+#### Core Query
+
+```sql
+SELECT
+  lp.id AS learner_id, lp.first_name, lp.last_name,
+  lp.roll_number, lp.institution_id, lp.department_id,
+  lp.ai_solution_cleared, lp.ai_solution_cleared_at,
+  b.id AS builder_id, b.builder_code,
+  ba.status AS assignment_status, ba.role AS assignment_role, ba.rating,
+  s.title AS solution_title, s.solution_code, s.status AS solution_status,
+  CASE
+    WHEN lp.ai_solution_cleared = true THEN 'cleared'
+    WHEN ba.status = 'completed' THEN 'completed'
+    WHEN ba.id IS NOT NULL THEN 'in_progress'
+    WHEN b.id IS NOT NULL THEN 'registered'
+    ELSE 'not_started'
+  END AS clearance_status
+FROM learners_profiles lp
+LEFT JOIN sh_builders b ON b.learner_id = lp.id
+LEFT JOIN sh_builder_assignments ba ON ba.builder_id = b.id
+LEFT JOIN sh_solution_phases sp ON sp.id = ba.phase_id
+LEFT JOIN sh_solutions s ON s.id = sp.solution_id
+WHERE lp.lifecycle_status = 'active';
+```
+
+---
+
+### 5.3 Implementation Order
+
+| Step | What | Files |
+|------|------|-------|
+| 1 | Database migration (fields + function + trigger) | `supabase/migrations/` |
+| 2 | TypeScript types | `types/compliance.ts` |
+| 3 | Service layer | `lib/services/solutions/compliance-service.ts` |
+| 4 | React Query hook | `hooks/solutions/use-compliance-dashboard.ts` |
+| 5 | Page + 4 tab components | `app/(routes)/solutions/compliance/` |
+| 6 | Sidebar link | `lib/sidebarMenuLink.ts` |
+| 7 | Browser test all tabs | Production verification |
+
+### Out of Scope
+
+- Blocking degree conferment in the system (policy, not platform)
+- Student-facing "My Clearance Status" view (future)
+- Email notifications to non-compliant students (future)
+- Faculty training materials (communication, not code)
+
+---
+
 ## User Decisions (Confirmed)
 
 | Decision | Choice | Rationale |
